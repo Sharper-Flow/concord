@@ -300,3 +300,101 @@ func mustEvalSymlinks(t *testing.T, path string) string {
 	}
 	return resolved
 }
+
+// seedWorktreeFixture seeds the Product, Project, and work that
+// seedSessionProject seeds, registers projectDir as the Project canonical
+// path, and records an active worktree entry for work-1 at worktreePath.
+// It returns the database path and closes the seeding store so production
+// wiring can open the file itself.
+func seedWorktreeFixture(t *testing.T, projectDir, worktreePath string) string {
+	t.Helper()
+	s, err := storetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open worktree fixture store: %v", err)
+	}
+	seedLauncherCorpusProduct(t, s, "product-1", "Session product")
+	seedLauncherCorpusWork(t, s, "work-1", "product-1", "task", "Session work", "needed", 1, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+	seedApprovalWorkflow(t, s, "work-1")
+	corpusExec(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator-session','product-1-project','canonical_path',?,?,'now','now')`, projectDir, projectDir)
+	base := strings.Repeat("a", 40)
+	branch := "work/work-1"
+	corpusExec(t, s, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES ('wt-op-1','work-1','product-1-project',?,'repo-1',?,?,?,'verified','operator','req-1','now','now')`,
+		store.WorktreeSetID("work-1"), branch, base, filepath.Clean(worktreePath))
+	corpusExec(t, s, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES (?,'product-1-project','wt-op-1',?,?,?,'repo-1','active','now','{}')`,
+		store.WorktreeSetID("work-1"), branch, base, filepath.Clean(worktreePath))
+	path := s.Path()
+	if err := s.Close(); err != nil {
+		t.Fatalf("close worktree fixture store: %v", err)
+	}
+	return path
+}
+
+// TestSessionStartsInTheActiveWorktree covers CD-0176: the selected work's
+// active, on-disk worktree is the landing directory, and it governs the
+// registry probe and host execution alike (CD-0093 D2). Only the worktree
+// carries the host artifacts, so a session that falls back to the Project
+// directory cannot start at all.
+func TestSessionStartsInTheActiveWorktree(t *testing.T) {
+	projectDir := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "wt-on-disk")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProjectHostArtifacts(t, worktree)
+	t.Setenv(dbOverrideEnv, seedWorktreeFixture(t, projectDir, worktree))
+
+	launcherDir := t.TempDir()
+	recordDir := t.TempDir()
+	installFakeHost(t, recordDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(launcherDir)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
+
+	var out, errOut bytes.Buffer
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		hostSessionDirectory, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+	if code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	if probe := hostRecord(t, recordDir, "probe-cwd"); probe != worktree {
+		t.Fatalf("registry probed %q, want the active worktree %q", probe, worktree)
+	}
+	if host := hostRecord(t, recordDir, "host-cwd"); host != worktree {
+		t.Fatalf("host started in %q, want the active worktree %q", host, worktree)
+	}
+}
+
+// TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk covers the
+// CD-0176 boundary: an active entry whose path is absent on this machine is
+// not a landing site. The session starts in the Project canonical path
+// (CD-0093 D1), whose own refusal terms are unchanged (CD-0093 D3).
+func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) {
+	projectDir := t.TempDir()
+	writeProjectHostArtifacts(t, projectDir)
+	gone := filepath.Join(t.TempDir(), "wt-gone")
+	t.Setenv(dbOverrideEnv, seedWorktreeFixture(t, projectDir, gone))
+
+	launcherDir := t.TempDir()
+	recordDir := t.TempDir()
+	installFakeHost(t, recordDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(launcherDir)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
+
+	var out, errOut bytes.Buffer
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		hostSessionDirectory, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+	if code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	if probe := hostRecord(t, recordDir, "probe-cwd"); probe != projectDir {
+		t.Fatalf("registry probed %q, want the Project directory %q", probe, projectDir)
+	}
+	if host := hostRecord(t, recordDir, "host-cwd"); host != projectDir {
+		t.Fatalf("host started in %q, want the Project directory %q", host, projectDir)
+	}
+}

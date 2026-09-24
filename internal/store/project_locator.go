@@ -193,29 +193,59 @@ func (s *Store) ProjectCanonicalPath(ctx context.Context, projectID string) (str
 	return normalized, nil
 }
 
-// ResolveSessionDirectory returns the directory a launcher-started session
-// for workID runs in: the canonical path of the primary Project that owns
-// the work (CD-0093 D1). Every absent input is a typed refusal — a missing
-// work, a work with no primary Project, or a primary Project with no
-// canonical_path locator refuses rather than yielding a fallback directory
-// (CD-0093 D3). The path's usability on the invoking machine is the
-// caller's to establish; this read resolves authority data only.
-func (s *Store) ResolveSessionDirectory(ctx context.Context, workID string) (string, error) {
+// SessionDirectoryResolution is the authority read behind launcher-started
+// session placement (CD-0093 D1 as amended by CD-0176). CanonicalPath is the
+// primary Project's registered canonical_path locator. WorktreePath is the
+// active worktree the selected work holds in that same Project, or empty
+// when it holds none. Both are authority data: usability on the invoking
+// machine is the caller's to establish, and the caller owns choosing between
+// the two candidates.
+type SessionDirectoryResolution struct {
+	CanonicalPath string
+	WorktreePath  string
+}
+
+// ResolveSessionDirectory returns the landing candidates for a
+// launcher-started session for workID: the canonical path of the primary
+// Project that owns the work, and that work's active worktree in the same
+// Project when one exists (CD-0176). Every absent input is a typed refusal —
+// a missing work, a work with no primary Project, or a primary Project with
+// no canonical_path locator refuses rather than yielding a fallback
+// directory (CD-0093 D3). A reclaimed or absent worktree is not an error;
+// the resolution carries no worktree candidate. The paths' usability on the
+// invoking machine is the caller's to establish; this read resolves
+// authority data only.
+func (s *Store) ResolveSessionDirectory(ctx context.Context, workID string) (SessionDirectoryResolution, error) {
 	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "session_directory", "store is not open", false, "open the authority database")
+		return SessionDirectoryResolution{}, newFailure(KindUnavailable, "session_directory", "store is not open", false, "open the authority database")
 	}
 	if workID == "" {
-		return "", newFailure(KindInvalidOperation, "session_directory", "work ID is empty", false, "select one work item before starting a session")
+		return SessionDirectoryResolution{}, newFailure(KindInvalidOperation, "session_directory", "work ID is empty", false, "select one work item before starting a session")
 	}
 	var projectID string
 	err := s.db.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&projectID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", newFailure(KindUnknownScope, "session_directory", "selected work has no primary Project", false, "capture the work against a Project before starting a session")
+			return SessionDirectoryResolution{}, newFailure(KindUnknownScope, "session_directory", "selected work has no primary Project", false, "capture the work against a Project before starting a session")
 		}
-		return "", wrapFailure(KindUnavailable, "session_directory", "cannot read the work's primary Project", true, "retry once the database is readable", err)
+		return SessionDirectoryResolution{}, wrapFailure(KindUnavailable, "session_directory", "cannot read the work's primary Project", true, "retry once the database is readable", err)
 	}
-	return s.ProjectCanonicalPath(ctx, projectID)
+	canonical, err := s.ProjectCanonicalPath(ctx, projectID)
+	if err != nil {
+		return SessionDirectoryResolution{}, err
+	}
+	out := SessionDirectoryResolution{CanonicalPath: canonical}
+	// A landing candidate needs both the verified claim and its active
+	// entry. worktree_claims_one_active admits at most one verified claim
+	// per (work, Project), so the read pins at most one row (CD-0008 D1).
+	// An active entry under a reclaimed claim is not a candidate.
+	err = s.db.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		WHERE c.work_id=? AND c.project_id=? AND c.state='verified' AND e.state='active'`, workID, projectID).Scan(&out.WorktreePath)
+	if err != nil && err != sql.ErrNoRows {
+		return SessionDirectoryResolution{}, wrapFailure(KindUnavailable, "session_directory", "cannot read the work's active worktree", true, "retry once the database is readable", err)
+	}
+	return out, nil
 }
 
 // LocateWorktree owns the branch, base, and path derivation used by native

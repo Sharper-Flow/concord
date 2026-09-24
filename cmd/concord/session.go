@@ -28,9 +28,10 @@ var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte, error)
 
 // sessionDirectoryFunc resolves the directory the session runs in from the
-// selected work's Project (CD-0093 D1). It is a parameter so tests can
-// inject an isolated resolution; production wiring is hostSessionDirectory
-// below.
+// selected work: the work's active worktree when one is usable on this
+// machine, else its Project's canonical path (CD-0093 D1 as amended by
+// CD-0176). It is a parameter so tests can inject an isolated resolution;
+// production wiring is hostSessionDirectory below.
 type sessionDirectoryFunc func(ctx context.Context, workID string) (string, error)
 
 // sessionRunnerFunc starts the host in dir. The directory is a parameter so
@@ -80,11 +81,34 @@ func (e *sessionDirectoryUnresolvedError) Error() string {
 
 func (e *sessionDirectoryUnresolvedError) Unwrap() error { return e.Cause }
 
+// sessionDirectoryOnDisk requires path to be an absolute, clean directory
+// on this machine. CD-0093 D3 refuses the launch when the canonical path
+// fails; CD-0176 treats a worktree path that fails as absent and falls
+// back instead.
+func sessionDirectoryOnDisk(path string) (string, error) {
+	// CD-0093 D3: a resolved path that is not absolute and clean resolves
+	// differently depending on where the process started, which is the
+	// ambiguity the resolution refuses. Refuse it rather than stat it.
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", &sessionDirectoryUnresolvedError{Path: path}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", &sessionDirectoryUnresolvedError{Path: path, Cause: err}
+	}
+	if !info.IsDir() {
+		return "", &sessionDirectoryUnresolvedError{Path: path}
+	}
+	return path, nil
+}
+
 // hostSessionDirectory is the production wiring for the session's directory
-// resolution. It opens the authority store, resolves the canonical path of
-// the primary Project that owns the selected work, and requires that path
-// to resolve to a directory on this machine. Every failure is typed and
-// refuses the launch (CD-0093 D3).
+// resolution. It opens the authority store and resolves the landing
+// candidates for the selected work. When the work holds an active worktree
+// in its primary Project and that worktree is a usable directory on this
+// machine, the session lands there (CD-0176); otherwise the primary
+// Project's canonical path stands under CD-0093 D1, and a canonical path
+// that does not resolve refuses the launch (CD-0093 D3).
 func hostSessionDirectory(ctx context.Context, workID string) (dirResult string, errResult error) {
 	path, err := databasePath()
 	if err != nil {
@@ -100,32 +124,25 @@ func hostSessionDirectory(ctx context.Context, workID string) (dirResult string,
 			errResult = closeErr
 		}
 	}()
-	dir, err := s.ResolveSessionDirectory(ctx, workID)
+	resolved, err := s.ResolveSessionDirectory(ctx, workID)
 	if err != nil {
 		return "", err
 	}
-	// CD-0093 D3: a canonical path that is not absolute and clean resolves
-	// differently depending on where the process started, which is the
-	// ambiguity this decision removes. Refuse it rather than stat it.
-	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
-		return "", &sessionDirectoryUnresolvedError{Path: dir}
+	if resolved.WorktreePath != "" {
+		if dir, dirErr := sessionDirectoryOnDisk(resolved.WorktreePath); dirErr == nil {
+			return dir, nil
+		}
 	}
-	dir = filepath.Clean(dir)
-	info, err := os.Stat(dir)
-	if err != nil {
-		return "", &sessionDirectoryUnresolvedError{Path: dir, Cause: err}
-	}
-	if !info.IsDir() {
-		return "", &sessionDirectoryUnresolvedError{Path: dir}
-	}
-	return dir, nil
+	return sessionDirectoryOnDisk(resolved.CanonicalPath)
 }
 
 // sessionDirectory resolves the one directory the session uses. Work-selected
-// sessions take the owning Project's canonical path (CD-0093 D1). A
-// Product-only session has no work-derived Project, so it keeps the launcher's
-// directory; the value is still resolved once here, which is what CD-0093 D2
-// requires of the identity, registry, and execution steps that follow.
+// sessions land in the work's active worktree when it is usable on this
+// machine, else the owning Project's canonical path (CD-0176). A
+// Product-only session has no work-derived Project, so it keeps the
+// launcher's directory; the value is still resolved once here, which is what
+// CD-0093 D2 requires of the identity, registry, and execution steps that
+// follow.
 func sessionDirectory(ctx context.Context, resolve sessionDirectoryFunc, workID string) (string, error) {
 	if workID != "" {
 		return resolve(ctx, workID)
@@ -335,12 +352,14 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// verification, because a verification that runs first constrains the
 	// wrong registry. Every later step takes this one value.
 	//
-	// With work selected, it is the canonical path of the Project that owns
-	// that work (D1). A Product-only session selects no work, and a Product
-	// spans Projects, so no work-derived Project exists to resolve; the
-	// session keeps the directory the launcher was given. D2 binds the three
-	// steps to one directory and is satisfied either way, because the value
-	// is resolved once here rather than read separately by each step.
+	// With work selected, the session lands in that work's active worktree
+	// when one is usable on this machine, else the canonical path of the
+	// Project that owns the work (CD-0176). A Product-only session selects
+	// no work, and a Product spans Projects, so no work-derived Project
+	// exists to resolve; the session keeps the directory the launcher was
+	// given. D2 binds the three steps to one directory and is satisfied
+	// either way, because the value is resolved once here rather than read
+	// separately by each step.
 	dir, err := sessionDirectory(context.Background(), directory, workID)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
@@ -399,9 +418,11 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// it. Omitting the selection — or selecting any other string — records
 	// evidence for an agent that never ran, because the host answers an
 	// unselected name with the operator's default agent and exits zero
-	// (CD-0049 D2). The child working directory is the resolved Project
-	// directory: the host defaults its project to it and every relative
-	// path the session resolves starts there (CD-0093 D1).
+	// (CD-0049 D2). The child working directory is the resolved landing
+	// directory: the work's active worktree when one is usable on this
+	// machine, else the Project's canonical path. The host defaults its
+	// project to it and every relative path the session resolves starts
+	// there (CD-0093 D1 as amended by CD-0176).
 	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
 	if err := runner(context.Background(), dir, argv, os.Environ(), in, out, errOut); err != nil {
 		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))

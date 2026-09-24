@@ -1438,6 +1438,12 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		var (
 			issue linearclient.Issue
 			derr  error
+			// sentProjectID is the owning Initiative's Project the operation
+			// put on the wire: the completion compares it against the link's
+			// state at completion time, so a project_create that lands inside
+			// the drain-to-completion window still converges (CD-0171 review
+			// correction).
+			sentProjectID string
 		)
 		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
 			project, projectState, perr := drainProject(ctx, s, client, op, payload, teamID)
@@ -1473,7 +1479,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			continue
 		}
 		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, derr = drainUpdate(ctx, s, client, op, payload, connection)
+			issue, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
@@ -1489,6 +1495,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
 				continue
 			}
+			sentProjectID = projectID
 			issue, derr = client.CreateIssue(ctx, linearclient.CreateIssueInput{
 				ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
 			})
@@ -1514,10 +1521,21 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			// synchronized content exists to hash yet.
 			identity.ContentHash = ""
 		}
-		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
-			class := linearCompletionFailureClass(err)
-			_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
+		// Create and update completions compare the sent Project against the
+		// link read inside the same transaction and enqueue the converging
+		// update when the project_create landed mid-drain (CD-0171 review
+		// correction). Adoption sends no Project and keeps the plain
+		// completion.
+		completeErr := error(nil)
+		if op.OpKind == store.LinearOpIssueAdopt {
+			completeErr = s.CompleteLinearOperation(ctx, op.OperationID, identity)
+		} else {
+			completeErr = s.CompleteLinearIssueOperation(ctx, op.OperationID, identity, sentProjectID)
+		}
+		if completeErr != nil {
+			class := linearCompletionFailureClass(completeErr)
+			_ = s.FailLinearOperation(ctx, op.OperationID, class, completeErr.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: completeErr.Error()})
 			continue
 		}
 		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier})
@@ -1672,21 +1690,24 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 // an explicit null so Linear clears the field (CD-0171 D4, D6), and remote
 // labels under the project:* and optional connection keys that the payload no
 // longer desires ride removedLabelIds (CD-0171 D3, D5). Labels outside those
-// keys are never Concord's to remove.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, error) {
+// keys are never Concord's to remove. The resolved Project rides the return
+// value so the completion can compare it against the link's state at
+// completion time and queue the converging update when the project_create
+// landed inside the drain-to-completion window.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, string, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
-		return linearclient.Issue{}, err
+		return linearclient.Issue{}, "", err
 	}
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to update")
+		return linearclient.Issue{}, "", fmt.Errorf("link has no confirmed remote issue to update")
 	}
 	// The payload snapshot goes stale whenever the owning Initiative's
 	// project_create completes after the update was queued; the link's state
 	// at send time decides the field, and its absence clears it.
 	projectIDValue, projectErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
 	if projectErr != nil {
-		return linearclient.Issue{}, projectErr
+		return linearclient.Issue{}, "", projectErr
 	}
 	var projectID *string
 	if projectIDValue != "" {
@@ -1706,7 +1727,7 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	if len(managed) > 0 {
 		current, labelErr := client.GetIssueLabelIDs(ctx, link.RemoteIssueUUID)
 		if labelErr != nil {
-			return linearclient.Issue{}, labelErr
+			return linearclient.Issue{}, "", labelErr
 		}
 		for _, labelID := range current {
 			if managed[labelID] && !desired[labelID] {
@@ -1718,7 +1739,8 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 		input.Title = payload.Title
 		input.Description = payload.Description
 	}
-	return client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
+	issue, err := client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
+	return issue, projectIDValue, err
 }
 
 // drainAdopt resolves the named existing issue and verifies it belongs to the

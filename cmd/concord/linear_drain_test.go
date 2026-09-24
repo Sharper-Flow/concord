@@ -47,6 +47,20 @@ func seedLinearCLIWork(t *testing.T, dbPath, workID, projectID, title string) {
 	}
 }
 
+// seedLinearCLIProjectLink records the confirmed Linear Project of one
+// Initiative, as the drain completion does, so an update addresses it.
+func seedLinearCLIProjectLink(t *testing.T, dbPath, initiative, remoteUUID string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES(?, ?, ?, '', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`, initiative, remoteUUID, initiative); err != nil {
+		t.Fatalf("seed project link %s: %v", initiative, err)
+	}
+}
+
 func enableLinearProduct(t *testing.T, dbPath, productID string) {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)
@@ -1043,6 +1057,9 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES('projdrain-initiative', 'projdrain-entry', 0, 0)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tx.Exec(`INSERT INTO relations(work_id_from, work_id_to, kind, created_at) VALUES('projdrain-initiative', 'projdrain-entry', 'includes', '2026-09-23T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.Exec(`INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('projdrain-entry', 'entry-issue-uuid-1', 'EX-1', '', '', '', 'confirmed', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +1071,19 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	}
 
 	// Queue the project_create; the Product is already linear_enabled with a
-	// declared connection from enableLinearProduct.
+	// declared connection from enableLinearProduct. The entry is optional, so
+	// its mandated optional label must be mapped before any enqueue for it
+	// succeeds (CD-0171 D5).
+	if err := s.UpdateLinearConnection(context.Background(), store.LinearConnectionUpdateRequest{
+		EventID: "projdrain-optional-mapping", ResourceID: "drain-conn-projdrain-product", ProductID: "projdrain-product",
+		LabelIDs: map[string]string{
+			"project:projdrain-project": "label-repo",
+			"optional":                  "label-optional",
+		},
+		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	entry, err := s.EnqueueLinearProjectForInitiative(context.Background(), "projdrain-product", "projdrain-initiative", store.LinearOpProjectCreate)
 	if err != nil {
 		t.Fatalf("EnqueueLinearProjectForInitiative() error = %v", err)
@@ -1133,5 +1162,132 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	}
 	if !strings.Contains(projectUpdateIDs[0], `"id":"remote-project-created"`) || !strings.Contains(projectUpdateIDs[0], `"content":"The coordination narrative."`) || !strings.Contains(projectUpdateIDs[0], `"description":"Initiative value statement"`) {
 		t.Fatalf("projectUpdate body = %q, want the recorded remote Project, the value statement, and the narrative", projectUpdateIDs[0])
+	}
+}
+
+// CD-0171 review correction: the project_create can complete between the
+// issue_create drain's Project resolution and its completion, where the
+// project's entry refresh cannot see the still-unconfirmed issue link. The
+// completion compares the sent Project against the link inside its own
+// transaction and queues the converging update, so the entry still moves into
+// its Initiative's Project.
+func TestLinearDrainQueuesEntryUpdateWhenTheProjectLinksMidFlight(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "midflight-product", "midflight-project")
+	enableLinearProduct(t, dbPath, "midflight-product")
+	seedLinearInitiativeFixture(t, dbPath, "midflight-project", "midflight-initiative", "midflight-entry", "The midflight narrative.")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnqueueLinearIssueForProduct(context.Background(), "midflight-product", "midflight-entry", store.LinearOpIssueCreate); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	// The fake Linear server commits the project_create's link through this
+	// handle while the issue_create is in flight: after the drain resolved an
+	// empty Project, before the completion runs. The store's WAL and busy
+	// timeout make the cross-pool write safe.
+	linkStore, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer linkStore.Close()
+	var issueCreateBodies, updateBodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		text := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(text, "issueCreate"):
+			issueCreateBodies = append(issueCreateBodies, text)
+			if _, err := linkStore.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_project_links(work_id, remote_project_uuid, name, url, created_at, updated_at) VALUES('midflight-initiative', 'remote-project-midflight', 'Initiative title', '', '2026-09-23T01:00:00Z', '2026-09-23T01:00:00Z'); DELETE FROM fold_guard`); err != nil {
+				t.Errorf("seed the mid-flight project link: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"midflight-issue-remote","identifier":"MF-1","url":"https://linear.app/example/issue/MF-1","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+		case strings.Contains(text, "issueUpdate"):
+			updateBodies = append(updateBodies, text)
+			_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"midflight-issue-remote","identifier":"MF-1","url":"https://linear.app/example/issue/MF-1","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+		default:
+			_, _ = w.Write([]byte(`{"data":{"issue":{"id":"midflight-issue-remote","identifier":"MF-1","url":"https://linear.app/example/issue/MF-1","updatedAt":"2026-09-23T03:00:00Z","state":{"type":"unstarted"},"team":{"id":"midflight-team"}}}}`))
+		}
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_midflight_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"midflight-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("first drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(issueCreateBodies) != 1 || strings.Contains(issueCreateBodies[0], "projectId") {
+		t.Fatalf("issueCreate body = %q, want no Project before the link landed", issueCreateBodies)
+	}
+	s2, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	var refreshPayload string
+	if err := s2.DatabaseForTesting().QueryRow(`SELECT payload FROM linear_outbox WHERE work_id='midflight-entry' AND op_kind=? AND state=?`, store.LinearOpIssueUpdate, store.LinearOutboxQueued).Scan(&refreshPayload); err != nil {
+		t.Fatalf("the completion queued no converging update: %v", err)
+	}
+	if !strings.Contains(refreshPayload, `"project_id":"remote-project-midflight"`) {
+		t.Fatalf("converging update payload = %q, want the mid-flight Project", refreshPayload)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"midflight-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("second drain exit=%d stderr=%q", code, errOut.String())
+	}
+	if len(updateBodies) != 1 || !strings.Contains(updateBodies[0], `"projectId":"remote-project-midflight"`) {
+		t.Fatalf("issueUpdate bodies = %v, want the entry moved into the mid-flight Project", updateBodies)
+	}
+}
+
+// CD-0171 d3 review correction: project_update carries the Initiative's full
+// state, so an Initiative with no narrative sends an explicit empty content
+// and the stale markdown leaves the Linear Project instead of lingering.
+func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "narrclear-product", "narrclear-project")
+	enableLinearProduct(t, dbPath, "narrclear-product")
+	seedLinearInitiativeFixture(t, dbPath, "narrclear-project", "narrclear-initiative", "", "")
+
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedLinearCLIProjectLink(t, dbPath, "narrclear-initiative", "remote-project-narrclear")
+	if _, err := s.EnqueueLinearProjectForInitiative(context.Background(), "narrclear-product", "narrclear-initiative", store.LinearOpProjectUpdate); err != nil {
+		t.Fatalf("EnqueueLinearProjectForInitiative(update) error = %v", err)
+	}
+	s.Close()
+
+	var updateBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		updateBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"remote-project-narrclear","name":"Initiative title","description":"Initiative value","content":"","url":"https://linear.app/example/project/remote-project-narrclear","updatedAt":"2026-09-23T02:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_narrclear_test")
+	t.Setenv(dbOverrideEnv, dbPath)
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"narrclear-product"}`), &out, &errOut); code != 0 {
+		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
+	}
+	for _, want := range []string{`"description":"Initiative value"`, `"content":""`} {
+		if !strings.Contains(updateBody, want) {
+			t.Fatalf("projectUpdate body = %q, want %q: a cleared narrative must leave no stale markdown", updateBody, want)
+		}
 	}
 }

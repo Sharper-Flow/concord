@@ -146,7 +146,8 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 	}
 	// CD-0171 D5/D6: a new entry can change the child's owning Initiative and
 	// its optional label, so the confirmed issue resyncs. Silent no-op
-	// without a confirmed link or a declared mapping.
+	// without a confirmed link; a missing repository or optional label
+	// mapping refuses the operation.
 	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil {
 		return err
 	}

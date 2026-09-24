@@ -1402,9 +1402,12 @@ func composeLinearIssueBody(valueStatement, premise, workID, kind, ownerInitiati
 // work kind, one repository label per Concord project membership
 // (CD-0171 D3, so a work item spanning two repositories carries both
 // labels), the expedite band, and the optional label when a non-required
-// Initiative entry holds the work item (CD-0171 D5). An unmapped key
-// contributes no label: a team label that does not exist yet is a
-// configuration gap, not a sync failure.
+// Initiative entry holds the work item (CD-0171 D5). The decision-mandated
+// keys are never resolved here: enqueueLinearIssueForWorkCore refuses the
+// enqueue before this lookup runs when a repository or optional key lacks its
+// mapping, so an unmapped mandated key cannot silently drop its label. The
+// remaining keys (kind, expedite) stay best-effort: no decision mandates
+// them, and a team that maps none still syncs every issue.
 func linearIssueLabelIDs(connection LinearConnection, kind, urgency string, projectIDs []string, optionalEntry bool) []string {
 	keys := make([]string, 0, len(projectIDs)+3)
 	keys = append(keys, kind)
@@ -1546,6 +1549,15 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	optionalEntry, err := linearWorkOptionalEntryCore(ctx, q, workID)
 	if err != nil {
 		return linearIssueEnqueuePlan{}, err
+	}
+	// CD-0171 D5: a non-required entry carries the optional label, so the
+	// key needs its mapping before any issue of this Product syncs. The
+	// refusal matches the repository label's surface exactly: the same typed
+	// failure, the capture path absorbs it as a configuration no-op, and an
+	// explicit enqueue reports it. linearIssueLabelIDs never decides a
+	// mandated label's presence (CD-0171 review correction).
+	if optionalEntry && connection.LabelIDs[LinearLabelOptionalKey] == "" {
+		return linearIssueEnqueuePlan{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("the non-required Initiative entry has no %q Linear label mapping", LinearLabelOptionalKey), false, "map label_ids.optional on the Linear connection resource before enqueueing Linear issues")
 	}
 	// CD-0171 D2/D6: the earliest-joined Initiative entry sets the issue's
 	// Linear Project. Before that Initiative's project_create completes, the
@@ -2434,16 +2446,55 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 // CompleteLinearOperation atomically marks an in_flight operation done and
 // records the remote identity on its link.
 func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string, identity LinearRemoteIdentity) error {
-	return s.completeLinearOperation(ctx, operationID, &identity)
+	return s.completeLinearOperation(ctx, operationID, &identity, nil)
+}
+
+// CompleteLinearIssueOperation atomically marks an in-flight issue operation
+// done, records the remote identity on its link, and closes the drain-time
+// Project race (CD-0171 review correction). sentProjectID is the owning
+// Initiative's Project the drain resolved before its remote call; this
+// transaction re-reads that link after completeLinearLinkTx confirms the
+// issue's own link. When the two differ, the project_create completed inside
+// the drain-to-completion window, where the entry refresh could not see this
+// issue's confirmed link, so one issue_update is enqueued inside the same
+// transaction. The store serializes transactions on its single pooled
+// connection, so exactly one side observes the other's committed write:
+// either the project completion refreshes the confirmed entry, or this
+// completion queues the converging update.
+func (s *Store) CompleteLinearIssueOperation(ctx context.Context, operationID string, identity LinearRemoteIdentity, sentProjectID string) error {
+	return s.completeLinearOperation(ctx, operationID, &identity, func(ctx context.Context, tx *sql.Tx, workID string) error {
+		owner, _, err := resolveLinearInitiativeOwnershipCore(ctx, tx, workID)
+		if err != nil || owner == "" {
+			return err
+		}
+		confirmed, err := readLinearProjectLinkUUIDCore(ctx, tx, owner)
+		if err != nil {
+			return err
+		}
+		if confirmed == sentProjectID {
+			return nil
+		}
+		if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, workID, s.now()); err != nil {
+			// The remote effect already succeeded, so a configuration gap on
+			// the connection cannot fail this completion; the capture path
+			// absorbs the same refusals. Availability errors propagate and
+			// the drain retries the completion.
+			if linearCaptureConfigurationRefusal(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
 }
 
 // CompleteSupersededLinearOperation marks an older in-flight update done while
 // leaving the link owned by the newer operation unchanged.
 func (s *Store) CompleteSupersededLinearOperation(ctx context.Context, operationID string) error {
-	return s.completeLinearOperation(ctx, operationID, nil)
+	return s.completeLinearOperation(ctx, operationID, nil, nil)
 }
 
-func (s *Store) completeLinearOperation(ctx context.Context, operationID string, identity *LinearRemoteIdentity) error {
+func (s *Store) completeLinearOperation(ctx context.Context, operationID string, identity *LinearRemoteIdentity, afterLink func(context.Context, *sql.Tx, string) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot open completion transaction", true, "retry once the database is writable", err)
@@ -2466,6 +2517,11 @@ func (s *Store) completeLinearOperation(ctx context.Context, operationID string,
 	}
 	if identity != nil {
 		if err := completeLinearLinkTx(ctx, tx, workID, opKind, *identity, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return err
+		}
+	}
+	if afterLink != nil {
+		if err := afterLink(ctx, tx, workID); err != nil {
 			return err
 		}
 	}

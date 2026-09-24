@@ -470,6 +470,33 @@ func TestUpdateProjectAddressesTheRemoteUUID(t *testing.T) {
 	}
 }
 
+// CD-0171 d3 review correction: project_update is a full-state write, so an
+// empty description or content rides the request as an explicit empty string
+// and clears the remote field instead of leaving stale markdown behind.
+func TestUpdateProjectSendsEmptyFullStateFields(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateProject(context.Background(), "proj-uuid-1", UpdateProjectInput{Name: "Initiative title", Description: "Value statement", Content: ""}); err != nil {
+		t.Fatalf("UpdateProject() error = %v", err)
+	}
+	for _, want := range []string{`"description":"Value statement"`, `"content":""`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
 func TestGetProjectRefusesAnUnknownProject(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

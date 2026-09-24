@@ -42,10 +42,12 @@ func seedLinearWorkOfKind(t *testing.T, s *Store, workID, projectID, kind, title
 }
 
 // seedLinearInitiativeEntry inserts one Initiative entry row directly, in the
-// given join order, with fold guards open.
+// given join order, with fold guards open. The matching includes relation
+// rides along, so the seeded projection satisfies the initiative invariants
+// an unrelated later operation verifies.
 func seedLinearInitiativeEntry(t *testing.T, s *Store, initiative, child string, required bool) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES(?, ?, (SELECT coalesce(max(position)+1, 0) FROM initiative_entries WHERE initiative_work_id=?), ?); DELETE FROM fold_guard`, initiative, child, initiative, boolInt(required)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES(?, ?, (SELECT coalesce(max(position)+1, 0) FROM initiative_entries WHERE initiative_work_id=?), ?); INSERT INTO relations(work_id_from, work_id_to, kind, created_at) VALUES(?, ?, 'includes', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`, initiative, child, initiative, boolInt(required), initiative, child); err != nil {
 		t.Fatalf("seed entry %s->%s: %v", initiative, child, err)
 	}
 }
@@ -407,6 +409,240 @@ func TestLinearIssueDescriptionLinksOtherInitiativesByProjectURL(t *testing.T) {
 	if strings.Contains(description, "Also in `linkdesc-second`") || strings.Contains(description, "Also in `linkdesc-third`") {
 		t.Fatalf("description = %q, want no other Initiative named by bare work id", description)
 	}
+}
+
+// CD-0171 D5 review correction: a non-required entry carries the optional
+// label, so a missing optional mapping refuses the enqueue with the same
+// typed failure the repository label uses, instead of silently syncing an
+// issue that cannot carry its requiredness.
+func TestLinearIssueEnqueueRefusesUnmappedOptionalLabel(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "optmap-product")
+	setupLinearLabelConnection(t, s, "optmap-product", map[string]string{
+		"task": "label-task", "project:optmap-product-project": "label-repo",
+	})
+	enableLinearPlanning(t, s, "optmap-product", 2)
+	seedLinearWorkOfKind(t, s, "optmap-initiative", "optmap-product-project", "initiative", "Optmap initiative", "Optmap value")
+	seedLinearWorkItem(t, s, "optmap-required", "optmap-product-project", "Required title", "Required value")
+	seedLinearWorkItem(t, s, "optmap-optional", "optmap-product-project", "Optional title", "Optional value")
+	seedLinearInitiativeEntry(t, s, "optmap-initiative", "optmap-required", true)
+	seedLinearInitiativeEntry(t, s, "optmap-initiative", "optmap-optional", false)
+
+	// A required entry needs no optional label and enqueues.
+	if _, err := s.EnqueueLinearIssueForWork(ctx, "optmap-required", LinearOpIssueCreate); err != nil {
+		t.Fatalf("required entry enqueue error = %v", err)
+	}
+	// The optional entry cannot sync without its mandated label.
+	_, err := s.EnqueueLinearIssueForWork(ctx, "optmap-optional", LinearOpIssueCreate)
+	if err == nil || !failureKindIs(err, KindInvalidRelation) || !strings.Contains(err.Error(), `"optional" Linear label mapping`) {
+		t.Fatalf("unmapped optional enqueue error = %v, want invalid_relation naming the optional mapping", err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id='optmap-optional'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unmapped optional enqueue queued %d operations, want 0", count)
+	}
+
+	// Mapping the optional label repairs the configuration, and the next
+	// enqueue carries it.
+	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
+		EventID: "optmap-optional-mapping", ResourceID: "linear-conn-optmap-product", ProductID: "optmap-product",
+		LabelIDs:                map[string]string{"task": "label-task", "project:optmap-product-project": "label-repo", "optional": "label-optional"},
+		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	op, err := s.EnqueueLinearIssueForWork(ctx, "optmap-optional", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatalf("mapped optional enqueue error = %v", err)
+	}
+	payload := decodeLinearPayload(t, s, op.OperationID)
+	hasOptional := false
+	for _, label := range payload.LabelIDs {
+		if label == "label-optional" {
+			hasOptional = true
+		}
+	}
+	if !hasOptional {
+		t.Fatalf("payload labels = %v, want the optional label (CD-0171 D5)", payload.LabelIDs)
+	}
+}
+
+// CD-0171 review correction: the drain resolves the Project before its remote
+// call, so the project_create can complete inside the drain-to-completion
+// window, where its entry refresh cannot see the issue's unconfirmed link.
+// CompleteLinearIssueOperation re-reads the owning Initiative's link inside
+// the completion transaction and queues the converging update when the sent
+// Project differs. The store serializes transactions, so each interleaving
+// leaves exactly one converging update.
+func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
+	setup := func(t *testing.T) *Store {
+		t.Helper()
+		s := openTemp(t)
+		setupLinearProduct(t, s, "raceres-product")
+		setupLinearLabelConnection(t, s, "raceres-product", map[string]string{"project:raceres-product-project": "label-race-repo"})
+		enableLinearPlanning(t, s, "raceres-product", 2)
+		seedLinearWorkOfKind(t, s, "raceres-initiative", "raceres-product-project", "initiative", "Race initiative", "Race value")
+		seedLinearWorkItem(t, s, "raceres-entry", "raceres-product-project", "Race title", "Race value")
+		seedLinearInitiativeEntry(t, s, "raceres-initiative", "raceres-entry", true)
+		return s
+	}
+	enqueueAndClaimIssue := func(t *testing.T, s *Store) ClaimedLinearOperation {
+		t.Helper()
+		op, err := s.EnqueueLinearIssueForWork(context.Background(), "raceres-entry", LinearOpIssueCreate)
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		return op
+	}
+	identity := LinearRemoteIdentity{RemoteUUID: "race-issue-remote", HumanKey: "RA-1", URL: "https://linear.app/example/issue/RA-1"}
+	queuedUpdates := func(t *testing.T, s *Store) []linearPayload {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT payload FROM linear_outbox WHERE work_id='raceres-entry' AND op_kind=? AND state=? ORDER BY rowid`, LinearOpIssueUpdate, LinearOutboxQueued)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var payloads []linearPayload
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var payload linearPayload
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payloads = append(payloads, payload)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return payloads
+	}
+
+	t.Run("project completes while the issue drains", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		op := enqueueAndClaimIssue(t, s)
+		// The project_create completes first: its link lands, and the drain's
+		// entry refresh skips this entry because the issue link is still not
+		// confirmed.
+		projectOp, err := s.EnqueueLinearProjectForInitiative(context.Background(), "raceres-product", "raceres-initiative", LinearOpProjectCreate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteLinearProjectOperation(context.Background(), projectOp.OperationID, "remote-project-race", "Race initiative", "", LinearInitiativeProjectState{Title: "Race initiative", ValueStatement: "Race value"}); err != nil {
+			t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+		}
+		// The issue create lands with no Project and completes: the
+		// completion transaction sees the confirmed link and queues the
+		// converging update.
+		if err := s.CompleteLinearIssueOperation(context.Background(), op.OperationID, identity, ""); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		payloads := queuedUpdates(t, s)
+		if len(payloads) != 1 || payloads[0].ProjectID != "remote-project-race" {
+			t.Fatalf("converging updates = %+v, want exactly one carrying remote-project-race", payloads)
+		}
+	})
+
+	t.Run("issue completes before the project", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		op := enqueueAndClaimIssue(t, s)
+		// No link exists yet, so the completion compares nothing and queues
+		// no update.
+		if err := s.CompleteLinearIssueOperation(context.Background(), op.OperationID, identity, ""); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		if payloads := queuedUpdates(t, s); len(payloads) != 0 {
+			t.Fatalf("updates before the Project exists = %+v, want none", payloads)
+		}
+		// The project_create completes now: the drain's entry refresh sees
+		// the confirmed link this completion just wrote and queues the
+		// converging update.
+		projectOp, err := s.EnqueueLinearProjectForInitiative(context.Background(), "raceres-product", "raceres-initiative", LinearOpProjectCreate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteLinearProjectOperation(context.Background(), projectOp.OperationID, "remote-project-race", "Race initiative", "", LinearInitiativeProjectState{Title: "Race initiative", ValueStatement: "Race value"}); err != nil {
+			t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+		}
+		refreshed, err := s.EnqueueLinearIssueUpdatesForInitiativeEntries(context.Background(), "raceres-initiative")
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueUpdatesForInitiativeEntries() error = %v", err)
+		}
+		if len(refreshed) != 1 {
+			t.Fatalf("entry refreshes = %d, want 1", len(refreshed))
+		}
+		if payloads := queuedUpdates(t, s); len(payloads) != 1 || payloads[0].ProjectID != "remote-project-race" {
+			t.Fatalf("converging updates = %+v, want exactly one carrying remote-project-race", payloads)
+		}
+	})
+
+	t.Run("equal project needs no rescue", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		op := enqueueAndClaimIssue(t, s)
+		// The project_create completed before the drain resolved the Project,
+		// so the create carried it and the completion must not queue another
+		// update.
+		projectOp, err := s.EnqueueLinearProjectForInitiative(context.Background(), "raceres-product", "raceres-initiative", LinearOpProjectCreate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteLinearProjectOperation(context.Background(), projectOp.OperationID, "remote-project-race", "Race initiative", "", LinearInitiativeProjectState{Title: "Race initiative", ValueStatement: "Race value"}); err != nil {
+			t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
+		}
+		if err := s.CompleteLinearIssueOperation(context.Background(), op.OperationID, identity, "remote-project-race"); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		if payloads := queuedUpdates(t, s); len(payloads) != 0 {
+			t.Fatalf("updates after an equal completion = %+v, want none", payloads)
+		}
+	})
+
+	t.Run("no Initiative needs no rescue", func(t *testing.T) {
+		t.Parallel()
+		s := setup(t)
+		seedLinearWorkItem(t, s, "raceres-lone", "raceres-product-project", "Lone title", "Lone value")
+		op, err := s.EnqueueLinearIssueForWork(context.Background(), "raceres-lone", LinearOpIssueCreate)
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
+		}
+		if _, err := s.ClaimLinearOperations(context.Background(), 25); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteLinearIssueOperation(context.Background(), op.OperationID, LinearRemoteIdentity{RemoteUUID: "lone-issue-remote", HumanKey: "RA-2"}, ""); err != nil {
+			t.Fatalf("CompleteLinearIssueOperation() error = %v", err)
+		}
+		rows, err := s.DatabaseForTesting().Query(`SELECT 1 FROM linear_outbox WHERE work_id='raceres-lone' AND op_kind=?`, LinearOpIssueUpdate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rows.Next() {
+			rows.Close()
+			t.Fatal("a work item outside every Initiative queued a converging update")
+		}
+		rows.Close()
+	})
 }
 
 func TestLinearProjectCreateEnqueueCarriesValueAndNarrative(t *testing.T) {

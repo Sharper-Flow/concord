@@ -575,16 +575,18 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	if binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
 		t.Fatalf("fourth request binding = %+v, want the correction-count binding", binding)
 	}
-	// PROBE: can a fifth request record while the wall is armed?
+	// The armed wall admits no fresh delivery, so no new verdict exists for a
+	// fifth request to correct, and the escalated binding stays unchanged.
 	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
-		t.Logf("PROBE fifth request refused: %v", err)
-	} else {
-		pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
-		if pinErr != nil {
-			t.Fatal(pinErr)
-		}
-		t.Logf("PROBE fifth request recorded: %#v", pin.Correction)
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
+		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
+	}
+	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+	if afterErr != nil {
+		t.Fatal(afterErr)
+	}
+	if after == nil || after.CorrectionAttempts != 4 {
+		t.Fatalf("binding after refused fifth request = %+v, want correction attempts 4", after)
 	}
 }
 

@@ -853,6 +853,9 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ]
             },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context"
+            },
             "pending_operator_decision": {
               "oneOf": [
                 {
@@ -870,6 +873,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 64,
               "type": "array",
               "uniqueItems": true
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record"
             },
             "spec_mandate": {
               "items": {
@@ -12166,6 +12172,99 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_law_context": {
+      "additionalProperties": false,
+      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
+      "properties": {
+        "domains": {
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_domain"
+          },
+          "maxItems": 65,
+          "type": "array"
+        },
+        "laws": {
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_law"
+          },
+          "maxItems": 128,
+          "type": "array"
+        }
+      },
+      "required": [
+        "laws",
+        "domains"
+      ],
+      "type": "object"
+    },
+    "workflow_law_context_domain": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "$ref": "#/$defs/domain_id"
+        },
+        "name": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "purpose": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain_id",
+        "name",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "workflow_law_context_law": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "decision",
+            "spec"
+          ],
+          "type": "string"
+        },
+        "law_id": {
+          "$ref": "#/$defs/law_id"
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "mandated",
+            "modified",
+            "added",
+            "obligation"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "superseded"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "law_id"
+      ],
+      "type": "object"
+    },
     "workflow_outcome_absent": {
       "additionalProperties": false,
       "properties": {
@@ -12467,6 +12566,43 @@ const GeneratedPayloadSchemaDocument = `{
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"
+    },
+    "workflow_proposal_record": {
+      "additionalProperties": false,
+      "description": "The recorded proposal fields the dispatched lane packet renders. Absent when no proposal is recorded.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "problem": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "user_outcomes": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "problem",
+        "user_outcomes",
+        "constraints"
+      ],
+      "type": "object"
     },
     "workflow_read": {
       "additionalProperties": false,

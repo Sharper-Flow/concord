@@ -82,6 +82,22 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("host-connected options", normalized)
         self.assertIn("Never invent a lookup result", normalized)
 
+    def test_projection_instructs_the_lane_to_conform_to_bound_law(self):
+        # The dispatched packet carries the approved contract's bound law and
+        # Domains as recorded state. Every generated lane definition must
+        # itself state what the block means: read each named law before
+        # changing files, conform to it, edit a law document only when the
+        # block lists it as modified or added, report conflicts in evidence,
+        # and return failed when a conflict blocks the assigned result.
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("Approved law and architecture block", projection)
+        self.assertIn("Read each named law document before you change files", normalized)
+        self.assertIn("Conform to it.", normalized)
+        self.assertIn("`modified` or `added`", normalized)
+        self.assertIn("Report any conflict between that law and the assigned result in your evidence", normalized)
+        self.assertIn("`status` `failed`", normalized)
+
     def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
             "id": "ci-wait",

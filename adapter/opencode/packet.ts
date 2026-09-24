@@ -84,6 +84,55 @@ function renderDesignRecord(value: unknown): string {
   return lines.join("\n")
 }
 
+// renderLawContext projects the pinned contract's resolved law and Domain
+// references into a readable block. The core resolves every bound ID against
+// the law_subjects and domains projections; an added law with no subject yet,
+// or a Domain missing from the registry, renders with what the core recorded.
+function renderLawContext(value: unknown): string {
+  if (!isRecord(value)) return ""
+  const laws = Array.isArray(value.laws) ? value.laws : []
+  const domains = Array.isArray(value.domains) ? value.domains : []
+  if (laws.length === 0 && domains.length === 0) return ""
+  const lines = ["Approved law and Domains (binding Product law):"]
+  for (const law of laws) {
+    if (!isRecord(law)) continue
+    const role = typeof law.role === "string" ? law.role : ""
+    const lawId = typeof law.law_id === "string" ? law.law_id : ""
+    const detail = [law.title, law.kind, law.status].filter((part): part is string => typeof part === "string" && part.length > 0).join(", ")
+    const path = typeof law.path === "string" ? law.path : ""
+    lines.push(`- ${role} law ${lawId}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}`)
+  }
+  for (const domain of domains) {
+    if (!isRecord(domain)) continue
+    const domainId = typeof domain.domain_id === "string" ? domain.domain_id : ""
+    const name = typeof domain.name === "string" ? domain.name : ""
+    const purpose = typeof domain.purpose === "string" ? domain.purpose : ""
+    lines.push(`- Domain ${domainId}: ${name}${purpose.length > 0 ? ` — ${purpose}` : ""}`)
+  }
+  return lines.join("\n") + "\n\n"
+}
+
+// renderProposalRecord projects the recorded proposal's problem, user
+// outcomes, and constraints — typed planning state the pinned continuity
+// already exposes.
+function renderProposalRecord(value: unknown): string {
+  if (!isRecord(value)) return ""
+  const problem = typeof value.problem === "string" ? value.problem : ""
+  const outcomes = Array.isArray(value.user_outcomes) ? value.user_outcomes.filter((item): item is string => typeof item === "string") : []
+  const constraints = Array.isArray(value.constraints) ? value.constraints.filter((item): item is string => typeof item === "string") : []
+  if (problem.length === 0 && outcomes.length === 0 && constraints.length === 0) return ""
+  const lines = ["Recorded proposal:", `Problem: ${problem}`]
+  if (outcomes.length > 0) {
+    lines.push("User outcomes:")
+    for (const outcome of outcomes) lines.push(`- ${outcome}`)
+  }
+  if (constraints.length > 0) {
+    lines.push("Constraints:")
+    for (const constraint of constraints) lines.push(`- ${constraint}`)
+  }
+  return lines.join("\n") + "\n\n"
+}
+
 function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
   if (!isRecord(value)) return undefined
   const disposition = value.disposition === "failed" || value.disposition === "rejected" || value.disposition === "verification" ? value.disposition : null
@@ -251,15 +300,20 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
 
   const design = renderDesignRecord(pinned.design_record)
+  // The resolved contract-bound law and Domains, then the recorded proposal,
+  // ride after the design record so the worker reads binding state before the
+  // work narrative. Overflow stays fail-closed on the combined context.
+  const lawContext = renderLawContext(pinned.law_context)
+  const proposal = renderProposalRecord(pinned.proposal_record)
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
   // The persisted work task is the operator's recorded instruction for the
   // worker. The premise stays the approved objective in inputs.task; the
   // recorded task rides context ahead of the narrative so a contract-mandated
   // worker receives the concrete instructions too, not only the premise.
-  const context = design + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
+  const context = design + lawContext + proposal + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
   if (context.length > CONTEXT_MAX_LENGTH) {
-    return failure("projection_overflow", `the pinned design and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
+    return failure("projection_overflow", `the pinned design, law context, proposal, and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
 
   // CD-0056: the fold refuses a report that leaves a declared obligation

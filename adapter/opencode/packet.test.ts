@@ -78,7 +78,7 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD, premise: strin
   }
 }
 
-const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null, lawContext: unknown = null, proposalRecord: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
   result: {
     work_id: WORK_ID,
     pinned: {
@@ -91,6 +91,8 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
       latest_checkpoint: null,
       design_record: designRecord,
        ...(workPin === null ? {} : { work_pin: workPin }),
+      ...(lawContext === null ? {} : { law_context: lawContext }),
+      ...(proposalRecord === null ? {} : { proposal_record: proposalRecord }),
       unresolved_failure: null,
     },
     latest_checkpoint: null,
@@ -316,6 +318,63 @@ test("the context carries the pinned design before the work narrative", async ()
   expect(context).toContain("The typed design record.")
 })
 
+// The core resolves the approved contract's bound law and Domains at
+// continuity read time; the builder renders that block and the recorded
+// proposal after the design record, ahead of the work narrative.
+const LAW_CONTEXT = {
+  laws: [
+    { role: "added", law_id: "law:new" },
+    { role: "modified", law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md" },
+  ],
+  domains: [
+    { domain_id: "root", name: "Root", purpose: "Product law" },
+    { domain_id: "child", name: "Child", purpose: "Child law" },
+  ],
+}
+const PROPOSAL = { problem: "Workers receive bare law IDs", user_outcomes: ["Workers read the binding law"], constraints: ["Overflow stays fail-closed"] }
+
+test("the context carries the resolved law block and proposal after the design record", async () => {
+  const continuity = continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, LAW_CONTEXT, PROPOSAL)
+  expect(validateGeneratedEnvelope(continuity)).toBe(true)
+  expect(validateGeneratedPayload("continuity_snapshot", (continuity as any).result)).toBe(true)
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  const context = built.packet!.inputs.context!
+  const designAt = context.indexOf("Approved design record:")
+  const lawAt = context.indexOf("Approved law and Domains (binding Product law):")
+  const proposalAt = context.indexOf("Recorded proposal:")
+  expect(designAt).toBe(0)
+  expect(lawAt).toBeGreaterThan(designAt)
+  expect(proposalAt).toBeGreaterThan(lawAt)
+  expect(context.indexOf(NARRATIVE)).toBeGreaterThan(proposalAt)
+  expect(context).toContain("- modified law spec:one: Synthetic test law, spec, accepted — docs/spec.md")
+  expect(context).toContain("- added law law:new")
+  expect(context).toContain("- Domain root: Root — Product law")
+  expect(context).toContain("- Domain child: Child — Child law")
+  expect(context).toContain("Problem: Workers receive bare law IDs")
+  expect(context).toContain("- Workers read the binding law")
+  expect(context).toContain("- Overflow stays fail-closed")
+})
+
+test("a contract with no bound law dispatches without a law block", async () => {
+  const built = await build(defaultScript())
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  expect(built.packet!.inputs.context).not.toContain("Approved law and Domains")
+  expect(built.packet!.inputs.context).not.toContain("Recorded proposal:")
+})
+
+test("an oversized law block is a typed context overflow, not a truncated packet", async () => {
+  // Every entry stays inside the generated law-context bounds; only their
+  // number pushes the combined context past the bound.
+  const oversized = { laws: Array.from({ length: 64 }, (_, index) => ({ role: "mandated", law_id: `spec:big-${index}`, title: "t".repeat(512) })), domains: [] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, oversized) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("projection_overflow")
+  expect(built.failure!.field).toBe("context")
+  expect(built.failure!.limit).toBe(16_384)
+})
+
 test("the packet carries bounded correction data outside the narrative", async () => {
   const continuity = continuityEnvelope()
   const pinned = (continuity as any).result.pinned
@@ -433,6 +492,21 @@ test("every installed lane definition states the multi-entry remedy", async () =
     const agent = await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()
     expect(agent, `${lane.id} omitted the multi-entry remedy`).toContain("One obligation may span several entries")
     expect(agent).toContain(`${detailMax}-character`)
+  }
+})
+
+// The lane contract owns what the law block in inputs.context means and what
+// the report must disclose, so every generated lane definition carries the
+// shared conformance rule.
+test("every installed lane definition carries the law conformance rule", async () => {
+  for (const lane of agentLanes) {
+    const agent = (await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()).replace(/\s+/g, " ")
+    expect(agent, `${lane.id} omitted the law conformance rule`).toContain("Approved law and architecture block")
+    expect(agent).toContain("Read each named law document before you change files")
+    expect(agent).toContain("Conform to it.")
+    expect(agent).toContain("`modified` or `added`")
+    expect(agent).toContain("Report any conflict between that law and the assigned result in your evidence")
+    expect(agent).toContain("`status` `failed`")
   }
 })
 

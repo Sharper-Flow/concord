@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:438240c44666e9cbda7cdfcca29de2451cd26d047571d457ef89a3f56c4f66f2"
+const ManifestDigest = "sha256:45289db5acc17266c7c79e59527702bf8b46c458122b3b02f862dec59543f6c2"
 
 type OperationKind string
 
@@ -292,11 +292,15 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_design_decision":                       {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                         {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                      {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
+	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains"}},
+	"workflow_law_context_domain":                    {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
+	"workflow_law_context_law":                       {Required: []string{"role", "law_id"}, Properties: []string{"role", "law_id", "kind", "status", "title", "path"}},
 	"workflow_outcome_absent":                        {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                         {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},
 	"workflow_outcome_decision_record":               {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},
 	"workflow_outcome_exists":                        {Required: []string{"kind", "surface", "subjects"}, Properties: []string{"kind", "surface", "subjects"}},
 	"workflow_outcome_outcome":                       {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
+	"workflow_proposal_record":                       {Required: []string{"problem", "user_outcomes", "constraints"}, Properties: []string{"problem", "user_outcomes", "constraints"}},
 	"workflow_read":                                  {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "parked_delivery", "stale_law_revision"}},
 	"workflow_self_repair":                           {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
 	"worktree_audit_page":                            {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},

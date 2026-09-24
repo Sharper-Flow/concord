@@ -271,7 +271,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	}
 	grant.Worktree = path
 	env := mutationEnvelope(grant, scopeVersion)
-	version := int64(4)
+	var version int64
 	for cycle := int64(1); cycle <= 4; cycle++ {
 		attemptID := "attempt:work-1:verification-" + strconv.FormatInt(cycle, 10)
 		version = workVersion(t, s, "work-1")

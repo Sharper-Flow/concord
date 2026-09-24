@@ -215,15 +215,20 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 var workerComparisonResultVocabulary = map[string]bool{"pass": true, "fail": true, "not_run": true}
 
 // validateWorkerBaseComparison mirrors the closed shape the report schema
-// gives the optional base_comparison object: 1 to 64 checks, each naming a
-// command of 1 to 512 bytes and two results from the closed set. Like the
-// evidence entries, the content is recorded as reported and never judged.
+// gives the optional base_comparison object: a checks array of at most 64
+// entries, each naming a command of 1 to 512 bytes and two results from the
+// closed set. An empty array records that the worker compared no checks; a
+// missing or null array is not the schema's shape. Like the evidence entries,
+// the content is recorded as reported and never judged.
 func validateWorkerBaseComparison(comparison *WorkerBaseComparison) error {
 	if comparison == nil {
 		return nil
 	}
-	if len(comparison.Checks) < 1 || len(comparison.Checks) > 64 {
-		return invalidWorkerPayload("worker.completed base_comparison must carry between 1 and 64 checks")
+	if comparison.Checks == nil {
+		return invalidWorkerPayload("worker.completed base_comparison must carry a checks array")
+	}
+	if len(comparison.Checks) > 64 {
+		return invalidWorkerPayload("worker.completed base_comparison must carry at most 64 checks")
 	}
 	for _, check := range comparison.Checks {
 		if len(check.Command) < 1 || len(check.Command) > 512 {

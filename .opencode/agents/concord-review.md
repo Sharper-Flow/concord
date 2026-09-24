@@ -60,7 +60,7 @@ Report contract constraints:
 - evidence_entry.detail: type=string, minLength=1, maxLength=512.
 - evidence_entry.obligation: enum=["contract_findings", "severity", "verification_commands"].
 - base_comparison: optional top-level object; type=object, additionalProperties=false, required=["checks"].
-- base_comparison.checks: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/base_comparison_check"}.
+- base_comparison.checks: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/base_comparison_check"}.
 - base_comparison_check shape: type=object, additionalProperties=false, required=["command", "branch_result", "base_result"].
 - base_comparison_check.command: type=string, minLength=1, maxLength=512.
 - base_comparison_check.branch_result and base_comparison_check.base_result: enum=["pass", "fail", "not_run"].

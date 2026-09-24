@@ -2024,10 +2024,10 @@ const baseComparison = (): AgentLaneReportBaseComparison => ({
 test("the report schema admits the optional base_comparison and refuses drifted shapes", () => {
   expect(validateAgentLaneReport(report({ base_comparison: baseComparison() }))).toBe(true)
   expect(validateAgentLaneReport(report())).toBe(true)
+  expect(validateAgentLaneReport(report({ base_comparison: { checks: [] } }))).toBe(true)
   const refusals = [
     { name: "unknown sibling property", value: { ...baseComparison(), mood: "confident" } },
     { name: "missing checks", value: {} },
-    { name: "empty checks", value: { checks: [] } },
     { name: "oversized checks", value: { checks: Array.from({ length: 65 }, () => baseComparison().checks[0]) } },
     { name: "check with an undeclared property", value: { checks: [{ ...baseComparison().checks[0], exit_code: 0 }] } },
     { name: "result outside the closed set", value: { checks: [{ ...baseComparison().checks[0], base_result: "skipped" }] } },
@@ -2053,6 +2053,17 @@ test("a reported base_comparison rides worker-complete and the completed envelop
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
   expect(payloads[1].base_comparison).toEqual(baseComparison())
   expect(result.base_comparison).toEqual(baseComparison())
+})
+
+test("the largest base_comparison the schema admits completes and reaches the envelope", async () => {
+  const largest: AgentLaneReportBaseComparison = { checks: Array.from({ length: 64 }, () => ({ command: "x".repeat(512), branch_result: "fail" as const, base_result: "not_run" as const })) }
+  const carried = report({ base_comparison: largest })
+  expect(validateAgentLaneReport(carried)).toBe(true)
+  const { result, verbs, payloads } = await terminalEvidence(carried)
+  expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].base_comparison).toEqual(largest)
+  expect(result.base_comparison).toEqual(largest)
 })
 
 test("an absent base_comparison reaches neither worker-complete nor the envelope", async () => {

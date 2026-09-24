@@ -1716,11 +1716,13 @@ async function completeWorkerSession(
   // the coordinator reads which single result the completion disposes.
   const envelopeAssignedResult = workerScopeAssignedResult(lane.id)
   if (envelopeAssignedResult !== null) base.assigned_result = envelopeAssignedResult
-  // The optional base comparison rides the same bound as the worker output
-  // that carried it, so the attempt readback holds it when present.
-  if (!("detail" in resolution) && resolution.report.base_comparison) base.base_comparison = resolution.report.base_comparison
   const envelope = withHostBoundedOutput(base, resultBody)
   if (!envelope) return errorEnvelope(lane, packet, "error", "error", "worker result exceeds the pinned host output limit", "adjust_budget")
+  // The optional base comparison is a part of the worker output the bound
+  // above already admitted, so it attaches after the bound: measuring it
+  // beside that output would count its bytes twice and refuse a report the
+  // schema admits. The attempt readback then holds it when present.
+  if (!("detail" in resolution) && resolution.report.base_comparison) envelope.base_comparison = resolution.report.base_comparison
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event

@@ -64,6 +64,48 @@ func TestWorkerCompletionCarriesBaseComparisonDurably(t *testing.T) {
 	}
 }
 
+// The store admits every size the report schema admits: an empty checks array
+// records that the worker compared no checks, and 64 checks with 512-byte
+// commands is the largest comparison the schema allows.
+func TestWorkerCompletionAdmitsBaseComparisonSchemaBounds(t *testing.T) {
+	t.Parallel()
+	lane := BuiltinLaneDefinitions()[1]
+	largest := &WorkerBaseComparison{Checks: make([]WorkerBaseComparisonCheck, 64)}
+	for index := range largest.Checks {
+		largest.Checks[index] = WorkerBaseComparisonCheck{Command: strings.Repeat("x", 512), BranchResult: "fail", BaseResult: "not_run"}
+	}
+	tests := []struct {
+		name       string
+		comparison *WorkerBaseComparison
+	}{
+		{name: "empty checks array", comparison: &WorkerBaseComparison{Checks: []WorkerBaseComparisonCheck{}}},
+		{name: "64 checks with 512-byte commands", comparison: largest},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			s := openTemp(t)
+			attemptID := "base-comparison-bound-attempt"
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("base-comparison-bound", attemptID, lane, nil)}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{baseComparisonCompleteEvent("base-comparison-bound", "base-comparison-bound-complete", attemptID, lane, testCase.comparison)}}); err != nil {
+				t.Fatalf("completion at the schema bound was refused: %v", err)
+			}
+			var stored []byte
+			if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, "base-comparison-bound-complete").Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			var durable WorkerCompletedPayload
+			if err := json.Unmarshal(stored, &durable); err != nil {
+				t.Fatal(err)
+			}
+			if durable.BaseComparison == nil || durable.BaseComparison.Checks == nil || len(durable.BaseComparison.Checks) != len(testCase.comparison.Checks) {
+				t.Fatalf("durable base_comparison = %+v, want %d recorded checks", durable.BaseComparison, len(testCase.comparison.Checks))
+			}
+		})
+	}
+}
+
 // The optional object is closed in both directions at the store boundary too:
 // an oversized check list, an out-of-range command, a result outside the
 // closed set, and a missing checks array are refused, and a refusal leaves
@@ -81,9 +123,8 @@ func TestWorkerCompletionBaseComparisonShapeIsClosed(t *testing.T) {
 		comparison *WorkerBaseComparison
 		wantDetail string
 	}{
-		{name: "more than 64 checks", comparison: tooMany, wantDetail: "between 1 and 64 checks"},
-		{name: "empty checks array", comparison: &WorkerBaseComparison{Checks: []WorkerBaseComparisonCheck{}}, wantDetail: "between 1 and 64 checks"},
-		{name: "checks array absent", comparison: &WorkerBaseComparison{}, wantDetail: "between 1 and 64 checks"},
+		{name: "more than 64 checks", comparison: tooMany, wantDetail: "at most 64 checks"},
+		{name: "checks array absent", comparison: &WorkerBaseComparison{}, wantDetail: "a checks array"},
 		{name: "empty command", comparison: &WorkerBaseComparison{Checks: []WorkerBaseComparisonCheck{{Command: "", BranchResult: "pass", BaseResult: "pass"}}}, wantDetail: "between 1 and 512 bytes"},
 		{name: "oversized command", comparison: &WorkerBaseComparison{Checks: []WorkerBaseComparisonCheck{{Command: longCommand, BranchResult: "pass", BaseResult: "pass"}}}, wantDetail: "between 1 and 512 bytes"},
 		{name: "branch result outside the vocabulary", comparison: &WorkerBaseComparison{Checks: []WorkerBaseComparisonCheck{{Command: "go test ./...", BranchResult: "skipped", BaseResult: "pass"}}}, wantDetail: "pass, fail, or not_run"},

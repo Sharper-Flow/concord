@@ -208,7 +208,7 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		return snapshotFromProduct(result, request.Product, request.Section), nil
 	case launcher.ReadDomains:
 		// The Domain read composes the Product work read: the work list is
-		// carried on every outcome, so an absent registry can never withhold
+		// carried on every outcome, so a Domain failure can never withhold
 		// it or restate the screen coverage the work read produced.
 		product, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
@@ -217,16 +217,12 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 		p.decorateProduct(ctx, &product)
 		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
-			var failure *store.Failure
-			if errors.As(err, &failure) && (failure.Kind == store.KindDomainRegistryAbsent || failure.Kind == store.KindUnknownDomain) {
-				// An absent or unknown registry is a typed unavailable
-				// Domain section over the intact Product work list, never an
-				// empty Domain list and never an unavailable screen.
-				s := snapshotFromProduct(product, request.Product, launcher.SectionDomains)
-				s.Domains = launcher.DomainSection{Read: true, State: "unavailable", Reason: string(failure.Kind)}
-				return s, nil
-			}
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			// An absent registry or a failed Domain query is a typed
+			// unavailable Domain section over the intact Product work list,
+			// never an empty Domain list and never an unavailable screen.
+			s := snapshotFromProduct(product, request.Product, launcher.SectionDomains)
+			s.Domains = launcher.DomainSection{Read: true, State: "unavailable", Reason: failureReason(err)}
+			return s, nil
 		}
 		return snapshotFromDomains(domains, product, request.Product), nil
 	case launcher.ReadWork:
@@ -596,12 +592,17 @@ func (p *Port) knowledgeSection(ctx context.Context, request launcher.ReadReques
 }
 
 func unavailableKnowledgeSection(err error) launcher.KnowledgeSection {
-	reason := err.Error()
+	return launcher.KnowledgeSection{Read: true, State: "unavailable", Reason: failureReason(err)}
+}
+
+// failureReason names an unavailable section by the store's typed failure
+// kind, or by the error text when the failure is untyped.
+func failureReason(err error) string {
 	var failure *store.Failure
 	if errors.As(err, &failure) {
-		reason = string(failure.Kind)
+		return string(failure.Kind)
 	}
-	return launcher.KnowledgeSection{Read: true, State: "unavailable", Reason: reason}
+	return err.Error()
 }
 
 func (p *Port) readSearch(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {

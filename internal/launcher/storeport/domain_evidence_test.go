@@ -64,6 +64,30 @@ func readDomainSection(t *testing.T, s *store.Store, product string) launcher.Sn
 	return snapshot
 }
 
+// A Domain query that fails after the registry reads is the Domain section's
+// state alone. Removing the law table makes the grouped current-law query
+// fail with a typed unavailable failure, while the Product work read is
+// untouched; the launcher still enters the Product and lists its work.
+func TestDomainQueryFailureKeepsTheProductWorkList(t *testing.T) {
+	s := domainEvidenceStore(t)
+	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE law_domain_homes`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.QueryLauncherDomains(context.Background(), store.LauncherProductRequest{Product: "product-1", Limit: 20, Depth: 3}); err == nil {
+		t.Fatal("non-vacuity: the Domain query must fail for this test to measure anything")
+	}
+	snapshot := readDomainSection(t, s, "product-1")
+	if len(snapshot.Ranked) != 2 {
+		t.Fatalf("a failed Domain query withheld the Product work list: %#v", snapshot.Ranked)
+	}
+	if snapshot.Coverage != "authoritative" || snapshot.StatusMessage != "" {
+		t.Fatalf("a failed Domain query moved screen coverage or status: coverage=%q status=%q", snapshot.Coverage, snapshot.StatusMessage)
+	}
+	if snapshot.Domains.State != "unavailable" || snapshot.Domains.Reason != string(store.KindUnavailable) {
+		t.Fatalf("a failed Domain query was not typed unavailable in its section: %#v", snapshot.Domains)
+	}
+}
+
 // The four content clauses of the Product-detail floor row, read from a store
 // rather than a fabricated snapshot: current law, architecture relations,
 // active Domain-bound work, and unresolved architecture overlap.

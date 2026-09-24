@@ -527,7 +527,7 @@ test("cross-product dispatch projects the session's ambient Product when it is o
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
   const windows = new DispatchWindows()
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-cross-product", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-cross-product", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
   expect(scopeInputs).toHaveLength(1)

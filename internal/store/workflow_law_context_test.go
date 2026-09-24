@@ -69,10 +69,14 @@ func approveLawContextContract(t *testing.T, s *Store, workID string, mandate, m
 	t.Helper()
 	ctx := context.Background()
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
+	pins := map[string]string{
+		"spec:one":  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"const:one": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+	}
 	revisions := []WorkflowLawRevision{}
 	for _, lawID := range mandate {
-		if lawID == "spec:one" {
-			revisions = append(revisions, WorkflowLawRevision{LawID: lawID, ContentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+		if hash, ok := pins[lawID]; ok {
+			revisions = append(revisions, WorkflowLawRevision{LawID: lawID, ContentHash: hash})
 		}
 	}
 	event := workflowEventWithActor("law-context-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
@@ -112,6 +116,37 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Domains, wantDomains) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
+	}
+}
+
+// Constitution records are law-bearing under the accepted knowledge taxonomy
+// and project into law_subjects, so an approved contract can mandate one. The
+// resolved law context must carry the constitution kind, not only decision
+// and spec, or the dispatched lane packet refuses its own continuity.
+func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-constitution"
+	seedLawContextFixture(t, s, workID)
+	constitutionHash := "sha256:" + strings.Repeat("c", 64)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
+		t.Fatal(err)
+	}
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{"const:one"}, []string{}, binding)
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LawContext == nil {
+		t.Fatal("continuity resolved no law context for a contract that mandates a constitution")
+	}
+	wantLaws := []WorkflowLawContextLaw{
+		{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: "docs/constitution.md"},
+	}
+	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
+		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)
 	}
 }
 

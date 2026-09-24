@@ -12224,7 +12224,9 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "kind": {
+          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
           "enum": [
+            "constitution",
             "decision",
             "spec"
           ],

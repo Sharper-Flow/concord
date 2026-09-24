@@ -43,6 +43,35 @@ func TestContinuityPayloadProjectsLawContextAndProposal(t *testing.T) {
 	}
 }
 
+// Constitution records are law-bearing and project into law_subjects, so an
+// approved contract can mandate one and continuity resolves it with kind
+// constitution (store half: internal/store). The payload the dispatched lane
+// packet consumes must stay schema-valid for that resolution, not only for
+// decision and spec.
+func TestContinuityPayloadValidatesResolvedConstitutionAgainstSchema(t *testing.T) {
+	t.Parallel()
+	snapshot := store.ContinuitySnapshot{
+		WorkID:                   "work-constitution",
+		ProductIdentity:          []string{"product"},
+		WorkflowStep:             "execution",
+		SpecMandate:              []string{"const:one"},
+		RestartUnavailableReason: "dispatch window closed",
+		Boundaries:               []store.ContextBoundary{},
+		Watermark:                "seq:1",
+		LawContext: &store.WorkflowLawContext{
+			Laws:    []store.WorkflowLawContextLaw{{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: "docs/constitution.md"}},
+			Domains: []store.WorkflowLawContextDomain{{DomainID: "root", Name: "Root", Purpose: "Product law"}},
+		},
+	}
+	raw, err := json.Marshal(ContinuityPayload(snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("continuity_snapshot", raw); err != nil {
+		t.Fatalf("continuity payload carrying a resolved constitution law is not schema-valid: %v", err)
+	}
+}
+
 func TestContinuityPayloadOmitsUnboundLawContext(t *testing.T) {
 	t.Parallel()
 	payload := ContinuityPayload(store.ContinuitySnapshot{})

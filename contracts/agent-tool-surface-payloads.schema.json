@@ -2571,8 +2571,10 @@
           }
         },
         "kind": {
+          "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
           "type": "string",
           "enum": [
+            "constitution",
             "decision",
             "spec"
           ]

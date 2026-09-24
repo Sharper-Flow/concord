@@ -227,7 +227,7 @@ func TestRebuildPoisonFailureHasExactEventContextAndRollsBack(t *testing.T) {
 
 func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 	t.Parallel()
-	if err := validateEventKindRegistry(); err != nil {
+	if err := validateEventKindRegistry(eventKindRegistry); err != nil {
 		t.Fatal(err)
 	}
 	for kind, registration := range eventKindRegistry {
@@ -294,17 +294,13 @@ func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			previous, existed := eventKindRegistry[tc.key]
-			eventKindRegistry[tc.key] = tc.registration
-			defer func() {
-				if existed {
-					eventKindRegistry[tc.key] = previous
-				} else {
-					delete(eventKindRegistry, tc.key)
-				}
-			}()
+			registry := make(map[string]EventKindRegistration, len(eventKindRegistry)+1)
+			for kind, registration := range eventKindRegistry {
+				registry[kind] = registration
+			}
+			registry[tc.key] = tc.registration
 
-			if err := validateEventKindRegistry(); err == nil {
+			if err := validateEventKindRegistry(registry); err == nil {
 				t.Fatalf("validateEventKindRegistry() accepted malformed %q registration", tc.key)
 			}
 		})

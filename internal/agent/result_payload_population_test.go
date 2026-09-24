@@ -605,6 +605,34 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 	}
 }
 
+// readPopulationWitnesses holds the content checks a schema-valid result must
+// also pass. A schema admits an empty or filtered answer, so a read whose
+// fixture seeds specific rows names them here; a producer that drops those rows
+// fails the test even though its payload still validates.
+var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessage){
+	// Constitution records are law-bearing, so domain.detail must return them
+	// beside decisions and specifications rather than filter them out.
+	"concord_domain.detail": func(t *testing.T, result json.RawMessage) {
+		var detail struct {
+			CurrentLaw []struct {
+				Kind string `json:"kind"`
+			} `json:"current_law"`
+		}
+		if err := json.Unmarshal(result, &detail); err != nil {
+			t.Fatalf("decode domain.detail result: %v", err)
+		}
+		kinds := map[string]bool{}
+		for _, law := range detail.CurrentLaw {
+			kinds[law.Kind] = true
+		}
+		for _, want := range []string{"constitution", "decision", "spec"} {
+			if !kinds[want] {
+				t.Fatalf("domain.detail current_law omits seeded %s law; got kinds %v", want, kinds)
+			}
+		}
+	},
+}
+
 // TestAllReadEnvelopesValidateAtPopulationScale dispatches every read the
 // generated contract declares against a population-scale store, through the
 // same Dispatch path a real call takes, and requires an ok outcome whose
@@ -633,6 +661,9 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 			}
 			if err := ValidateOperationPayload(op.Tool, op.Operation, response.Result, true); err != nil {
 				t.Fatalf("%s answered ok with a result its schema rejects: %v", op.ID, err)
+			}
+			if witness, ok := readPopulationWitnesses[op.ID]; ok {
+				witness(t, response.Result)
 			}
 		})
 	}

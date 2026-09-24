@@ -11,10 +11,11 @@ import (
 
 // The landing record transfers the session's occupancy inside one
 // transaction: the destination row must be active and occupied by this
-// session, the other active rows of the same work item clear, one durable
-// event names the session, work item, source paths, and landed path, and the
-// same landing replays idempotently. A destination the session does not
-// occupy refuses before any effect.
+// session — or record no occupant, the shape a resumed session lands in — the
+// other active rows of the same work item clear, one durable event names the
+// session, work item, source paths, and landed path, and the same landing
+// replays idempotently. A destination another session occupies refuses
+// before any effect.
 func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -221,5 +222,42 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("landing event count after replay=%d, want still two", count)
+	}
+}
+
+// A session that resumes an existing work item claims no worktree: the read
+// that derives its active worktree records nothing (CD-0104 D1), so its
+// landing is the one shape that reaches an unoccupied destination row. Once
+// the host move has read back, the record admits that shape, names the
+// session as the occupant, and replays idempotently. Another session's
+// landing into the recorded row refuses.
+func TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	path := auditWork(t, s, git, "work-resumed", true)
+
+	now := time.Unix(30, 0).UTC()
+	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if landing.AlreadyRecorded || landing.ProjectID != "project-w" || len(landing.ReleasedSources) != 0 {
+		t.Fatalf("landing=%+v, want the resumed session freshly recorded with no released sources", landing)
+	}
+	byProject := worktreeEntriesByProject(t, s, "work-resumed")
+	if byProject["project-w"].OccupantSessionRef != "ses-resumed" {
+		t.Fatalf("destination entry=%+v, want ses-resumed recorded as the occupant", byProject["project-w"])
+	}
+
+	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now})
+	if err != nil || !replay.AlreadyRecorded {
+		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
+	}
+
+	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-other", LandedDirectory: path, Now: now})
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("another session's landing err=%v, want %s", err, KindWorktreeOwnershipConflict)
 	}
 }

@@ -122,6 +122,25 @@ describe("completeDispatchedWorker", () => {
     expect(output.output).toContain("<task_result>")
   })
 
+  // The optional comparison is informational: the attempt readback holds it
+  // when the worker reported one and stays free of the field otherwise.
+  test("the attempt readback carries a reported base_comparison and omits an unreported one", async () => {
+    const reported = { checks: [{ command: "go test ./...", branch_result: "pass", base_result: "fail" }] }
+    const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+      const windows = new DispatchWindows()
+      windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+      const verbs: string[] = []
+      const output = { title: "verify lane", output: taskWrap(JSON.stringify({ ...report(), ...extra })), metadata: {} }
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-attempt", args: {} }, output, deps(verbs, windows))
+      expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+      const element = output.output.split("<concord_attempt>")[1]?.split("</concord_attempt>")[0]
+      return JSON.parse(element!.trim()) as Record<string, unknown>
+    }
+    expect((await attemptSummary({ base_comparison: reported })).base_comparison).toEqual(reported)
+    expect("base_comparison" in (await attemptSummary())).toBe(false)
+  })
+
   test("computes prompt provenance from the dispatch-window directory", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())

@@ -1650,7 +1650,7 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison } from "./dispatch"
 
 async function terminalEvidence(carried: unknown = report()) {
   const calls: { argv: string[]; input: string }[] = []
@@ -2012,6 +2012,73 @@ test("the report schema refuses oversized evidence arrays and details", () => {
   const oversizedEvidence = Array.from({ length: 65 }, (_, index) => ({ obligation: "source_citations", detail: String(index + 1) }))
   expect(validateAgentLaneReport(report({ evidence: oversizedEvidence }))).toBe(false)
   expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations", detail: "x".repeat(513) }] }))).toBe(false)
+})
+
+const baseComparison = (): AgentLaneReportBaseComparison => ({
+  checks: [
+    { command: "go test ./...", branch_result: "pass", base_result: "pass" },
+    { command: "go vet ./...", branch_result: "pass", base_result: "fail" },
+  ],
+})
+
+test("the report schema admits the optional base_comparison and refuses drifted shapes", () => {
+  expect(validateAgentLaneReport(report({ base_comparison: baseComparison() }))).toBe(true)
+  expect(validateAgentLaneReport(report())).toBe(true)
+  expect(validateAgentLaneReport(report({ base_comparison: { checks: [] } }))).toBe(true)
+  const refusals = [
+    { name: "unknown sibling property", value: { ...baseComparison(), mood: "confident" } },
+    { name: "missing checks", value: {} },
+    { name: "oversized checks", value: { checks: Array.from({ length: 65 }, () => baseComparison().checks[0]) } },
+    { name: "check with an undeclared property", value: { checks: [{ ...baseComparison().checks[0], exit_code: 0 }] } },
+    { name: "result outside the closed set", value: { checks: [{ ...baseComparison().checks[0], base_result: "skipped" }] } },
+    { name: "empty command", value: { checks: [{ ...baseComparison().checks[0], command: "" }] } },
+    { name: "command beyond 512 characters", value: { checks: [{ ...baseComparison().checks[0], command: "x".repeat(513) }] } },
+    { name: "command within characters but beyond 512 bytes", value: { checks: [{ ...baseComparison().checks[0], command: "é".repeat(300) }] } },
+  ]
+  for (const refusal of refusals) {
+    expect(validateAgentLaneReport(report({ base_comparison: refusal.value })), refusal.name).toBe(false)
+  }
+})
+
+test("admission carries a valid base_comparison into the canonical report and refuses a drifted one", () => {
+  const carried = resolveWorkerReportFromText(JSON.stringify(report({ base_comparison: baseComparison() })), packet())
+  expect("report" in carried && carried.report.base_comparison).toEqual(baseComparison())
+  const drifted = resolveWorkerReportFromText(JSON.stringify(report({ base_comparison: { checks: [{ ...baseComparison().checks[0], branch_result: "skipped" }] } })), packet())
+  expect("detail" in drifted && drifted.detail).toContain("failed the closed agent-lane-report.v1 schema")
+})
+
+test("a reported base_comparison rides worker-complete and the completed envelope", async () => {
+  const { result, verbs, payloads } = await terminalEvidence(report({ base_comparison: baseComparison() }))
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].base_comparison).toEqual(baseComparison())
+  expect(result.base_comparison).toEqual(baseComparison())
+})
+
+test("the largest base_comparison the schema admits completes and reaches the envelope", async () => {
+  const largest: AgentLaneReportBaseComparison = { checks: Array.from({ length: 64 }, () => ({ command: "x".repeat(512), branch_result: "fail" as const, base_result: "not_run" as const })) }
+  const carried = report({ base_comparison: largest })
+  expect(validateAgentLaneReport(carried)).toBe(true)
+  const { result, verbs, payloads } = await terminalEvidence(carried)
+  expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].base_comparison).toEqual(largest)
+  expect(result.base_comparison).toEqual(largest)
+})
+
+test("an absent base_comparison reaches neither worker-complete nor the envelope", async () => {
+  const { result, payloads } = await terminalEvidence()
+  expect(result.outcome).toBe("ok")
+  expect(payloads[1].base_comparison).toBeUndefined()
+  expect(result.base_comparison).toBeUndefined()
+})
+
+test("a drifted base_comparison is a typed invalid report, never a completion", async () => {
+  const { result, verbs, payloads } = await terminalEvidence(report({ base_comparison: { checks: [{ ...baseComparison().checks[0], base_result: "skipped" }] } }))
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
 })
 
 test("an over-length evidence detail is truncated at admission, not refused", () => {

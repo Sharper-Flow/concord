@@ -108,6 +108,9 @@ def go_slice(values: list[str]) -> str:
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]
+    base_comparison = properties["base_comparison"]
+    base_checks = base_comparison["properties"]["checks"]
+    base_check = report_schema["$defs"]["base_comparison_check"]
     return [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
@@ -137,6 +140,26 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxLength={evidence_entry['properties']['detail']['maxLength']}.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
+        "base_comparison: "
+        "optional top-level object; "
+        f"type={base_comparison['type']}, "
+        f"additionalProperties={json.dumps(base_comparison['additionalProperties'])}, "
+        f"required={json.dumps(base_comparison['required'], ensure_ascii=False)}.",
+        "base_comparison.checks: "
+        f"type={base_checks['type']}, "
+        f"minItems={base_checks['minItems']}, "
+        f"maxItems={base_checks['maxItems']}, "
+        f"items={json.dumps(base_checks['items'], ensure_ascii=False)}.",
+        "base_comparison_check shape: "
+        f"type={base_check['type']}, "
+        f"additionalProperties={json.dumps(base_check['additionalProperties'])}, "
+        f"required={json.dumps(base_check['required'], ensure_ascii=False)}.",
+        "base_comparison_check.command: "
+        f"type={base_check['properties']['command']['type']}, "
+        f"minLength={base_check['properties']['command']['minLength']}, "
+        f"maxLength={base_check['properties']['command']['maxLength']}.",
+        "base_comparison_check.branch_result and base_comparison_check.base_result: "
+        f"enum={json.dumps(base_check['properties']['branch_result']['enum'], ensure_ascii=False)}.",
     ]
 
 

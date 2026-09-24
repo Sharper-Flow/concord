@@ -468,6 +468,128 @@ func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 	}
 }
 
+// CD-0164 D4 fixes the verification wall to the request population with a
+// strict comparator: the request path records every correction the verdict
+// admits while the dispatch wall arms only when the recorded count passes the
+// limit. Each correction is one declared cycle — the reviewer records the
+// outcome_mismatch verdict, then the correction request records through the
+// same declared action — so the log holds four recorded requests with no
+// synthetic events. Three recorded verification corrections keep dispatch
+// approval-free; the fourth request arms the wall, and its dispatch faces the
+// operator approval bound to the correction's attempt count.
+func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
+	t.Parallel()
+	const workID = "verification-wall-fourth-request"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	if workflowCorrectionAttemptLimit != 3 {
+		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
+	}
+	// One declared worker delivery per cycle: the correction request returns
+	// the workflow to execution, and the next verdict needs a fresh accepted
+	// delivery to be recordable at its normal verification step. The loop's
+	// acceptor is distinct from the verdict reviewer, so no actor evaluates
+	// its own delivery.
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	runCorrectionWorkerLoop := func(cycle int64) {
+		t.Helper()
+		s := fixture.store
+		lane := BuiltinLaneDefinitions()[0]
+		attemptID := fmt.Sprintf("attempt:%s:%d", workID, cycle)
+		if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+			t.Fatalf("cycle %d start_execution: %v", cycle, err)
+		}
+		var attemptEpoch int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='start_execution' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&attemptEpoch); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+			EventID: fmt.Sprintf("dispatch-%s-%d", workID, cycle), Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+			Actor: ownerRef, OccurredAt: time.Unix(30+cycle, 0).UTC(), PayloadVersion: 2,
+			Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+		}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+			EventID: fmt.Sprintf("completed-%s-%d", workID, cycle), Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+			Actor: "worker:test", OccurredAt: time.Unix(31+cycle, 0).UTC(), PayloadVersion: 1,
+			Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+		}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
+			t.Fatalf("cycle %d accept worker result: %v", cycle, err)
+		}
+		if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+			t.Fatalf("cycle %d start refinement: %v", cycle, err)
+		}
+		for _, deliveryStep := range []string{"refine", "delivery"} {
+			if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:return-route-`+deliveryStep+`-`+fmt.Sprint(cycle)+`","delivery_state":"asserted"}`), 0, acceptor); err != nil {
+				t.Fatalf("cycle %d record %s delivery: %v", cycle, deliveryStep, err)
+			}
+		}
+	}
+	recordCorrectionCycle := func(count int64) {
+		t.Helper()
+		if count > 1 {
+			// The fixture's first delivery loop already ran, and each
+			// correction request returns the workflow to execution, so every
+			// later verdict needs one fresh declared delivery loop.
+			runCorrectionWorkerLoop(count)
+		}
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+			t.Fatalf("cycle %d mismatch verdict: %v", count, err)
+		}
+		payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+		if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err != nil {
+			t.Fatalf("cycle %d correction request: %v", count, err)
+		}
+		pin, pinErr := ReadWorkPin(ctx, fixture.store, workID)
+		if pinErr != nil {
+			t.Fatal(pinErr)
+		}
+		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
+			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
+		}
+		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+		if bindingErr != nil {
+			t.Fatal(bindingErr)
+		}
+		if count <= workflowCorrectionAttemptLimit && binding != nil {
+			t.Fatalf("cycle %d minted a retry binding %+v, want none below the wall", count, binding)
+		}
+	}
+	for count := int64(1); count <= 3; count++ {
+		recordCorrectionCycle(count)
+	}
+	recordCorrectionCycle(4)
+	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+	if bindingErr != nil {
+		t.Fatal(bindingErr)
+	}
+	if binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
+		t.Fatalf("fourth request binding = %+v, want the correction-count binding", binding)
+	}
+	// The armed wall admits no fresh delivery, so no new verdict exists for a
+	// fifth request to correct, and the escalated binding stays unchanged.
+	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
+		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
+	}
+	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+	if afterErr != nil {
+		t.Fatal(afterErr)
+	}
+	if after == nil || after.CorrectionAttempts != 4 {
+		t.Fatalf("binding after refused fifth request = %+v, want correction attempts 4", after)
+	}
+}
+
 func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, WorkflowActor, WorkPin) {
 	t.Helper()
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)

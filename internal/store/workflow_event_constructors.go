@@ -139,6 +139,23 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 		for _, kind := range definition.RequiredEvidenceKinds {
 			required = append(required, string(kind))
 		}
+	} else {
+		// A caller-supplied list is the only route a new evidence requirement
+		// takes after a definition ships, so it is refused here, before any
+		// event exists, when the pinned definition has no reachable action
+		// that can bind one of the kinds. A defaulted list names the
+		// definition's own kinds and is the shipped set's own invariant.
+		producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
+		summary := strings.Join(producible, ", ")
+		if summary == "" {
+			summary = "no evidence kind"
+		}
+		for _, kind := range required {
+			if containsString(producible, kind) {
+				continue
+			}
+			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("approve_contract requires evidence kind %q, but no action reachable through the pinned workflow definition %s v%d can produce it; its reachable actions produce %s", kind, definition.Ref, definition.Version, summary), false, "require only evidence kinds the pinned definition's reachable actions can produce")
+		}
 	}
 	routes := workflowFieldStrings(fields, "route_conventions")
 	if routes == nil {

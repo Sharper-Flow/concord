@@ -124,7 +124,9 @@ enumeration reaches its bound. It names the bounded part unavailable or
 incomplete in place. A bounded read never reports an evaluated-clean
 answer, such as "no unresolved overlaps", from an incomplete enumeration.
 CD-0048 keeps evaluated-clean distinct from unevaluated. A missing Domain
-registry stays typed unavailable.
+registry stays typed unavailable. A missing Domain registry or knowledge home
+stays typed unavailable in its own section and never withholds the Product
+work list or changes screen coverage.
 
 ### 8. Failure and first run
 

@@ -779,6 +779,15 @@ func FilterCandidates(values []Candidate, query string) []Candidate {
 func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	previous := m.snapshot
 	snapshot, err := m.port.Read(ctx, request)
+	if err != nil && request.Kind == ReadKnowledge {
+		// A failed knowledge read is the Knowledge section's state alone;
+		// the screen keeps the rows and status its own read produced.
+		if !snapshot.Knowledge.Read {
+			snapshot.Knowledge = KnowledgeSection{Read: true, State: "unavailable", Reason: err.Error()}
+		}
+		m.snapshot = mergeKnowledgeSnapshot(previous, snapshot)
+		return err
+	}
 	if err != nil {
 		// A failed foreground read must never leave the previous rows looking
 		// current. Read ports may return typed unavailable state alongside the
@@ -796,9 +805,6 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 		}
 		if snapshot.StatusMessage == "" {
 			snapshot.StatusMessage = err.Error()
-		}
-		if request.Kind == ReadKnowledge {
-			snapshot = mergeKnowledgeSnapshot(previous, snapshot)
 		}
 		if probes, ok := m.port.(ProbePort); ok {
 			snapshot.Probes = append([]ProbeStatus(nil), probes.Probe(ctx)...)
@@ -855,26 +861,14 @@ func (m *Model) read(ctx context.Context, request ReadRequest) error {
 	return nil
 }
 
+// mergeKnowledgeSnapshot applies a knowledge read to the screen it serves.
+// The knowledge read answers one section, so every screen field — rows, work
+// list, coverage, reliance, watermark, status — stays as the screen's own
+// read set it.
 func mergeKnowledgeSnapshot(previous, knowledge Snapshot) Snapshot {
-	knowledge.Screen = previous.Screen
-	knowledge.AmbientProduct = previous.AmbientProduct
-	knowledge.SelectedWorkID = previous.SelectedWorkID
-	knowledge.Rows = previous.Rows
-	knowledge.Candidates = previous.Candidates
-	knowledge.Preview = previous.Preview
-	knowledge.Probes = previous.Probes
-	knowledge.Domains = previous.Domains
-	knowledge.Ranked = previous.Ranked
-	knowledge.Relations = previous.Relations
-	knowledge.Detail = previous.Detail
-	knowledge.Detail.Knowledge = knowledge.Knowledge
-	knowledge.Section = SectionKnowledge
-	knowledge.PanelFocus = previous.PanelFocus
-	knowledge.Session = previous.Session
-	// ActiveWorkOnly and Backlog are Product-scope picker facts the merged
-	// snapshot must keep: dropping them would show terminal history and hide
-	// the New / Backlog row on the screen the knowledge read serves.
-	knowledge.ActiveWorkOnly = previous.ActiveWorkOnly
-	knowledge.Backlog = previous.Backlog
-	return knowledge
+	merged := previous
+	merged.Knowledge = knowledge.Knowledge
+	merged.Detail.Knowledge = knowledge.Knowledge
+	merged.Section = SectionKnowledge
+	return merged
 }

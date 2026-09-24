@@ -262,8 +262,11 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }
 
-func validateEventKindRegistry() error {
-	for kind, registration := range eventKindRegistry {
+// validateEventKindRegistry checks one registration map. It takes the map as a
+// parameter so a test can check a malformed copy without writing the shared
+// eventKindRegistry, which parallel tests read while they fold events.
+func validateEventKindRegistry(registry map[string]EventKindRegistration) error {
+	for kind, registration := range registry {
 		if kind == "" {
 			return fmt.Errorf("event kind key is empty")
 		}

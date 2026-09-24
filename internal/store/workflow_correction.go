@@ -108,18 +108,23 @@ type WorkflowCorrectionContext struct {
 
 // WorkflowRetryApprovalBinding is the durable identity that an operator
 // approval must bind before a failed worker attempt can run again. It also
-// names the one correction an escalated wall admission may consume.
+// names the one correction an escalated wall admission may consume. An
+// escalated verification correction carries no failed attempt, so its wall
+// binds the correction's attempt count instead.
 type WorkflowRetryApprovalBinding struct {
 	FailedAttemptID    string
 	FailedAttemptEpoch int64
 	ContractVersion    int64
+	CorrectionAttempts int64
 }
 
 // WorkflowFailedWorkerRetryBinding reads the current failed worker attempt
 // and active contract without opening a nested store connection. An escalated
 // rejected result carries the same failed attempt identity, so its wall
-// admission binds it exactly like a failed disposition. A rejected result
-// below the limit keeps its ordinary approval-free correction dispatch.
+// admission binds it exactly like a failed disposition. An escalated
+// verification correction binds its attempt count, because the request that
+// closed the correction carried no worker attempt. A rejected result below
+// the limit keeps its ordinary approval-free correction dispatch.
 func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, workID string) (*WorkflowRetryApprovalBinding, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
@@ -147,20 +152,29 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, workID str
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
 	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
-	if err != nil || correction == nil || correction.FailedAttemptID == "" {
+	if err != nil || correction == nil {
 		return nil, err
 	}
-	if correction.Disposition != "failed" && !(correction.Escalated && correction.Disposition == "rejected") {
+	verification := correction.Escalated && correction.Disposition == "verification" && correction.FailedAttemptID == ""
+	switch {
+	case correction.Disposition == "failed":
+	case verification:
+	case correction.Escalated && correction.Disposition == "rejected" && correction.FailedAttemptID != "":
+	default:
 		return nil, nil
 	}
 	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowRetryApprovalBinding{
+	binding := &WorkflowRetryApprovalBinding{
 		FailedAttemptID: correction.FailedAttemptID, FailedAttemptEpoch: correction.FailedAttemptEpoch,
 		ContractVersion: contractVersion,
-	}, nil
+	}
+	if verification {
+		binding.CorrectionAttempts = correction.AttemptCount
+	}
+	return binding, nil
 }
 
 // validateFailedWorkerRetryIdentity refuses a retry that reuses the failed
@@ -545,9 +559,10 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	if context == nil {
 		return newFailure(KindInvalidOperation, subject, "request_correction requires a current non-ok verification verdict after worker delivery", false, "record the current verification verdict or reread the work pin")
 	}
-	if context.Escalated {
-		return newFailure(KindApprovalRequired, subject, "correction reached the three-attempt limit", false, "escalate the correction to the operator")
-	}
+	// The request path records every correction the verdict admits, including
+	// the escalated one: CD-0164 D4 arms the approval wall at dispatch when the
+	// request count passes the limit, so the wall stays operator approvable
+	// (CD-0148) instead of refusing the record a fresh attempt is bound to.
 	for _, predicate := range predicates {
 		if !contains(context.PredicateIDs, predicate) {
 			return newFailure(KindInvalidPayload, subject, "request_correction names a predicate without a current non-ok verdict", false, "name only affected approved predicates")

@@ -212,7 +212,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "", "enq-work", "task") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "", linearIssueProposal{}, "enq-work", "task") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
 		t.Fatalf("payload = %+v", decoded)
 	}
 	if len(decoded.LabelIDs) != 0 {
@@ -757,6 +757,49 @@ func TestLinearEnqueueBodyComposesPremiseAndResume(t *testing.T) {
 	}
 }
 
+func TestLinearEnqueueBodyPublishesLatestIntakeProposal(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "proposal-product")
+	setupLinearConnectionResource(t, s, "proposal-product", map[string]any{"linear": map[string]any{
+		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
+	}})
+	if _, err := s.SetProductPlanningMode(ctx, "proposal-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
+		t.Fatal(err)
+	}
+	seedLinearWorkItem(t, s, "proposal-work", "proposal-product-project", "Proposal title", "Proposal value")
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,1,?,?,?,?,?,?,?); DELETE FROM fold_guard`,
+		"proposal-work", "Intake problem", `["Project A"]`, "Intake stakes", `["Expected result"]`, `["Must preserve the API"]`, `["Does the API need migration?"]`, "2026-09-09T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	create, err := s.EnqueueLinearIssueForWork(ctx, "proposal-work", LinearOpIssueCreate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := decodeLinearDescription(t, s, create.OperationID)
+	for _, want := range []string{
+		"## Problem\n\nIntake problem", "## Affected\n\n- Project A", "## Stakes\n\nIntake stakes",
+		"## User outcomes\n\n- Expected result", "## Constraints\n\n- Must preserve the API",
+		"## Open questions\n\n- Does the API need migration?",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("description = %q, want substring %q", description, want)
+		}
+	}
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,2,?,?,?,?,?,?,?); DELETE FROM fold_guard`,
+		"proposal-work", "Revised intake problem", `["Project B"]`, "Revised stakes", `["Revised result"]`, `[]`, `[]`, "2026-09-10T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	update, err := s.EnqueueLinearIssueForWork(ctx, "proposal-work", LinearOpIssueUpdate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedDescription := decodeLinearDescription(t, s, update.OperationID)
+	if !strings.Contains(updatedDescription, "## Problem\n\nRevised intake problem") || !strings.Contains(updatedDescription, "- Project B") || !strings.Contains(updatedDescription, "## Stakes\n\nRevised stakes") || !strings.Contains(updatedDescription, "- Revised result") || strings.Contains(updatedDescription, "Project A") || strings.Contains(updatedDescription, "Intake stakes") || strings.Contains(updatedDescription, "Expected result") || strings.Contains(updatedDescription, "Open questions") || strings.Contains(updatedDescription, "Constraints") {
+		t.Fatalf("updated description = %q, want latest proposal and no stale optional sections", updatedDescription)
+	}
+}
+
 func TestLinearEnqueueBodyPublishesRecordedTaskBrief(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
@@ -804,15 +847,15 @@ func TestLinearEnqueueBodyPublishesRecordedTaskBrief(t *testing.T) {
 }
 
 func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
-	body := composeLinearIssueBody("", "", "", "work-x", "task")
+	body := composeLinearIssueBody("", "", "", linearIssueProposal{}, "work-x", "task")
 	want := "task · Resume: `concord zl work-x --`"
 	if body != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
-	if got := composeLinearIssueBody("  value ", " brief ", " premise ", "work-y", "task"); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Task\n\nbrief\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
+	if got := composeLinearIssueBody("  value ", " brief ", " premise ", linearIssueProposal{}, "work-y", "task"); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Task\n\nbrief\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
 		t.Fatalf("body = %q, want trimmed sections", got)
 	}
-	if got := composeLinearIssueBody("value", "", "premise", "work-z", "task"); strings.Contains(got, "## Task") {
+	if got := composeLinearIssueBody("value", "", "premise", linearIssueProposal{}, "work-z", "task"); strings.Contains(got, "## Task") {
 		t.Fatalf("body = %q, want no Task section without a recorded task brief", got)
 	}
 }

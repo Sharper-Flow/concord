@@ -32,13 +32,17 @@ func linearGraphQLStub(t *testing.T, projectJSON string, sawAuth *bool) *httptes
 	}))
 }
 
+// cliLinearConnectionTeam is the team_id the enableLinearProduct fixture
+// declares, so import stubs can serve projects that belong to it.
+const cliLinearConnectionTeam = "68d52710-76d9-4b41-ba45-778511d0e2ed"
+
 func TestLinearInitiativeImportCLI(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "import-product", "import-product-project")
 	enableLinearProduct(t, dbPath, "import-product")
 
 	var sawAuth bool
-	server := linearGraphQLStub(t, `{"id":"proj-uuid-1","name":"Example initiative","description":"Imported Linear Project","content":"The imported narrative.","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z"}`, &sawAuth)
+	server := linearGraphQLStub(t, `{"id":"proj-uuid-1","name":"Example initiative","description":"Imported Linear Project","content":"The imported narrative.","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z","teams":{"nodes":[{"id":"`+cliLinearConnectionTeam+`"}]}}`, &sawAuth)
 	defer server.Close()
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
 
@@ -117,5 +121,44 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "already imported") {
 		t.Fatalf("stderr=%q", errOut.String())
+	}
+}
+
+// TestLinearInitiativeImportRefusesForeignTeamProject proves the CD-0171 D1
+// binding: the import records a Linear Project only under the Product whose
+// connection team owns it, and a project of another team refuses typed before
+// any Concord work item is written.
+func TestLinearInitiativeImportRefusesForeignTeamProject(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "foreign-product", "foreign-product-project")
+	enableLinearProduct(t, dbPath, "foreign-product")
+
+	server := linearGraphQLStub(t, `{"id":"proj-uuid-foreign","name":"Foreign initiative","description":"Another team's project","content":"Another narrative.","url":"https://linear.app/example/project/proj-uuid-foreign","updatedAt":"2026-09-23T00:00:00Z","teams":{"nodes":[{"id":"other-team-uuid"}]}}`, nil)
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_import_test")
+
+	var out, errOut strings.Builder
+	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"foreign-product","initiative_id":"proj-uuid-foreign"}`), &out, &errOut); code == 0 {
+		t.Fatal("importing another team's project must exit non-zero")
+	}
+	if !strings.Contains(errOut.String(), "invalid_relation") || !strings.Contains(errOut.String(), "not the Product's connection team") {
+		t.Fatalf("stderr=%q, want the typed team-binding refusal", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "other-team-uuid") || !strings.Contains(errOut.String(), cliLinearConnectionTeam) {
+		t.Fatalf("stderr=%q, want both the project's team and the connection team", errOut.String())
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var imported int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE kind='initiative' AND json_extract(intent_json,'$.external_ref')='linear:proj-uuid-foreign'`).Scan(&imported); err != nil {
+		t.Fatal(err)
+	}
+	if imported != 0 {
+		t.Fatalf("the refused import recorded %d initiative work items, want 0", imported)
 	}
 }

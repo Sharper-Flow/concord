@@ -5,7 +5,9 @@ Every Concord-managed pull request carries one non-closing `Related to
 <TEAM>-<n>` line in its body. The phrase links the pull request to its Linear
 issue without a status change, because the Concord outbox is the only writer
 of issue status: a closing phrase such as `Fixes` would let the merge move the
-issue behind Linear's planning authority, so this check refuses one.
+issue behind Linear's planning authority, so this check refuses one. Linear
+parses a closing magic word in the pull request title as well as the body
+(https://linear.app/docs/github), so both surfaces get the same scan.
 
 The branch name marks Concord-managed work, not the author. Only head
 branches matching `work/work-*` are checked; bot and ad-hoc pull requests
@@ -37,9 +39,10 @@ RELATED_LINE = re.compile(r"^[ \t]*Related to[ \t]+([A-Z][A-Z0-9]*-[0-9]+)[ \t]*
 # D8 forbids them outright, so their presence fails the check even when a
 # Related-to line also exists. The words are Linear's closing magic words,
 # verbatim from https://linear.app/docs/github. Linear parses a closing phrase
-# wherever the word sits on a line, so the word may appear anywhere as long as
-# the issue key directly follows it; a key before the word, or a word with no
-# key after it, is prose and stays accepted.
+# in the pull request title as well as the body, so both surfaces get the same
+# scan: the word may appear anywhere as long as the issue key directly follows
+# it; a key before the word, or a word with no key after it, is prose and
+# stays accepted.
 CLOSING_LINE = re.compile(
     r"\b(?:close|closes|closed|closing|fix|fixes|fixed|fixing"
     r"|resolve|resolves|resolved|resolving"
@@ -67,18 +70,27 @@ def closing_keys(body: str) -> list[str]:
     return CLOSING_LINE.findall(body or "")
 
 
-def check_pr_link(head_ref: str, body: str) -> tuple[bool, str]:
+def closing_refusal(where: str, keys: list[str]) -> tuple[bool, str]:
+    """Build the refusal for a closing phrase found on one pull request surface."""
+    return False, (
+        f"the {where} closes Linear issue"
+        f"{'' if len(keys) == 1 else 's'} {' and '.join(sorted(set(keys)))} with a closing "
+        "phrase; CD-0171 D8 keeps issue status with the Concord outbox, so use "
+        "'Related to <TEAM>-<n>' in the body"
+    )
+
+
+def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     """Check one pull request. Returns (ok, detail)."""
     if not WORK_BRANCH.match(head_ref or ""):
         return True, f"head branch {head_ref!r} is not a Concord work branch; no linkage required"
-    closing = closing_keys(body)
-    if closing:
-        return False, (
-            "the body closes Linear issue"
-            f"{'' if len(closing) == 1 else 's'} {' and '.join(sorted(set(closing)))} with a closing "
-            "phrase; CD-0171 D8 keeps issue status with the Concord outbox, so use "
-            "'Related to <TEAM>-<n>'"
-        )
+    # Linear parses closing magic words in the PR title as well as the body,
+    # so a work-branch PR titled 'Fixes CON-427' would close its issue behind
+    # the outbox's back. Both surfaces get the same refusal.
+    for where, text in (("title", title), ("body", body)):
+        closing = closing_keys(text)
+        if closing:
+            return closing_refusal(where, closing)
     key = related_key(body)
     if key is None:
         return False, (
@@ -96,11 +108,11 @@ def queued_pr_number(queue_ref: str) -> str:
     return match.group(1)
 
 
-def read_queued_pr(queue_ref: str, runner=subprocess.run) -> tuple[str, str]:
-    """Read the head branch and body of the pull request behind a merge queue entry."""
+def read_queued_pr(queue_ref: str, runner=subprocess.run) -> tuple[str, str, str]:
+    """Read the head branch, title, and body of the pull request behind a merge queue entry."""
     number = queued_pr_number(queue_ref)
     result = runner(
-        ["gh", "pr", "view", number, "--json", "headRefName,body"],
+        ["gh", "pr", "view", number, "--json", "headRefName,title,body"],
         capture_output=True,
         text=True,
     )
@@ -110,18 +122,26 @@ def read_queued_pr(queue_ref: str, runner=subprocess.run) -> tuple[str, str]:
         pull_request = json.loads(result.stdout)
     except json.JSONDecodeError as err:
         raise SystemExit(f"cannot read pull request {number}: {err}") from err
-    return pull_request.get("headRefName") or "", pull_request.get("body") or ""
+    return (
+        pull_request.get("headRefName") or "",
+        pull_request.get("title") or "",
+        pull_request.get("body") or "",
+    )
 
 
-def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> tuple[str, str]:
-    """Resolve (head_ref, body) for the pull request this run validates."""
+def resolve_pr(event_name: str, event: dict, runner=subprocess.run) -> tuple[str, str, str]:
+    """Resolve (head_ref, title, body) for the pull request this run validates."""
     if event_name == "pull_request":
         pull_request = event.get("pull_request") or {}
-        return pull_request.get("head", {}).get("ref", ""), pull_request.get("body") or ""
+        return (
+            pull_request.get("head", {}).get("ref", ""),
+            pull_request.get("title") or "",
+            pull_request.get("body") or "",
+        )
     if event_name == "merge_group":
         merge_group = event.get("merge_group") or {}
         return read_queued_pr(merge_group.get("head_ref", ""), runner)
-    return "", ""
+    return "", "", ""
 
 
 def main(argv: list[str]) -> int:
@@ -139,8 +159,8 @@ def main(argv: list[str]) -> int:
     except (OSError, json.JSONDecodeError) as err:
         print(f"cannot read the event payload at {event_path!r}: {err}")
         return 1
-    head_ref, body = resolve_pr(event_name, event)
-    ok, detail = check_pr_link(head_ref, body)
+    head_ref, title, body = resolve_pr(event_name, event)
+    ok, detail = check_pr_link(head_ref, title, body)
     print(f"pull request {head_ref!r}: {detail}")
     return 0 if ok else 1
 

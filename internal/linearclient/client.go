@@ -143,6 +143,9 @@ type Issue struct {
 
 // Project is the remote Linear project identity and content. Content is the
 // project's markdown document; Description is the short field (CD-0171 d3).
+// TeamIDs lists the teams the project belongs to, so the initiative import
+// can verify the project belongs to the Product's connection team before
+// binding it (CD-0171 D1). Only GetProject populates it.
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -150,6 +153,7 @@ type Project struct {
 	Content     string    `json:"content"`
 	URL         string    `json:"url"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	TeamIDs     []string  `json:"teamIds,omitempty"`
 }
 
 // CreateProjectInput carries the fields the drain supplies on project
@@ -463,21 +467,32 @@ func (c *Client) UpdateProject(ctx context.Context, projectUUID string, input Up
 	return payload.ProjectUpdate.Project, nil
 }
 
-// GetProject fetches one project by its UUID. Linear answers an unknown
-// project with a GraphQL error, which maps to the permanent KindGraphqlError
-// failure.
+// GetProject fetches one project by its UUID together with the teams it
+// belongs to. Linear answers an unknown project with a GraphQL error, which
+// maps to the permanent KindGraphqlError failure.
 func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, error) {
 	var payload struct {
-		Project Project `json:"project"`
+		Project struct {
+			Project
+			Teams struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"teams"`
+		} `json:"project"`
 	}
-	query := "query($id: String!) { project(id: $id) { id name description content url updatedAt } }"
+	query := "query($id: String!) { project(id: $id) { id name description content url updatedAt teams { nodes { id } } } }"
 	if err := c.call(ctx, query, map[string]any{"id": projectUUID}, &payload); err != nil {
 		return Project{}, err
 	}
 	if payload.Project.ID == "" {
 		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "project query returned no project"}
 	}
-	return payload.Project, nil
+	project := payload.Project.Project
+	for _, node := range payload.Project.Teams.Nodes {
+		project.TeamIDs = append(project.TeamIDs, node.ID)
+	}
+	return project, nil
 }
 
 // startedIssuesPageSize is the page size the started-issue sweep requests.

@@ -641,6 +641,9 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 			rows.Close()
 			t.Fatal("a work item outside every Initiative queued a converging update")
 		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
 		rows.Close()
 	})
 }

@@ -2686,36 +2686,56 @@ func (s *Store) CompleteLinearIssueOperation(ctx context.Context, operationID st
 			return newFailure(KindInvalidPayload, "linear_outbox_complete", "the sent issue payload does not decode", false, "complete only operations the enqueue wrote")
 		}
 		sentState := linearIssueSyncState{ProjectID: sentProjectID, LabelIDs: sent.LabelIDs, Title: sent.Title, Description: sent.Description}
-		var title, valueStatement, task, kind, lifecycle, urgency string
-		if err := tx.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(json_extract(intent_json, '$.task'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &task, &kind, &lifecycle, &urgency); err != nil {
-			return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot re-read the work item", true, "retry once the database is readable", err)
-		}
-		desired, err := buildLinearIssueSyncStateCore(ctx, tx, "", workID, title, valueStatement, task, kind, lifecycle, urgency)
-		if err != nil {
-			// The remote effect already succeeded, so a configuration gap on
-			// the connection cannot fail this completion; the capture path
-			// absorbs the same refusals. Availability errors propagate and
-			// the drain retries the completion.
-			if linearCaptureConfigurationRefusal(err) {
-				return nil
-			}
-			return err
-		}
-		if !linearIssueSyncStateDiverged(sentState, desired) {
+		return convergeLinearIssueCompletionTx(ctx, tx, s.now(), workID, sentState)
+	})
+}
+
+// CompleteLinearIssueAdoption completes an issue_adopt operation through the
+// same full-state convergence as a create (CD-0171 review correction): after
+// the adopt link is recorded, this transaction re-derives the desired
+// Project, labels, and body from current data and compares them with the
+// adopted issue's state at drain time. The drain wrote no managed state, so
+// the sent Project and labels are empty — an adoption whose issue lacks the
+// repository label, the optional label, or the owning Initiative's Project
+// queues exactly one converging issue_update here, in the same transaction.
+// adoptedTitle and adoptedDescription are the remote issue's own text the
+// drain resolved: the issue was authored in Linear, so only a real
+// difference from Concord's composition queues a body rewrite.
+func (s *Store) CompleteLinearIssueAdoption(ctx context.Context, operationID string, identity LinearRemoteIdentity, adoptedTitle, adoptedDescription string) error {
+	return s.completeLinearOperation(ctx, operationID, &identity, func(ctx context.Context, tx *sql.Tx, workID string) error {
+		sentState := linearIssueSyncState{LabelIDs: nil, Title: adoptedTitle, Description: adoptedDescription}
+		return convergeLinearIssueCompletionTx(ctx, tx, s.now(), workID, sentState)
+	})
+}
+
+// convergeLinearIssueCompletionTx re-derives the issue's full desired state
+// inside the completion transaction and queues exactly one issue_update when
+// it diverges from the state the drain sent. A configuration gap on the
+// connection cannot fail the completion — the remote effect already
+// succeeded, and the capture path absorbs the same refusals; availability
+// errors propagate so the drain retries the completion.
+func convergeLinearIssueCompletionTx(ctx context.Context, tx *sql.Tx, at time.Time, workID string, sentState linearIssueSyncState) error {
+	var title, valueStatement, task, kind, lifecycle, urgency string
+	if err := tx.QueryRowContext(ctx, `SELECT title, coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(json_extract(intent_json, '$.task'), ''), kind, lifecycle, urgency FROM work_items WHERE id=?`, workID).Scan(&title, &valueStatement, &task, &kind, &lifecycle, &urgency); err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot re-read the work item", true, "retry once the database is readable", err)
+	}
+	desired, err := buildLinearIssueSyncStateCore(ctx, tx, "", workID, title, valueStatement, task, kind, lifecycle, urgency)
+	if err != nil {
+		if linearCaptureConfigurationRefusal(err) {
 			return nil
 		}
-		if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, workID, s.now()); err != nil {
-			// The remote effect already succeeded, so a configuration gap on
-			// the connection cannot fail this completion; the capture path
-			// absorbs the same refusals. Availability errors propagate and
-			// the drain retries the completion.
-			if linearCaptureConfigurationRefusal(err) {
-				return nil
-			}
-			return err
-		}
+		return err
+	}
+	if !linearIssueSyncStateDiverged(sentState, desired) {
 		return nil
-	})
+	}
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, workID, at); err != nil {
+		if linearCaptureConfigurationRefusal(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // CompleteSupersededLinearOperation marks an older in-flight update done while

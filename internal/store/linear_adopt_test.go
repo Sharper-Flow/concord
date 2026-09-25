@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -237,4 +238,174 @@ func completionFailureIsPermanent(t *testing.T, err error) bool {
 		return false
 	}
 	return !failure.RetrySafe
+}
+
+// TestLinearIssueAdoptionCompletionConvergesManagedState proves the CD-0171
+// review correction: adoption completes through the same full-state
+// convergence as a create. The adopted issue carries none of the managed
+// state Concord enqueues, so the completion queues exactly one issue_update
+// that installs the repository label, the optional label for a non-required
+// entry, and the owning Initiative's Linear Project, inside the completion
+// transaction.
+func TestLinearIssueAdoptionCompletionConvergesManagedState(t *testing.T) {
+	queuedConvergingUpdates := func(t *testing.T, s *Store, workID string) []linearPayload {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT payload FROM linear_outbox WHERE work_id=? AND op_kind=? AND state=? ORDER BY rowid`, workID, LinearOpIssueUpdate, LinearOutboxQueued)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var payloads []linearPayload
+		for rows.Next() {
+			var raw string
+			if err := rows.Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var payload linearPayload
+			if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+				t.Fatal(err)
+			}
+			payloads = append(payloads, payload)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return payloads
+	}
+
+	completeAdoption := func(t *testing.T, s *Store, productID, workID string) {
+		t.Helper()
+		ctx := t.Context()
+		op, err := s.EnqueueLinearIssueAdoption(ctx, productID, workID, "11111111-2222-3333-4444-555555555555")
+		if err != nil {
+			t.Fatalf("EnqueueLinearIssueAdoption() error = %v", err)
+		}
+		if err := s.ClaimLinearOperation(ctx, op.OperationID); err != nil {
+			t.Fatal(err)
+		}
+		// The adopted issue was authored in Linear, so its own title and
+		// description are the state the drain resolved.
+		if err := s.CompleteLinearIssueAdoption(ctx, op.OperationID, LinearRemoteIdentity{
+			RemoteUUID:      "11111111-2222-3333-4444-555555555555",
+			HumanKey:        "EX-9",
+			URL:             "https://linear.app/example/issue/EX-9",
+			RemoteUpdatedAt: "2026-09-24T00:00:00Z",
+		}, "Human-authored title", "Human-authored description"); err != nil {
+			t.Fatalf("CompleteLinearIssueAdoption() error = %v", err)
+		}
+		link, err := s.ReadLinearLink(ctx, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if link.LinkState != LinearLinkConfirmed || link.ContentHash != "" {
+			t.Fatalf("adoption link = %+v, want confirmed with no claimed content digest", link)
+		}
+	}
+
+	t.Run("an unlabeled adopted issue receives its repository label and Project", func(t *testing.T) {
+		t.Parallel()
+		s := openTemp(t)
+		setupLinearProduct(t, s, "adoptconv-product")
+		setupLinearLabelConnection(t, s, "adoptconv-product", map[string]string{
+			"task": "label-task", "project:adoptconv-product-project": "label-repo",
+		})
+		enableLinearPlanning(t, s, "adoptconv-product", 2)
+		seedLinearWorkOfKind(t, s, "adoptconv-initiative", "adoptconv-product-project", "initiative", "Adopt convergence initiative", "Adopt convergence value")
+		seedLinearWorkItem(t, s, "adoptconv-work", "adoptconv-product-project", "Adopt conv title", "Adopt conv value")
+		seedLinearInitiativeEntry(t, s, "adoptconv-initiative", "adoptconv-work", true)
+		seedLinearProjectLink(t, s, "adoptconv-initiative", "adopt-project-remote")
+
+		completeAdoption(t, s, "adoptconv-product", "adoptconv-work")
+		updates := queuedConvergingUpdates(t, s, "adoptconv-work")
+		if len(updates) != 1 {
+			t.Fatalf("converging updates = %d, want exactly one", len(updates))
+		}
+		sort.Strings(updates[0].LabelIDs)
+		if len(updates[0].LabelIDs) != 2 || updates[0].LabelIDs[0] != "label-repo" || updates[0].LabelIDs[1] != "label-task" {
+			t.Fatalf("converging labels = %v, want the repository and kind labels (CD-0171 D3)", updates[0].LabelIDs)
+		}
+		// The payload carries no Project: the update drain resolves the owning
+		// Initiative's Project at send time, so the link read is the assertion.
+		projectID, err := s.ResolveLinearProjectIDForWork(t.Context(), "adoptconv-work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projectID != "adopt-project-remote" {
+			t.Fatalf("drain-time project = %q, want the owning Initiative's Linear Project (CD-0171 D2)", projectID)
+		}
+	})
+
+	t.Run("a non-required adopted entry also receives the optional label", func(t *testing.T) {
+		t.Parallel()
+		s := openTemp(t)
+		setupLinearProduct(t, s, "optconv-product")
+		setupLinearLabelConnection(t, s, "optconv-product", map[string]string{
+			"task": "label-task", "optional": "label-optional", "project:optconv-product-project": "label-repo",
+		})
+		enableLinearPlanning(t, s, "optconv-product", 2)
+		seedLinearWorkOfKind(t, s, "optconv-initiative", "optconv-product-project", "initiative", "Optional convergence initiative", "Optional convergence value")
+		seedLinearWorkItem(t, s, "optconv-work", "optconv-product-project", "Optional conv title", "Optional conv value")
+		seedLinearInitiativeEntry(t, s, "optconv-initiative", "optconv-work", false)
+		seedLinearProjectLink(t, s, "optconv-initiative", "opt-project-remote")
+
+		completeAdoption(t, s, "optconv-product", "optconv-work")
+		updates := queuedConvergingUpdates(t, s, "optconv-work")
+		if len(updates) != 1 {
+			t.Fatalf("converging updates = %d, want exactly one", len(updates))
+		}
+		hasOptional, hasRepository := false, false
+		for _, labelID := range updates[0].LabelIDs {
+			switch labelID {
+			case "label-optional":
+				hasOptional = true
+			case "label-repo":
+				hasRepository = true
+			}
+		}
+		if !hasOptional || !hasRepository {
+			t.Fatalf("converging labels = %v, want the repository and optional labels (CD-0171 D3, D5)", updates[0].LabelIDs)
+		}
+		projectID, err := s.ResolveLinearProjectIDForWork(t.Context(), "optconv-work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projectID != "opt-project-remote" {
+			t.Fatalf("drain-time project = %q, want the owning Initiative's Linear Project", projectID)
+		}
+	})
+
+	t.Run("a work item outside an Initiative converges with no Linear Project", func(t *testing.T) {
+		t.Parallel()
+		s := openTemp(t)
+		setupLinearProduct(t, s, "bareconv-product")
+		setupLinearLabelConnection(t, s, "bareconv-product", map[string]string{
+			"task": "label-task", "project:bareconv-product-project": "label-repo",
+		})
+		enableLinearPlanning(t, s, "bareconv-product", 2)
+		seedLinearWorkItem(t, s, "bareconv-work", "bareconv-product-project", "Bare conv title", "Bare conv value")
+
+		completeAdoption(t, s, "bareconv-product", "bareconv-work")
+		updates := queuedConvergingUpdates(t, s, "bareconv-work")
+		if len(updates) != 1 {
+			t.Fatalf("converging updates = %d, want exactly one", len(updates))
+		}
+		// The payload carries no Project, and no Initiative owns this work
+		// item, so the update drain must resolve no Linear Project.
+		projectID, err := s.ResolveLinearProjectIDForWork(t.Context(), "bareconv-work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projectID != "" {
+			t.Fatalf("drain-time project = %q, want no Linear Project outside an Initiative (CD-0171 D2)", projectID)
+		}
+		hasRepository := false
+		for _, labelID := range updates[0].LabelIDs {
+			if labelID == "label-repo" {
+				hasRepository = true
+			}
+		}
+		if !hasRepository {
+			t.Fatalf("converging labels = %v, want the repository label (CD-0171 D3)", updates[0].LabelIDs)
+		}
+	})
 }

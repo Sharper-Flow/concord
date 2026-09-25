@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1525,11 +1526,13 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		// Create and update completions compare the sent Project against the
 		// link read inside the same transaction and enqueue the converging
 		// update when the project_create landed mid-drain (CD-0171 review
-		// correction). Adoption sends no Project and keeps the plain
-		// completion.
+		// correction). Adoption runs the same full-state convergence against
+		// the adopted issue's own text, so an unlabeled adopted issue receives
+		// its repository and optional labels and its Initiative's Project
+		// through one queued issue_update.
 		completeErr := error(nil)
 		if op.OpKind == store.LinearOpIssueAdopt {
-			completeErr = s.CompleteLinearOperation(ctx, op.OperationID, identity)
+			completeErr = s.CompleteLinearIssueAdoption(ctx, op.OperationID, identity, issue.Title, issue.Description)
 		} else {
 			completeErr = s.CompleteLinearIssueOperation(ctx, op.OperationID, identity, sentProjectID)
 		}
@@ -1922,6 +1925,25 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 	project, err := client.GetProject(ctx, request.InitiativeID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	// CD-0171 D1: the import binds a Linear Project to the Product's Linear
+	// team, so a project that belongs to another team refuses instead of
+	// silently planning a foreign team's work under this Product.
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if !slices.Contains(project.TeamIDs, connection.TeamID) {
+		refusal := &store.Failure{
+			Kind:           store.KindInvalidRelation,
+			Op:             "linear-initiative-import",
+			Detail:         fmt.Sprintf("Linear Project %s belongs to teams %v, not the Product's connection team %s", project.ID, project.TeamIDs, connection.TeamID),
+			RetrySafe:      true,
+			RecoveryAction: "import a Linear Project that belongs to the Product's connection team, or update the connection's team_id",
+		}
+		writeOperatorDiagnostic(errOut, command, refusal.Error())
 		return 1
 	}
 	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.Content, project.URL)

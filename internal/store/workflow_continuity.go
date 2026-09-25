@@ -10,6 +10,13 @@ import (
 
 const continuityMaxOffset = 1000000
 
+// WorkflowInstance values on ContinuitySnapshot. Presence is the pinned
+// default; absence is typed, never inferred from an empty step.
+const (
+	WorkflowInstancePresent = "present"
+	WorkflowInstanceAbsent  = "absent"
+)
+
 type ContextCheckpoint struct {
 	CheckpointID     string   `json:"checkpoint_id"`
 	WorkVersion      int64    `json:"work_version"`
@@ -71,8 +78,14 @@ type ContextFailure struct {
 }
 
 type ContinuitySnapshot struct {
-	WorkID                   string                            `json:"work_id"`
-	ProductIdentity          []string                          `json:"product_identity"`
+	WorkID          string   `json:"work_id"`
+	ProductIdentity []string `json:"product_identity"`
+	// WorkflowInstance states workflow-instance presence as typed
+	// information: WorkflowInstancePresent for the pinned default every
+	// captured item carries, WorkflowInstanceAbsent for an imported or
+	// otherwise instance-less work item the read still answers for.
+	// WorkflowStep is empty exactly when this is WorkflowInstanceAbsent.
+	WorkflowInstance         string                            `json:"workflow_instance"`
 	WorkflowStep             string                            `json:"workflow_step"`
 	StepActions              []string                          `json:"step_actions"`
 	Contract                 *WorkflowReadContract             `json:"contract"`
@@ -166,29 +179,11 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	out.StepActions = []string{}
 	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
-	var currentStep string
-	var definition WorkflowReadDefinition
-	var workVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&currentStep, &definition.Ref, &definition.Version, &definition.Digest, &workVersion); err != nil {
-		if err == sql.ErrNoRows {
-			return out, newFailure(KindProjectionNotFound, "C19.Continuity", "workflow instance is not recorded", false, "reread_entities")
-		}
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
-	}
-	pin, pinErr := ReadWorkPinTx(ctx, tx, req.Work)
-	if pinErr != nil {
-		return out, pinErr
-	}
-	out.WorkPin = &pin
-	out.WorkflowStep = currentStep
-	registered, err := verifyReadWorkflowDefinition(definition)
+	instance, err := readContinuityInstanceTx(ctx, tx, req.Work, &out)
 	if err != nil {
 		return out, err
 	}
-	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	if step := workflowStep(registered.Definition, currentStep); step != nil {
-		out.StepActions = append(out.StepActions, step.Actions...)
-	}
+	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)
@@ -308,13 +303,14 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	} else if err != sql.ErrNoRows {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
-	var state string
-	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
-	}
-	if state == "blocked" {
-		var failure ContextFailure
-		if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
+	if instancePresent {
+		var state string
+		if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {
+			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
+		}
+		if state == "blocked" {
+			var failure ContextFailure
+			if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
 FROM domain_events f
 WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
   AND NOT EXISTS (
@@ -324,9 +320,10 @@ WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
       AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
   )
 ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
-			out.UnresolvedFailure = &failure
-		} else if err != sql.ErrNoRows {
-			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
+				out.UnresolvedFailure = &failure
+			} else if err != sql.ErrNoRows {
+				return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
+			}
 		}
 	}
 	var total int64
@@ -397,6 +394,55 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	}
 	obsRows.Close()
 	return out, nil
+}
+
+// continuityInstance is the workflow-instance part of one continuity read.
+// present is false for a recorded work item that holds no instance.
+type continuityInstance struct {
+	step        string
+	definition  WorkflowReadDefinition
+	workVersion int64
+	present     bool
+}
+
+// readContinuityInstanceTx reads the work item's workflow instance and seats
+// the instance-derived snapshot fields. An imported work item holds no
+// instance: the read answers with typed absence, and a launch never creates
+// one. Absence is a property of a recorded item, so an unknown ID refuses.
+func readContinuityInstanceTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) (continuityInstance, error) {
+	var instance continuityInstance
+	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_version,definition_digest,(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&instance.step, &instance.definition.Ref, &instance.definition.Version, &instance.definition.Digest, &instance.workVersion)
+	if err == sql.ErrNoRows {
+		exists, existsErr := workExistsCore(ctx, tx, work)
+		if existsErr != nil {
+			return instance, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read work item", true, "retry once the database is readable", existsErr)
+		}
+		if !exists {
+			return instance, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
+		}
+		out.WorkflowInstance = WorkflowInstanceAbsent
+		return instance, nil
+	}
+	if err != nil {
+		return instance, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
+	}
+	instance.present = true
+	out.WorkflowInstance = WorkflowInstancePresent
+	pin, err := ReadWorkPinTx(ctx, tx, work)
+	if err != nil {
+		return instance, err
+	}
+	out.WorkPin = &pin
+	out.WorkflowStep = instance.step
+	registered, err := verifyReadWorkflowDefinition(instance.definition)
+	if err != nil {
+		return instance, err
+	}
+	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
+	if step := workflowStep(registered.Definition, instance.step); step != nil {
+		out.StepActions = append(out.StepActions, step.Actions...)
+	}
+	return instance, nil
 }
 
 func continuityOffset(cursor, work string) (int, error) {

@@ -90,6 +90,41 @@ func TestBuildRejectsProductMismatch(t *testing.T) {
 	}
 }
 
+// TestBuildStatesWorkflowAbsenceForInstanceLessWork holds the typed absence
+// the boot packet states for an imported work item: the packet validates and
+// names the workflow absence instead of carrying a fabricated step.
+func TestBuildStatesWorkflowAbsenceForInstanceLessWork(t *testing.T) {
+	snapshot := store.ContinuitySnapshot{
+		WorkID: "import-advance-work-one", ProductIdentity: []string{"corded"},
+		WorkflowInstance: store.WorkflowInstanceAbsent,
+		SpecMandate:      []string{},
+		Boundaries:       []store.ContextBoundary{}, Watermark: "seq:2",
+		RestartUnavailableReason: "typed restart is deliberately excluded",
+	}
+	raw, err := Build("corded", snapshot)
+	if err != nil {
+		t.Fatalf("instance-less boot packet refused: %v", err)
+	}
+	if err := Validate(raw); err != nil {
+		t.Fatalf("instance-less boot packet failed validation: %v", err)
+	}
+	var packet struct {
+		Continuity struct {
+			Pinned map[string]any `json:"pinned"`
+		} `json:"continuity"`
+	}
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	if packet.Continuity.Pinned["workflow_instance"] != store.WorkflowInstanceAbsent {
+		t.Fatalf("boot packet does not name the workflow absence: pinned=%v", packet.Continuity.Pinned)
+	}
+	step, present := packet.Continuity.Pinned["workflow_step"]
+	if !present || step != nil {
+		t.Fatalf("workflow_step=%v present=%v, want a present null", step, present)
+	}
+}
+
 func TestValidateRejectsOversizePacket(t *testing.T) {
 	raw := bytes.Repeat([]byte("x"), agent.MaxEnvelopeBytes+1)
 	if err := Validate(raw); err == nil || !strings.Contains(err.Error(), "exceeds") {

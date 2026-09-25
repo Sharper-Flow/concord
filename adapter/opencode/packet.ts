@@ -18,6 +18,7 @@ export type AgentLanePacketFailureKind =
   | "transport_failure"
   | "missing_work_item"
   | "mandate_unapproved"
+  | "workflow_absent"
   | "projection_overflow"
   | "packet_refused"
 
@@ -240,6 +241,9 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const pinned = continuity.result.pinned
   if (!isRecord(pinned)) {
     return failure("transport_failure", `concord_work_trace.continuity returned no pinned continuity for ${request.workId}`)
+  }
+  if (pinned.workflow_instance === "absent") {
+    return failure("workflow_absent", `work ${request.workId} holds no workflow instance; a lane packet needs a workflow step`)
   }
   const workflowStep = pinned.workflow_step
   if (typeof workflowStep !== "string") {

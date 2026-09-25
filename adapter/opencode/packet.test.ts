@@ -690,6 +690,16 @@ test("a scope read that returns no work item is a typed missing-work failure", a
   expect(built.failure!.kind).toBe("missing_work_item")
 })
 
+test("a work item with no workflow instance is a typed workflow-absent failure", async () => {
+  const absent = coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+    result: { work_id: WORK_ID, pinned: { product_identity: [PRODUCT_ID], workflow_instance: "absent", workflow_step: null, step_actions: [], contract: null, spec_mandate: [] } },
+  })
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": absent })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("workflow_absent")
+  expect(built.failure!.message).toContain("holds no workflow instance")
+})
+
 test("a pinned contract without typed outcome predicates is a typed transport failure", async () => {
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope({ version: 1, premise: "p", outcome_predicates: 7, required_evidence: [], route_conventions: [], spec_mandate: [] }) })
   expect(built.packet).toBeUndefined()

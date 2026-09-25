@@ -301,7 +301,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Sync()
 		return m, nil
 	case sessionLaunchError:
-		m.setError(msg.err)
+		m.setLaunchError(msg.err)
 		m.Sync()
 		return m, nil
 	case tea.PasteMsg:
@@ -625,15 +625,15 @@ func (m *Model) activateCandidate(candidate launcher.Candidate) (tea.Cmd, bool) 
 		return nil, true
 	case launcher.CandidateWork:
 		if !candidate.Available {
-			m.setError(fmt.Errorf("work item %s has no claimed worktree", candidate.ID))
+			m.setLaunchError(fmt.Errorf("work item %s has no claimed worktree", candidate.ID))
 			m.Sync()
 			return nil, true
 		}
-		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative", Section: launcher.SectionRanked})
-		return m.launch(m.core.Handoff()), true
+		// The handoff comes from the candidate alone. The screen keeps what
+		// the read produced, so a refused launch changes no state.
+		return m.launch(launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}), true
 	case launcher.CandidateProject:
-		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative"})
-		return m.launch(m.core.Handoff()), true
+		return m.launch(launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}), true
 	}
 	return nil, false
 }
@@ -728,6 +728,15 @@ func (m *Model) setError(err error) {
 	snapshot.Coverage = "unreachable"
 	// This is process-launch status, not workflow authority. Preserve the
 	// current snapshot and expose the typed failure without retrying.
+	m.core.RestoreSnapshot(snapshot)
+}
+
+// setLaunchError reports a refused launch through the status message alone.
+// A failed launch reports the refusal and changes no screen state: coverage,
+// reliance, watermark, and rows stay as the work read set them.
+func (m *Model) setLaunchError(err error) {
+	snapshot := m.core.Snapshot()
+	snapshot.StatusMessage = err.Error()
 	m.core.RestoreSnapshot(snapshot)
 }
 

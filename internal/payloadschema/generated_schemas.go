@@ -923,8 +923,18 @@ const GeneratedPayloadSchemaDocument = `{
             "work_pin": {
               "$ref": "#/$defs/work_pin"
             },
+            "workflow_instance": {
+              "const": "absent",
+              "description": "Typed workflow-instance absence. Present only when the work item holds no workflow instance; the packet fabricates no step for it, and a launch never creates one."
+            },
             "workflow_step": {
-              "$ref": "#/$defs/short"
+              "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+              "maxLength": 256,
+              "minLength": 1,
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [

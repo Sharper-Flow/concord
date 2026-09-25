@@ -2696,7 +2696,13 @@
               }
             },
             "workflow_step": {
-              "$ref": "#/$defs/short"
+              "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
             },
             "step_actions": {
               "type": "array",
@@ -2805,6 +2811,10 @@
               "items": {
                 "$ref": "#/$defs/active_worktree_verify_lease"
               }
+            },
+            "workflow_instance": {
+              "description": "Typed workflow-instance absence. Present only when the work item holds no workflow instance; the packet fabricates no step for it, and a launch never creates one.",
+              "const": "absent"
             }
           }
         },

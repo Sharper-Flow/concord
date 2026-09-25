@@ -220,3 +220,80 @@ func TestDrainAuditCommentRefusesADivergentStoredBody(t *testing.T) {
 		t.Fatalf("results = %+v, want a permanent refusal naming the divergent stored body", results)
 	}
 }
+
+// retargetAuditDrainLink rewrites the stored link to name another remote
+// issue after the audit operation was queued: the exact retarget the drain
+// must refuse instead of following.
+func retargetAuditDrainLink(t *testing.T, dbPath, workID string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE linear_issue_links SET remote_issue_uuid='remote-retargeted', human_key='CON-999' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDrainAuditCommentRefusesARetargetedLink(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	const auditBody = "- CON-400 names dependency CON-397 as blocking; the tracking issue shows no such dependency."
+	seedAuditCommentDrainCase(t, dbPath, "audit-retarget-work", auditBody)
+	retargetAuditDrainLink(t, dbPath, "audit-retarget-work")
+	rec := &auditCommentRecorder{t: t}
+	results := drainAuditCommentCase(t, dbPath, rec.handler())
+	if len(results) != 1 || results[0].Outcome != "permanent" || !strings.Contains(results[0].Detail, "queued for pinned issue") {
+		t.Fatalf("results = %+v, want a permanent refusal naming the pinned issue", results)
+	}
+	if len(rec.comments) != 0 {
+		t.Fatalf("commentCreate calls = %d, want the retargeted audit never sent", len(rec.comments))
+	}
+}
+
+func TestDrainAuditCommentRefusesAnUnconfirmedLink(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	const auditBody = "- CON-400 completion cites a check that never ran; cite the rerun instead."
+	seedAuditCommentDrainCase(t, dbPath, "audit-unconfirmed-work", auditBody)
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordLinearLink(ctx, "audit-unconfirmed-work", "remote-audit-drain", "CON-400", "https://linear.app/example/issue/CON-400", "2026-09-20T08:00:00Z", "", store.LinearLinkPending); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	rec := &auditCommentRecorder{t: t}
+	results := drainAuditCommentCase(t, dbPath, rec.handler())
+	if len(results) != 1 || results[0].Outcome != "permanent" || !strings.Contains(results[0].Detail, "not confirmed") {
+		t.Fatalf("results = %+v, want a permanent refusal naming the unconfirmed link", results)
+	}
+	if len(rec.comments) != 0 {
+		t.Fatalf("commentCreate calls = %d, want the audit never sent on an unconfirmed link", len(rec.comments))
+	}
+}
+
+func TestDrainAuditCommentRefusesAnUnpinnedPayload(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	const auditBody = "- CON-400 dependency note whose operation lost its pinned destination."
+	seedAuditCommentDrainCase(t, dbPath, "audit-unpinned-work", auditBody)
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE linear_outbox SET payload=json_remove(payload,'$.remote_issue_uuid') WHERE op_kind='issue_audit_comment'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	rec := &auditCommentRecorder{t: t}
+	results := drainAuditCommentCase(t, dbPath, rec.handler())
+	if len(results) != 1 || results[0].Outcome != "permanent" || !strings.Contains(results[0].Detail, "pins no remote issue") {
+		t.Fatalf("results = %+v, want a permanent refusal naming the missing pin", results)
+	}
+	if len(rec.comments) != 0 {
+		t.Fatalf("commentCreate calls = %d, want the unpinned audit never sent", len(rec.comments))
+	}
+}

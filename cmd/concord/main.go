@@ -1709,14 +1709,23 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 // converges only after a read-back proves the stored comment is this
 // operation's: same id, same issue, same exact body. The returned issue view
 // is the stored link identity, not a remote read, so its zero timestamp
-// records no claimed freshness.
+// records no claimed freshness. The payload pins the confirmed issue the
+// audit was queued for, and the drain refuses an unpinned payload, an
+// unconfirmed link, or a link that now names another issue: a queued audit
+// follows its recorded destination, never the link's current target.
 func drainAuditComment(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
+	if payload.RemoteIssueUUID == "" {
+		return linearclient.Issue{}, fmt.Errorf("audit operation payload pins no remote issue; queue the audit again against the confirmed link")
+	}
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
 		return linearclient.Issue{}, err
 	}
-	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, fmt.Errorf("link has no confirmed remote issue to audit")
+	if link.LinkState != store.LinearLinkConfirmed {
+		return linearclient.Issue{}, fmt.Errorf("linear link state is %s, not %s; the audit publishes only against a confirmed identity", link.LinkState, store.LinearLinkConfirmed)
+	}
+	if link.RemoteIssueUUID != payload.RemoteIssueUUID {
+		return linearclient.Issue{}, fmt.Errorf("linear link now names issue %s, but this audit operation was queued for pinned issue %s; retargeted audits are refused", link.RemoteIssueUUID, payload.RemoteIssueUUID)
 	}
 	comment := linearclient.CommentCreateInput{
 		ID:      payload.ClientUUID,

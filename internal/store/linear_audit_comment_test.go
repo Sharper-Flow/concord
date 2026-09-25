@@ -167,3 +167,74 @@ func TestLinearAuditCommentCompletionKeepsRecordedFreshness(t *testing.T) {
 		t.Fatalf("content_hash = %q, want the recorded digest standing", contentHash)
 	}
 }
+
+func TestLinearAuditCommentEnqueueConvergesIdenticalReenqueue(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	seedAuditCommentCase(t, s, "audit-converge-product", "audit-converge-work", LinearLinkConfirmed)
+	const body = "- CON-397 completion cites a check that never ran; cite the rerun instead."
+	first, err := s.EnqueueLinearIssueAuditComment(ctx, "audit-converge-product", "audit-converge-work", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.EnqueueLinearIssueAuditComment(ctx, "audit-converge-product", "audit-converge-work", body)
+	if err != nil {
+		t.Fatalf("re-enqueue of the identical audit body error = %v, want convergence on the stored operation", err)
+	}
+	if second.OperationID != first.OperationID || second.IdempotencyKey != first.IdempotencyKey {
+		t.Fatalf("re-enqueue minted operation %s (key %s), want the stored identity %s (key %s)", second.OperationID, second.IdempotencyKey, first.OperationID, first.IdempotencyKey)
+	}
+	var rows int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COUNT(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, "audit-converge-work", LinearOpIssueAuditComment).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("outbox rows = %d, want exactly one audit operation per identical body", rows)
+	}
+}
+
+func TestLinearAuditCommentEnqueueRefusesConflictingIdentityReuse(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	seedAuditCommentCase(t, s, "audit-conflict-product", "audit-conflict-work", LinearLinkConfirmed)
+	op, err := s.EnqueueLinearIssueAuditComment(ctx, "audit-conflict-product", "audit-conflict-work", "Correction with source.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite the stored payload to different sourced text under the same
+	// operation identity: exactly the reuse an enqueue must refuse.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE linear_outbox SET payload=json_set(payload,'$.audit_comment','Different sourced correction.') WHERE operation_id=?; DELETE FROM fold_guard`, op.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.EnqueueLinearIssueAuditComment(ctx, "audit-conflict-product", "audit-conflict-work", "Correction with source.")
+	if err == nil || !failureKindIs(err, KindIdempotencyConflict) {
+		t.Fatalf("conflicting reuse error = %v, want idempotency_conflict", err)
+	}
+	var rows int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT COUNT(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, "audit-conflict-work", LinearOpIssueAuditComment).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Fatalf("outbox rows = %d, want the stored operation left standing alone", rows)
+	}
+}
+
+func TestLinearAuditCommentEnqueueKeepsDistinctBodiesDistinct(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	seedAuditCommentCase(t, s, "audit-distinct-product", "audit-distinct-work", LinearLinkConfirmed)
+	first, err := s.EnqueueLinearIssueAuditComment(ctx, "audit-distinct-product", "audit-distinct-work", "First sourced correction.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.EnqueueLinearIssueAuditComment(ctx, "audit-distinct-product", "audit-distinct-work", "Second sourced correction.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.OperationID == second.OperationID {
+		t.Fatalf("distinct audit bodies converged on operation %s; each sourced body is its own comment", first.OperationID)
+	}
+}

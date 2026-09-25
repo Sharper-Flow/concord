@@ -1624,7 +1624,8 @@ func (s *Store) EnqueueLinearIssueAuditComment(ctx context.Context, productID, w
 	if err != nil {
 		return ClaimedLinearOperation{}, err
 	}
-	if _, err := persistLinearIssueEnqueueTx(ctx, tx, linearIssueEnqueuePlan{entry: entry, payload: entry.Payload}, s.now().UTC().Format(time.RFC3339Nano)); err != nil {
+	entry, err = persistLinearAuditCommentEnqueueTx(ctx, tx, entry, s.now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
 		return ClaimedLinearOperation{}, err
 	}
 	if err := leaveFold(ctx, tx); err != nil {
@@ -1685,12 +1686,51 @@ func enqueueLinearIssueAuditCommentCore(ctx context.Context, q queryer, expected
 	if linkState != LinearLinkConfirmed {
 		return ClaimedLinearOperation{}, newFailure(KindInvalidOperation, op, fmt.Sprintf("Linear link state is %s, not %s", linkState, LinearLinkConfirmed), false, "wait for the queued operation to confirm the link, then queue the audit comment")
 	}
-	clientUUID := newLinearClientUUID()
+	clientUUID := linearAuditCommentClientUUID(remoteIssueUUID, body)
 	payload, err := json.Marshal(linearPayload{ClientUUID: clientUUID, ProductID: productID, TeamID: connection.TeamID, ConnectionVersion: connection.Version, RemoteIssueUUID: remoteIssueUUID, AuditComment: body})
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, "cannot encode payload", true, "retry the audit comment enqueue", err)
 	}
 	return ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: LinearOpIssueAuditComment, IdempotencyKey: clientUUID, Payload: payload}, nil
+}
+
+// linearAuditCommentClientUUID derives the stable comment identity for one
+// confirmed remote issue and one exact audit body. The digest is formatted
+// as the same version-4 shape a random client UUID carries, so Linear stores
+// every re-enqueue of the same audit under one comment identity while any
+// changed byte mints a distinct comment.
+func linearAuditCommentClientUUID(remoteIssueUUID, auditBody string) string {
+	sum := sha256.Sum256([]byte("concord:linear:audit-comment\x00" + remoteIssueUUID + "\x00" + auditBody))
+	var bytes [16]byte
+	copy(bytes[:], sum[:16])
+	bytes[6] = (bytes[6] & 0x0f) | 0x40
+	bytes[8] = (bytes[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", bytes[0:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:16])
+}
+
+// persistLinearAuditCommentEnqueueTx stores one audit comment operation with
+// enqueue convergence. The audit identity derives from the confirmed issue
+// UUID and the exact body, so a re-enqueue of the same audit meets the row a
+// previous enqueue stored: an identical payload converges on that operation
+// instead of queueing a duplicate comment, and the same identity carrying
+// different content refuses instead of guessing which publication won.
+func persistLinearAuditCommentEnqueueTx(ctx context.Context, tx *sql.Tx, entry ClaimedLinearOperation, now string) (ClaimedLinearOperation, error) {
+	var storedPayload string
+	err := tx.QueryRowContext(ctx, `SELECT payload FROM linear_outbox WHERE operation_id=?`, entry.OperationID).Scan(&storedPayload)
+	if err == nil {
+		if storedPayload != string(entry.Payload) {
+			return ClaimedLinearOperation{}, newFailure(KindIdempotencyConflict, "linear_issue_audit_enqueue", fmt.Sprintf("audit comment identity %s already names an operation with different content", entry.OperationID), false, "publish the changed audit as new sourced text instead of reusing the stored identity")
+		}
+		return entry, nil
+	}
+	if err != sql.ErrNoRows {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot read the queued audit comment", true, "retry once the database is readable", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO linear_outbox(operation_id, work_id, op_kind, idempotency_key, payload, state, attempts, last_error, created_at, updated_at) VALUES (?,?,?,?,?,'queued',0,'',?,?)`,
+		entry.OperationID, entry.WorkID, entry.OpKind, entry.IdempotencyKey, string(entry.Payload), now, now); err != nil {
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot queue operation", true, "retry once the database is writable", err)
+	}
+	return entry, nil
 }
 
 func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {

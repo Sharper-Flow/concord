@@ -2495,6 +2495,13 @@ const GeneratedPayloadSchemaDocument = `{
       "minimum": 1,
       "type": "integer"
     },
+    "merge_evidence": {
+      "description": "Coordinator-asserted merge evidence: an absolute https URL. A repository path cannot carry a merge, and the store's terminal delivery correction admission refuses one; the core records this reference without claiming it verified the merge.",
+      "maxLength": 128,
+      "minLength": 9,
+      "pattern": "^https://\\S+$",
+      "type": "string"
+    },
     "mutation_changed_ref": {
       "additionalProperties": false,
       "properties": {
@@ -11305,6 +11312,65 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_correct_delivery_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "delivery_artifact": {
+          "$ref": "#/$defs/merge_evidence"
+        },
+        "delivery_state": {
+          "enum": [
+            "asserted"
+          ],
+          "type": "string"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "minLength": 2,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "target_event_id": {
+          "maxLength": 256,
+          "minLength": 4,
+          "type": "string"
+        },
+        "target_payload_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "target_seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "target_event_id",
+        "target_seq",
+        "target_payload_version",
+        "reason",
+        "delivery_artifact",
+        "delivery_state",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_lifecycle_input": {
       "additionalProperties": false,
       "properties": {
@@ -12717,6 +12783,90 @@ const GeneratedPayloadSchemaDocument = `{
             "ref",
             "version",
             "digest"
+          ],
+          "type": "object"
+        },
+        "delivery_assertion": {
+          "additionalProperties": false,
+          "properties": {
+            "actor_ref": {
+              "$ref": "#/$defs/id"
+            },
+            "artifact": {
+              "$ref": "#/$defs/reference"
+            },
+            "asserted_at": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "correction": {
+              "additionalProperties": false,
+              "properties": {
+                "approval_ref": {
+                  "$ref": "#/$defs/id"
+                },
+                "artifact": {
+                  "$ref": "#/$defs/merge_evidence"
+                },
+                "corrected_at": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "event_id": {
+                  "maxLength": 256,
+                  "minLength": 4,
+                  "type": "string"
+                },
+                "evidence_source": {
+                  "enum": [
+                    "coordinator_asserted"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "maxLength": 1024,
+                  "minLength": 2,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "reason",
+                "artifact",
+                "evidence_source",
+                "approval_ref",
+                "corrected_at"
+              ],
+              "type": "object"
+            },
+            "event_id": {
+              "maxLength": 256,
+              "minLength": 4,
+              "type": "string"
+            },
+            "seq": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "state": {
+              "enum": [
+                "asserted"
+              ],
+              "type": "string"
+            },
+            "target_payload_version": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "event_id",
+            "seq",
+            "target_payload_version",
+            "artifact",
+            "state",
+            "actor_ref",
+            "asserted_at"
           ],
           "type": "object"
         },

@@ -241,7 +241,7 @@ func completionFailureIsPermanent(t *testing.T, err error) bool {
 }
 
 // TestLinearIssueAdoptionCompletionConvergesManagedState proves the CD-0171
-// review correction: adoption completes through the same full-state
+// Adoption completes through the same full-state
 // convergence as a create. The adopted issue carries none of the managed
 // state Concord enqueues, so the completion queues exactly one issue_update
 // that installs the repository label, the optional label for a non-required

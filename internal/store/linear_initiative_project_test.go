@@ -418,7 +418,7 @@ func TestLinearIssueDescriptionLinksOtherInitiativesByProjectURL(t *testing.T) {
 	}
 }
 
-// CD-0171 D5 review correction: a non-required entry carries the optional
+// A non-required entry carries the optional
 // label, so a missing optional mapping refuses the enqueue with the same
 // typed failure the repository label uses, instead of silently syncing an
 // issue that cannot carry its requiredness.
@@ -479,7 +479,7 @@ func TestLinearIssueEnqueueRefusesUnmappedOptionalLabel(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: the drain resolves the Project before its remote
+// The drain resolves the Project before its remote
 // call, so the project_create can complete inside the drain-to-completion
 // window, where its entry refresh cannot see the issue's unconfirmed link.
 // CompleteLinearIssueOperation re-reads the owning Initiative's link inside
@@ -648,7 +648,7 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 	})
 }
 
-// CD-0171 review correction: an entry change between the issue enqueue and
+// An entry change between the issue enqueue and
 // its drain cannot refresh the still-unpublished link, so the drain sends the
 // stale snapshot. The completion re-derives the full desired state — Project,
 // labels, description — and queues exactly one converging update.
@@ -854,7 +854,7 @@ func TestCompleteLinearProjectOperationRecordsLinkOnce(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: one Linear Project per Initiative, so a repeated
+// One Linear Project per Initiative, so a repeated
 // project_create never mints a second remote Project. While a create is
 // queued or in flight the enqueue returns that operation; once the Project
 // link exists the create addresses it with a project_update instead.
@@ -918,7 +918,7 @@ func TestLinearProjectCreateEnqueueIsIdempotentPerInitiative(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: a failed project_create keeps its client UUID —
+// A failed project_create keeps its client UUID —
 // the Initiative's stable Project identity — so a re-enqueue revives the same
 // operation with a refreshed payload instead of minting a second Linear
 // Project for one Initiative.
@@ -938,9 +938,9 @@ func TestFailedProjectCreateReenqueueRevivesTheSameOperation(t *testing.T) {
 	if _, err := s.ClaimLinearOperations(ctx, 25); err != nil {
 		t.Fatal(err)
 	}
-	// The drain failed the create permanently after an ambiguous remote
-	// success. A retryable failure requeues the same row already; the failed
-	// state is the one a fresh enqueue could not previously reuse.
+	// The drain fails the create permanently after an ambiguous remote
+	// success. A retryable failure requeues the same row; a fresh enqueue
+	// does not reuse a permanently failed row — the revive path owns it.
 	if err := s.FailLinearOperation(ctx, first.OperationID, "permanent", "ambiguous remote success"); err != nil {
 		t.Fatalf("FailLinearOperation() error = %v", err)
 	}
@@ -981,7 +981,7 @@ func TestFailedProjectCreateReenqueueRevivesTheSameOperation(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: a membership change after capture must converge
+// A membership change after capture must converge
 // a confirmed Linear issue's repository labels with its new Project
 // memberships — the capture fold alone handles only the version-1 enqueue.
 func TestMembershipChangeConvergesLinearIssueRepositoryLabels(t *testing.T) {
@@ -1069,7 +1069,7 @@ func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 	}
 	// The completion queues the confirmed entry's update inside its own
 	// transaction: no separate refresh call exists to fail after the Project
-	// exists (CD-0171 review correction).
+	// exists.
 	if err := s.CompleteLinearProjectOperation(ctx, entry.OperationID, "remote-project-refresh", "Refresh initiative", "", LinearInitiativeProjectState{Title: "Refresh initiative", ValueStatement: "Refresh value"}); err != nil {
 		t.Fatalf("CompleteLinearProjectOperation() error = %v", err)
 	}
@@ -1264,7 +1264,7 @@ func TestEntryAddedFoldEnqueuesIssueUpdateForConfirmedIssue(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: the completion compares the Initiative state the
+// The completion compares the Initiative state the
 // drain sent against the stored state. A revision that lands inside the
 // drain-to-completion window queues one project_update, so it is never lost
 // behind the create.
@@ -1309,7 +1309,7 @@ func TestCompleteLinearProjectOperationQueuesUpdateWhenStateMovedOn(t *testing.T
 	}
 }
 
-// CD-0171 review correction: the drain-time Project resolution follows the
+// The drain-time Project resolution follows the
 // earliest-joined Initiative and stays empty before that Initiative's
 // project_create completes, whichever Initiative's Project exists.
 func TestResolveLinearProjectIDForWorkFollowsTheOwningInitiative(t *testing.T) {

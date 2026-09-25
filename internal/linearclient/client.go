@@ -172,7 +172,7 @@ type CreateProjectInput struct {
 // synchronizes for an Initiative. Description and Content are full-state
 // fields: the input is a linearPayload-shaped snapshot of the Initiative, so
 // both always ride the request and an empty value clears the remote field
-// instead of leaving stale markdown behind (CD-0171 d3 review correction).
+// instead of leaving stale markdown behind.
 // Name keeps omitempty: a Linear Project requires a name, and an Initiative
 // always has a title, so an omitted name can only mean a caller that never
 // intended to send one.

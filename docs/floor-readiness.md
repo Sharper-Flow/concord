@@ -68,9 +68,10 @@ that package (a required CI step runs `go test ./...`). A `scenario` anchor
 names a corpus id and resolves when the id appears in a corpus file under
 `scenarios/` and nothing in `internal/` defers it. A `validator` anchor names
 `scripts/(check|test)-<name>.py` and resolves when the script exists and a
-required workflow (`.github/workflows/ci.yml` or
-`.github/workflows/release.yml`) invokes it directly or via
-`scripts/check-json.py`. A `generated` anchor names `<path>#<symbol>` and
+required workflow (`.github/workflows/ci.yml`,
+`.github/workflows/release.yml`, or `.github/workflows/pr-linear-link.yml`)
+invokes it directly or via `scripts/check-json.py`. A `generated` anchor names
+`<path>#<symbol>` and
 resolves when the symbol lives in a file whose leading comment carries the
 generator marker.
 

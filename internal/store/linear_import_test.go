@@ -119,7 +119,7 @@ func TestLinearInitiativeImportRecordsTheProjectLink(t *testing.T) {
 	}
 }
 
-// CD-0171 d3 review correction: the import carries the Linear Project's
+// The import carries the Linear Project's
 // markdown content as the Initiative narrative, so a later project_update
 // sends the Project's own content back instead of wiping it.
 func TestLinearInitiativeImportCarriesTheNarrative(t *testing.T) {

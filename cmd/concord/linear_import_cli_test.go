@@ -50,7 +50,7 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	var out, errOut strings.Builder
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Setenv(linearclient.EnvAPIKey, "")
-	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","initiative_id":"proj-uuid-1"}`), &out, &errOut); code == 0 {
+	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","linear_project_id":"proj-uuid-1"}`), &out, &errOut); code == 0 {
 		t.Fatal("import without an API key must exit non-zero")
 	}
 	if !strings.Contains(errOut.String(), "missing_credential") {
@@ -62,7 +62,7 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	// The happy path reads the Linear Project through the first-party client
 	// (CD-0171 D7) and creates the initiative.
 	t.Setenv(linearclient.EnvAPIKey, "lin_api_import_test")
-	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","initiative_id":"proj-uuid-1"}`), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","linear_project_id":"proj-uuid-1"}`), &out, &errOut); code != 0 {
 		t.Fatalf("import exit=%d stderr=%q", code, errOut.String())
 	}
 	if !sawAuth {
@@ -116,7 +116,7 @@ func TestLinearInitiativeImportCLI(t *testing.T) {
 	// The second import of the same identity refuses typed.
 	out.Reset()
 	errOut.Reset()
-	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","initiative_id":"proj-uuid-1"}`), &out, &errOut); code == 0 {
+	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"import-product","linear_project_id":"proj-uuid-1"}`), &out, &errOut); code == 0 {
 		t.Fatal("duplicate import must exit non-zero")
 	}
 	if !strings.Contains(errOut.String(), "already imported") {
@@ -140,7 +140,7 @@ func TestLinearInitiativeImportRefusesForeignTeamProject(t *testing.T) {
 	t.Setenv(linearclient.EnvAPIKey, "lin_api_import_test")
 
 	var out, errOut strings.Builder
-	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"foreign-product","initiative_id":"proj-uuid-foreign"}`), &out, &errOut); code == 0 {
+	if code := runWithInput([]string{"linear", "initiative-import"}, strings.NewReader(`{"product_id":"foreign-product","linear_project_id":"proj-uuid-foreign"}`), &out, &errOut); code == 0 {
 		t.Fatal("importing another team's project must exit non-zero")
 	}
 	if !strings.Contains(errOut.String(), "invalid_relation") || !strings.Contains(errOut.String(), "not the Product's connection team") {

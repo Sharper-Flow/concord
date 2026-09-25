@@ -136,7 +136,7 @@ func TestUpdateIssueNeverSendsPriority(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: an issue_update carries the issue's full Project
+// An issue_update carries the issue's full Project
 // state. A nil ProjectID marshals as an explicit JSON null, which Linear reads
 // as "clear the field" (the omitempty string omitted it, so a remote issue
 // kept its Project after its last Initiative entry left), and RemovedLabelIDs
@@ -644,7 +644,7 @@ func TestUpdateProjectAddressesTheRemoteUUID(t *testing.T) {
 	}
 }
 
-// CD-0171 d3 review correction: project_update is a full-state write, so an
+// Project_update is a full-state write, so an
 // empty description or content rides the request as an explicit empty string
 // and clears the remote field instead of leaving stale markdown behind.
 func TestUpdateProjectSendsEmptyFullStateFields(t *testing.T) {

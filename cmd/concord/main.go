@@ -174,7 +174,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, status_ids, label_ids", Enums: "status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>"},
-	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "initiative_id: Linear Project uuid"},
+	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("linear_project_id")), Optional: "none", Enums: "linear_project_id: Linear Project uuid"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -1470,8 +1470,8 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 				continue
 			}
 			// A completed project_create recorded the link and queued its
-			// confirmed entry updates inside the completion transaction
-			// (CD-0171 review correction): no separate refresh call can fail
+			// confirmed entry updates inside the completion transaction:
+			// no separate refresh call can fail
 			// after the Project exists without a retry path.
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
 			continue
@@ -1481,7 +1481,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else {
-			// CD-0171 review correction: the create resolves the owning
+			// The create resolves the owning
 			// Initiative's confirmed Project at drain time. The payload
 			// snapshot goes stale whenever the Initiative's project_create
 			// completes after the issue was queued; reading the link here
@@ -1662,7 +1662,7 @@ type linearDrainPayload struct {
 // drainProject executes one Initiative Project operation. The drain sends the
 // Initiative's current title, value statement, and narrative — read at drain
 // time, not the enqueue-time payload snapshot — so a revision that lands after
-// enqueue still ships (CD-0171 review correction). A create sends the
+// enqueue still ships. A create sends the
 // Concord-generated UUID as ProjectCreateInput.id so a replayed drain
 // converges on the same remote Project (CD-0171 d2). An update addresses the
 // recorded remote Project.
@@ -1705,7 +1705,7 @@ func drainProject(ctx context.Context, s *store.Store, client *linearclient.Clie
 
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
 // The update carries the issue's full Project and Concord-managed label
-// state, both resolved at drain time (CD-0171 review correction): the owning
+// state, both resolved at drain time: the owning
 // Initiative's confirmed Project sets projectId, no Initiative Project sends
 // an explicit null so Linear clears the field (CD-0171 D4, D6), and remote
 // labels under the project:* and optional connection keys that the payload no
@@ -1902,15 +1902,15 @@ func linearContentHash(title, description string) string {
 // Linear.
 func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
-		ProductID    string `json:"product_id"`
-		InitiativeID string `json:"initiative_id"`
+		ProductID       string `json:"product_id"`
+		LinearProjectID string `json:"linear_project_id"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	if request.InitiativeID == "" {
-		writeOperatorDiagnostic(errOut, command, "initiative_id is required (a Linear Project uuid)")
+	if request.LinearProjectID == "" {
+		writeOperatorDiagnostic(errOut, command, "linear_project_id is required (a Linear Project uuid)")
 		return 1
 	}
 	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
@@ -1922,7 +1922,7 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	project, err := client.GetProject(ctx, request.InitiativeID)
+	project, err := client.GetProject(ctx, request.LinearProjectID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

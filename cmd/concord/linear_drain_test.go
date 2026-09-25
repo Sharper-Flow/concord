@@ -352,7 +352,7 @@ func TestLinearIssueUpdateDrainOmitsUnchangedContent(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: an issue_update carries the issue's full Project
+// An issue_update carries the issue's full Project
 // and Concord-managed label state. When no Initiative Project applies, the
 // input sends an explicit null projectId so Linear clears the field (the
 // omitted field left a stale Project behind after the last Initiative entry
@@ -787,7 +787,7 @@ func seedLinearInitiativeFixture(t *testing.T, dbPath, projectID, initiativeID, 
 	}
 }
 
-// CD-0171 review correction: the drain resolves the owning Initiative's
+// The drain resolves the owning Initiative's
 // confirmed Project at issue_create drain time, so neither claim order can
 // strand an entry issue outside its Initiative's Project. When the Project
 // drains first, the create carries the Project from the start; when the issue
@@ -899,7 +899,7 @@ func TestLinearDrainResolvesProjectAtIssueCreateDrainTime(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: the project_create drain sends the Initiative's
+// The project_create drain sends the Initiative's
 // current title, value statement, and narrative — not the payload snapshot —
 // so a narrative revision that lands after enqueue, while no Project link
 // exists yet, still ships with the create.
@@ -952,7 +952,7 @@ func TestLinearDrainSendsCurrentNarrativeOnProjectCreate(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: an issue_update resolves the owning Initiative's
+// An issue_update resolves the owning Initiative's
 // Project at drain time too, so a payload enqueued before the Initiative's
 // project_create completed cannot clear a Project that exists by the time the
 // update is sent.
@@ -1321,7 +1321,7 @@ func TestLinearDrainProjectOperations(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: the project_create can complete between the
+// The project_create can complete between the
 // issue_create drain's Project resolution and its completion, where the
 // project's entry refresh cannot see the still-unconfirmed issue link. The
 // completion compares the sent Project against the link inside its own
@@ -1405,7 +1405,7 @@ func TestLinearDrainQueuesEntryUpdateWhenTheProjectLinksMidFlight(t *testing.T) 
 	}
 }
 
-// CD-0171 d3 review correction: project_update carries the Initiative's full
+// Project_update carries the Initiative's full
 // state, so an Initiative with no narrative sends an explicit empty content
 // and the stale markdown leaves the Linear Project instead of lingering.
 func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
@@ -1448,7 +1448,7 @@ func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: a project_create that failed after its remote
+// A project_create that failed after its remote
 // effect landed keeps its client UUID, so the revived drain finds the Project
 // by that UUID and adopts it instead of minting a duplicate.
 func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
@@ -1538,7 +1538,7 @@ func TestLinearDrainAdoptsExistingProjectAfterFailedCreate(t *testing.T) {
 	}
 }
 
-// CD-0171 review correction: the adopted Project may predate the Initiative's
+// The adopted Project may predate the Initiative's
 // current revision. The adoption reports the remote fields as the sent state,
 // so the completion compares the live Project against the Initiative and
 // queues the one project_update that converges stale remote content.

@@ -1065,9 +1065,8 @@ type linearPayload struct {
 	TeamID   string   `json:"team_id"`
 	// The payload never carries the issue's Linear Project: both drains
 	// resolve the owning Initiative's confirmed Project at send time
-	// (CD-0171 D2, D6), so no enqueue-time snapshot can go stale. It never
-	// carried a repository mapping either; repository identity rides the
-	// project:<id> label instead.
+	// (CD-0171 D2, D6), so no enqueue-time snapshot can go stale.
+	// Repository identity rides the project:<id> label instead.
 	ConnectionVersion int64  `json:"connection_version"`
 	Lifecycle         string `json:"lifecycle,omitempty"`
 	StatusID          string `json:"status_id,omitempty"`
@@ -1265,7 +1264,7 @@ func readLinearProjectLinkUUIDCore(ctx context.Context, q queryer, initiativeWor
 // the work item's earliest-joined Initiative at read time (CD-0171 D6). It is
 // empty for a work item outside every Initiative and before the owning
 // Initiative's project_create completes, so a drain sends the field's current
-// truth instead of a stale enqueue-time snapshot (CD-0171 review correction).
+// truth instead of a stale enqueue-time snapshot.
 func (s *Store) ResolveLinearProjectIDForWork(ctx context.Context, workID string) (string, error) {
 	owner, _, err := resolveLinearInitiativeOwnershipCore(ctx, s.db, workID)
 	if err != nil {
@@ -1288,7 +1287,7 @@ type LinearInitiativeProjectState struct {
 
 // ReadLinearInitiativeProjectState reads the Initiative content a Project
 // operation sends. The drain calls it at send time, so a revision that lands
-// after enqueue still ships (CD-0171 review correction).
+// after enqueue still ships.
 func (s *Store) ReadLinearInitiativeProjectState(ctx context.Context, initiativeWorkID string) (LinearInitiativeProjectState, error) {
 	return readLinearInitiativeProjectStateCore(ctx, s.db, initiativeWorkID)
 }
@@ -1575,7 +1574,7 @@ func readCurrentWorkflowPremiseCore(ctx context.Context, q queryer, workID strin
 // carries. The enqueue marshals it into its payload — without the Project:
 // both drains resolve that field at send time — and the issue completion
 // re-derives it for the full-state comparison that closes the
-// enqueue-to-completion window (CD-0171 review correction).
+// enqueue-to-completion window.
 type linearIssueSyncState struct {
 	ProductID         string
 	ConnectionVersion int64
@@ -1647,7 +1646,7 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 	// refusal matches the repository label's surface exactly: the same typed
 	// failure, the capture path absorbs it as a configuration no-op, and an
 	// explicit enqueue reports it. linearIssueLabelIDs never decides a
-	// mandated label's presence (CD-0171 review correction).
+	// mandated label's presence.
 	if optionalEntry && connection.LabelIDs[LinearLabelOptionalKey] == "" {
 		return linearIssueSyncState{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("the non-required Initiative entry has no %q Linear label mapping", LinearLabelOptionalKey), false, "map label_ids.optional on the Linear connection resource before enqueueing Linear issues")
 	}
@@ -1689,7 +1688,7 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 // from the state the completion re-derives: the Project the drain resolved at
 // send time, the managed label set, or the synchronized content. Lifecycle
 // status and priority stay out of the comparison: Linear owns triage after
-// creation (CD-0171 review correction).
+// creation.
 func linearIssueSyncStateDiverged(sent, desired linearIssueSyncState) bool {
 	if sent.ProjectID != desired.ProjectID {
 		return true
@@ -1976,7 +1975,7 @@ func (s *Store) EnqueueLinearProjectForInitiative(ctx context.Context, productID
 
 // enqueueLinearProjectForInitiativeCore builds one project_create or
 // project_update operation for an Initiative. A create is idempotent per
-// Initiative (CD-0171 review correction): when the Project link already
+// Initiative: when the Project link already
 // exists the create addresses it with a project_update, when a project_create
 // is already queued or in flight that queued operation is returned with
 // existing set, and when a project_create failed the same operation is
@@ -2200,8 +2199,8 @@ func enqueueLinearIssueUpdateForEntryTx(ctx context.Context, tx *sql.Tx, childWo
 // move into the Initiative's Linear Project and pick up their labels once the
 // Project exists. CompleteLinearProjectOperation runs it inside the completion
 // transaction, so a confirmed entry can never sit outside the new Project in
-// the window between a completed create and a separate refresh (CD-0171 D2
-// review correction). Entries without a confirmed link skip: their next
+// the window between a completed create and a separate refresh (CD-0171 D2).
+// Entries without a confirmed link skip: their next
 // enqueue carries the Project from the start.
 func enqueueLinearIssueUpdatesForInitiativeEntriesTx(ctx context.Context, tx *sql.Tx, initiativeWorkID string, at time.Time) ([]ClaimedLinearOperation, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT child_work_id FROM initiative_entries WHERE initiative_work_id=? ORDER BY rowid`, initiativeWorkID)
@@ -2273,7 +2272,7 @@ func (s *Store) ReadLinearProjectLink(ctx context.Context, workID string) (Linea
 // sent is the Initiative state the drain read when it sent the operation: when
 // the stored state has moved on since that read, completion queues one
 // project_update, so a revision that lands inside the drain-to-completion
-// window is never lost (CD-0171 review correction).
+// window is never lost.
 func (s *Store) CompleteLinearProjectOperation(ctx context.Context, operationID, remoteProjectUUID, name, url string, sent LinearInitiativeProjectState) error {
 	if len(remoteProjectUUID) < 2 || len(remoteProjectUUID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_complete", "remote project uuid must be 2 to 128 characters", false, "supply the bounded remote project uuid")
@@ -2321,7 +2320,7 @@ func (s *Store) CompleteLinearProjectOperation(ctx context.Context, operationID,
 		// update that moves them into it and picks up their labels
 		// (CD-0171 D2) inside this same transaction, so no exit between a
 		// completed create and a separate refresh can strand a confirmed
-		// entry outside the Project (CD-0171 review correction).
+		// entry outside the Project.
 		if _, err := enqueueLinearIssueUpdatesForInitiativeEntriesTx(ctx, tx, workID, s.now()); err != nil {
 			return err
 		}
@@ -2666,7 +2665,7 @@ func (s *Store) CompleteLinearOperation(ctx context.Context, operationID string,
 
 // CompleteLinearIssueOperation atomically marks an in-flight issue operation
 // done, records the remote identity on its link, and closes the
-// enqueue-to-completion window (CD-0171 review correction). sentProjectID is
+// enqueue-to-completion window. sentProjectID is
 // the owning Initiative's Project the drain resolved before its remote call;
 // this transaction re-derives the issue's full desired state — Project,
 // managed labels, synchronized content — from current data and compares it
@@ -2691,7 +2690,7 @@ func (s *Store) CompleteLinearIssueOperation(ctx context.Context, operationID st
 }
 
 // CompleteLinearIssueAdoption completes an issue_adopt operation through the
-// same full-state convergence as a create (CD-0171 review correction): after
+// same full-state convergence as a create: after
 // the adopt link is recorded, this transaction re-derives the desired
 // Project, labels, and body from current data and compares them with the
 // adopted issue's state at drain time. The drain wrote no managed state, so

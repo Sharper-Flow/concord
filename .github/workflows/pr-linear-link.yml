@@ -14,8 +14,9 @@ on:
     types: [opened, synchronize, reopened, edited]
   # A merge queue validates each pull request against the latest main plus
   # the entries ahead of it, on a temporary `gh-readonly-queue/**` ref.
-  # verify-pr-linear-link is required, and a merge group that never reports
-  # it cannot merge, so this trigger is what lets the queue carry the gate.
+  # This job gates merge once the main ruleset requires verify-pr-linear-link;
+  # a merge group that never reports a required check cannot merge, so this
+  # trigger is what lets the queue carry the gate.
   merge_group:
 
 permissions:

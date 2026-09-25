@@ -9,6 +9,12 @@ import "testing"
 // any step that is not a human checkpoint, so a step of another kind declaring
 // such an action offers a route no caller can take.
 //
+// request_correction is the one exception. Its approval is never served by a
+// step question: the boundary that applies it consumes the operator identity
+// of the request, backed on the tool surface by a durable approval challenge,
+// so the CD-0166 delivery gate can declare the evidence-bearing corrective
+// return and stay reachable while its kind is internal_sqlite.
+//
 // The scope is the shipped set. Frozen prior versions stay byte-identical by
 // law, and three of them violate this rule, so the registry constructor cannot
 // carry the check without rejecting history it must keep.
@@ -25,6 +31,9 @@ func TestShippedStepsAdmitTheirApprovalRequiredActions(t *testing.T) {
 				continue
 			}
 			for _, id := range step.Actions {
+				if id == "request_correction" && workflowStepIsDeliveryGate(&step) {
+					continue
+				}
 				if approvalRequired[id] {
 					t.Errorf("%s v%d step %q has kind %q and declares approval-required action %q; the operator question that approval consumes is served only from a human checkpoint, so the action can never run", definition.Ref, definition.Version, step.ID, step.Kind, id)
 				}

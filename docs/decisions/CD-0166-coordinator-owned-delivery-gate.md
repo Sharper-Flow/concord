@@ -42,10 +42,14 @@ truth of the assertion.
 between `refine` and the verdict step, using the CD-0156 shape: the step
 declares `record_delivery` plus the two continuity holds and nothing else, so
 its single forward edge cannot be crossed without a recorded delivery. The
-prior versions of both definitions stay registered with their original graphs
-and payload shapes, so pinned in-flight items replay unchanged. The remaining
-workflow types keep the action at its existing step and gain the payload only,
-because their delivery surface is optional or internal.
+gate amendment adds one declared action to the step: `request_correction`, the
+evidence-bearing corrective return. It is a hold. Its fold returns a parked,
+unreviewed change to the correction target step for a fresh review, so
+`record_delivery` stays the gate's only forward exit. The prior versions of
+both definitions stay registered with their original graphs and payload
+shapes, so pinned in-flight items replay unchanged. The remaining workflow
+types keep the action at its existing step and gain the payload only, because
+their delivery surface is optional or internal.
 
 ### D3. Terminal reconciliation is split by outcome
 
@@ -74,6 +78,28 @@ delivery once the change reached the default branch. The gate relocates the
 hang from the pull request into Concord, and the surface makes what relocated
 findable.
 
+### D6. A rejected review holds delivery, and a parked gate can return
+
+A result that the refinement pass rejected, and the repair accepted after it,
+carry no fresh review. On `workflow.break_fix` and `workflow.implementation`,
+the refinement step refuses each advance that carries such a repaired result
+toward delivery: its accepted worker result, its recorded delivery, and the
+gate's delivery exit. A fresh accepted review clears the refusal: a
+review-lane attempt dispatched after the rejection and after the repaired
+result's latest dispatch or completion at the refinement step, so the review
+covers the result it accepts. A review dispatched before that repair
+activity settles nothing, and repair activity after a review's dispatch
+reopens the debt. The gate carries the
+same refusal, so a parked, unreviewed
+change leaves only through the D2 corrective return. That return names the
+rejected result's predicates, or the active contract's predicates, and binds
+durable evidence. It refuses without an outstanding review, with evidence
+nothing durably bound, on a terminal instance, and without the operator
+identity the action policy demands. Instances pinned to the released
+closed-gate versions take the same return: the admission reads the gate
+shape, so the released definition content and the recorded event history stay
+untouched.
+
 ## Verification
 
 - `TestRecordDeliveryExitsTheStepTheSessionExecuted` proves delivery advances
@@ -90,3 +116,17 @@ findable.
   transition refuses at the gate and names the unreconciled delivery.
 - `TestProductRowsCountParkedDeliveries` proves the Product row counts one
   parked delivery for a live item and none for a terminal one.
+- `TestPostRejectionReviewGateHoldsBreakFixDelivery` proves the rejected
+  review holds every advance toward delivery and a fresh accepted review
+  clears it.
+- `TestPostRejectionReviewGateRefusesPreRejectionReviewAccept` and
+  `TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair` prove the
+  dispatch-order rule: a review dispatched before the rejection, or before
+  the repaired result, settles nothing, and the pin advertises only a
+  completed settling review's acceptance.
+- `TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn` proves a
+  pinned, parked gate returns to repair with no delivery assertion and no
+  change to the released definition content or the event history.
+- `TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent` proves the
+  tool-surface admission: the return refuses unauthenticated, then one
+  operator approval admits it.

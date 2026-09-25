@@ -63,10 +63,11 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
+	"accept_worker_result":   {guardPhaseClaim, guardPostRejectionReviewGate},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
-	"record_delivery":        {guardPhaseClaim, guardDeliveryFollowsStart},
+	"record_delivery":        {guardPhaseClaim, guardDeliveryAdmission},
 }
 
 func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
@@ -78,7 +79,7 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 
 func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRequestRecovery {
-		return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
 	}
 	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action")
 }
@@ -759,6 +760,91 @@ func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
 		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
 	}
 	return nil
+}
+
+// guardDeliveryAdmission composes the delivery admission order: the fenced
+// start fact first, then the post-rejection review gate.
+func guardDeliveryAdmission(g *workflowActionGuardContext) error {
+	if err := guardDeliveryFollowsStart(g); err != nil {
+		return err
+	}
+	return guardPostRejectionReviewGate(g)
+}
+
+// guardPostRejectionReviewGate refuses an advance toward delivery whose
+// refinement history carries a rejected result no fresh accepted review has
+// covered. Accepting a review-lane attempt whose dispatch postdates the
+// debt's frontier — the rejection and every later non-review worker activity
+// at the refinement step — is itself the fresh review, so the guard admits
+// it; any other accept, and either delivery exit, waits for one. The refusal
+// leaves the evidence-bearing corrective return as the only route off a
+// parked, unreviewed gate.
+func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
+	if !workflowCorrectionWorkflow(g.entry.Definition) {
+		return nil
+	}
+	switch g.request.ActionID {
+	case "accept_worker_result":
+		if !stepDeclaresAction(g.entry.Definition, g.currentStep, "start_refine") {
+			return nil
+		}
+	case "record_delivery":
+		if !workflowPostRejectionReviewStep(g.entry.Definition, g.currentStep) {
+			return nil
+		}
+	default:
+		return nil
+	}
+	rejectSeq, err := workflowPostRejectionRejectSeq(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
+	if err != nil {
+		return err
+	}
+	if rejectSeq == 0 {
+		return nil
+	}
+	outstanding, err := workflowPostRejectionReviewMissing(g.ctx, g.tx, g.request.WorkID, workflowRefinementStepID(g.entry.Definition), rejectSeq, "workflow_action")
+	if err != nil {
+		return err
+	}
+	if !outstanding {
+		return nil
+	}
+	if g.request.ActionID == "accept_worker_result" {
+		fields, fieldsErr := workflowActionObject(g.request.Payload)
+		if fieldsErr != nil {
+			return fieldsErr
+		}
+		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+		class, dispatchSeq, dispatchErr := workflowAttemptDispatch(g.ctx, g.tx, g.request.WorkID, attemptID, "workflow_action")
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		if class == "review" {
+			frontier, frontierErr := workflowPostRejectionFrontier(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
+			if frontierErr != nil {
+				return frontierErr
+			}
+			if workflowReviewDispatchSettlesDebt(dispatchSeq, frontier) {
+				return nil
+			}
+		}
+	}
+	return newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
+}
+
+// workflowAttemptDispatch returns the capability class and seq of the lane
+// dispatch that produced the worker attempt, or "" and 0 when the attempt has
+// no dispatch event.
+func workflowAttemptDispatch(ctx context.Context, q queryer, workID, attemptID, subject string) (string, int64, error) {
+	var class string
+	var dispatchSeq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.capability_class'),''), seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, attemptID).Scan(&class, &dispatchSeq); err != nil {
+		if err == sql.ErrNoRows {
+			return "", 0, nil
+		}
+		return "", 0, wrapFailure(KindUnavailable, subject, "cannot read the worker attempt dispatch", true, "retry once the worker dispatch projection is readable", err)
+	}
+	return class, dispatchSeq, nil
 }
 
 // defaultedPayload returns the action payload with an empty payload

@@ -1963,7 +1963,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 			return recoveryErr
 		}
 		if !correctionRecovery {
-			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
 		}
 		return nil
 	}

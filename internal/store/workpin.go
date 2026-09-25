@@ -186,6 +186,28 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if evidenceRecovery && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(registered.Definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
 	}
+	postRejectionDebt, debtErr := workflowPostRejectionReviewOutstanding(ctx, tx, workID, registered.Definition, "work_pin")
+	if debtErr != nil {
+		return pin, debtErr
+	}
+	if postRejectionDebt && workflowPostRejectionReviewStep(registered.Definition, pin.Step) {
+		// The pin never offers an advance the delivery guard will refuse, so
+		// an unreviewed repaired result hides the refinement step's accepted
+		// result, its recorded delivery, and the gate's delivery exit —
+		// except the acceptance of a completed review whose dispatch settles
+		// the debt, which is itself the fresh review the guard waits for.
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "record_delivery")
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "accept_worker_result")
+		if stepDeclaresAction(registered.Definition, pin.Step, "start_refine") {
+			ready, readyErr := workflowPostRejectionReviewReady(ctx, tx, workID, registered.Definition, "work_pin")
+			if readyErr != nil {
+				return pin, readyErr
+			}
+			if ready {
+				pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(registered.Definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
+			}
+		}
+	}
 
 	var contract WorkflowReadContract
 	var required, routes, mandate, modifies string
@@ -254,11 +276,19 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if contractCorrection && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
-	verdictCorrection, correctionErr := workflowVerdictCorrectionContext(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+	correctionRequest, correctionErr := workflowCorrectionRequestContext(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
 	if correctionErr != nil {
 		return pin, correctionErr
 	}
-	if verdictCorrection != nil && !verdictCorrection.Escalated && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+	if workflowStepIsDeliveryGate(workflowStep(registered.Definition, pin.Step)) {
+		// The gate's corrective return carries one reason code on every
+		// pinned shape, and it is advertised only when the post-rejection
+		// review shape stands behind it.
+		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
+		if correctionRequest != nil && !correctionRequest.Escalated {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
+		}
+	} else if correctionRequest != nil && !correctionRequest.Escalated && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)

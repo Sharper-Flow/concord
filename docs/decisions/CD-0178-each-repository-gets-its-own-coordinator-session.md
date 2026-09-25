@@ -1,4 +1,4 @@
-# CD-0176: Lane workers stay native subagents, and each repository gets its own coordinator session
+# CD-0178: Lane workers stay native subagents, and each repository gets its own coordinator session
 
 - **Status:** Proposed
 - **Date:** 2026-09-24
@@ -8,7 +8,7 @@
 - **Approval:** The operator directed on 2026-09-24 that lane workers stay
   native subagents started by the host `task` tool.
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
-  CD-0154, CD-0155
+  CD-0154, CD-0155, CD-0176
 - **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,
   CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the

@@ -16,7 +16,7 @@ func seedAuditCommentCase(t *testing.T, s *Store, productID, workID, linkState s
 	ctx := context.Background()
 	projectID := productID + "-project"
 	setupLinearProduct(t, s, productID)
-	setupLinearConnectionResource(t, s, productID, map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_ids": map[string]string{projectID: "project-uuid-1"}, "auth_mode": "personal_api_key"}})
+	setupLinearConnectionResource(t, s, productID, map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}})
 	if _, err := s.SetProductPlanningMode(ctx, productID, PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
 	}

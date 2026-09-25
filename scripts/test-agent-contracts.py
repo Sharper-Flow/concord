@@ -257,20 +257,19 @@ class EvidenceBoundParityTests(unittest.TestCase):
         self.assertIn("locator_kind", str(ctx.exception))
 
     def test_a_payload_authority_bound_drift_is_rejected(self):
-        # A drift the other direction is also a mismatch; the parity check
-        # does not assume the request side is the one in the wrong.
+        # A request-side drift is also a mismatch. The request evidence
+        # reaches authority through $defs/short, while the envelope inlines
+        # its bound, so narrowing `short` alone must fire the parity check.
         value = copy.deepcopy(payload_schema)
-        # `short` is a $defs entry referenced by both sides. Drift it and
-        # both sides must move together, or the parity check fires here.
         value["$defs"]["short"]["maxLength"] = 128
         with self.assertRaises(ValueError) as ctx:
             self.check(payload=value)
         self.assertIn("authority", str(ctx.exception))
 
     def test_an_envelope_digest_pattern_drift_is_rejected(self):
-        # The digest bound is hex pattern 8..128. A pattern that does not
-        # require the sha256: prefix and accepts a wider alphabet is a real
-        # divergence, not a noise-tolerant rewrite.
+        # The digest bound includes its pattern. A different pattern string,
+        # here one that drops the optional sha256: prefix and uppercase hex,
+        # is a mismatch even when the length bounds agree.
         value = copy.deepcopy(envelope_schema)
         value["$defs"]["evidenceRef"]["properties"]["digest"]["pattern"] = r"^[a-f0-9]+$"
         with self.assertRaises(ValueError) as ctx:

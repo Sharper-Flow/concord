@@ -11,11 +11,11 @@ import (
 // CD-0171 removed the repository-to-Linear-Project mapping. Connections
 // recorded while the mapping still existed keep its retired project_id and
 // project_ids members in stored metadata, and the update path reaches a
-// document only when an operator edits the connection. Migration 102 removes
+// document only when an operator edits the connection. Migration 103 removes
 // the retired members from every stored document; this test seeds a
 // pre-migration store and proves the strip leaves every other member intact,
 // including a document that already carries the current convention.
-func TestMigration102StripsRetiredLinearProjectMappingFromStoredMetadata(t *testing.T) {
+func TestMigration103StripsRetiredLinearProjectMappingFromStoredMetadata(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord-v101.db")

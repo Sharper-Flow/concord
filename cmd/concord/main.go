@@ -169,7 +169,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-divergence", TwoWord: "linear divergence", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
 	{Canonical: "linear-unlinked-remote-in-progress", TwoWord: "linear unlinked-remote-in-progress", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt)", Enums: "op_kind: issue_create | issue_update | issue_adopt"},
+	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt), audit_comment (required for issue_audit_comment)", Enums: "op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment"},
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
@@ -1283,14 +1283,33 @@ func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, comm
 		WorkID          string `json:"work_id"`
 		OpKind          string `json:"op_kind"`
 		RemoteIssueUUID string `json:"remote_issue_uuid"`
+		AuditComment    string `json:"audit_comment"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate && request.OpKind != store.LinearOpIssueAdopt {
-		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update | issue_adopt")
+	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate && request.OpKind != store.LinearOpIssueAdopt && request.OpKind != store.LinearOpIssueAuditComment {
+		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment")
 		return 1
+	}
+	if request.OpKind == store.LinearOpIssueAuditComment {
+		if strings.TrimSpace(request.AuditComment) == "" {
+			writeOperatorDiagnostic(errOut, command, "issue_audit_comment requires the sourced audit_comment body it publishes")
+			return 1
+		}
+		if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		entry, err := s.EnqueueLinearIssueAuditComment(ctx, request.ProductID, request.WorkID, request.AuditComment)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
+			"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
+		}}, errOut)
 	}
 	if request.OpKind == store.LinearOpIssueAdopt {
 		if request.RemoteIssueUUID == "" {
@@ -1480,6 +1499,8 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, revision, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
+		} else if op.OpKind == store.LinearOpIssueAuditComment {
+			issue, derr = drainAuditComment(ctx, s, client, op, payload)
 		} else {
 			// The create resolves the owning
 			// Initiative's confirmed Project at drain time. The payload
@@ -1505,11 +1526,19 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: derr.Error()})
 			continue
 		}
+		// A drain that performed no remote issue read — the comment-only
+		// route — leaves the timestamp empty, and the completion keeps the
+		// recorded freshness instead of claiming an observation it did not
+		// make.
+		remoteUpdatedAt := ""
+		if !issue.UpdatedAt.IsZero() {
+			remoteUpdatedAt = issue.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		}
 		identity := store.LinearRemoteIdentity{
 			RemoteUUID:      issue.ID,
 			HumanKey:        issue.Identifier,
 			URL:             issue.URL,
-			RemoteUpdatedAt: issue.UpdatedAt.UTC().Format(time.RFC3339Nano),
+			RemoteUpdatedAt: remoteUpdatedAt,
 		}
 		switch {
 		case op.OpKind == store.LinearOpIssueCreate:
@@ -1657,6 +1686,7 @@ type linearDrainPayload struct {
 	Priority          int      `json:"priority,omitempty"`
 	LabelIDs          []string `json:"label_ids,omitempty"`
 	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
+	AuditComment      string   `json:"audit_comment,omitempty"`
 }
 
 // drainProject executes one Initiative Project operation. The drain sends the
@@ -1816,6 +1846,60 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 	return issue, digest, projectIDValue, nil
 }
 
+// drainAuditComment publishes one independent audit update as a comment on
+// the linked remote issue. The route is comment-only by construction: it
+// sends no issueUpdate, so the human-owned issue title and description are
+// structurally untouched. The comment id is the operation's client UUID, so
+// a retry after a lost response meets Linear's duplicate-entity refusal and
+// converges only after a read-back proves the stored comment is this
+// operation's: same id, same issue, same exact body. The returned issue view
+// is the stored link identity, not a remote read, so its zero timestamp
+// records no claimed freshness. The payload pins the confirmed issue the
+// audit was queued for, and the drain refuses an unpinned payload, an
+// unconfirmed link, or a link that now names another issue: a queued audit
+// follows its recorded destination, never the link's current target.
+func drainAuditComment(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
+	if payload.RemoteIssueUUID == "" {
+		return linearclient.Issue{}, fmt.Errorf("audit operation payload pins no remote issue; queue the audit again against the confirmed link")
+	}
+	link, err := s.ReadLinearLink(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Issue{}, err
+	}
+	if link.LinkState != store.LinearLinkConfirmed {
+		return linearclient.Issue{}, fmt.Errorf("linear link state is %s, not %s; the audit publishes only against a confirmed identity", link.LinkState, store.LinearLinkConfirmed)
+	}
+	if link.RemoteIssueUUID != payload.RemoteIssueUUID {
+		return linearclient.Issue{}, fmt.Errorf("linear link now names issue %s, but this audit operation was queued for pinned issue %s; retargeted audits are refused", link.RemoteIssueUUID, payload.RemoteIssueUUID)
+	}
+	comment := linearclient.CommentCreateInput{
+		ID:      payload.ClientUUID,
+		IssueID: link.RemoteIssueUUID,
+		Body:    linearAuditCommentBody(payload.AuditComment),
+	}
+	if err := client.CreateComment(ctx, comment); err != nil {
+		if !linearclient.IsDuplicateEntity(err) {
+			return linearclient.Issue{}, fmt.Errorf("publish audit comment: %w", err)
+		}
+		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
+		if cerr != nil {
+			// The conflict proved the comment exists, so the lookup failure
+			// decides retryability, as in drainCreate.
+			return linearclient.Issue{}, fmt.Errorf("publish audit comment: resolve stored comment: %w", cerr)
+		}
+		if stored.ID != payload.ClientUUID {
+			return linearclient.Issue{}, fmt.Errorf("publish audit comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
+		}
+		if stored.IssueID != link.RemoteIssueUUID {
+			return linearclient.Issue{}, fmt.Errorf("publish audit comment: comment %s sits on issue %s, not the linked issue", stored.ID, stored.IssueID)
+		}
+		if stored.Body != comment.Body {
+			return linearclient.Issue{}, fmt.Errorf("publish audit comment: stored body differs for comment %s; the audit is not verified as published", stored.ID)
+		}
+	}
+	return linearclient.Issue{ID: link.RemoteIssueUUID, Identifier: link.HumanKey, URL: link.URL}, nil
+}
+
 // drainCreate executes issueCreate and converges a repeated create. Linear
 // stores the sent client UUID as the issue's own UUID and refuses a second
 // insert instead of upserting, so a duplicate-entity conflict means a
@@ -1867,6 +1951,18 @@ func linearRevisionComment(title, description, digest string) string {
 		body.WriteString("\n" + trimmed + "\n")
 	}
 	body.WriteString("\n" + linearRevisionDigestMarker(digest) + "\n")
+	return body.String()
+}
+
+// linearAuditCommentBody renders one independent audit update. The typed
+// header separates it from a managed revision, and the opening line records
+// the ownership rule the route enforces: the store keeps the supplied audit
+// text verbatim, so every correction inside it carries its own source.
+func linearAuditCommentBody(audit string) string {
+	var body strings.Builder
+	body.WriteString("## Independent audit\n\n")
+	body.WriteString("Concord published this audit update as a comment. The issue title and description stay as their human editors wrote them.\n\n")
+	body.WriteString(strings.TrimSpace(audit) + "\n")
 	return body.String()
 }
 

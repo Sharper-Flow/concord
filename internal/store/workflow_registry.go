@@ -779,7 +779,7 @@ func withDeliveryGateCorrection(definition WorkflowDefinition, producingStep, ne
 		if definition.StepGraph.Steps[i].ID != "delivery" {
 			continue
 		}
-		actions := make([]string, 0, len(definition.StepGraph.Steps[i].Actions)+1)
+		var actions []string
 		for _, actionID := range definition.StepGraph.Steps[i].Actions {
 			if actionID == "checkpoint_context" {
 				actions = append(actions, "request_correction")

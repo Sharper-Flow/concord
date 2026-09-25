@@ -1,0 +1,52 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-495c214a69f9864f6aa9c97e",
+    "tier": "legislated"
+  },
+  "date": "2026-09-24T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0178",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0096"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0104"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0105"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0118"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0120"
+    }
+  ],
+  "path": "docs/decisions/CD-0178-each-repository-gets-its-own-coordinator-session.md",
+  "product_wide_rationale": "Governs where every lane worker runs, how one work item reaches a second repository, and what protects a worktree from removal, across the agent surface, the workflow engine, and work coordination, so no single runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:02b0034f95670b9d81171cfb0e16fe89b0125eb166a3eb998c74b438def67799",
+  "status": "accepted",
+  "summary": "Lane workers stay native task subagents in their coordinator's directory; a work item that touches a second repository gets one coordinator session per repository, and a worktree_claim for a Project in another repository refuses with cross_repository_claim before it creates a worktree; occupancy becomes one row per session carrying the host process identity, released by session_vacate, a verified landing elsewhere, or the end of the host process, and the caller-supplied session observation is no longer a release or removal input; removal content gates stay unchanged.",
+  "tags": [
+    "worktrees",
+    "worker-lanes",
+    "occupancy"
+  ],
+  "title": "Lane workers stay native subagents, and each repository gets its own coordinator session"
+}

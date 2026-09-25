@@ -1,12 +1,13 @@
 # CD-0178: Lane workers stay native subagents, and each repository gets its own coordinator session
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-24
 - **Scope:** Where a lane worker runs, how one work item reaches a second
   repository, and what protects a worktree from removal; issues #1358, #1322,
   #1125
 - **Approval:** The operator directed on 2026-09-24 that lane workers stay
-  native subagents started by the host `task` tool.
+  native subagents started by the host `task` tool. The operator accepted
+  this decision on 2026-09-25 in the Concord (CON) work item CON-450.
 - **Related:** CD-0092, CD-0098, CD-0102, CD-0103, CD-0111, CD-0151, CD-0152,
   CD-0154, CD-0155, CD-0176
 - **Amends:** CD-0104 D1 and D2 at the stored occupant; CD-0096 D3 Destroy,

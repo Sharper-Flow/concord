@@ -14,6 +14,7 @@ report_schema = json.loads((ROOT / "contracts/agent-lane-report.schema.json").re
 lane_registry = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
 packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
+payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
 class ManifestTamperTests(unittest.TestCase):
     def assert_rejected(self, value):
@@ -220,6 +221,87 @@ class CD0043LaneMethodologyTests(unittest.TestCase):
 
     def test_empty_skills_boundary_is_rejected(self):
         self.assertTrue(any("README.md only" in f for f in self.findings(skills=[])))
+
+class EvidenceBoundParityTests(unittest.TestCase):
+    """The request evidence declaration owns every evidence field bound.
+
+    The result schema $defs/evidenceRef must carry the same bounds: authority
+    and locator_kind 1..256, digest hex pattern 8..128, version <=256, locator
+    1..2048. A mismatch admits evidence values the request would refuse, or
+    refuses values the request admitted; both ways the parity check at
+    generation time is the only thing that holds them in lockstep.
+    """
+
+    def check(self, payload=None, envelope=None):
+        generator.check_evidence_bound_parity(
+            copy.deepcopy(payload if payload is not None else payload_schema),
+            copy.deepcopy(envelope if envelope is not None else envelope_schema),
+        )
+
+    def test_shipped_schemas_agree(self):
+        # No exception means the bounds agree across both declarations.
+        self.check()
+
+    def test_a_shrunken_envelope_authority_bound_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        value["$defs"]["evidenceRef"]["properties"]["authority"]["maxLength"] = 128
+        with self.assertRaises(ValueError) as ctx:
+            self.check(envelope=value)
+        self.assertIn("authority", str(ctx.exception))
+
+    def test_an_envelope_locator_kind_bound_divergence_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        value["$defs"]["evidenceRef"]["properties"]["locator_kind"]["maxLength"] = 64
+        with self.assertRaises(ValueError) as ctx:
+            self.check(envelope=value)
+        self.assertIn("locator_kind", str(ctx.exception))
+
+    def test_a_payload_authority_bound_drift_is_rejected(self):
+        # A request-side drift is also a mismatch. The request evidence
+        # reaches authority through $defs/short, while the envelope inlines
+        # its bound, so narrowing `short` alone must fire the parity check.
+        value = copy.deepcopy(payload_schema)
+        value["$defs"]["short"]["maxLength"] = 128
+        with self.assertRaises(ValueError) as ctx:
+            self.check(payload=value)
+        self.assertIn("authority", str(ctx.exception))
+
+    def test_an_envelope_digest_pattern_drift_is_rejected(self):
+        # The digest bound includes its pattern. A different pattern string,
+        # here one that drops the optional sha256: prefix and uppercase hex,
+        # is a mismatch even when the length bounds agree.
+        value = copy.deepcopy(envelope_schema)
+        value["$defs"]["evidenceRef"]["properties"]["digest"]["pattern"] = r"^[a-f0-9]+$"
+        with self.assertRaises(ValueError) as ctx:
+            self.check(envelope=value)
+        self.assertIn("digest", str(ctx.exception))
+
+    def test_a_payload_locator_maxlength_drift_is_rejected(self):
+        value = copy.deepcopy(payload_schema)
+        value["$defs"]["evidence"]["properties"]["locator"]["maxLength"] = 1024
+        with self.assertRaises(ValueError) as ctx:
+            self.check(payload=value)
+        self.assertIn("locator", str(ctx.exception))
+
+    def test_a_payload_version_maxlength_drift_is_rejected(self):
+        value = copy.deepcopy(payload_schema)
+        value["$defs"]["evidence"]["properties"]["version"]["maxLength"] = 128
+        with self.assertRaises(ValueError) as ctx:
+            self.check(payload=value)
+        self.assertIn("version", str(ctx.exception))
+
+    def test_missing_envelope_evidence_ref_is_rejected(self):
+        value = copy.deepcopy(envelope_schema)
+        del value["$defs"]["evidenceRef"]
+        with self.assertRaises(ValueError):
+            self.check(envelope=value)
+
+    def test_missing_payload_evidence_is_rejected(self):
+        value = copy.deepcopy(payload_schema)
+        del value["$defs"]["evidence"]
+        with self.assertRaises(ValueError):
+            self.check(payload=value)
+
 
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
     """Issue #352: every tool/operation pair the envelope declares must be satisfiable."""

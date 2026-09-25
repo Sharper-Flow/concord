@@ -275,6 +275,75 @@ func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
 	}
 }
 
+// A coordinator session that resumes the work item after the accepting
+// session ended drives the step the acceptance advanced to. Sessions derive
+// distinct actors, so the writing authority cannot rest on the one session
+// that disposed of the lane attempt.
+func TestResumedSessionRecordsDecisionAfterAnotherSessionAccepted(t *testing.T) {
+	t.Parallel()
+	workID := "authority-poc-resumed-session"
+	s, owner, ownerRef, _ := seedAcceptedPOCLane(t, workID)
+	resumed := owner
+	resumed.SessionRef = "session/resumed-" + workID
+	resumedRef, err := WorkflowActorRef(resumed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumedRef == ownerRef {
+		t.Fatal("the resumed session derived the accepting session's actor")
+	}
+	decision := mustJSONValue(map[string]any{
+		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
+		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
+	})
+	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, resumed); err != nil {
+		t.Fatalf("resumed session recording the decision after another session accepted the POC lane was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "review" {
+		t.Fatalf("recorded decision advanced to %q, want review", got)
+	}
+}
+
+// A resumed coordinator session records a checkpoint-shaped step action on an
+// item that never dispatched a lane, where the selecting session is still the
+// pinned executor.
+func TestResumedSessionRecordsDecisionWithoutALane(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "authority-no-lane-resumed-session"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
+	if !ok {
+		t.Fatal("workflow.architecture_spike v7 is not registered")
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
+		workflowEvent("no-lane-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEventWithActor("no-lane-definition", WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "decision_record")
+	resumed := owner
+	resumed.SessionRef = "session/resumed-" + workID
+	decision := mustJSONValue(map[string]any{
+		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
+		"rationale": "The research settled route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"research-pack"}, "poc_findings": "No POC built.",
+	})
+	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, resumed); err != nil {
+		t.Fatalf("resumed session recording the decision on an item with no lane was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "review" {
+		t.Fatalf("recorded decision advanced to %q, want review", got)
+	}
+}
+
 // The disposal that hands the owner the writing authority is the same event
 // that ends the lane's claim to it. After the owner accepts, the disposed lane
 // may not append checkpoint events, and the refusal mutates nothing.

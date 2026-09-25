@@ -113,15 +113,18 @@ func setupLinearConnectionResourceAtVersion(t *testing.T, s *Store, productID st
 	ctx := context.Background()
 	linear, _ := metadata["linear"].(map[string]any)
 	if linear != nil {
-		if _, exists := linear["project_ids"]; !exists {
-			linear["project_ids"] = map[string]string{productID + "-project": "linear-project-1"}
-		}
 		if _, exists := linear["status_ids"]; !exists {
 			linear["status_ids"] = map[string]string{
 				"needed": "linear-status-needed", "in_progress": "linear-status-in-progress",
 				"completed": "linear-status-completed", "cancelled": "linear-status-cancelled",
 				"superseded": "linear-status-superseded",
 			}
+		}
+		// CD-0171 D3: every synced issue carries its repository label, so a
+		// fixture connection maps the Product's convention-named project
+		// unless the test declares its own label_ids on purpose.
+		if _, exists := linear["label_ids"]; !exists {
+			linear["label_ids"] = map[string]string{"project:" + productID + "-project": "label-" + productID + "-repo"}
 		}
 	}
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
@@ -178,7 +181,7 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	})
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "update-linear-connection", ResourceID: "linear-conn-update-connection-product", ProductID: "update-connection-product",
-		TeamID: "new-team", ProjectIDs: map[string]string{"update-connection-product-project": "new-project"}, StatusIDs: map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
+		TeamID: "new-team", StatusIDs: map[string]string{"needed": "new-needed", "in_progress": "new-in-progress", "cancelled": "new-cancelled", "completed": "new-completed", "superseded": "new-superseded"},
 		ExpectedResourceVersion: 1, Actor: "operator", OccurredAt: time.Date(2026, 9, 9, 1, 0, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("UpdateLinearConnection() error = %v", err)
@@ -187,7 +190,7 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if connection.TeamID != "new-team" || len(connection.ProjectIDs) != 1 || connection.ProjectIDs["update-connection-product-project"] != "new-project" || connection.StatusIDs["cancelled"] != "new-cancelled" || connection.Version != 2 {
+	if connection.TeamID != "new-team" || connection.StatusIDs["cancelled"] != "new-cancelled" || connection.Version != 2 {
 		t.Fatalf("updated connection = %+v", connection)
 	}
 	var metadataJSON string
@@ -207,6 +210,11 @@ func TestLinearConnectionUpdateIsVersionCheckedAndPreservesMetadata(t *testing.T
 	}
 	if _, exists := linearMetadata["project_id"]; exists {
 		t.Fatalf("legacy project_id remains in Linear metadata: %v", linearMetadata["project_id"])
+	}
+	// CD-0171 removed the repository-to-Linear-Project mapping; an update
+	// also drops the retired project_ids document from stored metadata.
+	if _, exists := linearMetadata["project_ids"]; exists {
+		t.Fatalf("retired project_ids remains in Linear metadata: %v", linearMetadata["project_ids"])
 	}
 	if err := s.UpdateLinearConnection(ctx, LinearConnectionUpdateRequest{
 		EventID: "stale-linear-connection", ResourceID: connection.ResourceID, ProductID: "update-connection-product",
@@ -240,74 +248,6 @@ func TestLinearConnectionUpdateRequiresCompleteReplacementStatusMapping(t *testi
 				t.Fatalf("status mapping %v was accepted", statusIDs)
 			}
 		})
-	}
-}
-
-func TestLinearIssueEnqueueUsesTheOwningProjectMapping(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	setupLinearProduct(t, s, "routing-product")
-	if err := ApplyOperation(ctx, s, Operation{
-		Events: []Event{
-			projectCreatedEvent("other-project", "routing-secondary-project"),
-			membershipEvent("routing-secondary-membership", "product_project.added", SubjectProduct, "routing-product", map[string]any{
-				"product_id": "routing-product", "project_id": "other-project", "role": "secondary", "reason": "test",
-				"expected_version": 2, "resulting_version": 3,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{
-			VersionRef(SubjectProduct, "routing-product"): 2,
-			VersionRef(SubjectProject, "other-project"):   0,
-		},
-	}); err != nil {
-		t.Fatalf("add routing Product project: %v", err)
-	}
-	if _, err := s.SetProductPlanningMode(ctx, "routing-product", PlanningModeLinear, "pilot", "operator", 3); err != nil {
-		t.Fatal(err)
-	}
-	setupLinearConnectionResourceAtVersion(t, s, "routing-product", map[string]any{
-		"linear": map[string]any{
-			"workspace_url": "https://linear.app/example",
-			"team_id":       "team-uuid-1",
-			"auth_mode":     "personal_api_key",
-			"project_ids": map[string]string{
-				"routing-product-project": "linear-project-one",
-				"other-project":           "linear-project-two",
-			},
-		},
-	}, 4)
-	seedLinearWorkItem(t, s, "routing-work", "other-project", "Routing title", "Routing value")
-	op, err := s.EnqueueLinearIssueForWork(ctx, "routing-work", LinearOpIssueCreate)
-	if err != nil {
-		t.Fatalf("EnqueueLinearIssueForWork() error = %v", err)
-	}
-	var payload linearPayload
-	if err := json.Unmarshal(op.Payload, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.ProjectID != "linear-project-two" {
-		t.Fatalf("payload project id = %q, want linear-project-two", payload.ProjectID)
-	}
-}
-
-func TestLinearIssueEnqueueRefusesAnUnmappedOwningProject(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	setupLinearProduct(t, s, "unmapped-product")
-	setupLinearConnectionResource(t, s, "unmapped-product", map[string]any{
-		"linear": map[string]any{
-			"workspace_url": "https://linear.app/example",
-			"team_id":       "team-uuid-1",
-			"auth_mode":     "personal_api_key",
-			"project_ids":   map[string]string{"other-project": "linear-project-two"},
-		},
-	})
-	if _, err := s.SetProductPlanningMode(ctx, "unmapped-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
-		t.Fatal(err)
-	}
-	seedLinearWorkItem(t, s, "unmapped-work", "unmapped-product-project", "Unmapped title", "Unmapped value")
-	if _, err := s.EnqueueLinearIssueForWork(ctx, "unmapped-work", LinearOpIssueCreate); err == nil || !strings.Contains(err.Error(), "Core") || !strings.Contains(err.Error(), "not mapped") {
-		t.Fatalf("unmapped project error = %v, want named refusal", err)
 	}
 }
 

@@ -177,7 +177,7 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	}
 
 	// Unknown work refuses.
-	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "project_ids": map[string]string{"enq-product-project": "project-uuid-1"}, "auth_mode": "personal_api_key"}}, 3)
+	setupLinearConnectionResourceAtVersion(t, s, "enq-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
 	if _, err := s.EnqueueLinearIssueForWork(ctx, "ghost", LinearOpIssueCreate); err == nil || !failureKindIs(err, KindUnknownScope) {
 		t.Fatalf("unknown work error = %v, want unknown_scope", err)
 	}
@@ -212,11 +212,13 @@ func TestLinearEnqueueForWorkGuards(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "", linearIssueProposal{}, "enq-work", "task") || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "project-uuid-1" {
+	if decoded.ClientUUID == "" || decoded.Title != "Enqueue title" || decoded.Description != composeLinearIssueBody("Enqueue value statement", "", "", linearIssueProposal{}, "enq-work", "task", "", nil) || decoded.ProductID != "enq-product" || decoded.TeamID != "team-uuid-1" || decoded.ProjectID != "" {
 		t.Fatalf("payload = %+v", decoded)
 	}
-	if len(decoded.LabelIDs) != 0 {
-		t.Fatalf("unconfigured labels = %v, want none", decoded.LabelIDs)
+	// The fixture connection maps the Product's repository (CD-0171 D3), so
+	// the synced issue carries that label alongside the work kind.
+	if len(decoded.LabelIDs) != 1 || decoded.LabelIDs[0] != "label-enq-product-repo" {
+		t.Fatalf("configured labels = %v, want the repository label", decoded.LabelIDs)
 	}
 	if len(decoded.ClientUUID) != 36 || !strings.Contains(decoded.ClientUUID, "-") {
 		t.Fatalf("client uuid %q is not a UUID", decoded.ClientUUID)
@@ -236,8 +238,7 @@ func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
 	setupLinearProduct(t, s, "label-product")
 	setupLinearConnectionResource(t, s, "label-product", map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
-		"project_ids": map[string]string{"label-product-project": "project-uuid-1"},
-		"label_ids":   map[string]string{"bug": "label-bug", "expedite": "label-expedite"},
+		"label_ids": map[string]string{"bug": "label-bug", "expedite": "label-expedite", "project:label-product-project": "label-repo"},
 	}})
 	if _, err := s.SetProductPlanningMode(ctx, "label-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
@@ -261,8 +262,8 @@ func TestLinearEnqueueMapsKindAndExpediteLabels(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(payload.LabelIDs, ",") != "label-bug,label-expedite" {
-		t.Fatalf("mapped labels = %v, want bug then expedite", payload.LabelIDs)
+	if strings.Join(payload.LabelIDs, ",") != "label-bug,label-repo,label-expedite" {
+		t.Fatalf("mapped labels = %v, want bug, repository, then expedite", payload.LabelIDs)
 	}
 }
 
@@ -847,15 +848,15 @@ func TestLinearEnqueueBodyPublishesRecordedTaskBrief(t *testing.T) {
 }
 
 func TestComposeLinearIssueBodyOmitsAbsentSections(t *testing.T) {
-	body := composeLinearIssueBody("", "", "", linearIssueProposal{}, "work-x", "task")
+	body := composeLinearIssueBody("", "", "", linearIssueProposal{}, "work-x", "task", "", nil)
 	want := "task · Resume: `concord zl work-x --`"
 	if body != want {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
-	if got := composeLinearIssueBody("  value ", " brief ", " premise ", linearIssueProposal{}, "work-y", "task"); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Task\n\nbrief\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
+	if got := composeLinearIssueBody("  value ", " brief ", " premise ", linearIssueProposal{}, "work-y", "task", "", nil); !strings.Contains(got, "## Value statement\n\nvalue\n\n## Task\n\nbrief\n\n## Premise\n\npremise\n\ntask · Resume: `concord zl work-y --`") {
 		t.Fatalf("body = %q, want trimmed sections", got)
 	}
-	if got := composeLinearIssueBody("value", "", "premise", linearIssueProposal{}, "work-z", "task"); strings.Contains(got, "## Task") {
+	if got := composeLinearIssueBody("value", "", "premise", linearIssueProposal{}, "work-z", "task", "", nil); strings.Contains(got, "## Task") {
 		t.Fatalf("body = %q, want no Task section without a recorded task brief", got)
 	}
 }

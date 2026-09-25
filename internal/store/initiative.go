@@ -78,6 +78,12 @@ func foldInitiativeNarrativeRevised(ctx context.Context, tx *sql.Tx, event Event
 	if affected, _ := result.RowsAffected(); affected != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "Initiative does not exist at the expected version", false, "reload the Initiative before revising its narrative")
 	}
+	// CD-0171: a narrative revision resyncs the Initiative's Linear Project
+	// content once that Project exists. Configuration gaps are silent no-ops
+	// inside.
+	if err := enqueueLinearProjectUpdateForNarrativeTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -138,6 +144,13 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot add Initiative entry", true, "retry once the database is writable", err)
 	}
+	// CD-0171 D5/D6: a new entry can change the child's owning Initiative and
+	// its optional label, so the confirmed issue resyncs. Silent no-op
+	// without a confirmed link and on any Linear configuration gap, matching
+	// the capture fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
+	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)
 }
 
@@ -166,6 +179,13 @@ func foldInitiativeEntryRemoved(ctx context.Context, tx *sql.Tx, event Event) er
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='includes'`, event.SubjectID, p.ChildWorkID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove Initiative includes relation", true, "retry once the database is writable", err)
+	}
+	// CD-0171 D6: when the owning entry leaves its Initiative, the next
+	// oldest Initiative sets the Project, so the confirmed issue resyncs.
+	// Silent no-op on any Linear configuration gap, matching the capture
+	// fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
 	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)
 }
@@ -251,6 +271,12 @@ func foldInitiativeEntryRequirednessChanged(ctx context.Context, tx *sql.Tx, eve
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return newFailure(KindInitiativeEntryConflict, "fold_event", "Initiative entry does not exist", false, "change requiredness on an existing Initiative entry")
+	}
+	// CD-0171 D5: the optional label follows entry requiredness, so the
+	// confirmed issue resyncs. Silent no-op on any Linear configuration gap,
+	// matching the capture fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
 	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)
 }

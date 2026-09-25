@@ -127,11 +127,74 @@ func TestUpdateIssueNeverSendsPriority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", ProjectID: "project-uuid-1", StatusID: "state-cancelled", AddedLabelIDs: []string{"label-task"}}); err != nil {
+	setProjectID := "project-uuid-1"
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "Revised title", Description: "Revised description", ProjectID: &setProjectID, StatusID: "state-cancelled", AddedLabelIDs: []string{"label-task"}}); err != nil {
 		t.Fatalf("UpdateIssue() error = %v", err)
 	}
 	if strings.Contains(gotBody, `"priority":`) {
 		t.Fatalf("issueUpdate body %q must never resend a priority: Linear owns triage after creation", gotBody)
+	}
+}
+
+// An issue_update carries the issue's full Project
+// state. A nil ProjectID marshals as an explicit JSON null, which Linear reads
+// as "clear the field" (the omitempty string omitted it, so a remote issue
+// kept its Project after its last Initiative entry left), and RemovedLabelIDs
+// carries the Concord-managed labels that no longer apply.
+func TestUpdateIssueSendsProjectIdNullAndRemovedLabelIds(t *testing.T) {
+	var gotBodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBodies = append(gotBodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issueUpdate":{"success":true,"issue":{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-1","url":"https://linear.app/example/issue/SHA-1","updatedAt":"2026-09-09T12:01:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "T"}); err != nil {
+		t.Fatalf("UpdateIssue(nil project) error = %v", err)
+	}
+	if !strings.Contains(gotBodies[0], `"projectId":null`) {
+		t.Fatalf("request body %q lacks the explicit null projectId that clears the field", gotBodies[0])
+	}
+	if _, err := client.UpdateIssue(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", UpdateIssueInput{Title: "T", ProjectID: &[]string{"remote-project-1"}[0], RemovedLabelIDs: []string{"label-stale"}}); err != nil {
+		t.Fatalf("UpdateIssue(set project) error = %v", err)
+	}
+	if !strings.Contains(gotBodies[1], `"projectId":"remote-project-1"`) {
+		t.Fatalf("request body %q lacks the owning Initiative's project uuid", gotBodies[1])
+	}
+	if !strings.Contains(gotBodies[1], `"removedLabelIds":["label-stale"]`) {
+		t.Fatalf("request body %q lacks removedLabelIds for the label that no longer applies", gotBodies[1])
+	}
+}
+
+// The drain needs the issue's current labels to compute the Concord-managed
+// labels that no longer apply (CD-0171 D3, D5).
+func TestGetIssueLabelIDsFetchesTheLabelConnection(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":{"labels":{"nodes":[{"id":"label-repo"},{"id":"label-optional"}]}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels, err := client.GetIssueLabelIDs(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed")
+	if err != nil {
+		t.Fatalf("GetIssueLabelIDs() error = %v", err)
+	}
+	if len(labels) != 2 || labels[0] != "label-repo" || labels[1] != "label-optional" {
+		t.Fatalf("labels = %v, want the connection's label ids", labels)
+	}
+	if !strings.Contains(gotBody, "labels") || !strings.Contains(gotBody, "nodes") {
+		t.Fatalf("request body %q, want the labels connection query", gotBody)
 	}
 }
 
@@ -517,5 +580,113 @@ func TestGetIssueMapsUnknownIssueToPermanentFailure(t *testing.T) {
 		t.Fatal("GetIssue() for an unknown issue = nil error, want failure")
 	} else if IsRetryable(err) {
 		t.Fatalf("unknown issue error %v is retryable, want permanent", err)
+	}
+}
+
+func TestCreateProjectSendsClientUUIDAndContentFields(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectCreate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","description":"Initiative value statement","content":"The narrative.","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T00:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := client.CreateProject(context.Background(), CreateProjectInput{
+		ID:          "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+		TeamIDs:     []string{"team-uuid-1"},
+		Name:        "Initiative title",
+		Description: "Initiative value statement",
+		Content:     "The narrative.",
+	})
+	if err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+	if project.ID != "proj-uuid-1" || project.Name != "Initiative title" || project.Content != "The narrative." || project.URL == "" {
+		t.Fatalf("project = %+v", project)
+	}
+	// CD-0171 d2: the Concord-generated UUID rides ProjectCreateInput.id, so
+	// a replayed create converges on the same remote Project. CD-0171 d3:
+	// description is the short field, content the markdown narrative.
+	for _, want := range []string{`"id":"0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"`, `"teamIds":["team-uuid-1"]`, `"name":"Initiative title"`, `"description":"Initiative value statement"`, `"content":"The narrative."`, "projectCreate"} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+func TestUpdateProjectAddressesTheRemoteUUID(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateProject(context.Background(), "proj-uuid-1", UpdateProjectInput{Name: "Initiative title", Description: "Revised value", Content: "Revised narrative."}); err != nil {
+		t.Fatalf("UpdateProject() error = %v", err)
+	}
+	for _, want := range []string{"projectUpdate", `"id":"proj-uuid-1"`, `"description":"Revised value"`, `"content":"Revised narrative."`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+// Project_update is a full-state write, so an
+// empty description or content rides the request as an explicit empty string
+// and clears the remote field instead of leaving stale markdown behind.
+func TestUpdateProjectSendsEmptyFullStateFields(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"projectUpdate":{"success":true,"project":{"id":"proj-uuid-1","name":"Initiative title","updatedAt":"2026-09-23T01:00:00Z"}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateProject(context.Background(), "proj-uuid-1", UpdateProjectInput{Name: "Initiative title", Description: "Value statement", Content: ""}); err != nil {
+		t.Fatalf("UpdateProject() error = %v", err)
+	}
+	for _, want := range []string{`"description":"Value statement"`, `"content":""`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}
+
+func TestGetProjectRefusesAnUnknownProject(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"Entity not found: Project","extensions":{"code":"NOT_FOUND"}}]}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetProject(context.Background(), "ghost-project-uuid"); err == nil {
+		t.Fatal("GetProject() on an unknown project must fail")
+	} else {
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindGraphqlError {
+			t.Fatalf("GetProject() error = %v, want graphql_error", err)
+		}
 	}
 }

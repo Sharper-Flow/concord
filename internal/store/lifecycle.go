@@ -407,13 +407,27 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	// A capture folds membership right after creation, and the owning Product
-	// resolves only once the membership rows exist, so the Linear issue_create
-	// enqueues here rather than in the creation fold. Every Linear
-	// configuration gap is a silent no-op inside.
+	// resolves only once the membership rows exist, so the Linear outbox
+	// enqueues here rather than in the creation fold: an issue_create for a
+	// work item, or a project_create for an Initiative (CD-0171 D2). Every
+	// Linear configuration gap is a silent no-op inside. A later membership
+	// change can move a confirmed Linear issue between repositories and
+	// Initiatives (CD-0171 D3, D6), so the same guards gate one converging
+	// issue_update on that path too.
 	if payload.ExpectedVersion == 1 {
-		if _, _, err := enqueueLinearIssueForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+		kind, kindErr := readWorkKind(ctx, tx, event.SubjectID)
+		if kindErr != nil {
+			return kindErr
+		}
+		if kind == "initiative" {
+			if err := enqueueLinearProjectCreateForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
+				return err
+			}
+		} else if _, _, err := enqueueLinearIssueForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 			return err
 		}
+	} else if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
 	}
 	return nil
 }
@@ -981,7 +995,13 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 			return err
 		}
 	}
-	return enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, lifecycle, event.OccurredAt)
+	// A Linear configuration gap never fails the local transition: the
+	// capture fold absorbs the same refusals, and the explicit enqueue verb
+	// and the drain keep reporting them.
+	if err := enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, lifecycle, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
+	}
+	return nil
 }
 
 // closeWorkflowInstanceForTerminalLifecycle closes a live workflow instance in

@@ -103,11 +103,21 @@ type CreateIssueInput struct {
 // no priority field by design: creation seeded the priority once, and Linear
 // owns backlog triage from then on.
 type UpdateIssueInput struct {
-	Title         string   `json:"title,omitempty"`
-	Description   string   `json:"description,omitempty"`
-	ProjectID     string   `json:"projectId,omitempty"`
-	StatusID      string   `json:"stateId,omitempty"`
-	AddedLabelIDs []string `json:"addedLabelIds,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	// ProjectID is the issue's full Project state, not a change request: the
+	// owning Initiative's Linear Project uuid, or nil to send an explicit
+	// null. Linear reads the explicit null as "clear the field" (CD-0171 D4,
+	// D6), so an issue whose last Initiative entry left loses its Project
+	// instead of keeping a stale one.
+	ProjectID *string `json:"projectId"`
+	StatusID  string  `json:"stateId,omitempty"`
+	// AddedLabelIDs and RemovedLabelIDs carry the label delta. RemovedLabelIDs
+	// exists on Linear's IssueUpdateInput ([UUID!]); without it a label under
+	// the project:* or optional keys that stopped applying would linger on the
+	// remote issue forever (CD-0171 D3, D5).
+	AddedLabelIDs   []string `json:"addedLabelIds,omitempty"`
+	RemovedLabelIDs []string `json:"removedLabelIds,omitempty"`
 }
 
 // CommentCreateInput carries the fields the drain supplies when it publishes
@@ -129,6 +139,47 @@ type Issue struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// Project is the remote Linear project identity and content. Content is the
+// project's markdown document; Description is the short field (CD-0171 d3).
+// TeamIDs lists the teams the project belongs to, so the initiative import
+// can verify the project belongs to the Product's connection team before
+// binding it (CD-0171 D1). Only GetProject populates it.
+type Project struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Content     string    `json:"content"`
+	URL         string    `json:"url"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	TeamIDs     []string  `json:"teamIds,omitempty"`
+}
+
+// CreateProjectInput carries the fields the drain supplies on project
+// creation. ID is the Concord-generated UUID v4: Linear's
+// ProjectCreateInput.id, which makes a replayed create converge on the same
+// remote project instead of duplicating it (CD-0171 d2).
+type CreateProjectInput struct {
+	ID          string   `json:"id"`
+	TeamIDs     []string `json:"teamIds"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Content     string   `json:"content,omitempty"`
+}
+
+// UpdateProjectInput carries the mutable project fields the drain
+// synchronizes for an Initiative. Description and Content are full-state
+// fields: the input is a linearPayload-shaped snapshot of the Initiative, so
+// both always ride the request and an empty value clears the remote field
+// instead of leaving stale markdown behind.
+// Name keeps omitempty: a Linear Project requires a name, and an Initiative
+// always has a title, so an omitted name can only mean a caller that never
+// intended to send one.
+type UpdateProjectInput struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
 }
 
 // ResolvedIssue is one fetched issue together with its owning team and state,
@@ -354,6 +405,94 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
+}
+
+// GetIssueLabelIDs fetches only the issue's current label ids, so the drain
+// can compute the Concord-managed labels that no longer apply without a full
+// issue read.
+func (c *Client) GetIssueLabelIDs(ctx context.Context, remoteUUID string) ([]string, error) {
+	var payload struct {
+		Issue struct {
+			Labels struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"labels"`
+		} `json:"issue"`
+	}
+	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { labels { nodes { id } } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
+		return nil, err
+	}
+	labels := make([]string, 0, len(payload.Issue.Labels.Nodes))
+	for _, node := range payload.Issue.Labels.Nodes {
+		labels = append(labels, node.ID)
+	}
+	return labels, nil
+}
+
+// CreateProject executes projectCreate with the Concord-generated UUID and
+// returns the remote project identity.
+func (c *Client) CreateProject(ctx context.Context, input CreateProjectInput) (Project, error) {
+	var payload struct {
+		ProjectCreate struct {
+			Success bool    `json:"success"`
+			Project Project `json:"project"`
+		} `json:"projectCreate"`
+	}
+	query := "mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { success project { id name description content url updatedAt } } }"
+	if err := c.call(ctx, query, map[string]any{"input": input}, &payload); err != nil {
+		return Project{}, err
+	}
+	if !payload.ProjectCreate.Success {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectCreate reported success=false"}
+	}
+	return payload.ProjectCreate.Project, nil
+}
+
+// UpdateProject executes projectUpdate against the remote project UUID.
+func (c *Client) UpdateProject(ctx context.Context, projectUUID string, input UpdateProjectInput) (Project, error) {
+	var payload struct {
+		ProjectUpdate struct {
+			Success bool    `json:"success"`
+			Project Project `json:"project"`
+		} `json:"projectUpdate"`
+	}
+	query := "mutation($id: String!, $input: ProjectUpdateInput!) { projectUpdate(id: $id, input: $input) { success project { id name description content url updatedAt } } }"
+	if err := c.call(ctx, query, map[string]any{"id": projectUUID, "input": input}, &payload); err != nil {
+		return Project{}, err
+	}
+	if !payload.ProjectUpdate.Success {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectUpdate reported success=false"}
+	}
+	return payload.ProjectUpdate.Project, nil
+}
+
+// GetProject fetches one project by its UUID together with the teams it
+// belongs to. Linear answers an unknown project with a GraphQL error, which
+// maps to the permanent KindGraphqlError failure.
+func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, error) {
+	var payload struct {
+		Project struct {
+			Project
+			Teams struct {
+				Nodes []struct {
+					ID string `json:"id"`
+				} `json:"nodes"`
+			} `json:"teams"`
+		} `json:"project"`
+	}
+	query := "query($id: String!) { project(id: $id) { id name description content url updatedAt teams { nodes { id } } } }"
+	if err := c.call(ctx, query, map[string]any{"id": projectUUID}, &payload); err != nil {
+		return Project{}, err
+	}
+	if payload.Project.ID == "" {
+		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "project query returned no project"}
+	}
+	project := payload.Project.Project
+	for _, node := range payload.Project.Teams.Nodes {
+		project.TeamIDs = append(project.TeamIDs, node.ID)
+	}
+	return project, nil
 }
 
 // startedIssuesPageSize is the page size the started-issue sweep requests.

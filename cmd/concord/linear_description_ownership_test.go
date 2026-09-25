@@ -25,7 +25,7 @@ func seedDescriptionOwnershipCase(t *testing.T, dbPath, productID, projectID, wo
 	enableLinearProduct(t, dbPath, productID)
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
 		"event_id": "ownership-label-update", "resource_id": "drain-conn-" + productID, "product_id": productID,
-		"label_ids": map[string]string{"task": "label-task"}, "expected_resource_version": 1,
+		"label_ids": map[string]string{"task": "label-task", "project:" + projectID: "label-" + projectID + "-repo"}, "expected_resource_version": 1,
 	})
 	seedLinearCLIWork(t, dbPath, workID, projectID, title)
 	ctx := context.Background()

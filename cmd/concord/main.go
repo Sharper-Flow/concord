@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +27,6 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/linearclient"
-	"github.com/sharper-flow/concord/internal/linearmcp"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -173,8 +173,8 @@ var commandSpecs = []commandSpec{
 	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
 	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
 	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, project_ids, status_ids, label_ids", Enums: "status_ids keys: needed | in_progress | completed | cancelled | superseded; label_ids keys: task | bug | decision | research | other | expedite"},
-	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("initiative_id")), Optional: "none", Enums: "none"},
+	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, status_ids, label_ids", Enums: "status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>"},
+	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("linear_project_id")), Optional: "none", Enums: "linear_project_id: Linear Project uuid"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -1069,7 +1069,6 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 		ResourceID              string            `json:"resource_id"`
 		ProductID               string            `json:"product_id"`
 		TeamID                  string            `json:"team_id"`
-		ProjectIDs              map[string]string `json:"project_ids"`
 		StatusIDs               map[string]string `json:"status_ids"`
 		LabelIDs                map[string]string `json:"label_ids"`
 		ExpectedResourceVersion int64             `json:"expected_resource_version"`
@@ -1080,7 +1079,7 @@ func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, 
 	}
 	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
 		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-		TeamID: request.TeamID, ProjectIDs: request.ProjectIDs, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
+		TeamID: request.TeamID, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
 		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
 	}); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
@@ -1465,15 +1464,58 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue    linearclient.Issue
 			revision string
 			derr     error
+			// sentProjectID is the owning Initiative's Project the operation
+			// put on the wire: the completion compares it against the link's
+			// state at completion time, so a project_create that lands inside
+			// the drain-to-completion window still converges (CD-0171 review
+			// correction).
+			sentProjectID string
 		)
+		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
+			project, projectState, perr := drainProject(ctx, s, client, op, payload, teamID)
+			if perr != nil {
+				class := "permanent"
+				if linearclient.IsRetryable(perr) {
+					class = "retryable"
+				}
+				_ = s.FailLinearOperation(ctx, op.OperationID, class, perr.Error())
+				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: perr.Error()})
+				continue
+			}
+			if err := s.CompleteLinearProjectOperation(ctx, op.OperationID, project.ID, project.Name, project.URL, projectState); err != nil {
+				class := linearCompletionFailureClass(err)
+				_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
+				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
+				continue
+			}
+			// A completed project_create recorded the link and queued its
+			// confirmed entry updates inside the completion transaction:
+			// no separate refresh call can fail
+			// after the Project exists without a retry path.
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
+			continue
+		}
 		if op.OpKind == store.LinearOpIssueUpdate {
-			issue, revision, derr = drainUpdate(ctx, s, client, op, payload)
+			issue, revision, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
 		} else if op.OpKind == store.LinearOpIssueAdopt {
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
 		} else if op.OpKind == store.LinearOpIssueAuditComment {
 			issue, derr = drainAuditComment(ctx, s, client, op, payload)
 		} else {
-			issue, derr = drainCreate(ctx, client, payload, teamID)
+			// The create resolves the owning
+			// Initiative's confirmed Project at drain time. The payload
+			// snapshot goes stale whenever the Initiative's project_create
+			// completes after the issue was queued; reading the link here
+			// lets either claim order land the issue in its Project.
+			projectID, resolveErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
+			if resolveErr != nil {
+				const detail = "cannot read the owning Initiative's Linear Project link before sending the create"
+				_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
+				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
+				continue
+			}
+			sentProjectID = projectID
+			issue, derr = drainCreate(ctx, client, payload, teamID, projectID)
 		}
 		if derr != nil {
 			class := "permanent"
@@ -1510,10 +1552,23 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			// digest standing.
 			identity.ContentHash = revision
 		}
-		if err := s.CompleteLinearOperation(ctx, op.OperationID, identity); err != nil {
-			class := linearCompletionFailureClass(err)
-			_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
+		// Create and update completions compare the sent Project against the
+		// link read inside the same transaction and enqueue the converging
+		// update when the project_create landed mid-drain (CD-0171 review
+		// correction). Adoption runs the same full-state convergence against
+		// the adopted issue's own text, so an unlabeled adopted issue receives
+		// its repository and optional labels and its Initiative's Project
+		// through one queued issue_update.
+		completeErr := error(nil)
+		if op.OpKind == store.LinearOpIssueAdopt {
+			completeErr = s.CompleteLinearIssueAdoption(ctx, op.OperationID, identity, issue.Title, issue.Description)
+		} else {
+			completeErr = s.CompleteLinearIssueOperation(ctx, op.OperationID, identity, sentProjectID)
+		}
+		if completeErr != nil {
+			class := linearCompletionFailureClass(completeErr)
+			_ = s.FailLinearOperation(ctx, op.OperationID, class, completeErr.Error())
+			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: completeErr.Error()})
 			continue
 		}
 		detail := ""
@@ -1614,12 +1669,17 @@ func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *li
 
 // linearDrainPayload is the JSON convention every outbox payload carries.
 type linearDrainPayload struct {
-	ClientUUID        string   `json:"client_uuid"`
-	ProductID         string   `json:"product_id"`
-	Title             string   `json:"title"`
-	Description       string   `json:"description"`
-	TeamID            string   `json:"team_id"`
-	ProjectID         string   `json:"project_id,omitempty"`
+	ClientUUID  string `json:"client_uuid"`
+	ProductID   string `json:"product_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	// Content is the Initiative narrative a project operation writes to the
+	// Linear Project's markdown content field (CD-0171 d3).
+	Content string `json:"content,omitempty"`
+	TeamID  string `json:"team_id"`
+	// The payload never carries the issue's Linear Project: the create and
+	// update drains resolve the owning Initiative's confirmed Project at
+	// send time (CD-0171 D2, D6), so no enqueue-time snapshot can go stale.
 	ConnectionVersion int64    `json:"connection_version"`
 	Lifecycle         string   `json:"lifecycle,omitempty"`
 	StatusID          string   `json:"status_id,omitempty"`
@@ -1629,42 +1689,127 @@ type linearDrainPayload struct {
 	AuditComment      string   `json:"audit_comment,omitempty"`
 }
 
+// drainProject executes one Initiative Project operation. The drain sends the
+// Initiative's current title, value statement, and narrative — read at drain
+// time, not the enqueue-time payload snapshot — so a revision that lands after
+// enqueue still ships. A create sends the
+// Concord-generated UUID as ProjectCreateInput.id so a replayed drain
+// converges on the same remote Project (CD-0171 d2). An update addresses the
+// recorded remote Project.
+func drainProject(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, teamID string) (linearclient.Project, store.LinearInitiativeProjectState, error) {
+	state, err := s.ReadLinearInitiativeProjectState(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
+	}
+	if op.OpKind == store.LinearOpProjectCreate {
+		if payload.ClientUUID == "" || state.Title == "" || teamID == "" {
+			return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
+		}
+		// The client UUID is stable per Initiative (CD-0171 D2): an earlier
+		// attempt may have created the Project remotely before the operation
+		// failed locally. The get finds that Project and the drain adopts it
+		// instead of minting a duplicate; a miss or a failed get falls
+		// through to the create, whose replayed UUID converges on the same
+		// Project. The adoption reports the remote fields as the sent state:
+		// an adopted Project may predate the Initiative's current revision,
+		// and only a sent state taken from the remote lets the completion
+		// detect that distance and queue the converging project_update — a
+		// sent state taken from the Initiative would compare the state with
+		// itself and drop the revision silently.
+		if adopted, adoptErr := client.GetProject(ctx, payload.ClientUUID); adoptErr == nil {
+			return adopted, store.LinearInitiativeProjectState{Title: adopted.Name, ValueStatement: adopted.Description, Narrative: adopted.Content}, nil
+		}
+		project, err := client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
+		return project, state, err
+	}
+	link, err := s.ReadLinearProjectLink(ctx, op.WorkID)
+	if err != nil {
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
+	}
+	if link.RemoteProjectUUID == "" {
+		return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("the Initiative's project link has no remote project to update")
+	}
+	project, err := client.UpdateProject(ctx, link.RemoteProjectUUID, linearclient.UpdateProjectInput{Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
+	return project, state, err
+}
+
 // drainUpdate resolves the linked remote identity and executes issueUpdate.
-// Linear's issueUpdate carries no conditional-write guard, so a post-create
-// content write can erase a human edit that lands between a remote read and
-// the write. Updates therefore synchronize the managed routing fields only
-// (project, state, labels) and never send the generated title or description
-// to the issue body. When the composed content diverges from the digest of
-// what Concord last published, the drain posts the approved revision on the
-// linked issue as a comment — durable Linear planning context that replaces
-// no one's text — and returns its digest so the completion records it. A
-// repeated drain finds the digests equal and publishes nothing. The comment
-// id is the operation's client UUID. Linear stores that UUID as the comment's
-// own id and refuses a repeated insert instead of upserting. A retry after
-// a lost response meets a duplicate-entity conflict: the drain resolves it by
-// UUID, verifies it sits on the linked issue, and converges instead of
-// duplicating or failing an effect that is already visible. An empty recorded
-// digest marks an issue whose body Concord never authored — explicit
-// adoption — so there is no Concord-published content to revise and the
-// update stays routing-only. A failed comment fails the operation, leaving
-// the revision explicitly unsynchronized rather than reporting a stale
-// issue as done.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, string, error) {
+// The update carries the issue's full Project and Concord-managed label
+// state, both resolved at drain time: the owning
+// Initiative's confirmed Project sets projectId, no Initiative Project sends
+// an explicit null so Linear clears the field (CD-0171 D4, D6), and remote
+// labels under the project:* and optional connection keys that the payload no
+// longer desires ride removedLabelIds (CD-0171 D3, D5). Labels outside those
+// keys are never Concord's to remove. The resolved Project rides the return
+// value so the completion can compare it against the link's state at
+// completion time and queue the converging update when the project_create
+// landed inside the drain-to-completion window. Linear's issueUpdate carries
+// no conditional-write guard, so a post-create content write can erase a
+// human edit that lands between a remote read and the write. Updates
+// therefore synchronize the managed routing fields only (project, state,
+// labels) and never send the generated title or description to the issue
+// body. When the composed content diverges from the digest of what Concord
+// last published, the drain posts the approved revision on the linked issue
+// as a comment — durable Linear planning context that replaces no one's text
+// — and returns its digest so the completion records it. A repeated drain
+// finds the digests equal and publishes nothing. The comment id is the
+// operation's client UUID. Linear stores that UUID as the comment's own id
+// and refuses a repeated insert instead of upserting. A retry after a lost
+// response meets a duplicate-entity conflict: the drain resolves it by UUID,
+// verifies it sits on the linked issue, and converges instead of duplicating
+// or failing an effect that is already visible. An empty recorded digest
+// marks an issue whose body Concord never authored — explicit adoption — so
+// there is no Concord-published content to revise and the update stays
+// routing-only. A failed comment fails the operation, leaving the revision
+// explicitly unsynchronized rather than reporting a stale issue as done.
+func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, string, string, error) {
 	link, err := s.ReadLinearLink(ctx, op.WorkID)
 	if err != nil {
-		return linearclient.Issue{}, "", err
+		return linearclient.Issue{}, "", "", err
 	}
 	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, "", fmt.Errorf("link has no confirmed remote issue to update")
+		return linearclient.Issue{}, "", "", fmt.Errorf("link has no confirmed remote issue to update")
 	}
-	input := linearclient.UpdateIssueInput{ProjectID: payload.ProjectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
+	// The payload snapshot goes stale whenever the owning Initiative's
+	// project_create completes after the update was queued; the link's state
+	// at send time decides the field, and its absence clears it.
+	projectIDValue, projectErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
+	if projectErr != nil {
+		return linearclient.Issue{}, "", "", projectErr
+	}
+	var projectID *string
+	if projectIDValue != "" {
+		projectID = &projectIDValue
+	}
+	input := linearclient.UpdateIssueInput{ProjectID: projectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
+	desired := make(map[string]bool, len(payload.LabelIDs))
+	for _, labelID := range payload.LabelIDs {
+		desired[labelID] = true
+	}
+	managed := make(map[string]bool)
+	for key, labelID := range connection.LabelIDs {
+		if key == store.LinearLabelOptionalKey || strings.HasPrefix(key, store.LinearLabelProjectPrefix) {
+			managed[labelID] = true
+		}
+	}
+	if len(managed) > 0 {
+		current, labelErr := client.GetIssueLabelIDs(ctx, link.RemoteIssueUUID)
+		if labelErr != nil {
+			return linearclient.Issue{}, "", "", labelErr
+		}
+		for _, labelID := range current {
+			if managed[labelID] && !desired[labelID] {
+				input.RemovedLabelIDs = append(input.RemovedLabelIDs, labelID)
+			}
+		}
+	}
 	issue, err := client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
 	if err != nil {
-		return linearclient.Issue{}, "", err
+		return linearclient.Issue{}, "", "", err
 	}
 	digest := linearContentHash(payload.Title, payload.Description)
 	if link.ContentHash == "" || link.ContentHash == digest {
-		return issue, "", nil
+		return issue, "", projectIDValue, nil
 	}
 	comment := linearclient.CommentCreateInput{
 		ID:      payload.ClientUUID,
@@ -1680,25 +1825,25 @@ func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Clien
 		// matches the exact revision. Any other answer is a
 		// divergence the operation must not claim as its own publication.
 		if !linearclient.IsDuplicateEntity(err) {
-			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: %w", err)
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: %w", err)
 		}
 		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
 		if cerr != nil {
 			// The conflict proved the comment exists, so the lookup failure
 			// decides retryability, as in drainCreate.
-			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: resolve stored comment: %w", cerr)
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: resolve stored comment: %w", cerr)
 		}
 		if stored.ID != payload.ClientUUID {
-			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
 		}
 		if stored.IssueID != link.RemoteIssueUUID {
-			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: comment %s sits on issue %s, not the linked issue", stored.ID, stored.IssueID)
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: comment %s sits on issue %s, not the linked issue", stored.ID, link.RemoteIssueUUID)
 		}
 		if stored.Body != comment.Body {
-			return linearclient.Issue{}, "", fmt.Errorf("publish managed revision comment: stored body differs for comment %s; revision digest %s is not verified", stored.ID, digest)
+			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: stored body differs for comment %s; revision digest %s is not verified", stored.ID, digest)
 		}
 	}
-	return issue, digest, nil
+	return issue, digest, projectIDValue, nil
 }
 
 // drainAuditComment publishes one independent audit update as a comment on
@@ -1761,10 +1906,12 @@ func drainAuditComment(ctx context.Context, s *store.Store, client *linearclient
 // previous attempt of this operation already created the issue — the
 // lost-response case the durable retry exists for. Resolution reads the
 // issue by the operation's own UUID: any other identifier would adopt an
-// issue this operation did not create.
-func drainCreate(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID string) (linearclient.Issue, error) {
+// issue this operation did not create. projectID is the owning Initiative's
+// Linear Project the drain resolved at send time (CD-0171 D6), not an
+// enqueue-time snapshot.
+func drainCreate(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID, projectID string) (linearclient.Issue, error) {
 	issue, err := client.CreateIssue(ctx, linearclient.CreateIssueInput{
-		ID: payload.ClientUUID, TeamID: teamID, ProjectID: payload.ProjectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
+		ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
 	})
 	if err == nil || !linearclient.IsDuplicateEntity(err) {
 		return issue, err
@@ -1845,37 +1992,57 @@ func linearContentHash(title, description string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// runLinearInitiativeImport handles the drafting-pad verb: one-way import of a
-// Linear initiative as a Concord initiative, read through the host's MCP
-// server. The process holds no Linear credential; the MCP endpoint owns it.
+// runLinearInitiativeImport handles the one-way import verb: it reads one
+// Linear Project through the first-party GraphQL client (CD-0171 D7) and
+// records it as a Concord Initiative. The import never writes back to
+// Linear.
 func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
-		ProductID    string `json:"product_id"`
-		InitiativeID string `json:"initiative_id"`
+		ProductID       string `json:"product_id"`
+		LinearProjectID string `json:"linear_project_id"`
 	}
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	if request.InitiativeID == "" {
-		writeOperatorDiagnostic(errOut, command, "initiative_id is required (a Linear initiative uuid)")
+	if request.LinearProjectID == "" {
+		writeOperatorDiagnostic(errOut, command, "linear_project_id is required (a Linear Project uuid)")
 		return 1
 	}
 	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	endpoint := os.Getenv("CONCORD_LINEAR_MCP_URL")
-	if endpoint == "" {
-		writeOperatorDiagnostic(errOut, command, "no MCP endpoint configured; set CONCORD_LINEAR_MCP_URL to the host's Linear MCP server")
+	client, err := linearclient.FromEnv()
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
 		return 1
 	}
-	initiative, err := linearmcp.GetInitiative(ctx, endpoint, request.InitiativeID)
+	project, err := client.GetProject(ctx, request.LinearProjectID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, initiative.ID, initiative.Name, initiative.Description)
+	// CD-0171 D1: the import binds a Linear Project to the Product's Linear
+	// team, so a project that belongs to another team refuses instead of
+	// silently planning a foreign team's work under this Product.
+	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	if !slices.Contains(project.TeamIDs, connection.TeamID) {
+		refusal := &store.Failure{
+			Kind:           store.KindInvalidRelation,
+			Op:             "linear-initiative-import",
+			Detail:         fmt.Sprintf("Linear Project %s belongs to teams %v, not the Product's connection team %s", project.ID, project.TeamIDs, connection.TeamID),
+			RetrySafe:      true,
+			RecoveryAction: "import a Linear Project that belongs to the Product's connection team, or update the connection's team_id",
+		}
+		writeOperatorDiagnostic(errOut, command, refusal.Error())
+		return 1
+	}
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.Content, project.URL)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

@@ -154,8 +154,7 @@ func seedAdoptionConnectionResource(t *testing.T, s *store.Store) {
 	}
 	metadata, _ := json.Marshal(map[string]any{"linear": map[string]any{
 		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1",
-		"project_ids": map[string]string{"project-1": "project-uuid-1"},
-		"auth_mode":   "personal_api_key",
+		"auth_mode": "personal_api_key",
 	}})
 	if _, err := tx.Exec(`INSERT INTO managed_resources(resource_id, display_name, class, kind, purpose, stage_maturity, stage_audience_commitment, environments, metadata_schema_version, metadata, version, created_at, updated_at) VALUES ('adopt-conn', 'Linear connection', 'saas', 'saas_account', 'Linear planning connection', 'prototype', 'operator_only', '["production"]', 'linear-connection-v1', ?, 1, '2026-09-16T00:00:00Z', '2026-09-16T00:00:00Z')`, string(metadata)); err != nil {
 		t.Fatal(err)

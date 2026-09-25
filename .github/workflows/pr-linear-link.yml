@@ -1,0 +1,46 @@
+# CD-0171 D8: a Concord-managed pull request names its Linear issue. The
+# head branch marks the managed work, so only work/work-* bodies are
+# checked and merge queue entries carry the same gate as the PR run.
+#
+# This check owns its workflow so a body or title edit re-runs it without
+# re-triggering the CI jobs: `types` is a workflow-level trigger field, so
+# the `edited` type here cannot reach ci.yml. Only the merge queue path
+# reads the queued pull request through `gh`, so `pull-requests: read`
+# stays on this job alone.
+name: pr-linear-link
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  # A merge queue validates each pull request against the latest main plus
+  # the entries ahead of it, on a temporary `gh-readonly-queue/**` ref.
+  # This job gates merge once the main ruleset requires verify-pr-linear-link;
+  # a merge group that never reports a required check cannot merge, so this
+  # trigger is what lets the queue carry the gate.
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A pull_request run groups by ref, so an edit or a new push to the branch
+  # supersedes the previous run and releases its runner slot.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify-pr-linear-link:
+    name: verify-pr-linear-link
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Require a non-closing Related-to Linear issue line on work pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check-pr-linear-link.py

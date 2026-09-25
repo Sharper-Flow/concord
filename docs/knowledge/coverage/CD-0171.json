@@ -1,5 +1,62 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueSyncsRepositoryLabelInsteadOfProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueCarriesOptionalLabelForNonRequiredEntry"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueProjectFollowsTheEarliestInitiative"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueOutsideInitiativeHasNoProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearProjectCreateEnqueueCarriesValueAndNarrative"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueEnqueueRefusesUnmappedRepositoryProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueEnqueueOnAnInitiativeQueuesProjectOperations"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearIssueDescriptionLinksOtherInitiativesByProjectURL"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLinearInitiativeImportRecordsTheProjectLink"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/linearclient.TestCreateProjectSendsClientUUIDAndContentFields"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/linearclient.TestUpdateIssueSendsProjectIdNullAndRemovedLabelIds"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestLinearIssueUpdateDrainClearsProjectAndRemovesStaleLabels"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestLinearInitiativeImportCLI"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-pr-linear-link.py"
+    }
+  ],
   "id": "CD-0171",
-  "issue": "CON-427",
-  "state": "outstanding"
+  "state": "satisfied"
 }

@@ -1564,11 +1564,12 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if p.AttemptEpoch != expectedEpoch {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
-	writer, err := workflowCheckpointWriterRef(ctx, tx, event.SubjectID, executionActor, event.Seq)
+	fenced := step != nil && workflowStepFences(entry.Definition, *step)
+	admitted, err := workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, fenced, event.Seq)
 	if err != nil {
 		return err
 	}
-	if writer == "" || p.ActorRef != writer {
+	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -2204,41 +2205,63 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 	return 1, nil
 }
 
-// workflowCheckpointWriterRef names the workflow actor that may append
-// checkpoint-event actions and action failures on the work item at the event's
-// sequence position. A worker dispatch pins the lane as the writer through the
-// instance's executing actor. Disposing that lane's attempt —
+// workflowCheckpointWriterAdmitted reports whether the workflow actor may
+// append checkpoint-event actions and action failures on the work item at the
+// event's sequence position.
+//
+// A live lane attempt — the latest worker.dispatched with no
 // accept_worker_result, reject_worker_result, or record_worker_failure naming
-// it — hands the writing authority to the disposing owner until the next
-// dispatch re-pins a lane and the authority returns to the executing actor.
-// beforeSeq bounds both searches at the caller's own sequence position, so a
-// replay derives the same writer from the same event prefix, and
-// execution_actor_ref keeps serving only the independence readers.
-func workflowCheckpointWriterRef(ctx context.Context, q queryer, workID, executionActor string, beforeSeq int64) (string, error) {
-	if executionActor == "" {
-		return "", nil
+// it — keeps the lane, pinned by the dispatch as the instance's executing
+// actor, as the sole writer. A fenced action keeps the single executor and
+// disposer rule: the executor writes while its attempt runs, and the owner
+// that disposed of the attempt writes until the next dispatch re-pins a lane.
+// Any other checkpoint-shaped action — a decision or review checkpoint on a
+// step no fenced attempt owns — admits every recorded coordinator actor,
+// except an actor that is the lane_actor_ref of any worker.dispatched on the
+// item: a disposed lane never regains the pen. execution_actor_ref keeps
+// serving only the independence readers, so no coordinator signs its own
+// verdict and the executing pin does not move.
+//
+// beforeSeq bounds every search at the caller's own sequence position, so a
+// replay derives the same answer from the same event prefix.
+func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, executionActor, actorRef string, fenced bool, beforeSeq int64) (bool, error) {
+	if executionActor == "" || actorRef == "" {
+		return false, nil
 	}
 	var dispatchSeq int64
 	var attemptID string
 	err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, beforeSeq).Scan(&dispatchSeq, &attemptID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return executionActor, nil
+	if err != nil && err != sql.ErrNoRows {
+		return false, workflowProjectionError(err, "cannot inspect worker dispatches for the workflow writing authority")
+	}
+	writer := executionActor
+	live := false
+	if err == nil {
+		err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&writer)
+		if err != nil && err != sql.ErrNoRows {
+			return false, workflowProjectionError(err, "cannot inspect worker attempt disposals for the workflow writing authority")
 		}
-		return "", workflowProjectionError(err, "cannot inspect worker dispatches for the workflow writing authority")
-	}
-	var writer string
-	err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&writer)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return executionActor, nil
+		live = err == sql.ErrNoRows
+		if writer == "" {
+			writer = executionActor
 		}
-		return "", workflowProjectionError(err, "cannot inspect worker attempt disposals for the workflow writing authority")
 	}
-	if writer == "" {
-		return executionActor, nil
+	if live {
+		// A live lane attempt keeps the lane as sole writer.
+		return actorRef == executionActor, nil
 	}
-	return writer, nil
+	if fenced {
+		// A fenced action keeps its executor and disposer rule.
+		return actorRef == writer, nil
+	}
+	// Any recorded coordinator actor is admitted; an actor that is the
+	// lane_actor_ref of any worker.dispatched on the item never is. A legacy
+	// dispatch carries no lane_actor_ref, so it excludes nothing.
+	var laneActors int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq<? AND json_extract(payload,'$.lane_actor_ref')=?`, string(SubjectWorkItem), workID, WorkerDispatched, beforeSeq, actorRef).Scan(&laneActors); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect worker dispatch actors for the workflow writing authority")
+	}
+	return laneActors == 0, nil
 }
 
 // workflowStepFences reports whether any action on the step runs fenced, and so
@@ -2432,7 +2455,8 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if !TypedErrorKindAllowed(p.FailureKind) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_failed failure kind is not closed", false, "use a TS7 typed error kind")
 	}
-	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
+	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
 		return err
 	}
 	var currentStep, executionActor string
@@ -2452,11 +2476,13 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	if (!found || p.AttemptEpoch != latestEpoch) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "action failure does not match the latest workflow action start epoch", false, "fail the current workflow action attempt")
 	}
-	writer, err := workflowCheckpointWriterRef(ctx, tx, event.SubjectID, executionActor, event.Seq)
+	step := workflowStep(entry.Definition, currentStep)
+	fenced := step != nil && workflowStepFences(entry.Definition, *step)
+	admitted, err := workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, fenced, event.Seq)
 	if err != nil {
 		return err
 	}
-	if writer == "" || p.ActorRef != writer {
+	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "action failure actor does not hold the workflow writing authority", false, "fail the workflow action through the workflow actor that holds the writing authority")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {

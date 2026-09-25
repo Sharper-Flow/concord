@@ -158,7 +158,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 	var cursor *string
 	if len(items) == limit {
 		last := items[len(items)-1]
-		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 2, Product: req.Product, Project: req.Project, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
+		encoded, err := encodeKnowledgeCursor(knowledgeCursor{Version: 2, Product: req.Product, Project: req.Project, Domain: req.Domain, Kinds: kinds, Tags: tags, Text: req.Text, Since: req.Since, Until: req.Until, HomeProjectID: req.Home.HomeProjectID, HomeLocatorID: req.Home.HomeLocatorID, HeadRef: req.Home.HeadRef, MatchClass: last.MatchClass, CompletedAt: last.CompletedAt, ID: last.ID})
 		if err != nil {
 			return out, err
 		}
@@ -535,7 +535,7 @@ func knowledgeKinds(values []string) ([]string, error) {
 
 type knowledgeCursor struct {
 	Version                               int `json:"version"`
-	Product, Project, Text                string
+	Product, Project, Domain, Text        string
 	Since, Until                          string
 	Kinds, Tags                           []string
 	HomeProjectID, HomeLocatorID, HeadRef string
@@ -554,7 +554,7 @@ func encodeKnowledgeCursor(cursor knowledgeCursor) (string, error) {
 func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (knowledgeCursor, error) {
 	b, err := base64.RawURLEncoding.DecodeString(raw)
 	var cursor knowledgeCursor
-	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 2 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 2 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" {
+	if err != nil || json.Unmarshal(b, &cursor) != nil || cursor.Version != 2 || cursor.Product != req.Product || cursor.Project != req.Project || cursor.Domain != req.Domain || cursor.Text != req.Text || cursor.Since != req.Since || cursor.Until != req.Until || cursor.HomeProjectID != req.Home.HomeProjectID || cursor.HomeLocatorID != req.Home.HomeLocatorID || cursor.HeadRef != req.Home.HeadRef || !equalStrings(cursor.Kinds, kinds) || !equalStrings(cursor.Tags, tags) || cursor.MatchClass < 0 || cursor.MatchClass > 2 || req.Text == "" && cursor.MatchClass != 0 || cursor.CompletedAt == "" || cursor.ID == "" {
 		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query", false, "use a cursor returned for the same query and filters")
 	}
 	return cursor, nil
@@ -575,9 +575,19 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_projects p WHERE p.work_id = aw.id AND p.home_project_id = aw.home_project_id AND p.home_locator_id = aw.home_locator_id AND p.project_id = ?))")
 		args = append(args, req.Project)
 	}
+	// One law Domain membership expression decides that a record belongs to a
+	// Domain: the note's declared Domain scopes, the law's home Domain, or the
+	// law's declared applicability (the same projection Q10 reads). It drives
+	// the Domain filter, the exact Domain text match, and the returned
+	// domain_ids. A Domain matches only itself.
+	domainMember := func(predicate func(column string) string) string {
+		return `(EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.home_project_id = aw.home_project_id AND d.home_locator_id = aw.home_locator_id AND ` + predicate("d.domain_id") + `)` +
+			` OR EXISTS (SELECT 1 FROM law_domain_homes h WHERE h.home_project_id = aw.home_project_id AND h.home_locator_id = aw.home_locator_id AND h.law_id = aw.id AND ` + predicate("h.domain_id") + `)` +
+			` OR EXISTS (SELECT 1 FROM law_domain_applicability a WHERE a.home_project_id = aw.home_project_id AND a.home_locator_id = aw.home_locator_id AND a.law_id = aw.id AND ` + predicate("a.domain_id") + `))`
+	}
 	if req.Domain != "" {
-		where = append(where, "EXISTS (SELECT 1 FROM archived_work_domains d WHERE d.work_id = aw.id AND d.home_project_id = aw.home_project_id AND d.home_locator_id = aw.home_locator_id AND d.domain_id = ?)")
-		args = append(args, req.Domain)
+		where = append(where, domainMember(func(column string) string { return column + " = ?" }))
+		args = append(args, req.Domain, req.Domain, req.Domain)
 	}
 	if len(kinds) > 0 {
 		placeholders := make([]string, len(kinds))
@@ -590,7 +600,7 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		where = append(where, "(EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.home_project_id = aw.home_project_id AND t.home_locator_id = aw.home_locator_id AND t.tag_id = ?) OR (aw.type <> 'work_note' AND EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) WHERE value = ?)))")
 		args = append(args, tag, tag)
 	}
-	exactScopeMatch := `EXISTS (SELECT 1 FROM archived_work_domains exact_domain WHERE exact_domain.work_id = aw.id AND exact_domain.home_project_id = aw.home_project_id AND exact_domain.home_locator_id = aw.home_locator_id AND lower(exact_domain.domain_id) = lower(input.text))`
+	exactScopeMatch := domainMember(func(column string) string { return "lower(" + column + ") = lower(input.text)" })
 	exactMatch := `(lower(aw.id) = lower(input.text)
 		OR lower(aw.title) = lower(input.text)
 		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND exact_tag.home_project_id = aw.home_project_id AND exact_tag.home_locator_id = aw.home_locator_id AND lower(exact_tag.tag_id) = lower(input.text))
@@ -614,7 +624,11 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 		args = append(args, cursor.MatchClass, cursor.MatchClass, cursor.CompletedAt, cursor.CompletedAt, cursor.ID)
 	}
 	args = append(args, limit)
-	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY domain_id)), '[]'),`
+	scopeSelect := `COALESCE((SELECT json_group_array(domain_id) FROM (` +
+		`SELECT domain_id FROM archived_work_domains WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ` +
+		`UNION SELECT domain_id FROM law_domain_homes WHERE home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id AND law_id=aw.id ` +
+		`UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id AND law_id=aw.id ` +
+		`ORDER BY domain_id)), '[]'),`
 	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
 		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 WHEN ` + boundedTextMatch + ` THEN 1 ELSE 2 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +

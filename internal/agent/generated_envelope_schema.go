@@ -732,13 +732,14 @@ const GeneratedEnvelopeSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "authority": {
-          "maxLength": 128,
+          "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "digest": {
-          "maxLength": 256,
-          "minLength": 1,
+          "maxLength": 128,
+          "minLength": 8,
+          "pattern": "^(sha256:)?[0-9a-fA-F]{8,}$",
           "type": "string"
         },
         "kind": {
@@ -759,13 +760,12 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "locator_kind": {
-          "maxLength": 64,
+          "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "version": {
           "maxLength": 256,
-          "minLength": 1,
           "type": "string"
         }
       },

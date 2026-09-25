@@ -1129,12 +1129,12 @@
         "authority": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 256
         },
         "locator_kind": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 256
         },
         "locator": {
           "type": "string",
@@ -1143,13 +1143,13 @@
         },
         "version": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 256
         },
         "digest": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 256
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^(sha256:)?[0-9a-fA-F]{8,}$"
         }
       }
     },

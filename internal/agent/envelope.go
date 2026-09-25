@@ -555,11 +555,6 @@ func validateEnvelopeCollections(e Envelope) error {
 			return errors.New("invalid notice")
 		}
 	}
-	for _, ref := range e.EvidenceRefs {
-		if !oneOf(ref.Kind, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact") || !bounded(ref.Authority, 1, 128) || !bounded(ref.LocatorKind, 1, 64) || !bounded(ref.Locator, 1, 2048) || (ref.Version != "" && !bounded(ref.Version, 1, 256)) || (ref.Digest != "" && !bounded(ref.Digest, 1, 256)) {
-			return errors.New("invalid evidence reference")
-		}
-	}
 	if e.Freshness != nil && (e.Freshness.ObservedAt.IsZero() || e.Freshness.Age < 0) {
 		return errors.New("invalid freshness")
 	}

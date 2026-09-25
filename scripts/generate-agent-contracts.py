@@ -384,6 +384,49 @@ def check_payload_closed(node, path="payload"):
         elif key in {"allOf", "anyOf", "oneOf"} and isinstance(value, list):
             for index, child in enumerate(value): check_payload_closed(child, f"{path}.{key}[{index}]")
 
+# The request schema (contracts/agent-tool-surface-payloads.schema.json $defs/evidence) owns every
+# evidence field bound. Result evidence_refs echo request evidence, so the result schema
+# (contracts/agent-tool-envelope.schema.json $defs/evidenceRef) must declare the same bounds: a
+# narrower result bound turns an admitted request into a malformed_response, and a wider one
+# advertises values no request can supply. Generation refuses any disagreement.
+def resolve_schema_ref(node: object, root: dict) -> object:
+    if not isinstance(node, dict): return node
+    ref = node.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith("#/$defs/"): return node
+    target = root.get("$defs", {}).get(ref.removeprefix("#/$defs/"))
+    if not isinstance(target, dict): return node
+    return resolve_schema_ref(target, root)
+
+# evidence_field_bound returns the bound-relevant keywords (type, minLength,
+# maxLength, pattern, format, enum) on a property node, after any $ref has been
+# resolved. Two evidence declarations agree when these sets compare equal.
+def evidence_field_bound(schema: object, root: dict) -> dict:
+    resolved = resolve_schema_ref(schema, root)
+    if not isinstance(resolved, dict): return {}
+    return {key: value for key, value in resolved.items() if key in {"type", "minLength", "maxLength", "pattern", "format", "enum"}}
+
+def check_evidence_bound_parity(payload: dict, envelope: dict) -> None:
+    payload_evidence = payload.get("$defs", {}).get("evidence")
+    envelope_evidence_ref = envelope.get("$defs", {}).get("evidenceRef")
+    if not isinstance(payload_evidence, dict): fail("contracts/agent-tool-surface-payloads.schema.json: $defs/evidence is not an object")
+    if not isinstance(envelope_evidence_ref, dict): fail("contracts/agent-tool-envelope.schema.json: $defs/evidenceRef is not an object")
+    fields = ("kind", "authority", "locator_kind", "locator", "version", "digest")
+    for field in fields:
+        payload_props = payload_evidence.get("properties", {}).get(field)
+        envelope_props = envelope_evidence_ref.get("properties", {}).get(field)
+        if not isinstance(payload_props, dict): fail(f"contracts/agent-tool-surface-payloads.schema.json: $defs/evidence/properties/{field} is not an object")
+        if not isinstance(envelope_props, dict): fail(f"contracts/agent-tool-envelope.schema.json: $defs/evidenceRef/properties/{field} is not an object")
+        payload_bound = evidence_field_bound(payload_props, payload)
+        envelope_bound = evidence_field_bound(envelope_props, envelope)
+        if payload_bound != envelope_bound:
+            fail(
+                f"evidence bound mismatch on {field}: "
+                f"$defs/evidence in contracts/agent-tool-surface-payloads.schema.json declares "
+                f"{json.dumps(payload_bound, ensure_ascii=False, sort_keys=True)}; "
+                f"$defs/evidenceRef in contracts/agent-tool-envelope.schema.json declares "
+                f"{json.dumps(envelope_bound, ensure_ascii=False, sort_keys=True)}"
+            )
+
 def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
@@ -446,6 +489,8 @@ def validate(manifest: dict) -> str:
     if manifest.get("envelope", {}).get("max_bytes") != 51200 or manifest.get("bounds", {}).get("max_output_bytes") != 51200:
         fail("envelope bounds are not canonical")
     payload = json.loads(PAYLOAD.read_text())
+    envelope = json.loads(ENVELOPE.read_text())
+    check_evidence_bound_parity(payload, envelope)
     check_schema_keywords(payload, "payload")
     check_payload_closed(payload)
     defs = payload.get("$defs", {})

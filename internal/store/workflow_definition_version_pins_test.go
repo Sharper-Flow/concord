@@ -26,6 +26,9 @@ import (
 // Version 11 of break_fix and version 13 of implementation add the CD-0156
 // mandatory alignment step with its single record_alignment advance exit.
 // The latest versions add the shared evidence-reference payload contract.
+// Version 14 of break_fix and version 16 of implementation add the CD-0166
+// gate corrective return; versions 13 and 15 carry the closed three-action
+// gate.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -45,6 +48,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.break_fix", "11"}:          "sha256:2c13955de3099ab12072d1cc450f2fe37a99027903facc11690ad1ea42d2d7a8",
 	{"workflow.break_fix", "12"}:          "sha256:ad0d90e5e531160fea75094a38dcbac00b4ca33bafdc346ea02ccfe2fe44f7d2",
 	{"workflow.break_fix", "13"}:          "sha256:c11469369d6aa689997e0f3c801938fd05ee47d7b1eac37e46de91e26eba1573",
+	{"workflow.break_fix", "14"}:          "sha256:c89bc73749f03062931776ffb4ba4cbdcbaae023cf0b9d8be3dd841885dbef36",
 	{"workflow.break_fix", "1"}:           "sha256:aefce865f350345dc41fc1e2e988e7d5e246fa7fd560335399cf8c826e4cc35a",
 	{"workflow.break_fix", "2"}:           "sha256:d7f8d8cc8b951e74751ddafe95c7b9c9d65e606cd73c41b2ceadd5fa2cdf29cb",
 	{"workflow.break_fix", "3"}:           "sha256:3a406e35712a33dcab245ab93c77d51e0811ef51fbefb1a54c2fb40ae6b1f8b6",
@@ -69,6 +73,7 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "13"}:     "sha256:a17d5afc3ee430aeaf406a004e93489daafea7138eb178c8e0ae63506496d341",
 	{"workflow.implementation", "14"}:     "sha256:609beef3fda073435d22fcba81e9661b64979c77561d485e6c60268a243056cf",
 	{"workflow.implementation", "15"}:     "sha256:e67484ab82967317470b819b1efe8c0af71448fa8a6c1eb1dd0b2989a4b5f996",
+	{"workflow.implementation", "16"}:     "sha256:ac13f85d1e460c3f54be49e3550aeac564e510ed66db524ee10f619bd2ea05cc",
 	{"workflow.generic_one_off", "7"}:     "sha256:11a397de86d2d4ef98acc345a2ed91a14b0c45c1a0054b140e40a45b9a6127b7",
 	{"workflow.generic_one_off", "8"}:     "sha256:c5e07368f5d906a6c0996ea2041c488ce282fb9ce82f3e5f4acc559d4a0fec7e",
 	{"workflow.generic_one_off", "9"}:     "sha256:b8b85e67bf052cdf90a774b9ff7f050fa15f814b4cbb7108df55525235bd46e0",
@@ -176,8 +181,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          13,
-		"workflow.implementation":     15,
+		"workflow.break_fix":          14,
+		"workflow.implementation":     16,
 		"workflow.generic_one_off":    9,
 		"workflow.research":           9,
 		"workflow.architecture_spike": 10,

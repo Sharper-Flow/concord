@@ -41,6 +41,14 @@ func retainedBeforeDeliveryContract(definition WorkflowDefinition) WorkflowDefin
 	return withLegacyDeliveryPayload(definition)
 }
 
+// retainedAtDeliveryContract composes a retained version whose shape carries
+// the current record_delivery payload contract. It mirrors
+// retainedBeforeDeliveryContract for the retained versions whose delivery
+// gate declares no corrective return.
+func retainedAtDeliveryContract(definition WorkflowDefinition) WorkflowDefinition {
+	return withCurrentDeliveryPayload(definition)
+}
+
 func workflowDefinitionChains() [][]WorkflowDefinition {
 	return [][]WorkflowDefinition{
 		implementationVersionChain(),
@@ -72,7 +80,8 @@ func implementationVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(implementationPreAlignmentV12(), 12),
 		retainedAtPreviousVersion(implementationAlignmentV14(), 13),
 		retainedBeforeDeliveryContract(implementationAlignmentV14()),
-		implementationDeliveryV15(),
+		retainedAtDeliveryContract(implementationDeliveryV15()),
+		implementationDeliveryGateReturnV16(),
 	}
 }
 
@@ -92,7 +101,8 @@ func breakFixVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(breakFixPreAlignmentV10(), 10),
 		retainedAtPreviousVersion(breakFixAlignmentV12(), 11),
 		retainedBeforeDeliveryContract(breakFixAlignmentV12()),
-		breakFixDeliveryV13(),
+		retainedAtDeliveryContract(breakFixDeliveryV13()),
+		breakFixDeliveryGateReturnV14(),
 	}
 }
 

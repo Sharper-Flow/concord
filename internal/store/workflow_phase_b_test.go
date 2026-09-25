@@ -29,8 +29,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_alignment", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
-		"workflow.break_fix":          {"record_reproduction", "record_alignment", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
+		"workflow.implementation":     {"record_proposal", "record_alignment", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction"},
+		"workflow.break_fix":          {"record_reproduction", "record_alignment", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction"},
 		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker"},
@@ -140,8 +140,8 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 				delivery = candidate
 			}
 		}
-		if !reflect.DeepEqual(delivery.Actions[:1], []string{"record_delivery"}) || len(delivery.Actions) != 3 {
-			t.Fatalf("%s delivery actions = %v, want record_delivery and continuity holds", definition.Ref, delivery.Actions)
+		if !reflect.DeepEqual(delivery.Actions, []string{"record_delivery", "request_correction", "checkpoint_context", "cross_context_boundary"}) {
+			t.Fatalf("%s delivery actions = %v, want the delivery exit, the corrective return, and the continuity holds", definition.Ref, delivery.Actions)
 		}
 		if bindingStep := workflowEvidenceRecoveryBindingStep(definition, refine.ID); bindingStep != "" {
 			t.Fatalf("%s refine recovery binding step = %q, want none", definition.Ref, bindingStep)

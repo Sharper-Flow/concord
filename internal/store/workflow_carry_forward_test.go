@@ -42,8 +42,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 13 {
-		t.Fatalf("current break_fix version = %d, want 13", current.Definition.Version)
+	if current.Definition.Version != 14 {
+		t.Fatalf("current break_fix version = %d, want 14", current.Definition.Version)
 	}
 	// An in-flight attempt on the held step: the stranded shape the carry
 	// forward exists for.
@@ -55,8 +55,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 		t.Fatalf("carry forward refused: %v", err)
 	}
 	ref, version, digest := workflowInstancePin(t, s, workID)
-	if ref != "workflow.break_fix" || version != 13 || digest != current.Digest {
-		t.Fatalf("pin after carry forward = %s v%d %s, want workflow.break_fix v13 %s", ref, version, digest, current.Digest)
+	if ref != "workflow.break_fix" || version != 14 || digest != current.Digest {
+		t.Fatalf("pin after carry forward = %s v%d %s, want workflow.break_fix v14 %s", ref, version, digest, current.Digest)
 	}
 	if got := readInstanceStep(t, s, workID); got != "diagnose" {
 		t.Fatalf("step after carry forward = %q, want diagnose preserved", got)

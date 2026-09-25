@@ -700,6 +700,17 @@ func implementationDeliveryV15() WorkflowDefinition {
 	return withDeliveryStep(d, "refine", "acceptance")
 }
 
+// implementationDeliveryGateReturnV16 adds the evidence-bearing corrective
+// return to the delivery gate. record_delivery remains the gate's only
+// forward exit; request_correction returns a parked, unreviewed change to the
+// correction target step for a fresh review. Earlier definitions keep their
+// original graph for pinned instances.
+func implementationDeliveryGateReturnV16() WorkflowDefinition {
+	d := implementationAlignmentV14()
+	d.Version = 16
+	return withDeliveryGateCorrection(d, "refine", "acceptance")
+}
+
 // breakFixDeliveryV13 adds the coordinator-owned delivery gate after the
 // refinement pass. Earlier definitions keep their original graph and payload
 // shape for pinned instances.
@@ -707,6 +718,16 @@ func breakFixDeliveryV13() WorkflowDefinition {
 	d := breakFixAlignmentV12()
 	d.Version = 13
 	return withDeliveryStep(d, "refine", "verify")
+}
+
+// breakFixDeliveryGateReturnV14 adds the evidence-bearing corrective return
+// to the delivery gate, with the same shape contract as the implementation
+// promotion. Earlier definitions keep their original graph for pinned
+// instances.
+func breakFixDeliveryGateReturnV14() WorkflowDefinition {
+	d := breakFixAlignmentV12()
+	d.Version = 14
+	return withDeliveryGateCorrection(d, "refine", "verify")
 }
 
 func researchDeliveryPayloadV9() WorkflowDefinition {

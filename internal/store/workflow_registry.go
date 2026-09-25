@@ -769,6 +769,33 @@ func withDeliveryStep(definition WorkflowDefinition, producingStep, nextStep str
 	return definition
 }
 
+// withDeliveryGateCorrection splices the CD-0166 delivery gate with its
+// evidence-bearing corrective return. request_correction is a hold whose fold
+// returns a parked, unreviewed change to the correction target step, so
+// record_delivery stays the gate's only forward exit.
+func withDeliveryGateCorrection(definition WorkflowDefinition, producingStep, nextStep string) WorkflowDefinition {
+	definition = withDeliveryStep(definition, producingStep, nextStep)
+	for i := range definition.StepGraph.Steps {
+		if definition.StepGraph.Steps[i].ID != "delivery" {
+			continue
+		}
+		var actions []string
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if actionID == "checkpoint_context" {
+				actions = append(actions, "request_correction")
+			}
+			actions = append(actions, actionID)
+		}
+		definition.StepGraph.Steps[i].Actions = actions
+		break
+	}
+	if !containsString(definition.AvailableActions, "request_correction") {
+		definition.AvailableActions = append(definition.AvailableActions, "request_correction")
+		definition.ActionDefinitions = append(definition.ActionDefinitions, workflowCorrectionRequestActionDefinition())
+	}
+	return definition
+}
+
 // withAlignmentStep splices the CD-0156 mandatory alignment step immediately
 // after afterStep, splitting the forward edge afterStep→nextStep into
 // afterStep→alignment→nextStep. The step declares record_alignment plus the

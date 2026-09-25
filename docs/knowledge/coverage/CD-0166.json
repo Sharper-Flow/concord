@@ -23,6 +23,38 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestProductRowsCountParkedDeliveries"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPostRejectionReviewGateHoldsBreakFixDelivery"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPostRejectionReviewGateRefusesPreRejectionReviewAccept"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCurrentDeliveryGateAdmitsEvidenceBearingReturn"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDeliveryGateDeclaresCorrectiveReturn"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDeliveryGateCorrectionNeedsOutstandingReview"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent"
     }
   ],
   "id": "CD-0166",

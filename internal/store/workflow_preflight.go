@@ -142,7 +142,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			return correctionErr
 		}
 		if !available {
-			return newFailure(KindInvalidOperation, "workflow_action_preflight", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+			return newFailure(KindInvalidOperation, "workflow_action_preflight", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
 		}
 	}
 	// An escalated correction is not refused here. This preflight runs before

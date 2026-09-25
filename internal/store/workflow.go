@@ -1510,7 +1510,13 @@ func startExecutionLifecycleTx(ctx context.Context, tx *sql.Tx, event Event, kin
 	if affected == 0 {
 		return nil
 	}
-	return enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, "in_progress", event.OccurredAt)
+	// A Linear configuration gap never fails the local action start: the
+	// capture fold absorbs the same refusals, and the explicit enqueue verb
+	// and the drain keep reporting them.
+	if err := enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, "in_progress", event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
+		return err
+	}
+	return nil
 }
 
 // Execution history and the current lease both prohibit self-evaluation.

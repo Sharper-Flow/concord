@@ -1157,6 +1157,62 @@ func TestLinearLabelMappingAcceptsProjectAndOptionalKeys(t *testing.T) {
 	}
 }
 
+// A Linear configuration gap — an unmapped project:<id> or optional label —
+// never refuses a local fold. A stored connection can predate the label keys
+// a sync needs, so a refusal here would wedge every local transition of a
+// Linear-linked work item until the operator maps the labels. The explicit
+// enqueue verb and the drain keep reporting the gap
+// (TestLinearIssueEnqueueRefusesUnmappedRepositoryProject).
+func TestLinearConfigurationGapNeverRefusesLocalFolds(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "foldgap-product")
+	setupLinearLabelConnection(t, s, "foldgap-product", map[string]string{"task": "label-task"})
+	enableLinearPlanning(t, s, "foldgap-product", 2)
+	seedLinearWorkOfKind(t, s, "foldgap-initiative", "foldgap-product-project", "initiative", "Fold gap initiative", "Fold gap value")
+	seedLinearWorkItem(t, s, "foldgap-transition", "foldgap-product-project", "Transition title", "Transition value")
+	seedLinearWorkItem(t, s, "foldgap-entry-child", "foldgap-product-project", "Entry child title", "Entry child value")
+	for _, workID := range []string{"foldgap-transition", "foldgap-entry-child"} {
+		for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
+			if err := s.RecordLinearLink(ctx, workID, "remote-"+workID, "", "", "", "", state); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	// The lifecycle transition succeeds and queues no operation.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "foldgap-work-in-progress", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "foldgap-transition", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"needed","to":"in_progress","reason":"start execution","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "foldgap-transition"): 1}}); err != nil {
+		t.Fatalf("transition with an unmapped repository label error = %v", err)
+	}
+	// The Initiative entry add succeeds and queues no operation.
+	event, err := InitiativeEntryEvent("foldgap-add-1", "initiative_entry.added", "foldgap-initiative", InitiativeEntry{ChildWorkID: "foldgap-entry-child", Position: 0, Required: true}, "operator", time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{
+		Events:           []Event{event},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "foldgap-initiative"): 1},
+	}); err != nil {
+		t.Fatalf("entry add with an unmapped repository label error = %v", err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM linear_outbox WHERE work_id IN ('foldgap-transition','foldgap-entry-child')`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("configuration gaps queued %d operations, want 0", count)
+	}
+	// The explicit enqueue verb still reports the gap.
+	_, err = s.EnqueueLinearIssueForWork(ctx, "foldgap-transition", LinearOpIssueUpdate)
+	if err == nil || !failureKindIs(err, KindInvalidRelation) || !strings.Contains(err.Error(), "foldgap-product-project") {
+		t.Fatalf("explicit enqueue error = %v, want invalid_relation naming the project", err)
+	}
+}
+
 func TestEntryAddedFoldEnqueuesIssueUpdateForConfirmedIssue(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

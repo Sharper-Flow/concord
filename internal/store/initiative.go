@@ -146,9 +146,9 @@ func foldInitiativeEntryAdded(ctx context.Context, tx *sql.Tx, event Event) erro
 	}
 	// CD-0171 D5/D6: a new entry can change the child's owning Initiative and
 	// its optional label, so the confirmed issue resyncs. Silent no-op
-	// without a confirmed link; a missing repository or optional label
-	// mapping refuses the operation.
-	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil {
+	// without a confirmed link and on any Linear configuration gap, matching
+	// the capture fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
 		return err
 	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)
@@ -182,7 +182,9 @@ func foldInitiativeEntryRemoved(ctx context.Context, tx *sql.Tx, event Event) er
 	}
 	// CD-0171 D6: when the owning entry leaves its Initiative, the next
 	// oldest Initiative sets the Project, so the confirmed issue resyncs.
-	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil {
+	// Silent no-op on any Linear configuration gap, matching the capture
+	// fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
 		return err
 	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)
@@ -271,8 +273,9 @@ func foldInitiativeEntryRequirednessChanged(ctx context.Context, tx *sql.Tx, eve
 		return newFailure(KindInitiativeEntryConflict, "fold_event", "Initiative entry does not exist", false, "change requiredness on an existing Initiative entry")
 	}
 	// CD-0171 D5: the optional label follows entry requiredness, so the
-	// confirmed issue resyncs.
-	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil {
+	// confirmed issue resyncs. Silent no-op on any Linear configuration gap,
+	// matching the capture fold.
+	if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, p.ChildWorkID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
 		return err
 	}
 	return updateWorkVersion(ctx, tx, event, p.ExpectedVersion, p.ResultingVersion)

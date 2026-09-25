@@ -18,6 +18,12 @@ spec = importlib.util.spec_from_file_location(
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
+# The check owns `.github/workflows/pr-linear-link.yml` because a pull
+# request `types` list is a workflow-level trigger field: adding `edited`
+# inside ci.yml would re-run every CI job on a body edit.
+GUARD_WORKFLOW = ROOT / ".github/workflows/pr-linear-link.yml"
+CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+
 
 def test_work_branch_without_related_line_is_rejected() -> None:
     ok, detail = guard.check_pr_link("work/work-421f82d67e7aa19c64a35bda", "feat: add a thing", "feat: add a thing")
@@ -102,6 +108,57 @@ def test_a_word_that_merely_contains_a_closing_word_is_not_a_closing_phrase() ->
     body = "Related to CON-427\n\nThe fixer CON-999 ships in a follow-up.\n"
     ok, _ = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
     assert ok, "fixer is not a closing word"
+
+
+# Linear accepts a closing magic word before a Linear issue URL as well as a
+# bare key (https://linear.app/docs/github): `Fixes
+# https://linear.app/workspace/issue/ENG-123/title` closes ENG-123 too.
+
+
+def test_every_linear_closing_word_is_rejected_before_a_linear_issue_url() -> None:
+    for word in LINEAR_CLOSING_WORDS:
+        body = (
+            "Related to CON-427\n\n"
+            f"{word.capitalize()} https://linear.app/example/issue/CON-999/some-slug\n"
+        )
+        ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+        assert not ok, f"{word!r} before a Linear issue URL must fail the check: {detail}"
+        assert "CON-999" in detail, (word, detail)
+
+
+def test_a_closing_word_before_a_slugless_linear_issue_url_is_rejected() -> None:
+    body = "Related to CON-427\n\nFixes https://linear.app/example/issue/CON-999\n"
+    ok, detail = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert not ok, "a Linear issue URL without a slug still closes the issue"
+    assert "CON-999" in detail, detail
+
+
+def test_a_closing_word_before_a_linear_issue_url_in_the_title_is_rejected() -> None:
+    ok, detail = guard.check_pr_link(
+        "work/work-abc",
+        "Fixes https://linear.app/example/issue/CON-77/title",
+        "Related to CON-427\n",
+    )
+    assert not ok, "a Linear issue URL after a closing word in the title must fail the check"
+    assert "title" in detail and "CON-77" in detail, detail
+
+
+def test_a_closing_word_before_a_non_linear_url_is_not_a_closing_phrase() -> None:
+    body = "Related to CON-427\n\nFixes https://github.com/example/repo/issues/999\n"
+    ok, _ = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert ok, "a GitHub issue URL is not a Linear issue and closes nothing here"
+
+
+def test_a_linear_issue_url_without_a_closing_word_is_prose() -> None:
+    body = "Related to CON-427\n\nSee https://linear.app/example/issue/CON-999/some-slug for context.\n"
+    ok, _ = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert ok, "a bare Linear issue URL with no closing word links, but closes nothing"
+
+
+def test_a_linear_issue_url_that_is_not_an_issue_page_is_not_a_closing_phrase() -> None:
+    body = "Related to CON-427\n\nFixes https://linear.app/example/project/CON-999\n"
+    ok, _ = guard.check_pr_link("work/work-abc", "feat: add a thing", body)
+    assert ok, "a linear.app URL without /issue/ does not name an issue key"
 
 
 # Linear parses a closing magic word in the pull request title as well as the
@@ -258,6 +315,37 @@ def test_cli_rejects_work_pull_request_closing_title() -> None:
         )
     assert result.returncode == 1, result.stdout
     assert "title" in result.stdout and "CON-427" in result.stdout, result.stdout
+
+
+def test_guard_workflow_reruns_on_a_body_edit() -> None:
+    text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+    assert "pull_request:" in text, "the guard workflow must trigger on pull_request"
+    types = text.split("types:", 1)[1].split("\n", 1)[0]
+    for event_type in ("opened", "synchronize", "reopened", "edited"):
+        assert event_type in types, f"pull_request types must include {event_type}: {types}"
+
+
+def test_guard_workflow_carries_the_merge_queue_gate() -> None:
+    text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+    assert "merge_group:" in text, "the required check must report on merge queue entries"
+
+
+def test_guard_job_runs_the_check_with_scoped_permission() -> None:
+    text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+    assert "verify-pr-linear-link:" in text, "the job name is the required check name"
+    assert "pull-requests: read" in text, "only the merge queue path needs pull_requests read"
+    assert "python3 scripts/check-pr-linear-link.py" in text, "the job must run the guard"
+
+
+def test_ci_workflow_keeps_its_jobs_off_body_edits() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "verify-pr-linear-link:" not in text, "the check moved to its own workflow"
+    assert "types:" not in text, "ci.yml keeps the default pull_request types; edited must not re-run its jobs"
+
+
+def test_ci_workflow_no_longer_grants_pull_requests_read() -> None:
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "pull-requests: read" not in text, "no ci.yml job reads a pull request through gh"
 
 
 if __name__ == "__main__":

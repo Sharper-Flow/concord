@@ -38,17 +38,22 @@ RELATED_LINE = re.compile(r"^[ \t]*Related to[ \t]+([A-Z][A-Z0-9]*-[0-9]+)[ \t]*
 # Closing phrases on an issue key would let the merge close or move the issue.
 # D8 forbids them outright, so their presence fails the check even when a
 # Related-to line also exists. The words are Linear's closing magic words,
-# verbatim from https://linear.app/docs/github. Linear parses a closing phrase
-# in the pull request title as well as the body, so both surfaces get the same
-# scan: the word may appear anywhere as long as the issue key directly follows
-# it; a key before the word, or a word with no key after it, is prose and
-# stays accepted.
+# verbatim from https://linear.app/docs/github. Linear accepts a closing word
+# before a bare issue key or before a Linear issue URL that contains the key
+# (for example `Fixes https://linear.app/workspace/issue/ENG-123/title`), so
+# both tails close. Linear parses a closing phrase in the pull request title
+# as well as the body, so both surfaces get the same scan: the word may appear
+# anywhere as long as the key follows it directly or inside a linear.app issue
+# URL; a key before the word, or a word with no key or Linear URL after it, is
+# prose and stays accepted.
+LINEAR_ISSUE_URL = r"https://linear\.app/[^/\s]+/issue/([A-Z][A-Z0-9]*-[0-9]+)"
 CLOSING_LINE = re.compile(
     r"\b(?:close|closes|closed|closing|fix|fixes|fixed|fixing"
     r"|resolve|resolves|resolved|resolving"
     r"|complete|completes|completed|completing"
     r"|implement|implements|implemented|implementing"
-    r"|linear[ \t]+issue)\b[ \t]*:?[ \t]+([A-Z][A-Z0-9]*-[0-9]+)",
+    r"|linear[ \t]+issue)\b[ \t]*:?[ \t]+(?:"
+    r"([A-Z][A-Z0-9]*-[0-9]+)|" + LINEAR_ISSUE_URL + r")",
     re.IGNORECASE,
 )
 
@@ -66,8 +71,8 @@ def related_key(body: str) -> str | None:
 
 
 def closing_keys(body: str) -> list[str]:
-    """Return every issue key a closing phrase names."""
-    return CLOSING_LINE.findall(body or "")
+    """Return every issue key a closing phrase names, from a bare key or a Linear issue URL."""
+    return [key for pair in CLOSING_LINE.findall(body or "") for key in pair if key]
 
 
 def closing_refusal(where: str, keys: list[str]) -> tuple[bool, str]:

@@ -136,6 +136,20 @@ func TestContinuityAnswersForInstanceLessWork(t *testing.T) {
 	}
 }
 
+// Workflow absence is a property of a recorded work item. An unknown work ID
+// has no item to be instance-less, so the read refuses it.
+func TestContinuityRefusesUnknownWork(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedWork(t, s, "continuity-imported")
+
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "continuity-unknown", Limit: 20})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound {
+		t.Fatalf("unknown work read err=%v instance=%q, want projection_not_found", err, snapshot.WorkflowInstance)
+	}
+}
+
 func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

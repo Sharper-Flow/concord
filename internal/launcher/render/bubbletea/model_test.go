@@ -1069,6 +1069,44 @@ func TestUnavailableWorkCandidateRefusalReportsStatusOnly(t *testing.T) {
 	}
 }
 
+// An available work candidate launches straight from the portfolio. When the
+// session then refuses, the portfolio the read produced is still on screen.
+func TestAvailableWorkCandidateRefusedLaunchKeepsScreenState(t *testing.T) {
+	p := &port{state: launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "corded", Watermark: "w7", ObservedAt: "2m",
+		Reliance: "authoritative", Coverage: "authoritative",
+		Rows:       []launcher.ProductRow{{ID: "corded", Name: "Corded", Stage: "prototype", Reliance: "clear", Actions: 1, Focus: "Import work"}},
+		Candidates: []launcher.Candidate{{Kind: launcher.CandidateWork, ID: "import-advance-work-one", ProductID: "corded", WorkID: "import-advance-work-one", Name: "Document customer queue", Available: true}},
+	}}
+	core := launcher.New(p)
+	if err := core.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m := New(core, context.Background(), Profile{})
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	var got launcher.SessionHandoff
+	refusal := errors.New("session bootstrap refused")
+	m.SetSessionLauncher(func(handoff launcher.SessionHandoff) tea.Cmd {
+		got = handoff
+		return func() tea.Msg { return sessionLaunchError{err: refusal} }
+	})
+	cmd, handled := m.activateCandidate(p.state.Candidates[0])
+	if !handled || cmd == nil {
+		t.Fatalf("available candidate handled=%v cmd=%v", handled, cmd)
+	}
+	if got.ProductID != "corded" || got.WorkID != "import-advance-work-one" || got.Agent != launcher.DefaultSessionAgent {
+		t.Fatalf("candidate handoff = %#v", got)
+	}
+	m.Update(cmd())
+	snapshot := core.Snapshot()
+	if snapshot.StatusMessage != refusal.Error() {
+		t.Fatalf("refusal status=%q", snapshot.StatusMessage)
+	}
+	if snapshot.Screen != launcher.ScreenPortfolio || snapshot.Coverage != "authoritative" || snapshot.Reliance != "authoritative" || snapshot.Watermark != "w7" || len(snapshot.Rows) != 1 || len(snapshot.Candidates) != 1 {
+		t.Fatalf("refused candidate launch moved screen state: screen=%q coverage=%q reliance=%q watermark=%q rows=%d candidates=%d", snapshot.Screen, snapshot.Coverage, snapshot.Reliance, snapshot.Watermark, len(snapshot.Rows), len(snapshot.Candidates))
+	}
+}
+
 func TestS2DomainSectionRendersHierarchyRelationsAndOverlap(t *testing.T) {
 	p := &coordinationPort{}
 	core := launcher.New(p)

@@ -187,7 +187,15 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	switch {
 	case instanceErr == sql.ErrNoRows:
 		// An imported work item holds no workflow instance. The read
-		// answers with typed absence; a launch never creates one.
+		// answers with typed absence; a launch never creates one. Absence
+		// is a property of a recorded item, so an unknown ID refuses.
+		exists, err := workExistsCore(ctx, tx, req.Work)
+		if err != nil {
+			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read work item", true, "retry once the database is readable", err)
+		}
+		if !exists {
+			return out, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
+		}
 		instancePresent = false
 		out.WorkflowInstance = WorkflowInstanceAbsent
 	case instanceErr != nil:

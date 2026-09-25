@@ -106,7 +106,7 @@ export function dispatchAttemptID(input: LaneDispatchInput): string {
 // "invalid_input" for every refusal because the builder is the source of
 // truth for what shape an input failed.
 function mapPacketFailure(failure: { kind: AgentLanePacketFailureKind; message: string }, partial: Partial<AgentLanePacket>): AgentResultEnvelope {
-  if (failure.kind === "mandate_unapproved") return errorEnvelopeForLane(laneForId(typeof partial.lane_id === "string" ? partial.lane_id : ""), partial, "blocked", "invalid_input", failure.message, "reconcile_operation")
+  if (failure.kind === "mandate_unapproved" || failure.kind === "workflow_absent") return errorEnvelopeForLane(laneForId(typeof partial.lane_id === "string" ? partial.lane_id : ""), partial, "blocked", "invalid_input", failure.message, "reconcile_operation")
   return errorEnvelopeForLane(laneForId(typeof partial.lane_id === "string" ? partial.lane_id : ""), partial, "error", "invalid_input", failure.message, "reconcile_operation")
 }
 
@@ -165,6 +165,12 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   if (!identities.includes(ambientProduct)) {
     const listed = identities.length === 0 ? "no product identities" : `product identities ${identities.join(", ")}`
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `work item ${input.work_id} carries ${listed} and does not belong to the session's ambient Product ${ambientProduct}`, "reconcile_operation")
+  }
+  // An imported work item holds no workflow instance. The core states that
+  // absence as typed data; dispatch needs a step, so the operator must start
+  // a workflow for the item before any retry can succeed.
+  if (pinned.workflow_instance === "absent") {
+    return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "blocked", "invalid_input", `work item ${input.work_id} holds no workflow instance; dispatch requires a workflow step`, "reconcile_operation")
   }
   if (typeof workflowStep !== "string") {
     return errorEnvelopeForLane(null, { work_id: input.work_id, lane_id: input.lane_id }, "error", "transport_failure", `concord_work_trace.continuity pinned workflow_step is not a string for ${input.work_id}`, "reconcile_operation")

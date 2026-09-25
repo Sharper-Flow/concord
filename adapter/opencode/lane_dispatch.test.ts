@@ -596,6 +596,26 @@ test("a session that resolves no ambient Product refuses before dispatch_worker 
   }
 })
 
+// An imported work item holds no workflow instance. Continuity states that
+// absence as typed data, so dispatch refuses it as blocked, not as a
+// transport fault.
+test("a work item with no workflow instance is a blocked refusal without spawn", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope({ pinned: { product_identity: [PRODUCT_ID], workflow_instance: "absent", workflow_step: null, contract: null } })
+    if (toolName === "concord_work_transition") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-absent", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner })
+  expect(result.outcome).toBe("blocked")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("holds no workflow instance")
+  expect(spawned).toBe(0)
+  expect(workflowCalls).toBe(0)
+})
+
 test("mandate_unapproved refusal maps to outcome blocked", async () => {
   let spawned = 0
   let workflowCalls = 0

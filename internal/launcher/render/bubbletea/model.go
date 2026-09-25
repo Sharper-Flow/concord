@@ -629,11 +629,11 @@ func (m *Model) activateCandidate(candidate launcher.Candidate) (tea.Cmd, bool) 
 			m.Sync()
 			return nil, true
 		}
-		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: candidate.ProductID, SelectedWorkID: candidate.WorkID, Session: launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative", Section: launcher.SectionRanked})
-		return m.launch(m.core.Handoff()), true
+		// The handoff comes from the candidate alone. The screen keeps what
+		// the read produced, so a refused launch changes no state.
+		return m.launch(launcher.SessionHandoff{ProductID: candidate.ProductID, WorkID: candidate.WorkID, Agent: launcher.DefaultSessionAgent}), true
 	case launcher.CandidateProject:
-		m.core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Session: launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}, Coverage: "authoritative"})
-		return m.launch(m.core.Handoff()), true
+		return m.launch(launcher.SessionHandoff{ProjectPath: candidate.Path, Agent: launcher.DefaultSessionAgent}), true
 	}
 	return nil, false
 }

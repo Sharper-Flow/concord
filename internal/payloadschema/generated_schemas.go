@@ -1030,6 +1030,9 @@ const GeneratedPayloadSchemaDocument = `{
         "domain_id": {
           "$ref": "#/$defs/id"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -1340,6 +1343,9 @@ const GeneratedPayloadSchemaDocument = `{
     "domain_list_input": {
       "additionalProperties": false,
       "properties": {
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -1770,6 +1776,9 @@ const GeneratedPayloadSchemaDocument = `{
           "maximum": 64,
           "minimum": 1,
           "type": "integer"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -2391,6 +2400,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -2430,9 +2442,6 @@ const GeneratedPayloadSchemaDocument = `{
           ]
         }
       },
-      "required": [
-        "page"
-      ],
       "type": "object"
     },
     "knowledge_unprocessed_input": {
@@ -2442,13 +2451,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/limit"
         },
         "page": {
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "$ref": "#/$defs/limit"
-            }
-          },
-          "type": "object"
+          "$ref": "#/$defs/page"
         },
         "product_id": {
           "$ref": "#/$defs/id"
@@ -2844,10 +2847,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/limit"
         }
       },
-      "required": [
-        "cursor",
-        "limit"
-      ],
       "type": "object"
     },
     "product_context": {
@@ -3183,6 +3182,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -3196,9 +3198,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/product_row_source"
         }
       },
-      "required": [
-        "page"
-      ],
       "type": "object"
     },
     "product_row_reliance": {
@@ -3404,6 +3403,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -3463,6 +3465,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -3513,6 +3518,9 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "string"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -3533,6 +3541,12 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
+        "page": {
+          "$ref": "#/$defs/page"
         },
         "preview_limit": {
           "maximum": 20,
@@ -4564,6 +4578,9 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -4580,9 +4597,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         }
       },
-      "required": [
-        "page"
-      ],
       "type": "object"
     },
     "work_browse_list_input": {
@@ -4599,6 +4613,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -4651,9 +4668,6 @@ const GeneratedPayloadSchemaDocument = `{
           "uniqueItems": true
         }
       },
-      "required": [
-        "page"
-      ],
       "type": "object"
     },
     "work_browse_messages_input": {
@@ -4661,6 +4675,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -4690,6 +4707,9 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -4703,9 +4723,6 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/requested_budget_seconds"
         }
       },
-      "required": [
-        "page"
-      ],
       "type": "object"
     },
     "work_browse_resource_claims_input": {
@@ -4713,6 +4730,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -4763,6 +4783,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "one_of": {
           "enum": [
             "project",
@@ -4796,6 +4819,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "page": {
           "$ref": "#/$defs/page"
@@ -5743,6 +5769,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_observation_input": {
       "additionalProperties": false,
       "properties": {
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -7170,6 +7199,9 @@ const GeneratedPayloadSchemaDocument = `{
         "budget": {
           "$ref": "#/$defs/budget"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -7181,8 +7213,7 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "required": [
-        "work_id",
-        "page"
+        "work_id"
       ],
       "type": "object"
     },
@@ -7203,6 +7234,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "page": {
           "$ref": "#/$defs/page"
         },
@@ -7214,8 +7248,7 @@ const GeneratedPayloadSchemaDocument = `{
         }
       },
       "required": [
-        "work_id",
-        "page"
+        "work_id"
       ],
       "type": "object"
     },
@@ -7258,6 +7291,9 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "budget": {
           "$ref": "#/$defs/budget"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "pack_id": {
           "$ref": "#/$defs/id"

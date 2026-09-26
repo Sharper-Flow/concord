@@ -136,6 +136,12 @@ Law `status` and `successor_id` are additive projections of the indexed record
   domain record—not raw process exhaust, screenshot bytes, or whole git documents.
 - List and Project-scoped `scope` defaults/caps follow PM1: default 20, maximum
   100, opaque cursor, stable ID as final ordering tie-breaker.
+- Every paginated read accepts one pagination input rule. `page` is optional, and
+  a first call may omit it. `page.cursor` is optional, and absent and `null` both
+  mean first page. `limit` is accepted at the top level of every input that
+  declares `page`. When `limit` and `page.limit` are both nonzero, the top-level
+  `limit` wins. Both forms feed the same defaults and caps that the bullets above
+  record.
 - Snapshot preview defaults to 5 and caps at 20 items per bucket.
 - Relation depth defaults to 1 and caps at 3; one result caps at 100 nodes and 200
   edges, returning a typed bounded/continuation outcome rather than truncating.

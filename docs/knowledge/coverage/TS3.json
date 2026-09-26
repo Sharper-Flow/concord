@@ -21,6 +21,14 @@
       "value": "internal/agent.TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor"
     },
     {
+      "kind": "go_test",
+      "value": "internal/agent.TestPaginationInputContract"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestEffectiveLimitPrecedence"
+    },
+    {
       "kind": "validator",
       "value": "scripts/check-agent-contracts.py"
     }

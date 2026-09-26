@@ -80,6 +80,21 @@ type pageInput struct {
 	Cursor *string `json:"cursor"`
 	Limit  int     `json:"limit"`
 }
+
+// effectiveLimit resolves the unified TS3 §3 pagination alias: the top-level
+// limit wins when both it and page.limit are nonzero, and 0 means the
+// operation's server default. Every paginated read handler selects its
+// effective limit through this one expression, mirroring the pattern
+// readKnowledgeUnprocessed established. Each alias field is omitempty so a
+// call that does not send it marshals to the same cursor binding bytes as
+// before, and in-flight cursors survive the alias.
+func effectiveLimit(topLevel int, page pageInput) int {
+	if topLevel != 0 {
+		return topLevel
+	}
+	return page.Limit
+}
+
 type budgetInput struct {
 	MaxBytes  int `json:"max_bytes"`
 	MaxItems  int `json:"max_items"`
@@ -98,12 +113,15 @@ type productResolveInput struct {
 	ProductID string      `json:"product_id"`
 	ProjectID string      `json:"project_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 type productSnapshotInput struct {
 	ProductID    string      `json:"product_id"`
 	ProjectIDs   []string    `json:"project_ids"`
 	PreviewLimit int         `json:"preview_limit"`
+	Page         pageInput   `json:"page"`
+	Limit        int         `json:"limit,omitempty"`
 	Budget       budgetInput `json:"budget"`
 }
 type resourcesInput struct {
@@ -113,17 +131,20 @@ type resourcesInput struct {
 	Kind        string      `json:"kind"`
 	Environment string      `json:"environment"`
 	Page        pageInput   `json:"page"`
+	Limit       int         `json:"limit,omitempty"`
 	Budget      budgetInput `json:"budget"`
 }
 type blockedSessionsInput struct {
 	ProductID string      `json:"product_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 
 type productRowPortfolioInput struct {
 	ProductID string                         `json:"product_id"`
 	Page      pageInput                      `json:"page"`
+	Limit     int                            `json:"limit,omitempty"`
 	Budget    budgetInput                    `json:"budget"`
 	Source    *store.ProductRowRelianceInput `json:"source"`
 }
@@ -139,6 +160,7 @@ type workListInput struct {
 	Detail        string      `json:"detail"`
 	TerminalSince *string     `json:"terminal_since"`
 	Page          pageInput   `json:"page"`
+	Limit         int         `json:"limit,omitempty"`
 	Budget        budgetInput `json:"budget"`
 }
 type workReadyInput struct {
@@ -146,6 +168,7 @@ type workReadyInput struct {
 	ProjectID string      `json:"project_id"`
 	Kind      string      `json:"kind"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 type workBlockedInput struct {
@@ -155,6 +178,7 @@ type workBlockedInput struct {
 	Kind      string      `json:"kind"`
 	Depth     int         `json:"depth"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 type workScopeInput struct {
@@ -162,6 +186,7 @@ type workScopeInput struct {
 	ProjectID string      `json:"project_id"`
 	WorkID    string      `json:"work_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	OneOf     string      `json:"one_of"`
 	Budget    budgetInput `json:"budget"`
 }
@@ -169,6 +194,7 @@ type messagesInput struct {
 	ProductID string      `json:"product_id"`
 	WorkID    string      `json:"work_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 
@@ -176,12 +202,14 @@ type resourceClaimsInput struct {
 	ProductID   string      `json:"product_id"`
 	ResourceKey string      `json:"resource_key"`
 	Page        pageInput   `json:"page"`
+	Limit       int         `json:"limit,omitempty"`
 	Budget      budgetInput `json:"budget"`
 }
 
 type worktreeAuditInput struct {
 	ProductID string      `json:"product_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 
@@ -198,6 +226,7 @@ type researchReadInput struct {
 	PackID    string    `json:"pack_id"`
 	WorkID    string    `json:"work_id"`
 	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 type historyInput struct {
@@ -205,19 +234,25 @@ type historyInput struct {
 	Direction  string      `json:"direction"`
 	EventKinds []string    `json:"event_kinds"`
 	Page       pageInput   `json:"page"`
+	Limit      int         `json:"limit,omitempty"`
 	Budget     budgetInput `json:"budget"`
 }
 type observationReadInput struct {
 	WorkID string    `json:"work_id"`
 	Page   pageInput `json:"page"`
+	Limit  int       `json:"limit,omitempty"`
 }
 type externalObservationReadInput struct {
-	WorkID string `json:"work_id"`
-	Limit  int    `json:"limit"`
+	WorkID string    `json:"work_id"`
+	Page   pageInput `json:"page"`
+	// Limit keeps its CD-0040 evidence-fixed bound (schema maximum 64); the
+	// page object is the unified TS3 §3 shape around it.
+	Limit int `json:"limit,omitempty"`
 }
 type continuityInput struct {
 	WorkID string      `json:"work_id"`
 	Page   pageInput   `json:"page"`
+	Limit  int         `json:"limit,omitempty"`
 	Budget budgetInput `json:"budget"`
 }
 type relationInput struct {
@@ -235,6 +270,7 @@ type domainReadInput struct {
 	ProductID string      `json:"product_id"`
 	DomainID  string      `json:"domain_id"`
 	Page      pageInput   `json:"page"`
+	Limit     int         `json:"limit,omitempty"`
 	Budget    budgetInput `json:"budget"`
 }
 type knowledgeSearchInput struct {
@@ -252,6 +288,7 @@ type knowledgeSearchInput struct {
 	// path, so a caller never receives a silently incomplete answer.
 	AllowDegraded bool        `json:"allow_degraded"`
 	Page          pageInput   `json:"page"`
+	Limit         int         `json:"limit,omitempty"`
 	Budget        budgetInput `json:"budget"`
 }
 type knowledgeResolveInput struct {
@@ -263,7 +300,7 @@ type knowledgeUnprocessedInput struct {
 	ProductID string    `json:"product_id"`
 	ProjectID string    `json:"project_id"`
 	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 type runtime struct {

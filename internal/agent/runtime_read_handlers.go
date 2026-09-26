@@ -31,7 +31,7 @@ func (r runtime) readProductResolve(ctx context.Context, base Envelope, input []
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ1(ctx, store.Q1Request{Product: in.ProductID, Project: in.ProjectID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+	q, err := r.Store.QueryQ1(ctx, store.Q1Request{Product: in.ProductID, Project: in.ProjectID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -50,7 +50,17 @@ func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input [
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	q, err := r.Store.QueryQ2(ctx, store.Q2Request{Product: in.ProductID, ProjectIDs: in.ProjectIDs, PreviewLimit: r.boundedPreview(in.PreviewLimit)})
+	// The unified TS3 §3 limit alias bounds the preview buckets when the
+	// snapshot-native preview_limit is absent. TS3 pins preview at 20 items
+	// per bucket, so the alias never lifts that cap.
+	preview := in.PreviewLimit
+	if preview == 0 {
+		preview = effectiveLimit(in.Limit, in.Page)
+	}
+	if preview > 20 {
+		preview = 20
+	}
+	q, err := r.Store.QueryQ2(ctx, store.Q2Request{Product: in.ProductID, ProjectIDs: in.ProjectIDs, PreviewLimit: r.boundedPreview(preview)})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -62,7 +72,7 @@ func (r runtime) readProductPortfolio(ctx context.Context, base Envelope, input 
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: r.boundedLimit(in.Page.Limit), Cursor: cursorValue(in.Page), Source: in.Source})
+	q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: cursorValue(in.Page), Source: in.Source})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -81,7 +91,7 @@ func (r runtime) readProductBlockedSessions(ctx context.Context, base Envelope, 
 	if in.ProductID != "" {
 		products = append(products, in.ProductID)
 	}
-	result, err := r.Store.BlockedSessions(ctx, time.Now().UTC(), products, r.boundedLimit(in.Page.Limit))
+	result, err := r.Store.BlockedSessions(ctx, time.Now().UTC(), products, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -96,7 +106,7 @@ func (r runtime) readProductResources(ctx context.Context, base Envelope, input 
 	if in.ProductID == "" && in.ResourceID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	result, err := r.Store.Resources(ctx, store.ResourcesRequest{ProductID: in.ProductID, ResourceID: in.ResourceID, Class: in.Class, Kind: in.Kind, Environment: in.Environment, Limit: r.boundedLimit(in.Page.Limit)})
+	result, err := r.Store.Resources(ctx, store.ResourcesRequest{ProductID: in.ProductID, ResourceID: in.ResourceID, Class: in.Class, Kind: in.Kind, Environment: in.Environment, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page))})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -118,7 +128,7 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	req := store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
+	req := store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
 	q, err := r.Store.QueryQ3(ctx, req)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -142,7 +152,7 @@ func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ5(ctx, store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+	q, err := r.Store.QueryQ5(ctx, store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -165,7 +175,7 @@ func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byt
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ4(ctx, store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+	q, err := r.Store.QueryQ4(ctx, store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -188,7 +198,7 @@ func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ6(ctx, store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+	q, err := r.Store.QueryQ6(ctx, store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -207,7 +217,7 @@ func (r runtime) readResourceClaims(ctx context.Context, base Envelope, input []
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	claims, err := r.Store.ResourceClaims(ctx, in.ResourceKey, in.ProductID, r.boundedLimit(in.Page.Limit))
+	claims, err := r.Store.ResourceClaims(ctx, in.ResourceKey, in.ProductID, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -220,7 +230,7 @@ func (r runtime) readWorkMessages(ctx context.Context, base Envelope, input []by
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	messages, err := r.Store.MessagesForWork(ctx, in.WorkID, r.boundedLimit(in.Page.Limit))
+	messages, err := r.Store.MessagesForWork(ctx, in.WorkID, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -236,7 +246,7 @@ func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []b
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	audit, err := r.Store.WorktreeAudit(ctx, store.WorktreeAuditRequest{ProductID: in.ProductID, Limit: r.boundedLimit(in.Page.Limit)})
+	audit, err := r.Store.WorktreeAudit(ctx, store.WorktreeAuditRequest{ProductID: in.ProductID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page))})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -276,7 +286,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), EventKinds: in.EventKinds, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner})
+	q, err := r.Store.QueryQ7(ctx, store.Q7Request{Work: in.WorkID, Direction: historyDirection(in.Direction), EventKinds: in.EventKinds, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -293,7 +303,7 @@ func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input
 		return base, err
 	}
 	now := r.Authority.now()
-	observations, err := r.Store.ObservationsForWork(ctx, in.WorkID, r.boundedLimit(in.Page.Limit))
+	observations, err := r.Store.ObservationsForWork(ctx, in.WorkID, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -307,7 +317,7 @@ func (r runtime) readTraceExternalObservations(ctx context.Context, base Envelop
 		return base, err
 	}
 	now := r.Authority.now()
-	externalObservations, err := r.Store.ExternalObservationsForWork(ctx, in.WorkID, now, r.boundedLimit(in.Limit))
+	externalObservations, err := r.Store.ExternalObservationsForWork(ctx, in.WorkID, now, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -330,7 +340,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	// CD-0096 D5: a session that signs its identity re-pins its held
 	// verify leases in the pinned projection. Envelopes without a session
 	// identity keep the work-keyed snapshot the session-boot path renders.
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: r.boundedLimit(in.Page.Limit), Cursor: inner}
+	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner}
 	if r.Envelope.ClientRef != "" && r.Envelope.AgentRef != "" && r.Envelope.SessionRef != "" {
 		continuityReq.Owner = &store.SessionWorktreeOwner{ClientRef: r.Envelope.ClientRef, AgentRef: r.Envelope.AgentRef, SessionRef: r.Envelope.SessionRef}
 	}
@@ -356,9 +366,9 @@ func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []b
 	var pack store.ResearchPack
 	var readErr error
 	if in.PackID != "" {
-		pack, readErr = store.GetResearchPack(ctx, r.Store, in.PackID, r.boundedLimit(in.Page.Limit))
+		pack, readErr = store.GetResearchPack(ctx, r.Store, in.PackID, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 	} else {
-		packs, listErr := store.ResearchPacksByOwner(ctx, r.Store, in.WorkID, r.boundedLimit(in.Page.Limit))
+		packs, listErr := store.ResearchPacksByOwner(ctx, r.Store, in.WorkID, r.boundedLimit(effectiveLimit(in.Limit, in.Page)))
 		if listErr != nil {
 			return failureEnvelope(base, listErr), nil
 		}
@@ -447,7 +457,7 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil && !in.AllowDegraded {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(in.Page.Limit), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
+	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -492,10 +502,7 @@ func (r runtime) readKnowledgeUnprocessed(ctx context.Context, base Envelope, in
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	limit := in.Limit
-	if limit == 0 {
-		limit = in.Page.Limit
-	}
+	limit := effectiveLimit(in.Limit, in.Page)
 	limit = r.boundedLimit(limit)
 	if limit == 0 || limit > 100 {
 		limit = 100
@@ -537,7 +544,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 	}
 	switch r.Operation {
 	case "list":
-		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: r.boundedLimit(in.Page.Limit), Cursor: deref(in.Page.Cursor)})
+		result, err := r.Store.QueryDomainList(ctx, store.DomainListRequest{Product: product, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: deref(in.Page.Cursor)})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
@@ -559,7 +566,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
 		}
-		result, err := r.Store.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: in.DomainID, Limit: r.boundedLimit(in.Page.Limit), Cursor: deref(in.Page.Cursor)})
+		result, err := r.Store.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: in.DomainID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: deref(in.Page.Cursor)})
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}

@@ -22,7 +22,7 @@ func TestLinearInitiativeImportGuards(t *testing.T) {
 	setupLinearProduct(t, s, "import-product")
 
 	// local_only refuses before any read of Linear.
-	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "Example initiative", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "local_only") {
+	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "Example initiative", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "local_only") {
 		t.Fatalf("local_only error = %v, want typed refusal", err)
 	}
 
@@ -30,13 +30,13 @@ func TestLinearInitiativeImportGuards(t *testing.T) {
 	if _, err := s.SetProductPlanningMode(ctx, "import-product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "Example initiative", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "no declared Linear connection") {
+	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "Example initiative", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "no declared Linear connection") {
 		t.Fatalf("missing-setup error = %v, want typed refusal", err)
 	}
 
 	// An empty name refuses.
 	setupLinearConnectionResourceAtVersion(t, s, "import-product", map[string]any{"linear": map[string]any{"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key"}}, 3)
-	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "initiative name") {
+	if _, err := s.ImportLinearInitiative(ctx, "import-product", "ini-uuid-1", "", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !strings.Contains(err.Error(), "initiative name") {
 		t.Fatalf("empty-name error = %v, want typed refusal", err)
 	}
 }
@@ -48,7 +48,7 @@ func TestLinearInitiativeImportIsOnce(t *testing.T) {
 	setupLinearProduct(t, s, "import-once-product")
 	enableLinearForImport(t, s, "import-once-product")
 
-	first, err := s.ImportLinearInitiative(ctx, "import-once-product", "ini-uuid-1", "Example initiative", "Example description", "", "https://linear.app/example/project/ini-uuid-1")
+	first, err := s.ImportLinearInitiative(ctx, "import-once-product", "ini-uuid-1", "Example initiative", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1")
 	if err != nil {
 		t.Fatalf("ImportLinearInitiative() error = %v", err)
 	}
@@ -72,7 +72,7 @@ func TestLinearInitiativeImportIsOnce(t *testing.T) {
 	}
 
 	// The second import of the same identity refuses typed.
-	if _, err := s.ImportLinearInitiative(ctx, "import-once-product", "ini-uuid-1", "Example initiative", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !failureKindIs(err, KindIdempotencyConflict) {
+	if _, err := s.ImportLinearInitiative(ctx, "import-once-product", "ini-uuid-1", "Example initiative", "", "Example description", "", "https://linear.app/example/project/ini-uuid-1"); err == nil || !failureKindIs(err, KindIdempotencyConflict) {
 		t.Fatalf("duplicate error = %v, want idempotency_conflict", err)
 	}
 }
@@ -87,7 +87,7 @@ func TestLinearInitiativeImportRecordsTheProjectLink(t *testing.T) {
 	setupLinearProduct(t, s, "import-link-product")
 	enableLinearForImport(t, s, "import-link-product")
 
-	imported, err := s.ImportLinearInitiative(ctx, "import-link-product", "ini-uuid-link", "Linked initiative", "Linked description", "", "https://linear.app/example/project/ini-uuid-link")
+	imported, err := s.ImportLinearInitiative(ctx, "import-link-product", "ini-uuid-link", "Linked initiative", "", "Linked description", "", "https://linear.app/example/project/ini-uuid-link")
 	if err != nil {
 		t.Fatalf("ImportLinearInitiative() error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestLinearInitiativeImportCarriesTheNarrative(t *testing.T) {
 	setupLinearProduct(t, s, "import-narr-product")
 	enableLinearForImport(t, s, "import-narr-product")
 
-	imported, err := s.ImportLinearInitiative(ctx, "import-narr-product", "ini-uuid-narr", "Narrative initiative", "Narrative description", "The imported narrative.", "https://linear.app/example/project/ini-uuid-narr")
+	imported, err := s.ImportLinearInitiative(ctx, "import-narr-product", "ini-uuid-narr", "Narrative initiative", "", "Narrative description", "The imported narrative.", "https://linear.app/example/project/ini-uuid-narr")
 	if err != nil {
 		t.Fatalf("ImportLinearInitiative() error = %v", err)
 	}
@@ -148,5 +148,82 @@ func TestLinearInitiativeImportCarriesTheNarrative(t *testing.T) {
 	}
 	if state.Narrative != "The imported narrative." || state.ValueStatement != "Narrative description" || state.Title != "Narrative initiative" {
 		t.Fatalf("project state = %+v, want the imported title, description, and content", state)
+	}
+}
+
+// The import preserves the full project doc: a Project with no content
+// contributes a description that exceeds the 256-character statement budget
+// as the Initiative narrative in full, and the summary maps to the value
+// statement.
+func TestLinearInitiativeImportPreservesTheLongDoc(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "import-doc-product")
+	enableLinearForImport(t, s, "import-doc-product")
+
+	longDoc := strings.Repeat("Doc line.\n", 40)
+	imported, err := s.ImportLinearInitiative(ctx, "import-doc-product", "ini-uuid-doc", "Doc initiative", "Summary text", longDoc, "", "https://linear.app/example/project/ini-uuid-doc")
+	if err != nil {
+		t.Fatalf("ImportLinearInitiative() error = %v", err)
+	}
+	var narrative, valueStatement string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT narrative, json_extract(intent_json,'$.value_statement') FROM work_items WHERE id=?`, imported.WorkID).Scan(&narrative, &valueStatement); err != nil {
+		t.Fatalf("imported work item: %v", err)
+	}
+	if narrative != longDoc {
+		t.Fatalf("imported narrative = %d characters, want the full %d-character description", len(narrative), len(longDoc))
+	}
+	if valueStatement != "Summary text" {
+		t.Fatalf("imported value statement = %q, want the Linear Project summary", valueStatement)
+	}
+}
+
+// The import refuses with a typed failure when a description would be
+// silently dropped: the content already holds the doc, so an over-budget
+// description has no destination on either shape.
+func TestLinearInitiativeImportRefusesSilentLoss(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "import-loss-product")
+	enableLinearForImport(t, s, "import-loss-product")
+
+	longDoc := strings.Repeat("Doc line.\n", 40)
+	if _, err := s.ImportLinearInitiative(ctx, "import-loss-product", "ini-uuid-loss-1", "Loss initiative", "", longDoc, "The imported narrative.", "https://linear.app/example/project/ini-uuid-loss-1"); err == nil || !failureKindIs(err, KindInvalidPayload) {
+		t.Fatalf("long-description error = %v, want a typed refusal", err)
+	} else if !strings.Contains(err.Error(), "description") {
+		t.Fatalf("long-description error = %v, want the detail to name the dropped description", err)
+	}
+	if _, err := s.ImportLinearInitiative(ctx, "import-loss-product", "ini-uuid-loss-2", "Loss initiative", "Summary text", longDoc, "The imported narrative.", "https://linear.app/example/project/ini-uuid-loss-2"); err == nil || !failureKindIs(err, KindInvalidPayload) {
+		t.Fatalf("summary-long-description error = %v, want a typed refusal", err)
+	} else if !strings.Contains(err.Error(), "description") {
+		t.Fatalf("summary-long-description error = %v, want the detail to name the dropped description", err)
+	}
+}
+
+// A short description beside a summary is auxiliary text: the summary holds
+// the value statement, the content holds the doc, and the description rides
+// nowhere.
+func TestLinearInitiativeImportDropsAnAuxiliaryShortDescription(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	setupLinearProduct(t, s, "import-aux-product")
+	enableLinearForImport(t, s, "import-aux-product")
+
+	imported, err := s.ImportLinearInitiative(ctx, "import-aux-product", "ini-uuid-aux", "Aux initiative", "Summary text", "Short description.", "The imported narrative.", "https://linear.app/example/project/ini-uuid-aux")
+	if err != nil {
+		t.Fatalf("ImportLinearInitiative() error = %v", err)
+	}
+	var narrative, valueStatement string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT narrative, json_extract(intent_json,'$.value_statement') FROM work_items WHERE id=?`, imported.WorkID).Scan(&narrative, &valueStatement); err != nil {
+		t.Fatalf("imported work item: %v", err)
+	}
+	if valueStatement != "Summary text" {
+		t.Fatalf("imported value statement = %q, want the Linear Project summary", valueStatement)
+	}
+	if narrative != "The imported narrative." {
+		t.Fatalf("imported narrative = %q, want the Linear Project content", narrative)
 	}
 }

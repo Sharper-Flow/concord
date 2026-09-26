@@ -644,10 +644,10 @@ func TestUpdateProjectAddressesTheRemoteUUID(t *testing.T) {
 	}
 }
 
-// Project_update is a full-state write, so an
-// empty description or content rides the request as an explicit empty string
-// and clears the remote field instead of leaving stale markdown behind.
-func TestUpdateProjectSendsEmptyFullStateFields(t *testing.T) {
+// Content rides only when the caller holds a narrative: an empty content is
+// omitted, so Linear keeps its current markdown and the drain never clears
+// the Project doc. Description always rides as the full-state statement.
+func TestUpdateProjectOmitsAnEmptyContent(t *testing.T) {
 	var gotBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, r.ContentLength)
@@ -664,10 +664,43 @@ func TestUpdateProjectSendsEmptyFullStateFields(t *testing.T) {
 	if _, err := client.UpdateProject(context.Background(), "proj-uuid-1", UpdateProjectInput{Name: "Initiative title", Description: "Value statement", Content: ""}); err != nil {
 		t.Fatalf("UpdateProject() error = %v", err)
 	}
-	for _, want := range []string{`"description":"Value statement"`, `"content":""`} {
-		if !strings.Contains(gotBody, want) {
-			t.Fatalf("request body %q lacks %q", gotBody, want)
-		}
+	if !strings.Contains(gotBody, `"description":"Value statement"`) {
+		t.Fatalf("request body %q lacks %q", gotBody, `"description":"Value statement"`)
+	}
+	if strings.Contains(gotBody, `"content":`) {
+		t.Fatalf("request body %q carries a content field; an empty narrative must keep the remote markdown", gotBody)
+	}
+}
+
+// The initiative import maps the Linear Project's summary to the Concord
+// value statement, so GetProject requests and parses the summary field next
+// to the legacy description and the markdown content.
+func TestGetProjectReadsSummary(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"project":{"id":"proj-uuid-1","name":"Initiative title","summary":"Initiative value","description":"A long legacy document.","content":"# The doc","url":"https://linear.app/example/project/proj-uuid-1","updatedAt":"2026-09-23T01:00:00Z","teams":{"nodes":[{"id":"team-uuid-1"}]}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := client.GetProject(context.Background(), "proj-uuid-1")
+	if err != nil {
+		t.Fatalf("GetProject() error = %v", err)
+	}
+	if project.Summary != "Initiative value" || project.Description != "A long legacy document." || project.Content != "# The doc" {
+		t.Fatalf("project = %+v, want the summary, description, and content parsed", project)
+	}
+	if len(project.TeamIDs) != 1 || project.TeamIDs[0] != "team-uuid-1" {
+		t.Fatalf("team ids = %v, want team-uuid-1", project.TeamIDs)
+	}
+	if !strings.Contains(gotBody, "summary description content") {
+		t.Fatalf("request body %q lacks the summary field in the project selection", gotBody)
 	}
 }
 

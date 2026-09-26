@@ -1790,7 +1790,11 @@ type linearDrainPayload struct {
 // drainProject executes one Initiative Project operation. The drain sends the
 // Initiative's current title, value statement, and narrative — read at drain
 // time, not the enqueue-time payload snapshot — so a revision that lands after
-// enqueue still ships. A create sends the
+// enqueue still ships. The update keeps description=statement, which
+// flattens a long Linear description a pre-import Project left behind once,
+// at the first convergence, and rides content only when the Initiative holds
+// a narrative: an empty narrative omits content, so Linear keeps its current
+// markdown. A create sends the
 // Concord-generated UUID as ProjectCreateInput.id so a replayed drain
 // converges on the same remote Project (CD-0171 d2). An update addresses the
 // recorded remote Project.
@@ -2140,7 +2144,7 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 		writeOperatorDiagnostic(errOut, command, refusal.Error())
 		return 1
 	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Description, project.Content, project.URL)
+	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Summary, project.Description, project.Content, project.URL)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1

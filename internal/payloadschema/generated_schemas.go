@@ -11862,7 +11862,8 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "predicate_id": {
-            "$ref": "#/$defs/id"
+            "$ref": "#/$defs/id",
+            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
           }
         },
         "required": [
@@ -12685,6 +12686,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "allowed": {
+          "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
           "items": {
             "enum": [
               "no_change",

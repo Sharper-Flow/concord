@@ -200,7 +200,16 @@ function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
   return result
 }
 
-function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
+// flattenHostSchema projects an authored payload schema into the host-safe
+// view. At merged object levels the projection stays permissive so one
+// multi-operation tool stays advertisable at bounded size. Bounded nodes —
+// array items and the variant oneOf they carry — keep their authored closed
+// structure instead: the item required set and additionalProperties survive,
+// and a oneOf keeps its branches rather than merging into one property bag
+// that would falsely admit every variant's fields at once. This is what lets
+// the advertised schema teach the admission rules ValidateOperationPayload
+// enforces; the store remains the closed admission boundary.
+function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounded = false): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
   if (typeof schema.$ref === "string") {
@@ -208,7 +217,22 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONS
     if (resolving.has(name)) return {}
     const next = new Set(resolving)
     next.add(name)
-    return flattenHostSchema((payloadSchemas as Record<string, unknown>)[name], next)
+    const resolved = flattenHostSchema((payloadSchemas as Record<string, unknown>)[name], next, bounded)
+    // Sibling keywords alongside a $ref apply in the authored contract and
+    // carry the description annotations the host renders, so they overlay the
+    // resolved target instead of being dropped with the reference.
+    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !hostSchemaStructuralKeys.has(key)))
+    return Object.keys(siblings).length > 0 ? { ...resolved, ...siblings } : resolved
+  }
+
+  if (bounded && Array.isArray(schema.oneOf)) {
+    const result: JSONSchema = {}
+    for (const [key, child] of Object.entries(schema)) {
+      if (hostSchemaStructuralKeys.has(key) || key === "oneOf") continue
+      result[key] = child
+    }
+    result.oneOf = schema.oneOf.map((branch) => flattenHostSchema(branch, resolving, true))
+    return result
   }
 
   const combinations = ["oneOf", "anyOf", "allOf", "then", "else"]
@@ -223,16 +247,18 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>()): JSONS
   for (const [key, child] of Object.entries(schema)) {
     if (hostSchemaStructuralKeys.has(key)) continue
     if (key === "items") {
-      result[key] = Array.isArray(child) ? child.map((item) => flattenHostSchema(item, resolving)) : flattenHostSchema(child, resolving)
+      result[key] = Array.isArray(child) ? child.map((item) => flattenHostSchema(item, resolving, true)) : flattenHostSchema(child, resolving, true)
     } else {
       result[key] = child
     }
   }
   if (schema.properties !== undefined || schema.type === "object") {
     result.type = "object"
-    result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving)]))
-    result.required = []
-    result.additionalProperties = true
+    result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving, bounded)]))
+    const authoredRequired = Array.isArray(schema.required) ? schema.required as string[] : []
+    const authoredProperties = (schema.properties ?? {}) as Record<string, unknown>
+    result.required = bounded ? authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name)) : []
+    result.additionalProperties = bounded && schema.additionalProperties === false ? false : true
   }
   return result
 }

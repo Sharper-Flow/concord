@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -507,6 +508,202 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	// documented command surface, which commandSpecs owns.
 	if out.Len() > 16000 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
+	}
+}
+
+// countingStdin records every Read so a help route can prove it never
+// consumes stdin.
+type countingStdin struct{ reads int }
+
+func (r *countingStdin) Read([]byte) (int, error) {
+	r.reads++
+	return 0, fmt.Errorf("stdin read attempted")
+}
+
+func topLevelHelp(t *testing.T) string {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--help"}, &out, &errOut); code != 0 {
+		t.Fatalf("--help exit code = %d, want 0; stderr=%q", code, errOut.String())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("--help stderr = %q, want empty", errOut.String())
+	}
+	return out.String()
+}
+
+// topLevelCommandSection returns the byte-exact section of the top-level
+// usage that documents a canonical command name.
+func topLevelCommandSection(t *testing.T, topLevel, canonical string) string {
+	t.Helper()
+	line := "  concord " + canonical + " < JSON stdin\n"
+	start := strings.Index(topLevel, line)
+	if start < 0 {
+		t.Fatalf("top-level usage has no section for %s", canonical)
+	}
+	rest := topLevel[start+len(line):]
+	end := strings.Index(rest, "\n  concord ")
+	if end < 0 {
+		return topLevel[start:]
+	}
+	return topLevel[start : start+len(line)+end+1]
+}
+
+func TestCommandHelp(t *testing.T) {
+	topLevel := topLevelHelp(t)
+	for _, spec := range commandSpecs {
+		for _, form := range []string{spec.Canonical, spec.TwoWord} {
+			if form == "" {
+				continue
+			}
+			t.Run(form, func(t *testing.T) {
+				dbPath := filepath.Join(t.TempDir(), "concord.db")
+				t.Setenv(dbOverrideEnv, dbPath)
+				var out, errOut bytes.Buffer
+				stdin := &countingStdin{}
+				args := append(strings.Fields(form), "--help")
+				if code := runWithInput(args, stdin, &out, &errOut); code != 0 {
+					t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", form, code, errOut.String())
+				}
+				if errOut.Len() != 0 {
+					t.Fatalf("%s --help stderr = %q, want empty", form, errOut.String())
+				}
+				if stdin.reads != 0 {
+					t.Fatalf("%s --help read stdin %d times, want 0", form, stdin.reads)
+				}
+				if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+					t.Fatalf("%s --help touched the store database at %s", form, dbPath)
+				}
+				want := topLevelCommandSection(t, topLevel, spec.Canonical)
+				if out.String() != want {
+					t.Fatalf("%s --help output differs from its top-level usage section", form)
+				}
+			})
+		}
+	}
+}
+
+func TestGroupHelp(t *testing.T) {
+	topLevel := topLevelHelp(t)
+	groups := commandGroups()
+	for _, want := range []string{"client", "product", "linear", "resource", "domain", "project"} {
+		if !slices.Contains(groups, want) {
+			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
+		}
+	}
+	for _, group := range groups {
+		t.Run(group, func(t *testing.T) {
+			var sections strings.Builder
+			prefix := group + " "
+			for _, spec := range commandSpecs {
+				if strings.HasPrefix(spec.TwoWord, prefix) {
+					sections.WriteString(topLevelCommandSection(t, topLevel, spec.Canonical))
+				}
+			}
+			wantSections := sections.String()
+			if wantSections == "" {
+				t.Fatalf("group %s has no commands in commandSpecs", group)
+			}
+
+			var out, errOut bytes.Buffer
+			stdin := &countingStdin{}
+			if code := runWithInput([]string{group}, stdin, &out, &errOut); code != 2 {
+				t.Fatalf("bare %q exit code = %d, want 2", group, code)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("bare %q stdout = %q, want empty", group, out.String())
+			}
+			if !strings.Contains(errOut.String(), fmt.Sprintf("concord: %s names a command group, not a command", group)) {
+				t.Fatalf("bare %q stderr lacks the group diagnostic: %q", group, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), wantSections) {
+				t.Fatalf("bare %q stderr lacks the group sections", group)
+			}
+			if stdin.reads != 0 {
+				t.Fatalf("bare %q read stdin %d times, want 0", group, stdin.reads)
+			}
+
+			out.Reset()
+			errOut.Reset()
+			if code := runWithInput([]string{group, "--help"}, stdin, &out, &errOut); code != 0 {
+				t.Fatalf("%s --help exit code = %d, want 0; stderr=%q", group, code, errOut.String())
+			}
+			if errOut.Len() != 0 {
+				t.Fatalf("%s --help stderr = %q, want empty", group, errOut.String())
+			}
+			if out.String() != wantSections {
+				t.Fatalf("%s --help output differs from the group sections", group)
+			}
+			if stdin.reads != 0 {
+				t.Fatalf("%s --help read stdin %d times, want 0", group, stdin.reads)
+			}
+		})
+	}
+}
+
+func TestScopedUnsupportedUsage(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		canonical string
+	}{
+		{"canonical", []string{"backup", "--bogus"}, "backup"},
+		{"two-word", []string{"client", "register", "extra"}, "client-register"},
+		{"store-free", []string{"ci-wait", "--bogus"}, "ci-wait"},
+		{"release-verb", []string{"host-lease", "--bogus"}, "host-lease"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			topLevel := topLevelHelp(t)
+			want := topLevelCommandSection(t, topLevel, tc.canonical)
+			t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
+			var out, errOut bytes.Buffer
+			if code := runWithInput(tc.args, &countingStdin{}, &out, &errOut); code != 2 {
+				t.Fatalf("%v exit code = %d, want 2", tc.args, code)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("%v stdout = %q, want empty", tc.args, out.String())
+			}
+			if !strings.Contains(errOut.String(), "unsupported arguments") {
+				t.Fatalf("%v stderr lacks the diagnostic: %q", tc.args, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), want) {
+				t.Fatalf("%v stderr lacks the command's own section", tc.args)
+			}
+			if strings.Contains(errOut.String(), "Usage:") {
+				t.Fatalf("%v stderr still prints the full usage", tc.args)
+			}
+		})
+	}
+}
+
+// TestUnsupportedUsageOutsideCommandSpecs keeps a verb that commandSpecs does
+// not document to its one-line diagnostic: the scoped writer has no section
+// for it and must not fall back to the full usage.
+func TestUnsupportedUsageOutsideCommandSpecs(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"repair", "--bogus"}, &countingStdin{}, &out, &errOut); code != 2 {
+		t.Fatalf("repair --bogus exit code = %d, want 2", code)
+	}
+	if got := errOut.String(); got != "concord repair: unsupported arguments: --bogus\n" {
+		t.Fatalf("repair --bogus stderr = %q, want only the one-line diagnostic", got)
+	}
+}
+
+func TestTopLevelHelpUnchanged(t *testing.T) {
+	got := topLevelHelp(t)
+	path := filepath.Join("testdata", "top-level-help.golden")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(want) != got {
+		t.Fatalf("concord --help differs from %s; regenerate with UPDATE_GOLDEN=1 only for an approved usage change", path)
 	}
 }
 

@@ -1,0 +1,209 @@
+Usage:
+  concord --help
+  concord --version
+  concord launcher   # interactive TTY; does not read JSON stdin
+  concord launcher --list   # bounded candidate JSON
+  concord zl <work> -- <prompt>   # start or resume without the UI
+  concord zl --resume-last   # resume the last workspace
+  concord session    # internal TTY bootstrap; launcher identity env required
+  concord continuity-block             # read-only continuity packet; launcher identity env required
+  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)
+  concord host-leases                  # print live release leases; prunes stale ones
+  concord upgrade                      # apply pending migrations; refuses under an older live session
+  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)
+  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log
+  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)
+
+Commands read one strict JSON object from stdin:
+  concord invoke < JSON stdin
+    required: call_envelope{schema_version, request_id, client_ref, principal_ref, session_ref, agent_ref, directory, worktree, ambient_project_id, scope_version, manifest_digest}, tool, operation, input
+    optional: call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion
+    accepted values: tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.session_vacate | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile
+  concord worker-dispatch < JSON stdin
+    required: event_id, work_id, attempt_id, lane_id, lane_version, lane_digest, packet_schema_version, report_schema_version, packet_digest
+    optional: readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)
+  concord worker-complete < JSON stdin
+    required: event_id, work_id, attempt_id, readback_model, report_schema_version, evidence_origin
+    optional: worker_directory, base_comparison, evidence[] — required when evidence_origin is reported
+    accepted values: evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares; base_comparison.checks[] results: pass | fail | not_run
+  concord worker-fail < JSON stdin
+    required: event_id, work_id, attempt_id, readback_model, failure_kind, detail
+    accepted values: failure_kind: fallback_blocked | worker_error | invalid_report | abandoned
+  concord worker-abandon < JSON stdin
+    required: event_id, work_id, attempt_id, detail
+    accepted values: the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt
+  concord client-register < JSON stdin
+  concord client register < JSON stdin
+    required: client_ref, key_id, principal_ref, public_key, capabilities, product_scope, project_scope, agent_scope
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present
+  concord client-policy-update < JSON stdin
+  concord client policy-update < JSON stdin
+    required: client_ref, principal_ref, capabilities, product_scope, project_scope, agent_scope
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present
+  concord client-policy-expand < JSON stdin
+  concord client policy-expand < JSON stdin
+    required: client_ref
+    optional: capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch
+  concord client-key-rotate < JSON stdin
+  concord client key-rotate < JSON stdin
+    required: client_ref, key_id, public_key
+    accepted values: public_key: base64 Ed25519
+  concord client-revoke < JSON stdin
+  concord client revoke < JSON stdin
+    required: client_ref
+  concord product-create < JSON stdin
+  concord product create < JSON stdin
+    required: product_id, display_name, stage_maturity, stage_audience_commitment, project_id, project_display_name, role
+    optional: reason
+    accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary
+  concord product-mode-set < JSON stdin
+  concord product mode-set < JSON stdin
+    required: product_id, planning_mode, expected_version, reason
+    accepted values: planning_mode: local_only | linear_enabled
+  concord linear-health < JSON stdin
+  concord linear health < JSON stdin
+    required: product_id
+  concord linear-divergence < JSON stdin
+  concord linear divergence < JSON stdin
+    required: product_id
+  concord linear-unlinked-remote-in-progress < JSON stdin
+  concord linear unlinked-remote-in-progress < JSON stdin
+    required: product_id
+  concord linear-issue-enqueue < JSON stdin
+  concord linear issue-enqueue < JSON stdin
+    required: product_id, work_id, op_kind
+    optional: remote_issue_uuid (required for issue_adopt), audit_comment (required for issue_audit_comment)
+    accepted values: op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment
+  concord linear-outbox-drain < JSON stdin
+  concord linear outbox-drain < JSON stdin
+    required: product_id
+    optional: max_operations
+  concord linear-outbox-disposition < JSON stdin
+  concord linear outbox-disposition < JSON stdin
+    required: product_id, reason
+    optional: operation_ids (defaults to all undisposed failed rows)
+    accepted values: disposition: acknowledged
+  concord linear-backfill < JSON stdin
+  concord linear backfill < JSON stdin
+    required: product_id
+  concord linear-connection-update < JSON stdin
+  concord linear connection-update < JSON stdin
+    required: event_id, resource_id, product_id, expected_resource_version
+    optional: team_id, status_ids, label_ids
+    accepted values: status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>
+  concord linear-initiative-import < JSON stdin
+  concord linear initiative-import < JSON stdin
+    required: product_id, linear_project_id
+    accepted values: linear_project_id: Linear Project uuid
+  concord resource-create < JSON stdin
+  concord resource create < JSON stdin
+    required: event_id, resource_id, product_id, display_name, class, kind, purpose, stage_maturity, stage_audience_commitment, environments, expected_product_version
+    optional: locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments
+    accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public
+  concord resource-share < JSON stdin
+  concord resource share < JSON stdin
+    required: event_id, resource_id, product_id, expected_resource_version
+    optional: purpose, environments
+  concord domain-project-attachments-replace < JSON stdin
+  concord domain project-attachments-replace < JSON stdin
+    required: event_id, product_id, domain_id, expected_version, attachments
+    optional: attachments (replaces the full edge set)
+    accepted values: attachments[].role: primary | secondary
+  concord domain-resource-attachments-replace < JSON stdin
+  concord domain resource-attachments-replace < JSON stdin
+    required: event_id, product_id, domain_id, expected_version, attachments
+    optional: attachments (replaces the full edge set)
+  concord project-create < JSON stdin
+  concord project create < JSON stdin
+    required: project_id, display_name, product_id, role, expected_product_version
+    optional: reason
+    accepted values: role: primary | secondary
+  concord product-project-add < JSON stdin
+  concord product project-add < JSON stdin
+    required: product_id, project_id, role, expected_version
+    optional: reason
+    accepted values: role: primary | secondary
+  concord product-stage-update < JSON stdin
+  concord product stage-update < JSON stdin
+    required: product_id, stage_maturity, stage_audience_commitment, expected_version
+    optional: reason (cite the CD-0091 rung manifest when raising maturity)
+    accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public
+  concord product-knowledge-home-designate < JSON stdin
+  concord product knowledge-home-designate < JSON stdin
+    required: product_id, project_id, locator_id, expected_version
+    optional: reason
+    accepted values: locator_id: a canonical_path locator of the member Project
+  concord product-knowledge-home-clear < JSON stdin
+  concord product knowledge-home-clear < JSON stdin
+    required: product_id, expected_version
+    optional: reason
+  concord project-locator-add < JSON stdin
+  concord project locator-add < JSON stdin
+    required: project_id, locator_id, kind, value, expected_version
+    accepted values: kind: canonical_path | git_remote
+  concord project-locator-update < JSON stdin
+  concord project locator-update < JSON stdin
+    required: project_id, locator_id, kind, value, expected_version
+    accepted values: kind: canonical_path | git_remote
+  concord project-locator-remove < JSON stdin
+  concord project locator-remove < JSON stdin
+    required: project_id, locator_id, expected_version
+  concord backup < JSON stdin
+    required: destination
+    accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it
+  concord worktree-locate < JSON stdin
+    required: project_id, work_id
+    optional: ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)
+  concord claim-landing < JSON stdin
+    required: work_id, session_ref, landed_directory
+  concord work-bootstrap < JSON stdin
+    required: product_id, project_id, title, value_statement, kind, task, idempotency_key
+    optional: priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)
+    accepted values: kind: task | bug | decision | research | other; urgency: standard | expedite
+  concord work-resume < JSON stdin
+    required: product_id, project_id, work_id
+  concord receipt < JSON stdin
+    required: work_id
+    accepted values: prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed
+  concord work-shelve < JSON stdin
+    required: operation_id, idempotency_key, work_id, expected_version, handoff
+    optional: product_id, linear, actor, safety evidence
+    accepted values: reason is fixed to shelved; no sixth lifecycle state
+  concord work-cancel < JSON stdin
+    required: operation_id, idempotency_key, work_id, expected_version, handoff
+    optional: product_id, linear, actor, safety evidence
+    accepted values: reason is fixed to cancelled; removal is not archival
+  concord ci-wait < JSON stdin
+    required: selector, repo
+    optional: mode (pr checks|merge), time_seconds_max, state_file
+    accepted values: selector.kind: pr|sha|run; mode: checks|merge
+  concord session-prepare < JSON stdin
+    required: product_id, work_id, agent
+    optional: task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2
+  concord project-resolve < JSON stdin
+  concord project resolve < JSON stdin
+    required: directory
+    optional: worktree (defaults to directory)
+  concord restore < JSON stdin
+    required: source, destination
+    accepted values: source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database
+  concord predecessor-inventory < JSON stdin
+  concord predecessor inventory < JSON stdin
+    required: snapshot_path
+    accepted values: snapshot_path: absolute path to a predecessor snapshot file (CD-0097)
+  concord predecessor-import < JSON stdin
+  concord predecessor import < JSON stdin
+    required: snapshot_path, product{product_id, display_name, stage_maturity, stage_audience_commitment}, projects, select_change_ids
+    optional: dry_run, surfaces
+    accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)
+  concord host-lease < JSON stdin
+    required: pid
+    optional: directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted
+    accepted values: pid: the host process that holds this release; the core writes the lease under the data root
+  concord host-leases < JSON stdin
+    required: 
+    accepted values: prints the live host leases and prunes stale ones (CD-0111 D2)
+  concord upgrade < JSON stdin
+    required: 
+    accepted values: applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)

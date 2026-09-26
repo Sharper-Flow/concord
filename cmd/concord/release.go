@@ -205,6 +205,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 func decodeReleaseInput(args []string, in io.Reader, out, errOut io.Writer, command string, target any) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord %s: unsupported arguments: %s", command, args[0]))
+		writeCommandUsageSection(errOut, command)
 		return 2
 	}
 	raw, err := io.ReadAll(io.LimitReader(in, agent.MaxEnvelopeBytes+1))

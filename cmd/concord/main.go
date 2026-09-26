@@ -53,6 +53,11 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		writeUsage(out)
 		return 0
 	}
+	// Command and group help routes before any stdin read or store open:
+	// help output must never consume the JSON bytes a command would read.
+	if code, handled := runCommandHelpRoute(args, out, errOut); handled {
+		return code
+	}
 	// The launcher is a terminal command, not a JSON command. Route it before
 	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
 	if len(args) > 0 && args[0] == "launcher" {
@@ -206,19 +211,31 @@ var commandSpecs = []commandSpec{
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "none", Enums: "applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)"},
 }
 
-func routeCommand(args []string) (string, []string, bool) {
+// matchCommandSpec resolves the leading tokens against commandSpecs' canonical
+// and two-word forms. It returns the matched spec and the arguments left after
+// the command form.
+func matchCommandSpec(args []string) (*commandSpec, []string, bool) {
 	if len(args) == 0 {
+		return nil, nil, false
+	}
+	for i := range commandSpecs {
+		spec := &commandSpecs[i]
+		if args[0] == spec.Canonical {
+			return spec, args[1:], true
+		}
+		if len(args) >= 2 && args[0]+" "+args[1] == spec.TwoWord {
+			return spec, args[2:], true
+		}
+	}
+	return nil, nil, false
+}
+
+func routeCommand(args []string) (string, []string, bool) {
+	spec, rest, ok := matchCommandSpec(args)
+	if !ok {
 		return "", nil, false
 	}
-	for _, spec := range commandSpecs {
-		if args[0] == spec.Canonical {
-			return spec.Canonical, args[1:], true
-		}
-		if len(args) >= 2 && spec.TwoWord == args[0]+" "+args[1] {
-			return spec.Canonical, args[2:], true
-		}
-	}
-	return "", nil, false
+	return spec.Canonical, rest, true
 }
 
 func writeUsage(out io.Writer) {
@@ -240,18 +257,101 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {
-		_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.Canonical)
-		if spec.TwoWord != "" {
-			_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.TwoWord)
-		}
-		_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
-		if spec.Optional != "" && spec.Optional != "none" {
-			_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
-		}
-		if spec.Enums != "" && spec.Enums != "none" {
-			_, _ = fmt.Fprintf(out, "    accepted values: %s\n", spec.Enums)
+		writeCommandSection(out, spec)
+	}
+}
+
+// writeCommandSection writes one command's usage lines: both accepted forms,
+// then the required, optional, and accepted-value lines commandSpecs declares.
+func writeCommandSection(out io.Writer, spec commandSpec) {
+	_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.Canonical)
+	if spec.TwoWord != "" {
+		_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.TwoWord)
+	}
+	_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
+	if spec.Optional != "" && spec.Optional != "none" {
+		_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
+	}
+	if spec.Enums != "" && spec.Enums != "none" {
+		_, _ = fmt.Fprintf(out, "    accepted values: %s\n", spec.Enums)
+	}
+}
+
+// writeCommandUsageSection writes the usage section of one canonical command
+// name. A name commandSpecs does not declare has no section and writes
+// nothing, so a verb outside commandSpecs keeps its own diagnostic alone.
+func writeCommandUsageSection(out io.Writer, canonical string) {
+	for i := range commandSpecs {
+		if commandSpecs[i].Canonical == canonical {
+			writeCommandSection(out, commandSpecs[i])
+			return
 		}
 	}
+}
+
+// commandGroups returns the bare words that name a command family rather than
+// one command: the first word of every two-word form in commandSpecs, in
+// first-appearance order.
+func commandGroups() []string {
+	var groups []string
+	for _, spec := range commandSpecs {
+		group, _, found := strings.Cut(spec.TwoWord, " ")
+		if found && !slices.Contains(groups, group) {
+			groups = append(groups, group)
+		}
+	}
+	return groups
+}
+
+func groupWord(word string) (string, bool) {
+	if slices.Contains(commandGroups(), word) {
+		return word, true
+	}
+	return "", false
+}
+
+// writeGroupSections writes the usage sections of every command whose
+// two-word form starts with the group word, in commandSpecs order.
+func writeGroupSections(out io.Writer, group string) {
+	prefix := group + " "
+	for _, spec := range commandSpecs {
+		if strings.HasPrefix(spec.TwoWord, prefix) {
+			writeCommandSection(out, spec)
+		}
+	}
+}
+
+// runCommandHelpRoute resolves '<command> --help' and the group words before
+// any stdin read or store open. '<command> --help' prints one section to
+// stdout and exits 0. A bare group word is a usage error that names the group
+// and lists its commands on stderr with exit 2, and '<group> --help' prints
+// the same sections to stdout. It reports whether it handled the arguments,
+// with the exit code to return.
+func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	if spec, rest, matched := matchCommandSpec(args); matched {
+		if len(rest) == 1 && rest[0] == "--help" {
+			writeCommandSection(out, *spec)
+			return 0, true
+		}
+		return 0, false
+	}
+	group, ok := groupWord(args[0])
+	if !ok {
+		return 0, false
+	}
+	switch {
+	case len(args) == 1:
+		writeDiagnostic(errOut, fmt.Sprintf("concord: %s names a command group, not a command; use 'concord %s --help' to list its commands", group, group))
+		writeGroupSections(errOut, group)
+		return 2, true
+	case len(args) == 2 && args[1] == "--help":
+		writeGroupSections(out, group)
+		return 0, true
+	}
+	return 0, false
 }
 
 type firstRunPort struct{}
@@ -536,7 +636,7 @@ var workerPacketDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errOut io.Writer, handler func([]byte, io.Writer, io.Writer) int) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{name}, args...), " ")))
-		writeUsage(errOut)
+		writeCommandUsageSection(errOut, name)
 		return 2
 	}
 	inputLimit := int64(agent.MaxEnvelopeBytes)
@@ -555,7 +655,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.Writer) (exitCode int) {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord: unsupported arguments: %s", strings.Join(append([]string{command}, args...), " ")))
-		writeUsage(errOut)
+		writeCommandUsageSection(errOut, command)
 		return 2
 	}
 	inputLimit := int64(agent.MaxEnvelopeBytes)

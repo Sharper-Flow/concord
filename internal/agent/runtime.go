@@ -1657,11 +1657,13 @@ func relationReplacementState(edges []store.RelationEdge) string {
 }
 func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 	type item struct {
-		ID      string `json:"knowledge_id"`
-		Kind    string `json:"kind"`
-		Locator string `json:"locator"`
-		Commit  string `json:"commit_oid,omitempty"`
-		Hash    string `json:"content_hash,omitempty"`
+		ID          string `json:"knowledge_id"`
+		Kind        string `json:"kind"`
+		Locator     string `json:"locator"`
+		Commit      string `json:"commit_oid,omitempty"`
+		Hash        string `json:"content_hash,omitempty"`
+		Status      string `json:"status,omitempty"`
+		SuccessorID string `json:"successor_id,omitempty"`
 	}
 	items := []item{}
 	for _, v := range q.Items {
@@ -1672,7 +1674,7 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		if kind == "spec" {
 			kind = "specification"
 		}
-		items = append(items, item{v.ID, kind, v.NotePath, v.CommitOID, v.ContentHash})
+		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.OutcomeTag), SuccessorID: v.SuccessorID})
 	}
 	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "watermark": q.IndexWatermark})
 	if err == nil {
@@ -1683,11 +1685,24 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 	state := q.Status
 	var locator *string
+	lawStatus, successorID := "", ""
+	if q.Result != nil {
+		lawStatus, successorID = q.Result.LawStatus, q.Result.SuccessorID
+	}
 	if q.Note != nil {
 		v := q.Note.NotePath
 		locator = &v
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"state": state, "locator": locator, "candidates": []string{}})
+	payload := map[string]any{"state": state, "locator": locator, "candidates": []string{}}
+	// Law status and successor ride beside, and never replace, the PM1 Q10
+	// locator state: state stays canonical/not_compacted/missing/ambiguous.
+	if lawStatus != "" {
+		payload["status"] = lawStatus
+	}
+	if successorID != "" {
+		payload["successor_id"] = successorID
+	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }
 
 // SignedCursor remains an agent-facing alias while the authority owns its

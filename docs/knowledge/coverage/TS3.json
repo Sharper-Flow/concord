@@ -13,6 +13,14 @@
       "value": "internal/agent.TestAuthenticatedCursorBindsOperationAndRejectsTampering"
     },
     {
+      "kind": "go_test",
+      "value": "internal/agent.TestKnowledgeSearchProjectsLawStatusAndSuccessor"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor"
+    },
+    {
       "kind": "validator",
       "value": "scripts/check-agent-contracts.py"
     }

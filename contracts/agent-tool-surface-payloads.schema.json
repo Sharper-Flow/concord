@@ -3714,6 +3714,17 @@
               },
               "content_hash": {
                 "$ref": "#/$defs/digest"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "accepted",
+                  "superseded",
+                  "published"
+                ]
+              },
+              "successor_id": {
+                "$ref": "#/$defs/id"
               }
             }
           }
@@ -3757,6 +3768,17 @@
           "items": {
             "$ref": "#/$defs/id"
           }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "superseded",
+            "published"
+          ]
+        },
+        "successor_id": {
+          "$ref": "#/$defs/id"
         }
       }
     },

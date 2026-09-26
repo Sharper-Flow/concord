@@ -59,6 +59,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_relate.set_memberships":             membershipsMutationInput{},
 		"concord_work_relate.supersede":                   supersedeMutationInput{},
 		"concord_work_relate.unlink":                      unlinkMutationInput{},
+		"concord_work_transition.correct_delivery":        correctDeliveryMutationInput{},
 		"concord_work_transition.lifecycle":               lifecycleMutationInput{},
 		"concord_work_transition.remove":                  workRemovalMutationInput{},
 		"concord_work_transition.workflow_action":         actionMutationInput{},

@@ -442,7 +442,7 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    expected_operations = 70
+    expected_operations = 71
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -621,6 +621,7 @@ def fixtures_projection(manifest: dict) -> str:
             if "[0-9a-f]{40}" in pattern: return "0"*40
             if pattern.startswith("^[a-z][a-z0-9_-]"): return "fence:prod-pause"
             if pattern.startswith("^msg:"): return "msg:" + "0"*32
+            if pattern.startswith("^https://"): return "https://example.test/pull/1"
             if "date" in pattern: return "2026-08-08T00:00:00Z"
             return "id-1"
         if kind=="integer" or kind=="number": return schema.get("minimum",1)

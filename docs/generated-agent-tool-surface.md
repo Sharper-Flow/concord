@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:377bbf36f554e251cd0732c54c8c06bcde20b87cdabe25c0e5e4e653936b9f4a`
-Payload schema digest: `sha256:483eaddddb9da4405d3dac823a549aaec505debf811bd2a365084774ffe651aa`
+Manifest digest: `sha256:1dc2635d02b0b86fc60affff8a4ebb2eb00775e72ffb52796eb24350f64d6ceb`
+Payload schema digest: `sha256:3a70d8bd4581c56122cc6e5c4e148686e28ccde514e87d05e78eb397969b6bf5`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -74,5 +74,6 @@ Envelope schema: `1.0`
 | `concord_domain.overlaps` | `read` | `C22.DomainOverlaps` | `product_read` | `read` | `always` |
 | `concord_domain.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_domain.observation_dismiss` | `mutation` | `—` | `work_define` | `intent` | `always` |
+| `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_relate.product_project_add` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.client_policy_grant_request` | `mutation` | `—` | `work_relate` | `scope` | `always` |

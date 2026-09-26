@@ -1363,6 +1363,90 @@
         }
       }
     },
+    "workflow_delivery_assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "seq",
+        "target_payload_version",
+        "artifact",
+        "state",
+        "actor_ref",
+        "asserted_at"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "seq": {
+          "$ref": "#/$defs/version"
+        },
+        "target_payload_version": {
+          "$ref": "#/$defs/version"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "asserted"
+          ]
+        },
+        "actor_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "asserted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "correction": {
+          "$ref": "#/$defs/workflow_delivery_correction"
+        }
+      }
+    },
+    "workflow_delivery_correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "reason",
+        "artifact",
+        "evidence_source",
+        "approval_ref",
+        "corrected_at"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^https://"
+        },
+        "evidence_source": {
+          "type": "string",
+          "enum": [
+            "coordinator_asserted"
+          ]
+        },
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "corrected_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
     "workflow_read": {
       "type": "object",
       "additionalProperties": false,
@@ -1600,6 +1684,9 @@
               }
             }
           }
+        },
+        "delivery_assertion": {
+          "$ref": "#/$defs/workflow_delivery_assertion"
         }
       }
     },
@@ -4457,6 +4544,63 @@
           }
         }
       ]
+    },
+    "work_transition_correct_delivery_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "target_event_id",
+        "target_seq",
+        "target_payload_version",
+        "reason",
+        "delivery_artifact",
+        "delivery_state",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "target_event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_payload_version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "delivery_artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^https://"
+        },
+        "delivery_state": {
+          "type": "string",
+          "enum": [
+            "asserted"
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
     },
     "work_relate_memberships_input": {
       "type": "object",

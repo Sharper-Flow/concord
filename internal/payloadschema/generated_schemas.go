@@ -11305,6 +11305,63 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_correct_delivery_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "delivery_artifact": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "type": "string"
+        },
+        "delivery_state": {
+          "enum": [
+            "asserted"
+          ],
+          "type": "string"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "target_event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_payload_version": {
+          "$ref": "#/$defs/version"
+        },
+        "target_seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "target_event_id",
+        "target_seq",
+        "target_payload_version",
+        "reason",
+        "delivery_artifact",
+        "delivery_state",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_lifecycle_input": {
       "additionalProperties": false,
       "properties": {
@@ -12042,6 +12099,90 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_delivery_assertion": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "artifact": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "asserted_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "correction": {
+          "$ref": "#/$defs/workflow_delivery_correction"
+        },
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "seq": {
+          "$ref": "#/$defs/version"
+        },
+        "state": {
+          "enum": [
+            "asserted"
+          ],
+          "type": "string"
+        },
+        "target_payload_version": {
+          "$ref": "#/$defs/version"
+        }
+      },
+      "required": [
+        "event_id",
+        "seq",
+        "target_payload_version",
+        "artifact",
+        "state",
+        "actor_ref",
+        "asserted_at"
+      ],
+      "type": "object"
+    },
+    "workflow_delivery_correction": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "artifact": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "pattern": "^https://",
+          "type": "string"
+        },
+        "corrected_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence_source": {
+          "enum": [
+            "coordinator_asserted"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/short"
+        }
+      },
+      "required": [
+        "event_id",
+        "reason",
+        "artifact",
+        "evidence_source",
+        "approval_ref",
+        "corrected_at"
+      ],
+      "type": "object"
+    },
     "workflow_design_content": {
       "additionalProperties": false,
       "maxProperties": 32,
@@ -12719,6 +12860,9 @@ const GeneratedPayloadSchemaDocument = `{
             "digest"
           ],
           "type": "object"
+        },
+        "delivery_assertion": {
+          "$ref": "#/$defs/workflow_delivery_assertion"
         },
         "impact_notices": {
           "items": {

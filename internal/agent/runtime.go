@@ -1575,7 +1575,40 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 		}
 		events = append(events, event)
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"events": events})
+	payload := map[string]any{"events": events}
+	if q.Workflow != nil {
+		workflow, err := publishedWorkflowRead(q.Workflow)
+		if err != nil {
+			return base, err
+		}
+		payload["workflow"] = workflow
+	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
+}
+
+// workflowReadInternalFields lists the projection fields the published
+// workflow_read contract does not declare. The closed result schema refuses
+// undeclared keys, so the public history read drops exactly these fields and
+// keeps every published one, delivery_assertion included.
+var workflowReadInternalFields = []string{"changes_product_truth", "overdue_awaits", "await_health", "withheld_operator_question", "proposal_record", "architecture_binding"}
+
+// publishedWorkflowRead shapes the store projection into the published
+// workflow_read subset. The history page carries it so a reader sees the
+// current effective delivery assertion beside the unchanged original, with
+// the target_payload_version a correction admission consumes.
+func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string]any, error) {
+	raw, err := json.Marshal(projection)
+	if err != nil {
+		return nil, err
+	}
+	var shaped map[string]any
+	if err := json.Unmarshal(raw, &shaped); err != nil {
+		return nil, err
+	}
+	for _, field := range workflowReadInternalFields {
+		delete(shaped, field)
+	}
+	return shaped, nil
 }
 
 // ContinuityPayload is the single public rendering of CD-0016 continuity.

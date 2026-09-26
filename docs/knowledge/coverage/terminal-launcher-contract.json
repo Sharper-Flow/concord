@@ -6,7 +6,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork"
+      "value": "internal/launcher/render/bubbletea.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
     },
     {
       "kind": "go_test",

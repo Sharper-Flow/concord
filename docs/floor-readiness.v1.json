@@ -1,694 +1,694 @@
 {
-  "schema_version": "2.0",
-  "source": {
-    "path": "docs/priorities.md",
-    "section": "First-usable floor"
+ "schema_version": "2.0",
+ "source": {
+  "path": "docs/priorities.md",
+  "section": "First-usable floor"
+ },
+ "conditions": [
+  {
+   "id": "fc1",
+   "ordinal": 1,
+   "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context."
   },
-  "conditions": [
+  {
+   "id": "fc2",
+   "ordinal": 2,
+   "title": "Agents can read, write, and execute within that Product and Domain context through tools."
+  },
+  {
+   "id": "fc3",
+   "ordinal": 3,
+   "title": "Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence."
+  },
+  {
+   "id": "fc4",
+   "ordinal": 4,
+   "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
+  },
+  {
+   "id": "fc5",
+   "ordinal": 5,
+   "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution)."
+  },
+  {
+   "id": "fc6",
+   "ordinal": 6,
+   "title": "The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage."
+  },
+  {
+   "id": "fc7",
+   "ordinal": 7,
+   "title": "release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.",
+   "source": {
+    "path": "docs/rollout-plan.md",
+    "section": "Release-evidence bar"
+   }
+  }
+ ],
+ "items": [
+  {
+   "id": "fc1-portfolio-visibility",
+   "condition": "fc1",
+   "title": "Launcher renders portfolio, Product, and Work views",
+   "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
+   "state": "satisfied",
+   "evidence": [
     {
-      "id": "fc1",
-      "ordinal": 1,
-      "title": "The operator can see, plan, and act across the full Product scope from the launcher through Product \u2192 Domain context."
+     "kind": "go_test",
+     "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesAttentionMarkers"
     },
     {
-      "id": "fc2",
-      "ordinal": 2,
-      "title": "Agents can read, write, and execute within that Product and Domain context through tools."
-    },
-    {
-      "id": "fc3",
-      "ordinal": 3,
-      "title": "Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence."
-    },
-    {
-      "id": "fc4",
-      "ordinal": 4,
-      "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
-    },
-    {
-      "id": "fc5",
-      "ordinal": 5,
-      "title": "Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution)."
-    },
-    {
-      "id": "fc6",
-      "ordinal": 6,
-      "title": "The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage."
-    },
-    {
-      "id": "fc7",
-      "ordinal": 7,
-      "title": "release, install, privacy, and Linux amd64 evidence meet CD-0007's floor.",
-      "source": {
-        "path": "docs/rollout-plan.md",
-        "section": "Release-evidence bar"
-      }
+     "kind": "go_test",
+     "value": "internal/launcher.TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive"
     }
-  ],
-  "items": [
+   ]
+  },
+  {
+   "id": "fc1-session-handoff",
+   "condition": "fc1",
+   "title": "Launcher hands work identity to a session",
+   "requirement": "The operator can act on a selected Work item by launching an agent session seeded with its identity, without the launcher performing a durable write.",
+   "state": "satisfied",
+   "evidence": [
     {
-      "id": "fc1-portfolio-visibility",
-      "condition": "fc1",
-      "title": "Launcher renders portfolio, Product, and Work views",
-      "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestProductAndWorkProjectionCarriesTypedScreenSections"
-        }
-      ]
+     "kind": "go_test",
+     "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"
     },
     {
-      "id": "fc1-session-handoff",
-      "condition": "fc1",
-      "title": "Launcher hands work identity to a session",
-      "requirement": "The operator can act on a selected Work item by launching an agent session seeded with its identity, without the launcher performing a durable write.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
-        }
-      ]
-    },
-    {
-      "id": "fc1-operator-work-capture",
-      "condition": "fc1",
-      "title": "Operator can create work from an operator surface",
-      "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the authorized tool surface.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
-        },
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
-        }
-      ]
-    },
-    {
-      "id": "fc1-full-product-scope",
-      "condition": "fc1",
-      "title": "Operator visibility spans the full Product scope",
-      "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the launcher, which the S1 portfolio delivers. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestModelReadsOnlyOnEntrySubmitAndRefresh"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher"
-        }
-      ]
-    },
-    {
-      "id": "fc1-domain-navigation",
-      "condition": "fc1",
-      "title": "Product detail opens on active work with Domain context reachable",
-      "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/launcher.TestSelectingProductOpensOnRankedWork"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
-        }
-      ]
-    },
-    {
-      "id": "fc2-read-tools",
-      "condition": "fc2",
-      "title": "Bounded read tools cover orientation, work, provenance, and knowledge",
-      "requirement": "The four accepted TS3 read tools are exposed in the generated surface and dispatch to store projections.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestDispatchProductResolveReturnsGeneratedPayload"
-        },
-        {
-          "kind": "validator",
-          "value": "scripts/check-agent-contracts.py"
-        }
-      ]
-    },
-    {
-      "id": "fc2-mutation-tools",
-      "condition": "fc2",
-      "title": "Intent mutation tools define, transition, relate, and compact work",
-      "requirement": "The four accepted TS4 mutation tools are exposed and dispatch through the authorized mutation path.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
-        },
-        {
-          "kind": "validator",
-          "value": "scripts/check-agent-contracts.py"
-        }
-      ]
-    },
-    {
-      "id": "fc2-call-authority",
-      "condition": "fc2",
-      "title": "Grants, capabilities, and operation-bound approvals are core-enforced",
-      "requirement": "Every invocation resolves the registered client policy and git-derived scope to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestApprovalConsumptionIsTransactionBoundAndSingleUse"
-        }
-      ]
-    },
-    {
-      "id": "fc2-adapter-transport",
-      "condition": "fc2",
-      "title": "One adapter module maps the tool surface to the short-lived CLI",
-      "requirement": "The accepted TS6 adapter exposes the tool surface to the host and validates envelopes and identity only, leaving domain semantics in the core.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-agent-contracts.py"
-        }
-      ]
-    },
-    {
-      "id": "fc2-context-freshness",
-      "condition": "fc2",
-      "title": "Scope-version freshness behaves as TS5 section 3 specifies",
-      "requirement": "An outdated but semantically unchanged scope permits a read with an explicit refreshed version, while a mutation on outdated scope fails before any effect. Ownership change or new ambiguity fails all Product-scoped calls.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
-        }
-      ]
-    },
-    {
-      "id": "fc2-ts1-corpus-executed",
-      "condition": "fc2",
-      "title": "TS1 agent-jobs corpus executes against the real dispatch path",
-      "requirement": "The accepted TS1 agent-jobs corpus runs in CI against the real dispatch path, every scenario is structurally validated at the harness level, and no scenario can be silently skipped: the test fails when a scenario is in neither the bindings nor the deferral registry, and the deferral registry is structurally pinned to the TS1 scenario set.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentJobsCorpus"
-        }
-      ]
-    },
-    {
-      "id": "fc2-ts1-corpus-complete",
-      "condition": "fc2",
-      "title": "All 23 TS1 scenarios are bound and passing",
-      "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentJobsCorpus"
-        }
-      ]
-    },
-    {
-      "id": "fc2-domain-authority",
-      "condition": "fc2",
-      "title": "Agents resolve and address canonical Domain identity",
-      "requirement": "Agent reads and mutations resolve the Product Git home's canonical Domain registry, law homes, and typed local attachments without accepting legacy component identity as new authority.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild"
-        },
-        {
-          "kind": "validator",
-          "value": "scripts/check-knowledge-index.py"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
-        }
-      ]
-    },
-    {
-      "id": "fc2-domain-read-surface",
-      "condition": "fc2",
-      "title": "Agents can read complete bounded Domain context",
-      "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
-        }
-      ]
-    },
-    {
-      "id": "fc3-workflow-types",
-      "condition": "fc3",
-      "title": "Purpose-built workflow types exist for every supported work kind",
-      "requirement": "A code-defined, versioned, digest-pinned registry supplies a workflow definition for each supported work kind plus one generic one-off type, and unknown references fail closed.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestBuiltinWorkflowProductTruthClassification"
-        }
-      ]
-    },
-    {
-      "id": "fc3-completion-evidence",
-      "condition": "fc3",
-      "title": "Completion is gated on bound evidence and an operator premise confirmation",
-      "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "scenario",
-          "value": "WF19-completion-one-transaction"
-        },
-        {
-          "kind": "scenario",
-          "value": "WF47-evidence-commit-binding"
-        }
-      ]
-    },
-    {
-      "id": "fc3-lane-pipeline",
-      "condition": "fc3",
-      "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
-      "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "scenario",
-          "value": "WF48-lane-pipeline-typed-evidence"
-        }
-      ]
-    },
-    {
-      "id": "fc3-reviewer-model-distinctness",
-      "condition": "fc3",
-      "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
-      "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed"
-        }
-      ]
-    },
-    {
-      "id": "fc3-lane-behavioral-evals",
-      "condition": "fc3",
-      "title": "Lane prompt behaviour is measured by an evaluation harness",
-      "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness exercises every registered lane; under CD-0058 the harness no longer pins a preferred model and no in-repo validator enforces drift, so the harness is advisory infrastructure rather than a Concord machine check.",
-      "state": "out_of_scope",
-      "reason": "CD-0058 retired the routing-policy preferred model and the in-repo drift validator alongside it. The promptfoo harness remains as external advisory infrastructure; its drift against the lane registry is no longer a Concord authority check."
-    },
-    {
-      "id": "fc3-worker-authority-boundary",
-      "condition": "fc3",
-      "title": "Worker runs demonstrably create no nested workflow authority",
-      "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. Worker attempts remain authority-free; negative tests prove self-transition, self-verdict, self-completion, stale-attempt acceptance, failed-attempt acceptance, and model-mismatch acceptance are refused without mutation.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkerAuthorityBoundaryHoldsInBothDirections"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkerCannotRecordItsOwnVerdict"
-        }
-      ]
-    },
-    {
-      "id": "fc3-product-truth-classification",
-      "condition": "fc3",
-      "title": "Every workflow type declares whether it changes Product truth",
-      "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowDefinitionValidationEnforcesProductTruthMatrix"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces"
-        }
-      ]
-    },
-    {
-      "id": "fc3-initiative-migration",
-      "condition": "fc3",
-      "title": "Initiative owns grouping without gaining architecture authority",
-      "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestInitiativeNarrativeRevisedFoldAndAudit"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestInitiativeEntryPositionIsBoundedAtFoldTime"
-        }
-      ]
-    },
-    {
-      "id": "fc3-external-systems-retain-authority",
-      "condition": "fc3",
-      "title": "External systems retain authority for their own execution and enforcement",
-      "requirement": "External systems retain authority for their own execution and enforcement. Concord owns workflow coordination (progression, branching, retries, evidence, recovery, composition) while native systems (git, CI, cloud, database, service-manager operations) retain their own execution and enforcement authority. Worker attempts cannot create workflow authority; preflight authorization occurs at every cross-authority or external-effect boundary; external-effect steps drive native systems through typed consequence classes and never reimplement them.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkerEventKindsAreNotWorkflowAuthority"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestAcceptWorkerResultRejectsWithoutMutation"
-        }
-      ]
-    },
-    {
-      "id": "fc3-lane-eval-baseline",
-      "condition": "fc3",
-      "title": "Lane sufficiency is measured by a recorded eval baseline",
-      "requirement": "A recorded baseline run of the advisory lane evals binds every registered lane's id, version, and digest to per-attempt readback model evidence, covers every packet including seeded-defect review scenarios, and is validated on every CI run (issue #212).",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-lane-eval-baseline.py"
-        }
-      ]
-    },
-    {
-      "id": "fc4-authority-explicit",
-      "condition": "fc4",
-      "title": "Required authority is explicit at every call",
-      "requirement": "Capability class, resolved scope, expected entity versions, and approval class are declared per operation and validated by the core rather than inferred from caller input.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
-        }
-      ]
-    },
-    {
-      "id": "fc4-impact-infrastructure",
-      "condition": "fc4",
-      "title": "Declared impact edges and bounded boundary checks exist",
-      "requirement": "Workflows declare typed impact edges with hard/soft class and severity; consequential actions consult impact notices through one bounded query before executing.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "scenario",
-          "value": "WF29-impact-notice-identity"
-        },
-        {
-          "kind": "scenario",
-          "value": "WF30-breaking-dependent-block"
-        }
-      ]
-    },
-    {
-      "id": "fc4-r3-conformance",
-      "condition": "fc4",
-      "title": "Impact propagation matches accepted CD-0006 R3",
-      "requirement": "Completion computes inbound dependents, records work-item-keyed notices with an explicit breaking verdict, and blocks only hard plus breaking while advisory combinations remain non-blocking.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass"
-        }
-      ]
-    },
-    {
-      "id": "fc4-workflow-staleness",
-      "condition": "fc4",
-      "title": "Declared staleness rules block or warn at completion",
-      "requirement": "Blocking staleness rules whose bound input has drifted prevent completion; warning rules surface without blocking.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "scenario",
-          "value": "WF40-staleness-block"
-        },
-        {
-          "kind": "scenario",
-          "value": "WF41-staleness-warning-recorded"
-        }
-      ]
-    },
-    {
-      "id": "fc4-domain-overlap",
-      "condition": "fc4",
-      "title": "Concurrent Domain overlap blocks until explicitly resolved",
-      "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestWorkflowDomainOverlapCrossProcessWorker"
-        }
-      ]
-    },
-    {
-      "id": "fc5-append-only-authority",
-      "condition": "fc5",
-      "title": "One append-only event log is the sole state authority",
-      "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "scenario",
-          "value": "WF35-rebuild-byte-equal"
-        },
-        {
-          "kind": "scenario",
-          "value": "WF36-point-in-time-reconstruction"
-        }
-      ]
-    },
-    {
-      "id": "fc5-concurrent-process-conformance",
-      "condition": "fc5",
-      "title": "Concurrent agent-facing writes are admitted within the accepted bound",
-      "requirement": "A production-like multi-process harness on the isolated acceptance population reports zero escaped busy failures, zero lost effects, zero unexpected duplicates, and zero invariant violations, with writer-admission wait, commit duration, and wall time measured separately and sustained P99 at or below the accepted target. Correctness precedes latency: a failed correctness population forces an inconclusive verdict and fails the run.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestTenProcessAcceptanceConformance"
-        }
-      ]
-    },
-    {
-      "id": "fc5-in-flight-schema-evolution",
-      "condition": "fc5",
-      "title": "Schema and workflow changes are safe for in-flight work",
-      "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestInFlightWorkflowSurvivesSchemaMigration"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestInFlightWorkflowSurvivesDefinitionVersionSupersession"
-        }
-      ]
-    },
-    {
-      "id": "fc5-domain-migration",
-      "condition": "fc5",
-      "title": "Domain and law-home projections preserve one authority and rebuild",
-      "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate and rebuild from the accepted Git/event authorities without introducing a second Domain or law authority.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
-        },
-        {
-          "kind": "go_test",
-          "value": "internal/store.TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet"
-        }
-      ]
-    },
-    {
-      "id": "fc6-predecessor-surface-enumeration",
-      "condition": "fc6",
-      "title": "Predecessor operational territory is enumerated",
-      "requirement": "An authorizing artifact names the operational capabilities the predecessor provides, described by territory rather than by command shape, so Concord coverage can be judged against it.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-predecessor-coverage.py"
-        }
-      ]
-    },
-    {
-      "id": "fc6-operational-coverage",
-      "condition": "fc6",
-      "title": "Concord covers that territory without loss",
-      "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status. Met 2026-08-15: 57 covered, 0 not covered, 8 excluded.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-predecessor-coverage.py"
-        }
-      ]
-    },
-    {
-      "id": "fc6-consumed-surface-stability",
-      "condition": "fc6",
-      "title": "Predecessor surfaces consumed as evidence are stable enough to rely on",
-      "requirement": "Any predecessor surface Concord consumes as evidence is identified, and its stability is assessed against the reliance placed on it.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-predecessor-coverage.py"
-        }
-      ]
-    },
-    {
-      "id": "fc7-release-evidence",
-      "condition": "fc7",
-      "title": "Release artifact publication is reproducible and attested",
-      "requirement": "Release artifacts are produced by an automated release pipeline that computes a semver tag from Conventional Commits, builds the Linux amd64 binary with the version ldflag, packages the adapter and skills, generates a SPDX SBOM, produces a SHA-256 checksum manifest, and attests provenance for every uploaded asset. The pipeline is exercised by unit tests pinned to the workflow YAML.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/test-release.py"
-        }
-      ]
-    },
-    {
-      "id": "fc7-install-evidence",
-      "condition": "fc7",
-      "title": "Idempotent installation is verified end-to-end",
-      "requirement": "The Concord-owned idempotent installer verifies the published SHA-256 checksum and archive before changing the operator's data, binary, adapter, or OpenCode configuration paths, and supports install, upgrade, and uninstall. The installer's behavior is exercised by unit tests covering checksum verification, archive extraction, and version selection.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/test-installer.py"
-        }
-      ]
-    },
-    {
-      "id": "fc7-privacy-evidence",
-      "condition": "fc7",
-      "title": "Public-content boundary is validated by a structural check",
-      "requirement": "The public-content boundary is enforced by a repository-scanning validator that rejects private Product/customer data, personal filesystem paths, machine names, private network details, credentials, and unreachable private citations. The validator runs in CI; CD-0007's privacy and provenance requirements are sourced from this item.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/check-public-content.py"
-        }
-      ]
-    },
-    {
-      "id": "fc7-linux-amd64-evidence",
-      "condition": "fc7",
-      "title": "Linux amd64 is the only supported v1 platform with concrete evidence",
-      "requirement": "Linux amd64 is the only supported v1 platform in CD-0007 D5, and the release pipeline produces a single Linux amd64 binary with `CGO_ENABLED=0`, archives it with a deterministic tar, and excludes any other platform. The artifact verification step runs the binary in CI to confirm its reported version matches the published tag.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/test-release.py"
-        }
-      ]
-    },
-    {
-      "id": "fc7-blackbox-acceptance",
-      "condition": "fc7",
-      "title": "A packaged black-box acceptance path exercises the shipped product end to end",
-      "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport \u2014 bootstrap, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility \u2014 importing no internal Go packages.",
-      "state": "satisfied",
-      "evidence": [
-        {
-          "kind": "validator",
-          "value": "scripts/test-blackbox-acceptance.py"
-        }
-      ]
+     "kind": "go_test",
+     "value": "internal/sessionboot.TestBuildMatchesCanonicalContinuityPayload"
     }
-  ]
+   ]
+  },
+  {
+   "id": "fc1-operator-work-capture",
+   "condition": "fc1",
+   "title": "Operator can create work from an operator surface",
+   "requirement": "Per CD-0021 the operator plans by reaching work in the launcher and opening a session that authors it. An operator-side authoring surface is not required at the floor; work creation keeps one write authority through the authorized tool surface.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
+    },
+    {
+     "kind": "go_test",
+     "value": "cmd/concord.TestProductOnlySessionRemainsIdentityOnly"
+    }
+   ]
+  },
+  {
+   "id": "fc1-full-product-scope",
+   "condition": "fc1",
+   "title": "Operator visibility spans the full Product scope",
+   "requirement": "Per CD-0021 'across the full Product scope' means every Product is reachable from the launcher, which the S1 portfolio delivers. Cross-Product result sets stay excluded by C18 section 12 anti-requirement 11 and are not part of the floor.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/launcher.TestModelReadsOnlyOnEntrySubmitAndRefresh"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher"
+    }
+   ]
+  },
+  {
+   "id": "fc1-domain-navigation",
+   "condition": "fc1",
+   "title": "Product detail opens on active work with Domain context reachable",
+   "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/launcher.TestSelectingProductOpensOnTheWorkListAndKeepsDomainDataTyped"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
+    }
+   ]
+  },
+  {
+   "id": "fc2-read-tools",
+   "condition": "fc2",
+   "title": "Bounded read tools cover orientation, work, provenance, and knowledge",
+   "requirement": "The four accepted TS3 read tools are exposed in the generated surface and dispatch to store projections.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestDispatchProductResolveReturnsGeneratedPayload"
+    },
+    {
+     "kind": "validator",
+     "value": "scripts/check-agent-contracts.py"
+    }
+   ]
+  },
+  {
+   "id": "fc2-mutation-tools",
+   "condition": "fc2",
+   "title": "Intent mutation tools define, transition, relate, and compact work",
+   "requirement": "The four accepted TS4 mutation tools are exposed and dispatch through the authorized mutation path.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestDispatchCaptureCreatesWorkAndMembershipsAtomically"
+    },
+    {
+     "kind": "validator",
+     "value": "scripts/check-agent-contracts.py"
+    }
+   ]
+  },
+  {
+   "id": "fc2-call-authority",
+   "condition": "fc2",
+   "title": "Grants, capabilities, and operation-bound approvals are core-enforced",
+   "requirement": "Every invocation resolves the registered client policy and git-derived scope to a principal and capability set; consequential mutations require a durable approval bound to operation digest, scope, and expected versions. Caller prose and self-asserted booleans confer no authority.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestApprovalConsumptionIsTransactionBoundAndSingleUse"
+    }
+   ]
+  },
+  {
+   "id": "fc2-adapter-transport",
+   "condition": "fc2",
+   "title": "One adapter module maps the tool surface to the short-lived CLI",
+   "requirement": "The accepted TS6 adapter exposes the tool surface to the host and validates envelopes and identity only, leaving domain semantics in the core.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-agent-contracts.py"
+    }
+   ]
+  },
+  {
+   "id": "fc2-context-freshness",
+   "condition": "fc2",
+   "title": "Scope-version freshness behaves as TS5 section 3 specifies",
+   "requirement": "An outdated but semantically unchanged scope permits a read with an explicit refreshed version, while a mutation on outdated scope fails before any effect. Ownership change or new ambiguity fails all Product-scoped calls.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
+    }
+   ]
+  },
+  {
+   "id": "fc2-ts1-corpus-executed",
+   "condition": "fc2",
+   "title": "TS1 agent-jobs corpus executes against the real dispatch path",
+   "requirement": "The accepted TS1 agent-jobs corpus runs in CI against the real dispatch path, every scenario is structurally validated at the harness level, and no scenario can be silently skipped: the test fails when a scenario is in neither the bindings nor the deferral registry, and the deferral registry is structurally pinned to the TS1 scenario set.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentJobsCorpus"
+    }
+   ]
+  },
+  {
+   "id": "fc2-ts1-corpus-complete",
+   "condition": "fc2",
+   "title": "All 23 TS1 scenarios are bound and passing",
+   "requirement": "All 23 TS1 scenarios are bound (not deferred) and pass against the real dispatch path.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentJobsCorpus"
+    }
+   ]
+  },
+  {
+   "id": "fc2-domain-authority",
+   "condition": "fc2",
+   "title": "Agents resolve and address canonical Domain identity",
+   "requirement": "Agent reads and mutations resolve the Product Git home's canonical Domain registry, law homes, and typed local attachments without accepting legacy component identity as new authority.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestReplaceDomainAttachmentsFoldsSetsAndSurvivesLogRebuild"
+    },
+    {
+     "kind": "validator",
+     "value": "scripts/check-knowledge-index.py"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestProductKnowledgeHomeDesignationIsEventSourcedAndRebuildStable"
+    }
+   ]
+  },
+  {
+   "id": "fc2-domain-read-surface",
+   "condition": "fc2",
+   "title": "Agents can read complete bounded Domain context",
+   "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainListReturnsBoundedIdentityWithAuthorityAndCoverage"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/agent.TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage"
+    }
+   ]
+  },
+  {
+   "id": "fc3-workflow-types",
+   "condition": "fc3",
+   "title": "Purpose-built workflow types exist for every supported work kind",
+   "requirement": "A code-defined, versioned, digest-pinned registry supplies a workflow definition for each supported work kind plus one generic one-off type, and unknown references fail closed.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestBuiltinWorkflowProductTruthClassification"
+    }
+   ]
+  },
+  {
+   "id": "fc3-completion-evidence",
+   "condition": "fc3",
+   "title": "Completion is gated on bound evidence and an operator premise confirmation",
+   "requirement": "Completion requires durable evidence bound to the approved contract, terminal external conditions, satisfied spec mandates, a verdict authored by a distinct actor, and an operator-class premise confirmation, all in one transaction.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "scenario",
+     "value": "WF19-completion-one-transaction"
+    },
+    {
+     "kind": "scenario",
+     "value": "WF47-evidence-commit-binding"
+    }
+   ]
+  },
+  {
+   "id": "fc3-lane-pipeline",
+   "condition": "fc3",
+   "title": "Research, implementation, and review lanes complete an end-to-end synthetic workflow",
+   "requirement": "A synthetic scenario drives the registered lanes through one workflow producing typed worker evidence, and only a distinct owner accepts a completed attempt.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "scenario",
+     "value": "WF48-lane-pipeline-typed-evidence"
+    }
+   ]
+  },
+  {
+   "id": "fc3-reviewer-model-distinctness",
+   "condition": "fc3",
+   "title": "Reviewer and implementation cannot resolve to the same model where distinctness is declared",
+   "requirement": "CD-0017 D6 requires structural rejection when implementation and review share a readback model identity. The distinctness check compares the readback executing model against the verdict model wherever a definition declares evaluator independence, and fails closed when either model is absent.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed"
+    }
+   ]
+  },
+  {
+   "id": "fc3-lane-behavioral-evals",
+   "condition": "fc3",
+   "title": "Lane prompt behaviour is measured by an evaluation harness",
+   "requirement": "CD-0017 D7 requires a prompt-evaluation harness once lane prompts exist. A promptfoo harness exercises every registered lane; under CD-0058 the harness no longer pins a preferred model and no in-repo validator enforces drift, so the harness is advisory infrastructure rather than a Concord machine check.",
+   "state": "out_of_scope",
+   "reason": "CD-0058 retired the routing-policy preferred model and the in-repo drift validator alongside it. The promptfoo harness remains as external advisory infrastructure; its drift against the lane registry is no longer a Concord authority check."
+  },
+  {
+   "id": "fc3-worker-authority-boundary",
+   "condition": "fc3",
+   "title": "Worker runs demonstrably create no nested workflow authority",
+   "requirement": "CD-0017 D4 forbids workers recording step transitions, verdicts, or completion. Worker attempts remain authority-free; negative tests prove self-transition, self-verdict, self-completion, stale-attempt acceptance, failed-attempt acceptance, and model-mismatch acceptance are refused without mutation.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkerAuthorityBoundaryHoldsInBothDirections"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkerCannotRecordItsOwnVerdict"
+    }
+   ]
+  },
+  {
+   "id": "fc3-product-truth-classification",
+   "condition": "fc3",
+   "title": "Every workflow type declares whether it changes Product truth",
+   "requirement": "The workflow registry structurally classifies every definition with `changes_product_truth`; Product-changing contracts require a complete architecture binding, while non-Product-changing and generic work cannot write Product law or architecture.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkflowDefinitionValidationEnforcesProductTruthMatrix"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces"
+    }
+   ]
+  },
+  {
+   "id": "fc3-initiative-migration",
+   "condition": "fc3",
+   "title": "Initiative owns grouping without gaining architecture authority",
+   "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestInitiativeNarrativeRevisedFoldAndAudit"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestInitiativeEntryPositionIsBoundedAtFoldTime"
+    }
+   ]
+  },
+  {
+   "id": "fc3-external-systems-retain-authority",
+   "condition": "fc3",
+   "title": "External systems retain authority for their own execution and enforcement",
+   "requirement": "External systems retain authority for their own execution and enforcement. Concord owns workflow coordination (progression, branching, retries, evidence, recovery, composition) while native systems (git, CI, cloud, database, service-manager operations) retain their own execution and enforcement authority. Worker attempts cannot create workflow authority; preflight authorization occurs at every cross-authority or external-effect boundary; external-effect steps drive native systems through typed consequence classes and never reimplement them.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkerEventKindsAreNotWorkflowAuthority"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestAcceptWorkerResultRejectsWithoutMutation"
+    }
+   ]
+  },
+  {
+   "id": "fc3-lane-eval-baseline",
+   "condition": "fc3",
+   "title": "Lane sufficiency is measured by a recorded eval baseline",
+   "requirement": "A recorded baseline run of the advisory lane evals binds every registered lane's id, version, and digest to per-attempt readback model evidence, covers every packet including seeded-defect review scenarios, and is validated on every CI run (issue #212).",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-lane-eval-baseline.py"
+    }
+   ]
+  },
+  {
+   "id": "fc4-authority-explicit",
+   "condition": "fc4",
+   "title": "Required authority is explicit at every call",
+   "requirement": "Capability class, resolved scope, expected entity versions, and approval class are declared per operation and validated by the core rather than inferred from caller input.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "cmd/concord.TestCLIEndToEndRegistersClientAndInvokesRead"
+    }
+   ]
+  },
+  {
+   "id": "fc4-impact-infrastructure",
+   "condition": "fc4",
+   "title": "Declared impact edges and bounded boundary checks exist",
+   "requirement": "Workflows declare typed impact edges with hard/soft class and severity; consequential actions consult impact notices through one bounded query before executing.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "scenario",
+     "value": "WF29-impact-notice-identity"
+    },
+    {
+     "kind": "scenario",
+     "value": "WF30-breaking-dependent-block"
+    }
+   ]
+  },
+  {
+   "id": "fc4-r3-conformance",
+   "condition": "fc4",
+   "title": "Impact propagation matches accepted CD-0006 R3",
+   "requirement": "Completion computes inbound dependents, records work-item-keyed notices with an explicit breaking verdict, and blocks only hard plus breaking while advisory combinations remain non-blocking.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkflowCompletionPropagatesReverseDependentsAndBoundaryUsesEdgeClass"
+    }
+   ]
+  },
+  {
+   "id": "fc4-workflow-staleness",
+   "condition": "fc4",
+   "title": "Declared staleness rules block or warn at completion",
+   "requirement": "Blocking staleness rules whose bound input has drifted prevent completion; warning rules surface without blocking.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "scenario",
+     "value": "WF40-staleness-block"
+    },
+    {
+     "kind": "scenario",
+     "value": "WF41-staleness-warning-recorded"
+    }
+   ]
+  },
+  {
+   "id": "fc4-domain-overlap",
+   "condition": "fc4",
+   "title": "Concurrent Domain overlap blocks until explicitly resolved",
+   "requirement": "Two nonterminal Product-changing contracts with intersecting affected Domains cannot both hold execution authority without a current operator-approved resolution pinned to both contract versions, and every consequential mutation revalidates it transactionally.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestWorkflowDomainOverlapCrossProcessWorker"
+    }
+   ]
+  },
+  {
+   "id": "fc5-append-only-authority",
+   "condition": "fc5",
+   "title": "One append-only event log is the sole state authority",
+   "requirement": "Domain events are the authority and typed projections are derived in the same transaction. Corrections append; history is not hand-repaired.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "scenario",
+     "value": "WF35-rebuild-byte-equal"
+    },
+    {
+     "kind": "scenario",
+     "value": "WF36-point-in-time-reconstruction"
+    }
+   ]
+  },
+  {
+   "id": "fc5-concurrent-process-conformance",
+   "condition": "fc5",
+   "title": "Concurrent agent-facing writes are admitted within the accepted bound",
+   "requirement": "A production-like multi-process harness on the isolated acceptance population reports zero escaped busy failures, zero lost effects, zero unexpected duplicates, and zero invariant violations, with writer-admission wait, commit duration, and wall time measured separately and sustained P99 at or below the accepted target. Correctness precedes latency: a failed correctness population forces an inconclusive verdict and fails the run.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestTenProcessAcceptanceConformance"
+    }
+   ]
+  },
+  {
+   "id": "fc5-in-flight-schema-evolution",
+   "condition": "fc5",
+   "title": "Schema and workflow changes are safe for in-flight work",
+   "requirement": "A schema or workflow-definition change lands without corrupting or stranding work already in progress, and historical events remain readable across the change.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestInFlightWorkflowSurvivesSchemaMigration"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestInFlightWorkflowSurvivesDefinitionVersionSupersession"
+    }
+   ]
+  },
+  {
+   "id": "fc5-domain-migration",
+   "condition": "fc5",
+   "title": "Domain and law-home projections preserve one authority and rebuild",
+   "requirement": "Canonical Domain registries, law homes, typed attachments, and their knowledge-index projections validate and rebuild from the accepted Git/event authorities without introducing a second Domain or law authority.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof"
+    },
+    {
+     "kind": "go_test",
+     "value": "internal/store.TestReplaceDomainProjectAttachmentsRejectsCrossProductProjectAndStaleSet"
+    }
+   ]
+  },
+  {
+   "id": "fc6-predecessor-surface-enumeration",
+   "condition": "fc6",
+   "title": "Predecessor operational territory is enumerated",
+   "requirement": "An authorizing artifact names the operational capabilities the predecessor provides, described by territory rather than by command shape, so Concord coverage can be judged against it.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-predecessor-coverage.py"
+    }
+   ]
+  },
+  {
+   "id": "fc6-operational-coverage",
+   "condition": "fc6",
+   "title": "Concord covers that territory without loss",
+   "requirement": "Every enumerated predecessor capability in docs/predecessor-operational-coverage.md resolves to covered with an evidence path or deliberately excluded with an accepted reason; no enumerated outcome remains not covered. This is issue #108's acceptance bar, restated here because the original wording (\"covered, not covered, or excluded\") was trivially satisfied by any table state and contradicted this item's outstanding status. Met 2026-08-15: 57 covered, 0 not covered, 8 excluded.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-predecessor-coverage.py"
+    }
+   ]
+  },
+  {
+   "id": "fc6-consumed-surface-stability",
+   "condition": "fc6",
+   "title": "Predecessor surfaces consumed as evidence are stable enough to rely on",
+   "requirement": "Any predecessor surface Concord consumes as evidence is identified, and its stability is assessed against the reliance placed on it.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-predecessor-coverage.py"
+    }
+   ]
+  },
+  {
+   "id": "fc7-release-evidence",
+   "condition": "fc7",
+   "title": "Release artifact publication is reproducible and attested",
+   "requirement": "Release artifacts are produced by an automated release pipeline that computes a semver tag from Conventional Commits, builds the Linux amd64 binary with the version ldflag, packages the adapter and skills, generates a SPDX SBOM, produces a SHA-256 checksum manifest, and attests provenance for every uploaded asset. The pipeline is exercised by unit tests pinned to the workflow YAML.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/test-release.py"
+    }
+   ]
+  },
+  {
+   "id": "fc7-install-evidence",
+   "condition": "fc7",
+   "title": "Idempotent installation is verified end-to-end",
+   "requirement": "The Concord-owned idempotent installer verifies the published SHA-256 checksum and archive before changing the operator's data, binary, adapter, or OpenCode configuration paths, and supports install, upgrade, and uninstall. The installer's behavior is exercised by unit tests covering checksum verification, archive extraction, and version selection.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/test-installer.py"
+    }
+   ]
+  },
+  {
+   "id": "fc7-privacy-evidence",
+   "condition": "fc7",
+   "title": "Public-content boundary is validated by a structural check",
+   "requirement": "The public-content boundary is enforced by a repository-scanning validator that rejects private Product/customer data, personal filesystem paths, machine names, private network details, credentials, and unreachable private citations. The validator runs in CI; CD-0007's privacy and provenance requirements are sourced from this item.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/check-public-content.py"
+    }
+   ]
+  },
+  {
+   "id": "fc7-linux-amd64-evidence",
+   "condition": "fc7",
+   "title": "Linux amd64 is the only supported v1 platform with concrete evidence",
+   "requirement": "Linux amd64 is the only supported v1 platform in CD-0007 D5, and the release pipeline produces a single Linux amd64 binary with `CGO_ENABLED=0`, archives it with a deterministic tar, and excludes any other platform. The artifact verification step runs the binary in CI to confirm its reported version matches the published tag.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/test-release.py"
+    }
+   ]
+  },
+  {
+   "id": "fc7-blackbox-acceptance",
+   "condition": "fc7",
+   "title": "A packaged black-box acceptance path exercises the shipped product end to end",
+   "requirement": "The packaged Linux amd64 binary and adapter are installed into isolated data/config homes and driven through the real CLI transport — bootstrap, read, authorized mutation, workflow evidence, restart/reopen, backup, restore, and upgrade compatibility — importing no internal Go packages.",
+   "state": "satisfied",
+   "evidence": [
+    {
+     "kind": "validator",
+     "value": "scripts/test-blackbox-acceptance.py"
+    }
+   ]
+  }
+ ]
 }

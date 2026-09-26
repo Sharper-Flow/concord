@@ -238,10 +238,6 @@ func validateKnowledgeCoverageCore(ctx context.Context, q queryer, home Knowledg
 	return nil
 }
 
-func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
-	return scanKnowledgeItemForScope(rows)
-}
-
 func scanKnowledgeItemForScope(rows *sql.Rows) (KnowledgeItem, error) {
 	var item KnowledgeItem
 	var lessonTags, productIDs, projectIDs, domainIDs, tagIDs string
@@ -558,10 +554,6 @@ func decodeKnowledgeCursor(raw string, req Q9Request, kinds, tags []string) (kno
 		return knowledgeCursor{}, newFailure(KindInvalidCursor, "PM1.Q9", "cursor does not match the requested knowledge query", false, "use a cursor returned for the same query and filters")
 	}
 	return cursor, nil
-}
-
-func buildKnowledgeQuery(req Q9Request, kinds, tags []string, limit int) (string, []any) {
-	return buildKnowledgeQueryForScope(req, kinds, tags, limit)
 }
 
 func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int) (string, []any) {

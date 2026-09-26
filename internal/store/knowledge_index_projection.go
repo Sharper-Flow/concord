@@ -876,10 +876,6 @@ func readKnowledgeWatermark(ctx context.Context, q queryer, home KnowledgeHome, 
 	return knowledgeWatermark{Scanned: scanned, Fresh: complete && scannedDigest != "" && scannedDigest == currentDigest && projectionVersion == knowledgeProjectionVersion}, nil
 }
 
-func validateKnowledgeHomeForQuery(ctx context.Context, s *Store, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
-	return validateKnowledgeHomeForQueryCore(ctx, s.db, home, allowDegraded, op)
-}
-
 // EnsureWorkProductKnowledgeFresh freshens the index behind the Product a
 // work item belongs to, ahead of an operation that verifies a derived
 // projection of that Product in its own transaction. The architecture
@@ -947,43 +943,6 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 		return nil
 	}
 	return s.RebuildKnowledgeIndex(ctx, home)
-}
-
-func validateKnowledgeCoverage(ctx context.Context, s *Store, home KnowledgeHome, commit string, kinds []string) error {
-	if len(kinds) == 0 {
-		return nil
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT kind,coverage,scanned_commit_oid FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot read knowledge kind coverage", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	available := map[string]bool{}
-	for rows.Next() {
-		var kind, coverage, scanned string
-		if err := rows.Scan(&kind, &coverage, &scanned); err != nil {
-			return wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode knowledge kind coverage", true, "retry once the database is readable", err)
-		}
-		if coverage == "indexed" && scanned == commit {
-			available[kind] = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return wrapFailure(KindUnavailable, "PM1.Q9", "cannot finish reading knowledge kind coverage", true, "retry once the database is readable", err)
-	}
-	missing := make([]string, 0)
-	for _, kind := range kinds {
-		if !available[kind] {
-			missing = append(missing, kind)
-		}
-	}
-	if len(missing) > 0 {
-		failure := newFailure(KindKnowledgeUnavailable, "PM1.Q9", "explicitly requested knowledge kinds are unavailable: "+strings.Join(missing, ","), false, "publish and rebuild the canonical kind, or remove it from the filter")
-		failure.UnavailableKinds = missing
-		failure.CandidateIDs = append([]string(nil), missing...)
-		return failure
-	}
-	return nil
 }
 
 // knowledgeCoverageOmissions takes a queryer so the launcher search can pass

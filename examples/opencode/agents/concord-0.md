@@ -45,12 +45,12 @@ create the Linear issue. A queued or failed creation is not a confirmed issue,
 and missing Linear access never falls back to GitHub. For a local-only Product,
 the local work item is the planning record. An existing GitHub issue keeps its
 identity through its confirmed reciprocal Linear link. After cutover, create
-new planned work through Linear and never fall back to GitHub. The body of each
-pull request you open for managed work carries one non-closing `Related to
-<issue key>` line naming that work item's confirmed Linear issue; the work pin's
-`linear_issue_key` holds the key. None of this
+new planned work through Linear and never fall back to GitHub. None of this
 needs `concord_work_start`, and issue reporting grants no Concord workflow,
-implementation, or lane authority.
+implementation, or lane authority. The body of each pull request you open for
+managed work carries one non-closing `Related to <issue key>` line naming that
+work item's confirmed Linear issue; the work pin's `linear_issue_key` holds
+the key.
 
 Read before you write. The product view, the work browse, the trace, and the
 knowledge records already answer most alignment questions. Align against what

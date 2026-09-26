@@ -1,0 +1,25 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-09-26T00:00:00Z",
+  "id": "lesson:byte-verify-copied-digests-before-submitting",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-26-verify-opaque-digests-before-submitting-a-concor.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6f203df19b8b267cdf084ee844993914fd2f03d4cf5a4ea19516a4af01e0be42",
+  "status": "published",
+  "summary": "A single wrong hex character caused repeated correct refusals. Compare the exact proposed digest with the authoritative read before submitting it; never route around the typed authority boundary.",
+  "tags": [
+    "digests",
+    "agent-input",
+    "verification"
+  ],
+  "title": "Verify opaque digests before submitting a Concord mutation"
+}

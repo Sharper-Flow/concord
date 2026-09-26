@@ -4,7 +4,7 @@ import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout } from "./concord"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
-import { HostControlPlane, SESSION_LIST_ROUTE } from "./move-session"
+import { HostControlPlane } from "./move-session"
 
 const context = () => ({
   sessionID: "session-1",
@@ -95,26 +95,9 @@ describe("session_vacate moves only to the core-derived checkout", () => {
   })
 })
 
-test("liveSessionDirectories returns the complete host session population", async () => {
-  const sessions = [
-    { id: "session-in-worktree", directory: "/worktree" },
-    { id: "session-elsewhere", directory: "/elsewhere" },
-  ]
-  let requestedRoute = ""
+test("liveSessionDirectories is removed from the host control plane (CD-0178 D3)", async () => {
   const controlPlane = new HostControlPlane()
-  controlPlane.bind({
-    get: async ({ url }) => {
-      requestedRoute = url
-      return { data: sessions, response: new Response(null, { status: 200 }) }
-    },
-    post: async () => ({ response: new Response(null, { status: 404 }) }),
-  })
-
-  await expect(controlPlane.liveSessionDirectories()).resolves.toEqual([
-    { session_ref: "session-in-worktree", directory: "/worktree" },
-    { session_ref: "session-elsewhere", directory: "/elsewhere" },
-  ])
-  expect(requestedRoute).toBe(SESSION_LIST_ROUTE)
+  expect((controlPlane as unknown as { liveSessionDirectories?: unknown }).liveSessionDirectories).toBeUndefined()
 })
 
 // The factory's host-lease claim fails against the unstamped repository

@@ -5138,6 +5138,67 @@ WHERE json_type(metadata, '$.linear') = 'object'
 DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
+	{
+		// CD-0178 D3: occupancy is one row per session in a fold-only table,
+		// not a column on the worktree row. The legacy column admitted one
+		// session only and held no process identity, so a second landing
+		// refused with worktree_ownership_conflict and reclaim could not
+		// name the live session holding a removed worktree. The new table
+		// carries (worktree_id, session_ref) and the host process identity
+		// (nullable host_pid and host_pid_start) recorded by the core from
+		// /proc; has_process_identity marks legacy rows migrated from the
+		// column so liveness never releases what was written before this
+		// rule, and a release still follows session_vacate, a verified
+		// landing elsewhere on the same work item, or operator-approved
+		// removal. The fold and triggers below pin row identity, the
+		// pending releases path, and the migration of existing values.
+		Version: 104,
+		Name:    "worktree_occupancy_table",
+		SQL: `
+CREATE TABLE worktree_occupancy (
+    worktree_id           TEXT    NOT NULL,
+    session_ref           TEXT    NOT NULL,
+    recorded_at           TEXT    NOT NULL,
+    host_pid              INTEGER,
+    host_pid_start        INTEGER,
+    has_process_identity  INTEGER NOT NULL CHECK(has_process_identity IN (0,1)),
+    CHECK(length(worktree_id) BETWEEN 2 AND 128),
+    CHECK(length(session_ref) BETWEEN 2 AND 128),
+    CHECK(host_pid IS NULL OR host_pid > 0),
+    CHECK(host_pid_start IS NULL OR host_pid_start >= 0),
+    CHECK((has_process_identity = 1) OR (host_pid IS NULL AND host_pid_start IS NULL)),
+    PRIMARY KEY (worktree_id, session_ref)
+);
+
+-- Copy every legacy occupant into the new table. has_process_identity stays 0
+-- because no host pid was recorded: liveness never releases a legacy row, and
+-- release routes are session_vacate or operator-approved removal only.
+INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+SELECT
+    e.set_id || ':' || e.project_id || ':' || e.claim_op_id,
+    e.occupant_session_ref,
+    COALESCE(e.verified_at, e.reclaimed_at, '1970-01-01T00:00:00Z'),
+    NULL,
+    NULL,
+    0
+FROM worktree_entries e
+WHERE e.occupant_session_ref <> '';
+
+CREATE INDEX worktree_occupancy_session ON worktree_occupancy (session_ref);
+CREATE INDEX worktree_occupancy_process ON worktree_occupancy (has_process_identity, host_pid);
+
+-- The table is fold-only: every read and write goes through the event log
+-- and the fold handlers. Inserts and deletes fire only when fold_guard is
+-- active and the row identity matches an event the fold just appended.
+CREATE TRIGGER worktree_occupancy_guard_insert BEFORE INSERT ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_occupancy_guard_update BEFORE UPDATE ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_occupancy_guard_delete BEFORE DELETE ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+
+-- Drop the column this table replaces. The fold and read paths use the new
+-- table; the legacy column held a single session and cannot admit a second.
+ALTER TABLE worktree_entries DROP COLUMN occupant_session_ref;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

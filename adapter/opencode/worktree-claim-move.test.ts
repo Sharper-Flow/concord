@@ -468,7 +468,9 @@ describe("worktree_claim records the verified landing in the core", () => {
     expect(envelope.outcome).toBe("ok")
     expect(landingCalls).toHaveLength(1)
     expect(landingCalls[0].argv[1]).toBe("claim-landing")
-    expect(landingCalls[0].input).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: "/claimed" })
+    // The landing carries the adapter's process pid; the core reads the
+    // process start time from the kernel.
+    expect(landingCalls[0].input).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: "/claimed", host_pid: process.pid })
   })
 
   test("records no landing when the readback mismatches the claimed path", async () => {

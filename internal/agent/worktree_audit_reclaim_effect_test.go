@@ -33,13 +33,9 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 		t.Fatal("worktree_audit_reclaim operation is not registered")
 	}
 	// work-1 stays occupied, so its row refuses; work-2 reclaims. The
-	// recorded Concord occupant is the refusal authority; the observation
-	// below also places a session in work-1.
+	// recorded Concord occupant is the refusal authority.
 	raw, _ := json.Marshal(map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
-		"observed_session_directories": []map[string]any{
-			{"session_ref": "ses-1", "directory": filepath.Join(root, "work-1")},
-		},
 	})
 	r := runtime{Store: s, Authority: second, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Budget: budgetInput{MaxBytes: 1}, Reader: secondGrant}
 	base := NewBase("audit-effect-1", "concord_work_transition", "worktree_audit_reclaim")
@@ -84,9 +80,6 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 	work2Version := workVersion(t, s, "work-2")
 	settled := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-effect-1",
-		"observed_session_directories": []map[string]any{
-			{"session_ref": "ses-1", "directory": filepath.Join(root, "work-1")},
-		},
 	})
 	if settled.Outcome != OutcomeOK {
 		t.Fatalf("reconcile response=%+v err=%+v", settled, settled.Error)

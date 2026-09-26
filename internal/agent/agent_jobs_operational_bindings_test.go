@@ -142,7 +142,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-done", "project_id": "proj-web", "default_ref": "main",
-		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-1", "observed_session_directories": []map[string]any{},
+		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-1",
 	})
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}, env)
 	if resp.Outcome != OutcomeOK {

@@ -301,42 +301,6 @@ export class HostControlPlane {
     return { metadata, ...(typeof value.parentID === "string" ? { parentID: value.parentID } : {}) }
   }
 
-  // liveSessionDirectories reports every session the host holds and the
-  // directory each runs in. Worker abandonment uses this observation to
-  // confirm that the failed worker session no longer occupies its worktree.
-  // A failure throws rather than answering with an empty list.
-  async liveSessionDirectories(signal?: AbortSignal): Promise<ObservedSessionDirectory[]> {
-    const prefix = "cannot read the host session list"
-    const client = this.#require(`${prefix}: this host handed the plugin no client`)
-    let result: RouteResult
-    try {
-      result = await client.get({ url: SESSION_LIST_ROUTE, signal })
-    } catch (error) {
-      throw new MoveSessionRefused(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (!result.response.ok) {
-      throw new MoveSessionRefused(`${prefix}: the host answered ${result.response.status}: ${await refusalText(result)}`)
-    }
-    if (!Array.isArray(result.data)) {
-      throw new MoveSessionRefused("the session list was not an array")
-    }
-    // Keep one observation for every host record. The occupancy gate must see
-    // the same population that this route reported, including sessions outside
-    // the worktree being removed.
-    const observed = result.data.map((session): ObservedSessionDirectory => {
-      const id = (session as { id?: unknown } | null)?.id
-      const directory = (session as { directory?: unknown } | null)?.directory
-      // `directory` is required on every session record. A record missing it
-      // is a host contract the adapter does not recognize, and skipping it
-      // would silently narrow the population the gate decides on.
-      if (typeof id !== "string" || !id || typeof directory !== "string" || !directory) {
-        throw new MoveSessionRefused("the session list carried a record without an id and a directory")
-      }
-      return { session_ref: id, directory }
-    })
-    return observed
-  }
-
   #require(message: string): RouteClient {
     if (!this.#client) throw new MoveSessionUnavailable(`${message} (host version ${hostVersion()})`)
     return this.#client

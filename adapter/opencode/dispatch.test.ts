@@ -832,10 +832,9 @@ test("completion obtains readback from one in-process session body", async () =>
   // One session record, then one bounded message page with no cursor to
   // follow — the whole transcript fit inside the first page.
   expect(readerCalls).toEqual([["session.get", "session-1"], ["session.messages", "session-1", `limit=${READBACK_MESSAGE_PAGE}`, ""]])
-  // The live-session observation still rides the CLI runner seam, ahead of
-  // the worker-dispatch and worker-complete evidence records.
+  // Only the worker-dispatch and worker-complete evidence records ride the
+  // CLI runner seam.
   expect(cliCalls.map((argv) => argv.slice(0, 2))).toEqual([
-    ["opencode", "session"],
     ["concord-test", "worker-dispatch"],
     ["concord-test", "worker-complete"],
   ])
@@ -872,7 +871,7 @@ test("a worker transcript above the old export limit records completion", async 
   })
   expect(result.outcome).toBe("ok")
   expect(result.readback_model).toBe(READBACK_MODEL)
-  expect(recorded).toEqual(["session", "worker-dispatch", "worker-complete"])
+  expect(recorded).toEqual(["worker-dispatch", "worker-complete"])
 })
 
 test("a transcript that outlives the readback page bound refuses typed", async () => {
@@ -1417,22 +1416,20 @@ test("worker evidence uses the supplied worker directory for provenance", async 
   }
 })
 
-test("worker evidence remains successful when the session index is unreadable", async () => {
-  let evidenceCalls = 0
+test("worker evidence makes no live-session list call", async () => {
+  const verbs: string[] = []
   const result = await complete(workerBody(), {
     sessionReader: readbackSessionReader(),
-    // The CLI runner also carries the live-session observation; its session
-    // list fails here and completion must tolerate that.
+    // Only the two evidence records ride the CLI runner seam.
     evidenceRunner: {
       async run(argv) {
-        evidenceCalls++
-        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list failed" }
+        verbs.push(argv[1])
         return { exitCode: 0, stdout: "", stderr: "" }
       },
     },
   })
   expect(result.outcome).toBe("ok")
-  expect(evidenceCalls).toBe(3)
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
 })
 
 // CD-0032 / issue #103: provenance is deterministic for the same inputs and

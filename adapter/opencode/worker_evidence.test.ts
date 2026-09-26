@@ -40,7 +40,7 @@ const runOutput = () => [
   JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
 ].join("\n")
 
-test("worker-abandon observes sessions and sends a signed typed close request", async () => {
+test("worker-abandon observes no sessions and sends a signed typed close request", async () => {
   const calls: { argv: string[]; input: Record<string, unknown> }[] = []
   hostControlPlane().bind({
     get: async () => ({ response: new Response("", { status: 200 }), data: [{ id: "ses_other", directory: "/other/worktree" }] }),
@@ -59,7 +59,9 @@ test("worker-abandon observes sessions and sends a signed typed close request", 
     expect(result.error?.message).toContain("the host observed that the lane never reported")
     expect(calls).toHaveLength(1)
     expect(calls[0].argv).toEqual(["concord", "worker-abandon"])
-    expect(calls[0].input.observed_session_directories).toEqual([{ session_ref: "ses_other", directory: "/other/worktree" }])
+    // worker-fail carries no host session observation; the core reads process
+    // liveness from worktree_occupancy (CD-0178 D3).
+    expect(calls[0].input.observed_session_directories).toBeUndefined()
     expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
     expect(typeof (calls[0].input.assertion as Record<string, unknown>).signature).toBe("string")
   } finally {

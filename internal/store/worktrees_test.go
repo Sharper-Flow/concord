@@ -291,8 +291,11 @@ func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != claimBranch() || result.Entry.ClaimOpID != "wt-op-1" || result.Entry.OccupantSessionRef != "ses-claim" {
+	if result.Entry.State != worktreeEntryActive || result.Entry.Branch != claimBranch() || result.Entry.ClaimOpID != "wt-op-1" {
 		t.Fatalf("entry=%+v", result.Entry)
+	}
+	if worktreeOccupancyByEntry(t, s, result.Entry.SetID, result.Entry.ProjectID, result.Entry.ClaimOpID) != "ses-claim" {
+		t.Fatalf("occupancy row missing for ses-claim, entry=%+v", result.Entry)
 	}
 	if result.Entry.SetID != WorktreeSetID("work-w") {
 		t.Fatalf("set id=%q", result.Entry.SetID)
@@ -577,7 +580,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
 
 	git.dirty[claimed.Entry.Path] = true
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "dirty") {
@@ -728,7 +731,6 @@ func TestReclaimWorktreeIgnoresUnscopedOccupancyObservation(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-unscoped", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses-live", Directory: claimed.Entry.Path}},
 	})
 	if err != nil {
 		t.Fatalf("an unscoped observation must not block an unoccupied worktree: %v", err)
@@ -742,57 +744,10 @@ func TestReclaimWorktreeIgnoresUnscopedOccupancyObservation(t *testing.T) {
 	}
 }
 
-// A recorded occupant the host attests is gone releases its occupancy: the
-// observation names no live session with the occupant's ref and no live
-// directory inside the worktree, so the removal cannot strand anyone. The
-// absent observation still refuses, because it attests nothing.
-func TestReclaimWorktreeReleasesDeadOccupantByObservation(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	req.SessionRef = "ses_dead"
-	claimed, err := s.ClaimWorktree(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
-
-	_, err = s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
-		PrincipalRef: "principal-1", RequestID: "req-dead-absent", ExpectedVersion: 4,
-		Now: time.Unix(20, 0).UTC(), Runner: git,
-	})
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("an absent observation attests nothing, so the recorded occupant must still refuse: err=%v", err)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; !still {
-		t.Fatal("a refused removal must leave the native worktree in place")
-	}
-
-	entry, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
-		PrincipalRef: "principal-1", RequestID: "req-dead-released", ExpectedVersion: 4,
-		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_other", Directory: filepath.Join(t.TempDir(), "unrelated")}},
-	})
-	if err != nil {
-		t.Fatalf("a host observation naming no live session must release the dead occupant: %v", err)
-	}
-	if entry.State != worktreeEntryReclaimed {
-		t.Fatalf("entry=%+v, want reclaimed", entry)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; still {
-		t.Fatal("the released worktree must be removed")
-	}
-	if _, still := git.branches[claimBranch()]; still {
-		t.Fatal("the reclaimed branch was not deleted")
-	}
-}
-
-// The release path keeps every strand-guard for live state: an observation
-// naming any session inside the worktree refuses, and an occupant observed
-// with no readable directory refuses, because neither attests an empty tree.
+// The release path keeps every strand-guard for live state (CD-0178 D3): a
+// legacy occupancy row whose host process identity is absent can only be
+// released by session_vacate or operator-approved destructive removal. The
+// recorded row keeps the worktree claim live and the reclaim refuses.
 func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -804,16 +759,12 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	}
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 
-	for name, observed := range map[string][]SessionDirectory{
-		"occupant live in the worktree": {{SessionRef: "ses_live", Directory: claimed.Entry.Path}},
-		"occupant unreadable directory": {{SessionRef: "ses_live", Directory: ""}},
-		"other session inside":          {{SessionRef: "ses_other", Directory: filepath.Join(claimed.Entry.Path, "nested")}},
-	} {
+	cases := []string{"recorded legacy occupant"}
+	for _, name := range cases {
 		_, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 			WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 			PrincipalRef: "principal-1", RequestID: "req-live-" + name, ExpectedVersion: 4,
 			Now: time.Unix(20, 0).UTC(), Runner: git,
-			ObservedSessionDirectories: &observed,
 		})
 		failure, ok := err.(*Failure)
 		if !ok || failure.Kind != KindWorktreeOwnershipConflict {
@@ -825,68 +776,6 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	}
 	if _, still := git.worktrees[claimed.Entry.Path]; !still {
 		t.Fatal("no refused attempt may remove the worktree")
-	}
-}
-
-// TestReclaimWorktreeReleasesMovedOccupant pins the narrowed rule end to end:
-// a recorded occupant the host observes alive in a directory outside the
-// worktree has been retargeted by a work_start move and no longer holds the
-// claim, so the reclaim releases the occupancy and removes the tree.
-func TestReclaimWorktreeReleasesMovedOccupant(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	req.SessionRef = "ses_moved"
-	claimed, err := s.ClaimWorktree(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
-
-	entry, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
-		PrincipalRef: "principal-1", RequestID: "req-moved-release", ExpectedVersion: 4,
-		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_moved", Directory: filepath.Join(t.TempDir(), "moved-elsewhere")}},
-	})
-	if err != nil {
-		t.Fatalf("a host observation placing the occupant elsewhere must release the stale claim: %v", err)
-	}
-	if entry.State != worktreeEntryReclaimed {
-		t.Fatalf("entry=%+v, want reclaimed", entry)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; still {
-		t.Fatal("the released worktree must be removed")
-	}
-}
-
-// The destroy tier threads the same observation: a dead occupant releases
-// without an operator approval, while the approval route stays available.
-func TestDestroyWorktreeReleasesDeadOccupantByObservation(t *testing.T) {
-	t.Parallel()
-	s, git, _ := worktreeFixture(t)
-	req := baseClaim(git)
-	req.SessionRef = "ses_dead"
-	claimed, err := s.ClaimWorktree(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
-
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
-		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
-		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-dead",
-		Now: time.Unix(30, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_other", Directory: filepath.Join(t.TempDir(), "unrelated")}},
-	})
-	if err != nil {
-		t.Fatalf("a dead occupant must release on destroy without operator approval: %v", err)
-	}
-	if entry.State != worktreeEntryReclaimed {
-		t.Fatalf("entry=%+v, want reclaimed", entry)
-	}
-	if _, still := git.worktrees[claimed.Entry.Path]; still {
-		t.Fatal("the released worktree must be removed")
 	}
 }
 
@@ -942,8 +831,11 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry.State != worktreeEntryReclaimed || entry.OccupantSessionRef != "" {
-		t.Fatalf("entry=%+v, want reclaimed and unoccupied", entry)
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v, want reclaimed", entry)
+	}
+	if worktreeOccupancyByEntry(t, s, entry.SetID, entry.ProjectID, entry.ClaimOpID) != "" {
+		t.Fatalf("operator-approved destructive reclaim must release every occupancy row: entry=%+v", entry)
 	}
 	if _, still := git.worktrees[claimed.Entry.Path]; still {
 		t.Fatal("native worktree was not removed")
@@ -966,8 +858,6 @@ func TestReclaimAbsentWorktreeIgnoresOccupancy(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-absent", ExpectedVersion: 3,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "ses_live", Directory: claimPath(s)}},
-		ObservedProjectID:          "project-w",
 	})
 	if err != nil {
 		t.Fatalf("an absent worktree must reconcile, got %v", err)
@@ -999,7 +889,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	git.branches[claimBranch()] = strings.Repeat("b", 40)
 	git.content[claimBranch()] = squashedTree
 
-	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w"}
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-2", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
 	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
 	if err != nil {
 		t.Fatalf("a squash-merged branch must reclaim, got %v", err)
@@ -1070,7 +960,16 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 
 func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE worktree_entries SET occupant_session_ref=? WHERE set_id=? AND state='active'`, sessionRef, WorktreeSetID(workID)); err != nil {
+	// The helper inserts a legacy worktree_occupancy row (no process identity) so liveness cannot
+	// release it and the reclaim/destroy path refuses without operator
+	// approval. The fold-only guard requires fold_guard=1 around any
+	// direct INSERT, even in tests.
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, '1970-01-01T00:00:00Z', NULL, NULL, 0
+		  FROM worktree_entries WHERE set_id=? AND state='active';
+		DELETE FROM fold_guard`, sessionRef, WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,40 +159,18 @@ type sessionVacateInput struct {
 }
 
 type worktreeReclaimInput struct {
-	WorkID                     string                           `json:"work_id"`
-	ProjectID                  string                           `json:"project_id"`
-	DefaultRef                 string                           `json:"default_ref"`
-	ExpectedVersion            int64                            `json:"expected_version"`
-	IdempotencyKey             string                           `json:"idempotency_key"`
-	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
+	WorkID          string `json:"work_id"`
+	ProjectID       string `json:"project_id"`
+	DefaultRef      string `json:"default_ref"`
+	ExpectedVersion int64  `json:"expected_version"`
+	IdempotencyKey  string `json:"idempotency_key"`
 }
 
 type worktreeAuditReclaimInput struct {
-	ProductID                  string                           `json:"product_id"`
-	DefaultRef                 string                           `json:"default_ref"`
-	Limit                      int                              `json:"limit"`
-	IdempotencyKey             string                           `json:"idempotency_key"`
-	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
-}
-
-type observedSessionDirectoryInput struct {
-	SessionRef string `json:"session_ref"`
-	Directory  string `json:"directory"`
-}
-
-// observedSessionDirectories converts the decoded host observation to the
-// store's typed handoff. Nil stays nil: an absent observation attests
-// nothing and releases no recorded occupant. A present empty slice stays
-// present: it attests that no live session exists anywhere.
-func observedSessionDirectories(in *[]observedSessionDirectoryInput) *[]store.SessionDirectory {
-	if in == nil {
-		return nil
-	}
-	observed := make([]store.SessionDirectory, len(*in))
-	for i, session := range *in {
-		observed[i] = store.SessionDirectory{SessionRef: session.SessionRef, Directory: session.Directory}
-	}
-	return &observed
+	ProductID      string `json:"product_id"`
+	DefaultRef     string `json:"default_ref"`
+	Limit          int    `json:"limit"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 type worktreeVerifyInput struct {
@@ -210,10 +189,9 @@ type worktreeDestroyInput struct {
 	// Destructive declares intent to remove without the clean-tree and
 	// merged-branch gates. It requires operator approval (CD-0096 D3
 	// Destroy).
-	Destructive                bool                             `json:"destructive"`
-	Approval                   *approvalInput                   `json:"approval"`
-	IdempotencyKey             string                           `json:"idempotency_key"`
-	ObservedSessionDirectories *[]observedSessionDirectoryInput `json:"observed_session_directories"`
+	Destructive    bool           `json:"destructive"`
+	Approval       *approvalInput `json:"approval"`
+	IdempotencyKey string         `json:"idempotency_key"`
 }
 type researchRevisionInput struct {
 	Question string `json:"question"`
@@ -2155,7 +2133,96 @@ func (r runtime) planDomainObservationDismiss(ctx context.Context, base Envelope
 	return Envelope{}, nil, false
 }
 
-// planWorktreeClaim plans concord_work_transition.worktree_claim.
+// refuseWhenCallingRepositoryDiffers returns a typed refusal envelope when
+// the calling session's directory belongs to a different git repository
+// than the target Project's canonical locator (CD-0178 D2). It is
+// non-retryable: the host refuses a move that crosses repositories, so the
+// only route is a second coordinator session in the target repository. An
+// empty target repository (no canonical locator yet) admits the claim
+// because the store has nothing to compare against; the within-repository
+// gate then runs.
+func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base Envelope, callingDir, projectID string) *Envelope {
+	if callingDir == "" {
+		return nil
+	}
+	// Resolve the calling session's git common dir. The probe is best-effort:
+	// a non-git directory or a directory the host cannot inspect admits the
+	// claim rather than refusing an unrelated operation.
+	callingRepo, err := resolveGitCommonDir(callingDir)
+	if err != nil || callingRepo == "" {
+		return nil
+	}
+	// Resolve the target Project's canonical locator through the store. The
+	// locator is the one the host read back when the Project was registered
+	// (see internal/store/project_locator.go); it is the same path the claim
+	// route uses to derive the new worktree's repository.
+	projectRepo, err := r.Store.ProjectCanonicalPath(ctx, projectID)
+	if err != nil || projectRepo == "" {
+		return nil
+	}
+	targetRepo, err := resolveGitCommonDir(projectRepo)
+	if err != nil || targetRepo == "" {
+		return nil
+	}
+	if pathsEquivalent(callingRepo, targetRepo) {
+		return nil
+	}
+	refused := coreError(base, string(store.KindCrossRepositoryClaim),
+		fmt.Sprintf("worktree_claim target Project %s lives in %s, but the calling session runs in %s; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository",
+			projectID, targetRepo, callingRepo),
+		"refresh_context", false)
+	return &refused
+}
+
+// resolveGitCommonDir returns the git common directory of root, or empty
+// when root is not a git checkout or the probe fails. The CD-0178 D2 rule
+// compares repositories through this value, so the helper is the only place
+// the probe runs and stays a thin wrapper.
+func resolveGitCommonDir(root string) (string, error) {
+	runner := store.ExecGitRunner{}
+	out, err := runner.Run(context.Background(), root, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	commonDir := strings.TrimSpace(string(out))
+	if commonDir == "" {
+		return "", nil
+	}
+	// Git prints ".git" relative to the checkout it inspects, while a linked
+	// worktree prints the absolute path into the main repository. One
+	// canonical form is what makes the repository comparison honest.
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(root, commonDir)
+	}
+	return commonDir, nil
+}
+
+// pathsEquivalent reports whether two filesystem paths name the same
+// directory after symlink resolution and trailing-slash normalization. The
+// common dir returned by git is rooted at the git directory's parent for
+// the main checkout and at the linked worktree's git directory for a
+// linked checkout, so this normalization is what makes the comparison
+// honest.
+func pathsEquivalent(left, right string) bool {
+	if left == right {
+		return true
+	}
+	nl, errL := filepath.EvalSymlinks(left)
+	nr, errR := filepath.EvalSymlinks(right)
+	if errL != nil || errR != nil {
+		return false
+	}
+	return filepath.Clean(nl) == filepath.Clean(nr)
+}
+
+// planWorktreeClaim plans concord_work_transition.worktree_claim. CD-0178 D2:
+// before the claim touches the store, the planner compares the git common
+// dir of the calling session's directory with the target Project's canonical
+// repository. A different repository refuses with cross_repository_claim
+// before any worktree is created, and the refusal is non-retryable — the
+// host refuses a move into another git repository, so the only route is a
+// second coordinator session in the target repository. Two Projects in one
+// repository keep the within-repository move.
 func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in worktreeClaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2165,6 +2232,15 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// Cross-repository gate: the calling session's directory and the target
+	// Project's canonical locator must resolve to the same git common dir.
+	// Two Projects in one repository keep the within-repository move;
+	// otherwise the host refuses the move and the planner refuses here. The
+	// calling directory is the call envelope's directory, the same value
+	// every other runtime path reads.
+	if refused := r.refuseWhenCallingRepositoryDiffers(ctx, base, r.Envelope.Directory, in.ProjectID); refused != nil {
+		return *refused, nil, true
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		opID := digest + ":worktree-claim:" + in.ProjectID
 		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
@@ -2526,13 +2602,12 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 	scope := map[string]any{"product_ids": []string{product}}
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_audit", QueryID: "PM1.Q16", ReasonCode: "audit_after_reclaim", RequiredFields: []string{"product_id"}}}
 	result, err := r.Store.WorktreeAuditReclaim(ctx, store.WorktreeAuditReclaimRequest{
-		ProductID:                  product,
-		DefaultRef:                 in.DefaultRef,
-		PrincipalRef:               grant.PrincipalRef,
-		RequestID:                  in.IdempotencyKey,
-		Now:                        r.Authority.now(),
-		Limit:                      r.boundedLimit(in.Limit),
-		ObservedSessionDirectories: observedSessionDirectories(in.ObservedSessionDirectories),
+		ProductID:    product,
+		DefaultRef:   in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef,
+		RequestID:    in.IdempotencyKey,
+		Now:          r.Authority.now(),
+		Limit:        r.boundedLimit(in.Limit),
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
@@ -2673,7 +2748,6 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			ObservedSessionDirectories: observedSessionDirectories(in.ObservedSessionDirectories),
 		}); err != nil {
 			return nil, nil, nil, err
 		}

@@ -28,12 +28,10 @@ func TestOccupancyRefusalNamesSessionVacate(t *testing.T) {
 	}
 	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
 
-	observed := []SessionDirectory{{SessionRef: "ses_live", Directory: claimed.Entry.Path}}
 	_, err = s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-occupant-route", ExpectedVersion: 4,
 		Now: time.Unix(20, 0).UTC(), Runner: git,
-		ObservedSessionDirectories: &observed,
 	})
 	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindWorktreeOwnershipConflict {

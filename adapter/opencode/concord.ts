@@ -1107,35 +1107,6 @@ export function laneDispatchRequest(args: any): LaneDispatchInput | { error: str
 // falls through to the generic core transport. The dispatch path shares the
 // same transport seam as every other adapter tool, so a host-side caller
 // receives the same envelope shape on either branch.
-export const WORKTREE_REMOVAL_OPERATIONS = new Set(
-  contractOperations
-    .filter((operation) => operation.tool === "concord_work_transition" && operation.input_schema.startsWith("#/schemas/"))
-    .filter((operation) => {
-      const schemaName = operation.input_schema.slice("#/schemas/".length)
-      const schema = (payloadSchemas as Record<string, { properties?: Record<string, unknown> }>)[schemaName]
-      return schema?.properties !== undefined && Object.hasOwn(schema.properties, "observed_session_directories")
-    })
-    .map((operation) => operation.id.slice("concord_work_transition.".length)),
-)
-
-// attachLiveSessionObservation supplies the host's live session observation
-// to a worktree removal the caller left unobserved. The core's occupancy gate
-// releases a dead recorded occupant only on such an observation, so without
-// one a coordinator that never gathers sessions strands every crashed
-// occupant on the operator. An explicit observation from the caller is
-// authoritative and passes through untouched. When the host session list
-// cannot be read the call proceeds unobserved and the store keeps its
-// refusal: an unreadable host attests nothing.
-async function attachLiveSessionObservation(args: HostToolArgs, context: ToolContext): Promise<void> {
-  const input = args?.input
-  if (!record(input) || input.observed_session_directories !== undefined) return
-  try {
-    const observed = await hostControlPlane().liveSessionDirectories(context.abort)
-    input.observed_session_directories = observed
-  } catch {
-    return
-  }
-}
 
 // reportWorktreeRemoval puts the completed removal in front of the operator.
 // The agent that made the call may end its turn without relaying anything, and
@@ -1317,9 +1288,11 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
 // recordClaimLanding runs the adapter-only claim-landing verb. The
 // verb is not an agent tool operation, like host-lease: the agent names
 // nothing, and the core refuses any landing its projection does not already
-// hold true.
+// hold true. host_pid names this OpenCode process, which holds the session;
+// the core reads its start time from /proc and ends the occupancy when the
+// process ends.
 async function recordClaimLanding(workID: string, sessionRef: string, landedDirectory: string, signal: AbortSignal): Promise<void> {
-  const result = await runner.run([concordBinaryPath(), "claim-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory }), signal)
+  const result = await runner.run([concordBinaryPath(), "claim-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory, host_pid: process.pid }), signal)
   if (result.exitCode !== 0) {
     throw new Error(`claim-landing failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`)
   }
@@ -1365,10 +1338,13 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   return envelope
 }
 
+// The removal verbs share the worktree-removal report path: an ok removal
+// queues the notice that tells a neighbouring session the directory is gone.
+export const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"])
+
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
-    await attachLiveSessionObservation(args, context)
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
     await reportWorktreeRemoval(args, context, envelope)
     return envelope

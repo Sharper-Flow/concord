@@ -8,10 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
 func TestLaneRegistryIsGeneratedClosedAndDigestPinned(t *testing.T) {
@@ -295,14 +296,30 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	observed := []SessionDirectory{{SessionRef: "session-live", Directory: filepath.Join(filepath.Dir(s.Path()), "worktrees", claim.ProjectID, claim.WorkID)}}
+	// Process liveness of a worktree_occupancy row is the only authority for
+	// an abandon refusal (CD-0178 D3). The test
+	// process is alive: its recorded pid and pid_start match what /proc
+	// returns, so the abandon path refuses with worktree_ownership_conflict.
+	pid := os.Getpid()
+	pidStart, err := hostlease.ProcessStart(pid)
+	if err != nil {
+		t.Fatalf("cannot read test pid start: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		VALUES (?, ?, ?, ?, ?, 1);
+		DELETE FROM fold_guard`,
+		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
+		t.Fatal(err)
+	}
+
 	closeEvent := Event{
 		EventID: "abandoned-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
 		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
 		Payload: mustJSONValue(WorkerFailedPayload{
 			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
-			Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &observed,
-		}),
+			Detail: "the host observed that the lane never reported"}),
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
 		t.Fatalf("live session close error = %v, want %s", err, KindWorktreeOwnershipConflict)
@@ -315,11 +332,17 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 		t.Fatalf("live session close state = %q, want dispatched", state)
 	}
 
-	empty := []SessionDirectory{}
+	// Release the recorded occupancy so the abandon path can take the close.
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		DELETE FROM worktree_occupancy WHERE session_ref='session-live';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
 	closeEvent.EventID = "abandoned-close-empty"
 	closeEvent.Payload = mustJSONValue(WorkerFailedPayload{
 		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
-		Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &empty,
+		Detail: "the host observed that the lane never reported",
 	})
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); err != nil {
 		t.Fatalf("unoccupied abandoned close: %v", err)
@@ -338,8 +361,7 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 
 func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
-	empty := []SessionDirectory{}
-	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported", ObservedSessionDirectories: &empty})}
+	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported"})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
 		t.Fatal(err)
 	}

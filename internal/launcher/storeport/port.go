@@ -38,18 +38,28 @@ func New(s *store.Store) *Port {
 }
 
 func (p *Port) hostSessionProbe(_ context.Context, entry store.WorktreeEntry) bool {
-	if entry.OccupantSessionRef == "" || entry.Path == "" {
+	if entry.Path == "" || entry.ProjectID == "" || entry.ClaimOpID == "" {
 		return false
 	}
 	if p.Store == nil {
 		return false
 	}
+	// CD-0178 D3: the durable projection carries the host process identity.
+	// Live host sessions are those whose recorded pid_start still matches
+	// what /proc reports for that pid. Legacy rows (no process identity)
+	// cannot prove liveness; the lease scan remains the only host-side
+	// signal for them, and a legacy row with no current lease contributes
+	// no live answer.
 	leases, err := hostlease.List(filepath.Dir(p.Store.Path()))
 	if err != nil {
 		return false
 	}
 	for _, lease := range leases {
-		if filepath.Clean(lease.Worktree) == filepath.Clean(entry.Path) {
+		if filepath.Clean(lease.Worktree) != filepath.Clean(entry.Path) {
+			continue
+		}
+		start, err := hostlease.ProcessStart(lease.PID)
+		if err == nil && start == lease.PidStart {
 			return true
 		}
 	}

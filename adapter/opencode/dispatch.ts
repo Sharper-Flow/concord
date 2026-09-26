@@ -660,10 +660,15 @@ export function readExportOpeningPacket(stdout: string, expectedSessionID: strin
 // active worktree claim, so the value it receives must be a real path. The
 // session export runs with --sanitize, which replaces that directory with a
 // redaction placeholder. Worker completion receives the real directory from
-// the dispatch window. The session list remains a host-owned liveness source.
+// the dispatch window. readSessionDirectory reads one session's directory
+// from the host control plane through the getSessionInfo helper.
 export function readSessionDirectory(stdout: string, sessionID: string): string | null {
-  const observed = readLiveSessionDirectories(stdout)
-  return observed?.find((session) => session.session_ref === sessionID)?.directory ?? null
+  let value: unknown
+  try { value = JSON.parse(stdout) } catch { return null }
+  if (!isRecord(value) || !isRecord(value.info)) return null
+  const info = value.info
+  if (info.id !== sessionID) return null
+  return typeof info.directory === "string" && info.directory.startsWith("/") ? info.directory : null
 }
 
 export function readSessionParent(stdout: string, sessionID: string): string | null {
@@ -673,43 +678,6 @@ export function readSessionParent(stdout: string, sessionID: string): string | n
   const info = value.info
   if (info.id !== sessionID) return null
   return typeof info.parentID === "string" && info.parentID !== "" ? info.parentID : null
-}
-
-// readLiveSessionDirectories returns the same host-owned session observation
-// used to protect worktree removal. A malformed or unreadable list is absent,
-// never an empty observation that could authorize an abandoned close.
-export function readLiveSessionDirectories(stdout: string): { session_ref: string; directory: string }[] | null {
-  let value: unknown
-  try { value = JSON.parse(stdout) } catch { return null }
-  const rows = Array.isArray(value) ? value : isRecord(value) && Array.isArray(value.sessions) ? value.sessions : null
-  if (!rows) return null
-  const observed: { session_ref: string; directory: string }[] = []
-  for (const row of rows) {
-    if (!isRecord(row) || typeof row.id !== "string" || row.id.length === 0 || typeof row.directory !== "string" || !row.directory.startsWith("/")) return null
-    observed.push({ session_ref: row.id, directory: row.directory })
-  }
-  return observed
-}
-
-type WorkerSessionObservation = { observed: { session_ref: string; directory: string }[] | null; unreadable: boolean }
-
-async function readWorkerSessionObservation(runner: DispatchRunner, binary: string, signal: AbortSignal): Promise<WorkerSessionObservation> {
-  let listed: { exitCode: number; stdout: string; stderr: string }
-  try { listed = await runner.run([binary, "session", "list", "--format", "json"], "", signal) } catch { return { observed: null, unreadable: true } }
-  if (listed.exitCode !== 0) return { observed: null, unreadable: true }
-  const observed = readLiveSessionDirectories(listed.stdout)
-  if (observed === null) return { observed: null, unreadable: false }
-  // Production uses the host control-plane route that owns the liveness
-  // observation. The CLI list remains the test and compatibility seam for
-  // callers that do not run inside a bound plugin host.
-  if (hostControlPlane().available()) {
-    try {
-      return { observed: await hostControlPlane().liveSessionDirectories(signal), unreadable: false }
-    } catch {
-      return { observed: null, unreadable: true }
-    }
-  }
-  return { observed, unreadable: false }
 }
 
 // readRunTextParts returns the model's message text in emission order. The host
@@ -1570,9 +1538,9 @@ export async function failWorkerAttempt(
 }
 
 // abandonWorkerAttempt closes a dispatched attempt when no worker report exists.
-// The host observes every live session and signs the existing worker-fail
-// assertion, while the core derives the attempt's readback model from its
-// dispatch record and owns the worktree occupancy check.
+// The core derives the attempt's readback model from its dispatch record,
+// reads process liveness from worktree_occupancy, and refuses abandonment
+// only when a durable row proves the host process is still alive (CD-0178 D3).
 export async function abandonWorkerAttempt(
   lane: AgentLane,
   packet: Pick<AgentLanePacket, "work_id" | "attempt_id">,
@@ -1581,12 +1549,6 @@ export async function abandonWorkerAttempt(
   signal: AbortSignal,
   onRecorded?: () => void,
 ): Promise<AgentResultEnvelope> {
-  let observed: Awaited<ReturnType<ReturnType<typeof hostControlPlane>["liveSessionDirectories"]>>
-  try {
-    observed = await hostControlPlane().liveSessionDirectories(signal)
-  } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because live host sessions could not be observed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
-  }
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   let binary: string
   try {
@@ -1616,7 +1578,6 @@ export async function abandonWorkerAttempt(
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     detail: detail.slice(0, MAX_FAILURE_DETAIL_BYTES),
-    observed_session_directories: observed,
     assertion,
   }, signal)
   if (failure) return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because abandonment could not be recorded: ${failure}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
@@ -1734,10 +1695,10 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  // The dispatch window owns the worker directory. The session observation is
-  // separate and supplies only the live-session evidence for abandoned close.
+  // The dispatch window owns the worker directory. CD-0178 D3 removed the
+  // host session observation as a worker-fail input: the durable
+  // worktree_occupancy projection and process liveness own the gate now.
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
-  const workerObservation = await readWorkerSessionObservation(cliRunner, options.binary ?? "opencode", signal)
 
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined
@@ -1869,15 +1830,10 @@ async function completeWorkerSession(
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {
-    // A refused completion leaves the attempt dispatched. An open attempt
-    // blocks every later dispatch on the work item and pins the host session
-    // to that worktree. The host session observation is part of the typed
-    // worker-fail request, and the core refuses the close while any observed
-    // session still occupies an active worktree.
+    // A refused completion leaves the attempt dispatched. The core reads
+    // process liveness from worktree_occupancy, so a refusal carries the
+    // live-session detail itself.
     const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
-    if (workerObservation.unreadable) {
-      return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because live host sessions could not be observed`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
-    }
     let closeAssertion: Record<string, unknown>
     try {
       closeAssertion = await signWorkerEvidence(credentials, {
@@ -1900,7 +1856,6 @@ async function completeWorkerSession(
       readback_model: readback.readback_model,
       failure_kind: "abandoned",
       detail,
-      observed_session_directories: workerObservation.observed,
       assertion: closeAssertion,
     }, signal)
     const message = closeFailure ? `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}` : detail

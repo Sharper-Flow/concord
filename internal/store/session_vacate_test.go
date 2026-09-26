@@ -54,10 +54,8 @@ func TestVacateThenReclaimPassesOccupancyGate(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	ctx := context.Background()
-	var target SessionVacateTarget
 	if err := s.Transact(ctx, func(transaction *Transaction) error {
-		var err error
-		target, err = ResolveSessionVacateTargetTx(ctx, transaction, "project-w", worktreePath)
+		_, err := ResolveSessionVacateTargetTx(ctx, transaction, "project-w", worktreePath)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -66,7 +64,6 @@ func TestVacateThenReclaimPassesOccupancyGate(t *testing.T) {
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		PrincipalRef: "principal-1", RequestID: "reclaim-after-vacate",
 		ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(),
-		ObservedSessionDirectories: &[]SessionDirectory{{SessionRef: "session-1", Directory: target.DestinationDirectory}}, ObservedProjectID: "project-w",
 	})
 	if err != nil {
 		t.Fatal(err)

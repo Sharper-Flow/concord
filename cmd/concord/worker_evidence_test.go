@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/agent"
+	"github.com/sharper-flow/concord/internal/hostlease"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -359,8 +360,10 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 
 // TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation proves that
 // the host-only close route carries no caller-supplied model. The core derives
-// the dispatched model from its attempt row and accepts only an observation
-// that shows no live session occupies the attempt's worktree.
+// the dispatched model from its attempt row. CD-0178 D3 narrows the host
+// observation surface: the abandon path reads worktree_occupancy and process
+// liveness instead of caller-supplied session lists, so an empty observation
+// is the only valid input.
 func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
@@ -371,7 +374,6 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-emptyobs01")
 	request["event_id"] = "abandon-empty-observation"
 	request["detail"] = "the host observed that the lane never reported"
-	request["observed_session_directories"] = []store.SessionDirectory{}
 	delete(request, "readback_model")
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
@@ -411,6 +413,11 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	}
 }
 
+// TestWorkerAbandonRefusesAnObservedLiveSession proves that the abandon path
+// still refuses when the durable worktree_occupancy projection holds a row
+// whose host process is still alive (CD-0178 D3). The seed inserts a row with
+// the test runner's pid and pid_start; the kernel proves the process is live
+// and the abandon refusal carries the live-session detail.
 func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
@@ -420,12 +427,33 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-livesess01")
 	request["event_id"] = "abandon-live-session"
 	request["detail"] = "the host observed that the lane never reported"
-	request["observed_session_directories"] = []store.SessionDirectory{{SessionRef: "ses_live", Directory: filepath.Join(filepath.Dir(dbPath), "worktree-work-1")}}
 	delete(request, "readback_model")
 	delete(request, "failure_kind")
 	assertion.ReadbackModel = ""
 	assertion.FailureKind = string(store.WorkerFailureAbandoned)
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
+
+	// Seed a live worktree and a live occupancy row whose host pid is the
+	// test runner itself, so the abandon path proves the kernel sees the
+	// process and refuses.
+	pid := os.Getpid()
+	pidStart, err := hostlease.ProcessStart(pid)
+	if err != nil {
+		t.Fatalf("cannot read test pid start: %v", err)
+	}
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_live', '2026-01-01T00:00:00Z', ?, ?, 1
+		  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
+		DELETE FROM fold_guard`, pid, pidStart); err != nil {
+		t.Fatal(err)
+	}
 
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "still holds the worker attempt worktree") {

@@ -146,12 +146,10 @@ func TestWorkResumeReclaimsCompletedBootstrapAndStartsAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observed := []store.SessionDirectory{}
 	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-work-wl",
 		ExpectedVersion: first.WorkVersion, Runner: store.ExecGitRunner{},
-		ObservedSessionDirectories: &observed, ObservedProjectID: first.ProjectID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -197,12 +195,10 @@ func TestWorkResumeReclaimsBootstrapAndAdoptsAdvancedCanonicalBranch(t *testing.
 			t.Fatalf("advance %s: %v\n%s", ref, err, output)
 		}
 	}
-	observed := []store.SessionDirectory{}
 	if _, err := s.ReclaimWorktree(ctx, store.WorktreeReclaimRequest{
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-advanced-work-wl",
 		ExpectedVersion: first.WorkVersion, Runner: store.ExecGitRunner{},
-		ObservedSessionDirectories: &observed, ObservedProjectID: first.ProjectID,
 	}); err != nil {
 		t.Fatal(err)
 	}

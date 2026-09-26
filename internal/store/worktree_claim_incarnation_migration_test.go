@@ -65,7 +65,7 @@ func TestMigrateV99ToV100BackfillsReopenedClaimIncarnation(t *testing.T) {
 			t.Errorf("%s incarnation = %d, want %d", op, got, incarnation)
 		}
 	}
-	if got := occupancyReleasedEventID("work-reopened", "p", "bootstrap-reopened", 1); got != "work-reopened:p:bootstrap-reopened:worktree-occupancy-released:i1" {
+	if got := occupancyReleasedEventID("work-reopened", "p", "bootstrap-reopened", "ses-test", 1); got != "work-reopened:p:bootstrap-reopened:worktree-occupancy-released:ses-test:i1" {
 		t.Errorf("backfilled claim release id = %q", got)
 	}
 }

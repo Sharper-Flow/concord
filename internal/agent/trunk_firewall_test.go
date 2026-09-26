@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -235,7 +234,7 @@ func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
 	response, err := Dispatch(ctx, s, service, InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "worktree_destroy",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"default_ref":"main","idempotency_key":"main-destroy-route","observed_session_directories":[]}`),
+		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":2,"default_ref":"main","idempotency_key":"main-destroy-route"}`),
 	}, mutationEnvelope(grant, scopeVersion))
 	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
 		t.Fatalf("response=%+v err=%v, want an authorization refusal", response, err)
@@ -337,72 +336,5 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 // observation attests nothing. The store owns the release semantics; this
 // pins that the agent surface carries the field through.
 func TestAuditReclaimForwardsObservedSessionDirectories(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, repoRoot := tiersRepoFixture(t)
-	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
-	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
-		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "audit-observation-claim",
-	}); response.Outcome != OutcomeOK {
-		t.Fatalf("claim response=%+v err=%+v", response, response.Error)
-	}
-	seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
-
-	audit := func(key string, observed any) store.WorktreeAuditReclaimRow {
-		t.Helper()
-		input := map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": key}
-		if observed != nil {
-			input["observed_session_directories"] = observed
-		}
-		response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", input)
-		if response.Outcome != OutcomeOK {
-			t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
-		}
-		var result struct {
-			Rows []store.WorktreeAuditReclaimRow `json:"rows"`
-		}
-		if err := json.Unmarshal(response.Result, &result); err != nil {
-			t.Fatal(err)
-		}
-		if len(result.Rows) != 1 || result.Rows[0].WorkID != "work-1" {
-			t.Fatalf("rows=%+v, want the single terminal-present work-1 row", result.Rows)
-		}
-		return result.Rows[0]
-	}
-	refused := func(when, key string, observed any) {
-		t.Helper()
-		row := audit(key, observed)
-		if row.Outcome != store.WorktreeAuditRefused || row.RefusalKind != string(store.KindWorktreeOwnershipConflict) {
-			t.Fatalf("%s: row=%+v, want the %s refusal to hold", when, row, store.KindWorktreeOwnershipConflict)
-		}
-		entries, err := s.WorktreeEntries(ctx, "work-1")
-		if err != nil || len(entries) != 1 || entries[0].State != "active" {
-			t.Fatalf("%s: entries=%+v err=%v, want the active claim untouched", when, entries, err)
-		}
-	}
-
-	// An absent observation attests nothing and releases no recorded occupant.
-	refused("absent observation", "audit-observation-absent", nil)
-	// An observation placing the occupant's own session inside the worktree
-	// keeps the strand-guard.
-	refused("observation placing the occupant inside", "audit-observation-naming", []map[string]any{
-		{"session_ref": grant.SessionRef, "directory": worktreePath},
-	})
-
-	// The same recorded occupant is observed at a readable directory outside
-	// the worktree: a work_start move has retargeted it, so the row reclaims.
-	row := audit("audit-observation-moved", []map[string]any{
-		{"session_ref": grant.SessionRef, "directory": repoRoot},
-	})
-	if row.Outcome != store.WorktreeAuditReclaimed {
-		t.Fatalf("row=%+v, want the occupant-observed-elsewhere row to reclaim", row)
-	}
-	entries, err := s.WorktreeEntries(ctx, "work-1")
-	if err != nil || len(entries) != 1 || entries[0].State != "reclaimed" {
-		t.Fatalf("entries after reclaim=%+v err=%v", entries, err)
-	}
-	if strings.Contains(gitRun(t, repoRoot, "worktree", "list"), worktreePath) {
-		t.Fatal("native worktree still present after the audit reclaim")
-	}
+	t.Skip("TestAuditReclaimForwardsObservedSessionDirectories pinned the legacy host-observation release path that CD-0178 D3 removed. Process liveness and operator approval own the release rule now; see TestAuditReclaimRejectsLegacyOccupancyWithoutApproval and TestDestroyReleasesRecordedStaleOccupancyWithApproval.")
 }

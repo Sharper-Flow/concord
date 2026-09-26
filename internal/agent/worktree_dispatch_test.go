@@ -126,7 +126,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",
 		"default_ref":      "main",
-		"expected_version": 3, "idempotency_key": "wt-reclaim-1", "observed_session_directories": []map[string]any{},
+		"expected_version": 3, "idempotency_key": "wt-reclaim-1",
 	})
 	reclaim := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: reclaimInput}
 	dirty, err := Dispatch(ctx, s, service, reclaim, mutationEnvelope(grant, scopeVersion))
@@ -187,8 +187,17 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 	}
 
 	entries, err := s.WorktreeEntries(ctx, "work-1")
-	if err != nil || len(entries) != 1 || entries[0].OccupantSessionRef != grant.SessionRef {
+	if err != nil || len(entries) != 1 {
 		t.Fatalf("source occupancy must survive the refusal: entries=%+v err=%v", entries, err)
+	}
+	// Occupancy lives in worktree_occupancy (CD-0178 D3). The entry stays
+	// active; the durable row carries the recording session.
+	occupant, occErr := readOccupantSession(t, s, entries[0])
+	if occErr != nil {
+		t.Fatalf("read worktree_occupancy: %v", occErr)
+	}
+	if occupant != grant.SessionRef {
+		t.Fatalf("source occupancy row must hold the recording session: got=%q entries=%+v", occupant, entries)
 	}
 	entries, err = s.WorktreeEntries(ctx, "work-2")
 	if err != nil {
@@ -203,8 +212,11 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err = s.WorktreeEntries(ctx, "work-1")
-	if err != nil || len(entries) != 1 || entries[0].OccupantSessionRef != grant.SessionRef {
+	if err != nil || len(entries) != 1 {
 		t.Fatalf("source occupancy after rebuild=%+v err=%v", entries, err)
+	}
+	if occupant, _ := readOccupantSession(t, s, entries[0]); occupant != grant.SessionRef {
+		t.Fatalf("source occupancy after rebuild entries=%+v", entries)
 	}
 }
 
@@ -398,7 +410,6 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		reclaimInput, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1",
 			"default_ref": "main", "expected_version": expected, "idempotency_key": key,
-			"observed_session_directories": []map[string]any{},
 		})
 		scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 		if err != nil {
@@ -505,7 +516,6 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 		input, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
 			"expected_version": 3, "idempotency_key": key,
-			"observed_session_directories": observed,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: input}, mutationEnvelope(grant, scopeVersion))
 		if dispatchErr != nil {
@@ -552,8 +562,11 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 // worktree keeps the strand-guard refusal, and an observation placing the
 // occupant at a readable directory elsewhere reclaims the row. The store owns
 // the release semantics; this pins that the agent surface carries the field
-// through.
+// through. CD-0178 D3 removed the host observation input from reclaim; the
+// replacement tests live under TestReclaimWorktreeKeepsLiveOccupantRefusal
+// and TestDestroyReleasesRecordedStaleOccupancyWithApproval.
 func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
+	t.Skip("TestReclaimForwardsObservedSessionDirectories pinned the legacy host-observation release path that CD-0178 D3 removed.")
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
@@ -573,7 +586,6 @@ func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 		input, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
 			"expected_version": 4, "idempotency_key": key,
-			"observed_session_directories": observed,
 		})
 		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_reclaim", Input: input}, mutationEnvelope(grant, scopeVersion))
 		if dispatchErr != nil {
@@ -744,5 +756,125 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 	}
 	if eventIDs[0] == eventIDs[1] || sessionRefs[0] == sessionRefs[1] {
 		t.Fatalf("session_vacated ids=%v sessions=%v, want distinct ids and sessions", eventIDs, sessionRefs)
+	}
+}
+
+// readOccupantSession reads the recorded session_ref from the durable
+// worktree_occupancy projection for the named worktree entry (CD-0178 D3).
+// Empty means the worktree carries no occupancy row.
+func readOccupantSession(t *testing.T, s *store.Store, entry store.WorktreeEntry) (string, error) {
+	t.Helper()
+	var sessionRef string
+	row := s.DatabaseForTesting().QueryRow(`SELECT session_ref FROM worktree_occupancy WHERE worktree_id=? ORDER BY recorded_at LIMIT 1`, entry.SetID+":"+entry.ProjectID+":"+entry.ClaimOpID)
+	if err := row.Scan(&sessionRef); err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return "", nil
+		}
+		return "", err
+	}
+	return sessionRef, nil
+}
+
+// CD-0178 D2: a worktree_claim whose target Project lives in another git
+// repository refuses with cross_repository_claim before any worktree exists,
+// and the refusal is not retryable — the host refuses the move, so the only
+// route is a second coordinator session in the target repository. Two
+// CD-0178 D2: a worktree_claim whose target Project lives in another git
+// repository refuses with cross_repository_claim before any worktree exists,
+// and the refusal is not retryable — the host refuses the move, so the only
+// route is a second coordinator session in the target repository. Two
+// Projects in one repository keep the within-repository move.
+func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// project-1x joins the work item inside product-1, but its canonical
+	// locator resolves to a different git repository than the calling
+	// session's directory.
+	crossRepo := t.TempDir()
+	seedFixtureRepo(t, crossRepo, "# fixture cross repository\n", "fixture base cross")
+	events := []store.Event{
+		{EventID: "wt-cross-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1x", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Cross Repo"}`)},
+		{EventID: "wt-cross-repo-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1x","role":"secondary","reason":"cross repository fixture","expected_version":2,"resulting_version":3}`)},
+		{EventID: "wt-cross-repo-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1x","role":"secondary"}],"expected_version":2,"resulting_version":3}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 2, store.VersionRef(store.SubjectProject, "project-1x"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "project-1x", store.ProjectLocator{ID: "path-1x", Kind: store.LocatorCanonicalPath, Value: crossRepo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1x", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-repo-claim"})
+	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	// The calling session runs in project-1's repository.
+	env.Directory = repoRoot
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "cross_repository_claim" {
+		t.Fatalf("claim error=%+v, want a cross_repository_claim refusal", response.Error)
+	}
+	if response.Error.RetrySafe {
+		t.Fatalf("cross_repository_claim must not be retryable, got retry_safe=%v", response.Error.RetrySafe)
+	}
+	if !strings.Contains(response.Error.Message, "one coordinator session per repository") {
+		t.Fatalf("error.message=%q, want the one-session-per-repository route", response.Error.Message)
+	}
+	entries, err := s.WorktreeEntries(ctx, "work-1")
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries after refused claim=%+v err=%v, want no durable claim", entries, err)
+	}
+	foreignWorktree := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1x", "work-1")
+	if _, statErr := os.Stat(foreignWorktree); !os.IsNotExist(statErr) {
+		t.Fatalf("refused claim created the native worktree %s: %v", foreignWorktree, statErr)
+	}
+
+	// Two Projects in one repository keep the move: the second Project's
+	// canonical locator is a checkout of the calling session's own
+	// repository, so the git common dir of both locators matches.
+	sameRepoTree := filepath.Join(repoRoot, "sibling-checkout")
+	if err := os.MkdirAll(sameRepoTree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sameEvents := []store.Event{
+		{EventID: "wt-same-repo-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1s", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Same Repo"}`)},
+		{EventID: "wt-same-repo-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1s","role":"secondary","reason":"same repository fixture","expected_version":3,"resulting_version":4}`)},
+		{EventID: "wt-same-repo-work-memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-1s","role":"secondary"}],"expected_version":3,"resulting_version":4}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: sameEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 3, store.VersionRef(store.SubjectProject, "project-1s"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 3}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "project-1s", store.ProjectLocator{ID: "path-1s", Kind: store.LocatorCanonicalPath, Value: sameRepoTree}, 1); err != nil {
+		t.Fatal(err)
+	}
+	sameInput, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1s", "base_sha": baseSHA, "expected_version": 4, "idempotency_key": "same-repo-claim"})
+	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env = mutationEnvelope(grant, scopeVersion)
+	env.Directory = repoRoot
+	response, err = Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: sameInput}, env)
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("same-repository claim error=%+v outcome=%s err=%v, want the within-repository move", response.Error, response.Outcome, err)
+	}
+	var claimResult struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Result, &claimResult); err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1s", "work-1")
+	if claimResult.Path != wantPath {
+		t.Fatalf("claim result path=%q, want %q", claimResult.Path, wantPath)
 	}
 }

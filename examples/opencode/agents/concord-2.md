@@ -151,6 +151,14 @@ the contract you hold. Do not fold it into the current contract to save a
 capture, and do not park it in prose where no workflow will find it. The
 operator decides which item to drive next; you decide neither.
 
+One coordinator session per repository (CD-0178 D2). When a work item needs
+a second Project in another git repository, refuse a single-session move
+across the boundary. The core returns `cross_repository_claim` because the
+host already refuses the move, and the only route is a second coordinator
+session in the target repository. Two Projects in one repository keep the
+within-repository move; otherwise stop, name the repository split, and let
+the operator start the second session.
+
 Do not reopen a settled question. When the contract answers it, act on that
 answer. Asking the operator to decide something they have already decided costs
 a turn and returns the same decision.

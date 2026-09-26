@@ -30,7 +30,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 	gitRun(t, livePath, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-m", "work in flight")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1", "observed_session_directories": []map[string]any{},
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v", response.Error)
@@ -66,7 +66,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsTerminalWorkOnly(t *testing.T) {
 
 	// Replay: same key, recorded result, no second pass.
 	replay := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1", "observed_session_directories": []map[string]any{},
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-1",
 	})
 	if replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%+v", replay.Replayed, replay.Error)
@@ -81,13 +81,13 @@ func TestWorktreeAuditReclaimDispatchReportsMixedEffects(t *testing.T) {
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2", 3)
 	workOnePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	_ = workOnePath
 	// work-1 stays occupied in the Concord projection, while work-2 vacates
 	// and can reclaim.
 	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "audit-mixed-vacate-2")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-mixed",
-		"observed_session_directories": []map[string]any{{"session_ref": "session-1", "directory": workOnePath}},
 	})
 	if response.Outcome != OutcomeOK || response.Error != nil {
 		t.Fatalf("mixed audit reclaim response=%+v", response)
@@ -130,7 +130,7 @@ func TestWorktreeAuditReclaimDispatchReclaimsUnstartedWork(t *testing.T) {
 	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "unstarted-vacate-2")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1", "observed_session_directories": []map[string]any{},
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "unstarted-reclaim-1",
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)

@@ -281,22 +281,23 @@ describe("completeDispatchedWorker", () => {
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
     expect(failureInput?.failure_kind).toBe("abandoned")
-    expect(failureInput?.observed_session_directories).toEqual([
-      { session_ref: "ses_other", directory: "/somewhere/else" },
-      { session_ref: SESSION, directory: "/claimed/worktree" },
-    ])
+    // worker-fail carries no host session observation; the close names no
+    // observed sessions (CD-0178 D3).
+    expect(failureInput?.observed_session_directories).toBeUndefined()
     expect(output.output).toContain("worker-complete refused")
   })
 
-  test("a refused completion stays open when host liveness is unreadable", async () => {
+  // CD-0178 D3: completion never reads host liveness, so a refused
+  // completion closes with worker-fail whatever the host session index
+  // serves — even a failing one.
+  test("a refused completion is closed with worker-fail without reading host liveness", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
     await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
     const verbs: string[] = []
     const runner: DispatchRunner = {
       async run(argv) {
-        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-        if (argv[1] === "session") return { exitCode: 1, stdout: "", stderr: "session list unavailable" }
+        if (argv[1] === "session") throw new Error("the session index must not be read")
         verbs.push(argv[1])
         if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "completion refused" }
         return { exitCode: 0, stdout: "", stderr: "" }
@@ -310,8 +311,8 @@ describe("completeDispatchedWorker", () => {
       sessionReader: readerFor(exportedSession()),
       concordBinary: "concord",
     })
-    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
-    expect(output.output).toContain("live host sessions could not be observed")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+    expect(output.output).toContain("worker-complete refused")
   })
 
   test("does not add a WorkPin state line to the lane report", async () => {
@@ -629,16 +630,18 @@ describe("spawn failure without a part event", () => {
     windows.close(SESSION)
   })
 
-  test("unreadable host liveness retains the attempt with the recorded reason", async () => {
+  // CD-0178 D3: the spawn-failure close reads no host liveness. An unreadable
+  // session index cannot strand the attempt — the signed worker-abandon close
+  // rides and releases the window.
+  test("an unreadable session index does not strand a spawn-failed attempt", async () => {
     bindSessionList(500)
     const windows = new DispatchWindows()
     await withInFlightAttempt(windows, "call-spawn")
     const verbs: string[] = []
     const result = await failDispatchedWorker(spawnFailureEvent(), deps(verbs, windows))
-    expect(verbs).toEqual([])
-    expect(result?.error?.message).toContain("live host sessions could not be observed")
-    expect(windows.inFlightAttempt(SESSION)).not.toBeNull()
-    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    expect(verbs).toEqual(["worker-abandon"])
+    expect(windows.inFlightAttempt(SESSION)).toBeNull()
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(false)
     windows.close(SESSION)
   })
 

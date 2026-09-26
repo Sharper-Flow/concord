@@ -127,11 +127,19 @@ const (
 	// KindResourceClaimHeld marks a claim on a resource another work item
 	// already holds. The refusal names coordination, not authority.
 	KindResourceClaimHeld FailureKind = "resource_claim_held"
+	// KindCrossRepositoryClaim marks a worktree_claim whose target Project
+	// lives in another git repository than the calling session's directory
+	// (CD-0178 D2). The refusal is non-retryable: the host refuses a move
+	// that crosses repositories, and the only route is a second coordinator
+	// session in the target repository. The two Projects of one repository
+	// keep the within-repository move.
+	KindCrossRepositoryClaim FailureKind = "cross_repository_claim"
 	// KindWorktreeOwnershipConflict marks a worktree removal that would strand
 	// a live session the host reports running there (CD-0096 D3 Destroy,
-	// CD-0104 D1). The occupancy is read from the host at the moment of
-	// refusal, never from a stored binding. The refusal names the session and
-	// the recovery action.
+	// CD-0104 D1, CD-0178 D3). Occupancy is one row per session in the
+	// durable projection; the record carries the host process identity and a
+	// legacy row carries no process identity. The refusal names the session
+	// and the recovery action.
 	KindWorktreeOwnershipConflict FailureKind = "worktree_ownership_conflict"
 	// KindWorktreeLeaseHeld marks a verify lease the worktree already holds
 	// (CD-0096 D3 Verify tier). Exclusivity is coordination, not authority:

@@ -130,14 +130,19 @@ func TestRepairMigrationIsIdempotentOnAFreshDatabase(t *testing.T) {
 // can never reach a repair step. The whitespace edit shipped in five
 // releases before it was caught; the variants record exactly what those
 // releases wrote while the canonical text keeps the bytes every earlier
-// release recorded. TestMigrationChecksumPinsMatchDefinitions now fails on
+// release recorded. Migration 104 joins that shape for v11.29.0–v11.30.0:
+// its own backfill violates the shipped worktree_id bound on every store
+// holding claim-path occupants, and a store failing inside migration 104
+// can never reach a later repair step, so the bound fix lands in the
+// canonical text and the variant keeps the shipped bytes readable.
+// TestMigrationChecksumPinsMatchDefinitions now fails on
 // any edit to a migration's SQL, so a future entry again requires both this
 // pin and the checksum pin to move together, in the open.
 func TestShippedVariantTableIsFrozen(t *testing.T) {
 	t.Parallel()
 	frozen := map[int]int{
 		3: 1, 7: 1, 8: 1, 9: 2, 15: 1, 16: 1, 18: 1, 20: 1, 22: 1,
-		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2, 49: 1, 75: 1,
+		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2, 49: 1, 75: 1, 104: 1,
 	}
 	if len(migrationShippedVariantChecksums) != len(frozen) {
 		t.Fatalf("shipped variant table has %d migrations, frozen at %d; an in-place edit must ship a repair migration",

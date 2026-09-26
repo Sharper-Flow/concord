@@ -1400,6 +1400,20 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		plan.requiresApproval = true
 		plan.governingConflict = missing
 	}
+	productIDs := make([]string, 0, len(productsByProject))
+	seenProducts := make(map[string]struct{})
+	for _, products := range productsByProject {
+		for _, product := range products {
+			if _, seen := seenProducts[product]; seen {
+				continue
+			}
+			seenProducts[product] = struct{}{}
+			productIDs = append(productIDs, product)
+		}
+	}
+	if err := r.Store.ValidateCaptureGoverningRequirements(ctx, productIDs, applicable, in.GoverningRequirements); err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
 	for _, products := range productsByProject {
 		for _, product := range products {
 			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {

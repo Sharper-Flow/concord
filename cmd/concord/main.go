@@ -2692,9 +2692,9 @@ func writeJSON(out io.Writer, value any, errOut io.Writer) int {
 	}
 	return 0
 }
+
+// writeDiagnostic prints the whole message. Stderr carries no size contract,
+// and a refusal that names every blocking session is only actionable in full.
 func writeDiagnostic(out io.Writer, message string) {
-	if len(message) > 1024 {
-		message = message[:1024]
-	}
 	_, _ = fmt.Fprintln(out, message)
 }

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -50,5 +52,28 @@ func TestActionableUpgradeRefusalPassesOtherFailuresThrough(t *testing.T) {
 	sameSchema := hostlease.Lease{PID: 1, ReleaseRoot: "/releases/v11.0.0", SchemaVersion: 93}
 	if got := actionableUpgradeRefusal(refusal, []hostlease.Lease{sameSchema}, 93); got.Error() != refusal.Error() {
 		t.Fatalf("an upgrade refusal without older holders was rewritten: %v", got)
+	}
+}
+
+// An operator diagnostic names every blocking session, however many the
+// refusal lists: the operator ends sessions from this text alone.
+func TestOperatorDiagnosticPrintsEveryBlockingSession(t *testing.T) {
+	var holders []string
+	for i := 0; i < 14; i++ {
+		holders = append(holders, fmt.Sprintf(
+			"pid %d holds /data/concord/v11.27.4 at schema version 103, before migration 105 (worktree_occupancy_widen_worktree_id_bound), directory /data/concord/worktrees/example-project/work-%024d",
+			3000000+i, i))
+	}
+	refusal := fmt.Sprintf("store: upgrade: upgrade_blocked: a pending breaking migration waits for %d live session(s) that predate it: %s",
+		len(holders), strings.Join(holders, "; "))
+
+	var errOut bytes.Buffer
+	writeOperatorDiagnostic(&errOut, "upgrade", refusal)
+
+	got := errOut.String()
+	for i := range holders {
+		if !strings.Contains(got, holders[i]) {
+			t.Fatalf("diagnostic of %d bytes lost blocking session %d: %q", len(got), i, holders[i])
+		}
 	}
 }

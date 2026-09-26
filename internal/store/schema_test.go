@@ -85,6 +85,54 @@ func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
 	}
 }
 
+// A real claim_op_id embeds a sha256 event digest plus the claim operation
+// name and the project id, so the composite worktreeOccupancyID runs well
+// past 128 characters. Regression: migration 104 first shipped with a
+// reference-sized CHECK on worktree_id and failed on every populated store
+// (observed 2026-09-26 on the production host, where every legacy occupant
+// composes 154-275 characters).
+func TestMigrateV103ToV104AcceptsRealCompositeWorktreeIDs(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "concord-v103-long-ids.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:103] {
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-25T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimOpID := "sha256:963492a14f56777d32215075318bdae0c1b2d5d7d168acd7c0a6096a5322ef91:worktree-claim:pokeedge-backend"
+	composite := WorktreeSetID("work-5eecfb31a0e343e67a1bbcc4") + ":pokeedge-backend:" + claimOpID
+	if len(composite) <= 128 {
+		t.Fatalf("fixture composite length=%d, want a real claim shape longer than the reference bound", len(composite))
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts,occupant_session_ref) VALUES(?,?,?,?,?,?,?,'active','2026-09-24T10:00:00Z',NULL,'{}','ses-legacy')`,
+		WorktreeSetID("work-5eecfb31a0e343e67a1bbcc4"), "pokeedge-backend", claimOpID, "work/work-5eecfb31a0e343e67a1bbcc4", "a1", "/wt/a", "/repo"); err != nil {
+		t.Fatalf("seed v103 worktree entry with a real claim id: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("migration 104 rejected a real composite worktree_id (%d bytes): %v", len(composite), err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE worktree_id=?`, composite).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("occupancy rows for the composite id=%d err=%v, want the migrated legacy row", count, err)
+	}
+}
+
 func TestOpenAppliesSchemaManifest(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

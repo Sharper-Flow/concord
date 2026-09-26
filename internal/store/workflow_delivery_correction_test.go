@@ -243,7 +243,7 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 // TestTerminalDeliveryCorrectionAdmissionRefusals holds the named refusals:
 // incomplete fields, a mistargeted identity or version, a non-assertion
 // target, a live instance, a restated artifact, and an approval that is
-// missing, unconsumed, or unbound.
+// not recorded, not consumed, or unbound.
 func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 	t.Parallel()
 	const workID = "delivery-correction-refusals"
@@ -285,11 +285,17 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 			r.ApprovalRef = ""
 			return r
 		}, wantKind: KindInvalidPayload, wantPiece: "operator approval reference"},
-		{name: "unconsumed approval", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+		{name: "approval row is not recorded", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
 			r.ApprovalRef = deliveryCorrectionApprovalHold
-			r.EventID = "correction-" + workID + "-unconsumed"
+			r.EventID = "correction-" + workID + "-unrecorded"
 			return r
-		}, wantKind: KindApprovalRequired, wantPiece: "consumed operator approval"},
+		}, wantKind: KindApprovalRequired, wantPiece: "requires a consumed operator approval"},
+		{name: "approval is not consumed", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
+			r.ApprovalRef = "e0eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+			r.EventID = "correction-" + workID + "-unconsumed"
+			insertConsumedApprovalState(t, s, r.ApprovalRef, workID, version, 0)
+			return r
+		}, wantKind: KindApprovalRequired, wantPiece: "consumed one-use operator approval"},
 		{name: "unbound approval", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
 			r.ApprovalRef = "d0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			r.EventID = "correction-" + workID + "-unbound"

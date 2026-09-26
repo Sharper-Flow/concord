@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -160,7 +159,13 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if event.Actor == "" {
 		return newFailure(KindUnauthorized, "fold_event", "delivery correction has no authenticated actor", false, "append the correction through the approved operator route")
 	}
-	if err := authorizeWorkflowDeliveryCorrectionApprovalTx(ctx, tx, event, p); err != nil {
+	if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
+		ApprovalRef:     p.ApprovalRef,
+		OperationDigest: p.ApprovalOperationDigest,
+		ScopeJSON:       p.ApprovalScopeJSON,
+		VersionsJSON:    p.ApprovalVersionsJSON,
+		Consequence:     p.ApprovalConsequence,
+	}, deliveryCorrectionApprovalSubject); err != nil {
 		return err
 	}
 	targetSeq, targetPayloadVersion, targetArtifact, err := workflowDeliveryAssertionEventTx(ctx, tx, event.SubjectID, p.TargetEventID)
@@ -207,54 +212,6 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	// closed, the original event stays untouched, and the read surfaces derive
 	// the effective assertion from the log.
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
-}
-
-// authorizeWorkflowDeliveryCorrectionApprovalTx admits the correction only
-// through a recorded one-use operator approval bound to this exact operation
-// digest, scope, versions, consequence, and client. It runs inside the fold's
-// transaction, so a replay re-checks the same binding.
-func authorizeWorkflowDeliveryCorrectionApprovalTx(ctx context.Context, tx *sql.Tx, event Event, p workflowDeliveryCorrectedPayload) error {
-	var actorClass, agentRef, actorClientRef string
-	if err := tx.QueryRowContext(ctx, `SELECT actor_class,agent_ref,client_ref FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass, &agentRef, &actorClientRef); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindUnauthorized, "fold_event", "delivery correction requires a recorded operator approval actor", false, "submit the correction through the approved operator route")
-		}
-		return workflowProjectionError(err, "cannot read the delivery correction actor")
-	}
-	if actorClass != string(ActorOperator) || agentRef != "approval:"+p.ApprovalRef {
-		return newFailure(KindUnauthorized, "fold_event", "delivery correction requires a recorded operator approval actor", false, "submit the correction through the approved operator route")
-	}
-	var usedCount, maxUses int
-	var approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence, approvalClientRef string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_digest,scope_json,version_json,consequence,client_ref,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, p.ApprovalRef).Scan(&approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &approvalClientRef, &usedCount, &maxUses); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindApprovalRequired, "fold_event", "delivery correction requires a consumed operator approval", false, "request the core operator approval for this correction")
-		}
-		return workflowProjectionError(err, "cannot read the delivery correction approval")
-	}
-	if usedCount != 1 || maxUses != 1 {
-		return newFailure(KindApprovalRequired, "fold_event", "delivery correction requires a consumed one-use operator approval", false, "request a fresh approval for this correction")
-	}
-	mismatches := make([]string, 0, 5)
-	if !validDigest(p.ApprovalOperationDigest) || p.ApprovalOperationDigest != approvalDigest {
-		mismatches = append(mismatches, "digest")
-	}
-	if p.ApprovalScopeJSON != approvalScopeJSON {
-		mismatches = append(mismatches, "scope")
-	}
-	if p.ApprovalVersionsJSON != approvalVersionsJSON {
-		mismatches = append(mismatches, "versions")
-	}
-	if p.ApprovalConsequence != approvalConsequence {
-		mismatches = append(mismatches, "consequence")
-	}
-	if approvalClientRef != actorClientRef {
-		mismatches = append(mismatches, "client")
-	}
-	if len(mismatches) != 0 {
-		return newFailure(KindUnauthorized, "fold_event", "delivery correction approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request a fresh approval for the exact correction operation")
-	}
-	return nil
 }
 
 // workflowDeliveryAssertionEventTx reads one recorded delivery assertion by

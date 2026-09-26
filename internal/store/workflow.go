@@ -996,7 +996,13 @@ func validateWorkflowContractSupersessionPredecessors(ctx context.Context, tx *s
 		return nil, newFailure(KindInvariantViolation, "fold_event", "contract supersession predecessor list does not match active workflow contracts", false, "rebuild the workflow contract projection or supply the exact duplicate recovery set")
 	}
 	if activeCount > 1 && !isWorkflowReplay(ctx) {
-		if err := authorizeWorkflowContractRecoveryTx(ctx, tx, event, p); err != nil {
+		if err := authorizeWorkflowOperatorApprovalTx(ctx, tx, event, workflowApprovalBinding{
+			ApprovalRef:     p.ApprovalRef,
+			OperationDigest: p.ApprovalOperationDigest,
+			ScopeJSON:       p.ApprovalScopeJSON,
+			VersionsJSON:    p.ApprovalVersionsJSON,
+			Consequence:     p.ApprovalConsequence,
+		}, contractRecoveryApprovalSubject); err != nil {
 			return nil, err
 		}
 	}
@@ -1188,57 +1194,6 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workI
 		return newFailure(KindInvariantViolation, "fold_event", "complete-step correction supersession does not satisfy its admission conditions", false, "rebuild the workflow projection from the event log")
 	}
 	return returnWorkflowInstanceFromCompleteStepTx(ctx, tx, workID)
-}
-
-// authorizeWorkflowContractRecoveryTx admits a duplicate-contract supersession
-// recovery only through a recorded one-use operator approval bound to this
-// exact operation digest, scope, predecessor versions, consequence, and
-// client. It runs inside the fold's transaction; every refusal keeps the
-// recovery on the approved operator route.
-func authorizeWorkflowContractRecoveryTx(ctx context.Context, tx *sql.Tx, event Event, p workflowContractSupersededPayload) error {
-	var actorClass ActorClass
-	var agentRef, actorClientRef string
-	if err := tx.QueryRowContext(ctx, `SELECT actor_class,agent_ref,client_ref FROM workflow_actors WHERE actor_ref=?`, event.Actor).Scan(&actorClass, &agentRef, &actorClientRef); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery requires a recorded operator approval actor", false, "submit the recovery through the approved operator route")
-		}
-		return workflowProjectionError(err, "cannot read the contract recovery actor")
-	}
-	approvalRef := strings.TrimPrefix(agentRef, "approval:")
-	if actorClass != ActorOperator || approvalRef == agentRef || p.ApprovalRef == "" || p.ApprovalRef != approvalRef {
-		return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery requires a recorded operator approval actor", false, "submit the recovery through the approved operator route")
-	}
-	var usedCount, maxUses int
-	var approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence, approvalClientRef string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_digest,scope_json,version_json,consequence,client_ref,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, p.ApprovalRef).Scan(&approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &approvalClientRef, &usedCount, &maxUses); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindApprovalRequired, "fold_event", "duplicate contract recovery requires a consumed operator approval", false, "submit the recovery through the approved operator route")
-		}
-		return workflowProjectionError(err, "cannot read the contract recovery approval")
-	}
-	if usedCount != 1 || maxUses != 1 {
-		return newFailure(KindApprovalRequired, "fold_event", "duplicate contract recovery requires a consumed operator approval", false, "submit the recovery through the approved operator route")
-	}
-	mismatches := make([]string, 0, 5)
-	if !validDigest(p.ApprovalOperationDigest) || p.ApprovalOperationDigest != approvalDigest {
-		mismatches = append(mismatches, "digest")
-	}
-	if p.ApprovalScopeJSON == "" || p.ApprovalScopeJSON != approvalScopeJSON {
-		mismatches = append(mismatches, "scope")
-	}
-	if p.ApprovalVersionsJSON == "" || p.ApprovalVersionsJSON != approvalVersionsJSON {
-		mismatches = append(mismatches, "versions")
-	}
-	if p.ApprovalConsequence == "" || p.ApprovalConsequence != approvalConsequence {
-		mismatches = append(mismatches, "consequence")
-	}
-	if approvalClientRef != actorClientRef {
-		mismatches = append(mismatches, "client")
-	}
-	if len(mismatches) != 0 {
-		return newFailure(KindUnauthorized, "fold_event", "duplicate contract recovery approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request a fresh approval for the exact recovery operation")
-	}
-	return nil
 }
 
 func appendWorkflowContractImpactNoticesTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowContractSupersededPayload, version int64) error {

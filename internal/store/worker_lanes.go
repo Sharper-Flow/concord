@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
 const (
@@ -143,11 +145,10 @@ type WorkerCompletedPayload struct {
 }
 
 type WorkerFailedPayload struct {
-	AttemptID                  string              `json:"attempt_id"`
-	ReadbackModel              string              `json:"readback_model"`
-	FailureKind                string              `json:"failure_kind"`
-	Detail                     string              `json:"detail"`
-	ObservedSessionDirectories *[]SessionDirectory `json:"observed_session_directories,omitempty"`
+	AttemptID     string `json:"attempt_id"`
+	ReadbackModel string `json:"readback_model"`
+	FailureKind   string `json:"failure_kind"`
+	Detail        string `json:"detail"`
 }
 
 // WorkerHostProvenance is the typed record of host prompt-injection surfaces
@@ -280,9 +281,6 @@ func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
 	readbackValid := workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReadbackModel == "" && (modelReadbackFailureKind(payload.FailureKind) || payload.FailureKind == WorkerFailureAbandoned)
 	if payload.AttemptID == "" || !readbackValid || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
 		return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
-	}
-	if payload.FailureKind == WorkerFailureAbandoned && payload.ObservedSessionDirectories == nil {
-		return invalidWorkerPayload("abandoned worker failure requires the host session observation")
 	}
 	return nil
 }
@@ -772,7 +770,7 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	if payload.FailureKind == WorkerFailureAbandoned {
-		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, *payload.ObservedSessionDirectories); err != nil {
+		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}
 	}
@@ -794,30 +792,69 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 // validateNoLiveWorkerSession is the host-observation gate for an abandoned
-// attempt. The host owns session liveness and supplies the current directories;
-// the core owns the active worktree paths and decides whether one observation
-// still holds the attempt's worktree. An absent observation is rejected by the
-// payload validator, so a coordinator cannot turn an unreadable host into an
-// empty list.
-func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string, observed []SessionDirectory) error {
-	for _, session := range observed {
-		if session.SessionRef == "" || session.Directory == "" {
-			return invalidWorkerPayload("abandoned worker failure has an invalid host session observation")
-		}
-	}
-	entries, err := worktreeEntriesCore(ctx, q, workID)
+// attempt (CD-0178 D3). The durable projection owns occupancy: a worktree's
+// recorded rows carry the host process identity, and the kernel proves
+// whether a process is still alive. A live row blocks abandonment; a dead
+// row or no row at all admits the close. The store never reaches for the
+// host session list, so a session running in another repository cannot
+// strand this attempt through observation alone.
+func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) error {
+	rows, err := q.QueryContext(ctx, `
+		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start
+		  FROM worktree_entries e
+		  JOIN worktree_occupancy o ON o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
+		 WHERE e.set_id=? AND e.state='active'`, WorktreeSetID(workID))
 	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_fail", "cannot read worktree occupancy", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	type pending struct {
+		setID, projectID, claimOpID, sessionRef string
+		hasIdentity                             bool
+		hostPID                                 *int64
+		hostPIDStart                            *uint64
+	}
+	var actives []pending
+	for rows.Next() {
+		var p pending
+		var hostPID sql.NullInt64
+		var hostPIDStart sql.NullInt64
+		var hasIdentity int
+		if err := rows.Scan(&p.setID, &p.projectID, &p.claimOpID, &p.sessionRef, &hasIdentity, &hostPID, &hostPIDStart); err != nil {
+			return err
+		}
+		p.hasIdentity = hasIdentity == 1
+		if hostPID.Valid {
+			v := hostPID.Int64
+			p.hostPID = &v
+		}
+		if hostPIDStart.Valid {
+			v, err := occupancyPIDStart(hostPIDStart.Int64)
+			if err != nil {
+				return err
+			}
+			p.hostPIDStart = &v
+		}
+		actives = append(actives, p)
+	}
+	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if entry.State != worktreeEntryActive {
+	for _, p := range actives {
+		if !p.hasIdentity {
+			// Legacy row without process identity: the kernel cannot prove
+			// liveness. The abandon path cannot release it; refuse.
+			return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
+				fmt.Sprintf("session %s holds a legacy occupancy row on the worker attempt worktree; process liveness cannot prove it ended", p.sessionRef),
+				false, "session_vacate the legacy occupant before retrying abandonment")
+		}
+		start, err := hostlease.ProcessStart(int(*p.hostPID))
+		if err != nil || start != *p.hostPIDStart {
 			continue
 		}
-		if occupant, occupied := occupyingSession(entry.Path, observed); occupied {
-			return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
-				fmt.Sprintf("session %s still holds the worker attempt worktree %s", occupant.SessionRef, entry.Path),
-				false, "end or move the live session, then retry the abandonment")
-		}
+		return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
+			fmt.Sprintf("session %s still holds the worker attempt worktree; its host process %d is still live", p.sessionRef, *p.hostPID),
+			false, "end or move the live session, then retry the abandonment")
 	}
 	return nil
 }

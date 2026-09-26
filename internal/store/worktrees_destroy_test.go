@@ -33,8 +33,7 @@ func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
 
 	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-1", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-1", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,8 +50,7 @@ func TestDestroyRefusesNonTerminalWithoutApproval(t *testing.T) {
 	s, _ := realGitTiersFixture(t)
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 3, PrincipalRef: "principal-1", RequestID: "destroy-nt", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		ExpectedVersion: 3, PrincipalRef: "principal-1", RequestID: "destroy-nt", Now: time.Unix(30, 0).UTC()})
 	if err == nil || err.(*Failure).Kind != KindInvalidTransition {
 		t.Fatalf("destroy err=%v, want invalid_transition", err)
 	}
@@ -72,8 +70,7 @@ func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
 	// a clean merged tree passes them.
 	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 3, OperatorApprovalRef: "approval:destroy-nt", PrincipalRef: "principal-1", RequestID: "destroy-nt-2", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		ExpectedVersion: 3, OperatorApprovalRef: "approval:destroy-nt", PrincipalRef: "principal-1", RequestID: "destroy-nt-2", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +91,7 @@ func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 	}
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-dirty", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-dirty", Now: time.Unix(30, 0).UTC()})
 	if err == nil || err.(*Failure).Kind != KindInvalidOperation {
 		t.Fatalf("destroy err=%v, want invalid_operation", err)
 	}
@@ -114,8 +110,7 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, OperatorApprovalRef: "approval:destroy-force", Destructive: true,
-		PrincipalRef: "principal-1", RequestID: "destroy-force", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		PrincipalRef: "principal-1", RequestID: "destroy-force", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,8 +129,7 @@ func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, Destructive: true,
-		PrincipalRef: "principal-1", RequestID: "destroy-unapproved", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		PrincipalRef: "principal-1", RequestID: "destroy-unapproved", Now: time.Unix(30, 0).UTC()})
 	if err == nil || err.(*Failure).Kind != KindInvalidOperation {
 		t.Fatalf("destroy err=%v, want the unapproved-destructive refusal", err)
 	}
@@ -153,8 +147,7 @@ func TestDestroyRefusesLocalOnlyCommits(t *testing.T) {
 	gitRunStore(t, worktreePath, "commit", "-m", "unmerged")
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
-		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-local-only", Now: time.Unix(30, 0).UTC(), ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-local-only", Now: time.Unix(30, 0).UTC()})
 	if err == nil || !strings.Contains(err.(*Failure).Detail, "not reachable from remote refs") {
 		t.Fatalf("destroy err=%v, want the local-only refusal", err)
 	}

@@ -21,6 +21,70 @@ func readSchemaManifestVersion(ctx context.Context, db *sql.DB) (int, error) {
 	return int(version.Int64), nil
 }
 
+// Migration 104 replaces the single occupant_session_ref column with the
+// worktree_occupancy table (CD-0178 D3). Every recorded occupant migrates as
+// a legacy row with no process identity, so liveness never releases what was
+// written before this rule; the column the table replaces is dropped.
+func TestMigrateV103ToV104BackfillsWorktreeOccupancy(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "concord-v103.db")
+	ctx := context.Background()
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations[:103] {
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("migration %d: %v", migration.Version, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-25T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One claimed entry carries a recorded occupant with a verified time; a
+	// second entry carries none. Only the first backfills a row.
+	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts,occupant_session_ref) VALUES
+		('set-work-a','project-a','claim-a','work/a','a1','/wt/a','/repo','active','2026-09-24T10:00:00Z',NULL,'{}','ses-legacy'),
+		('set-work-b','project-b','claim-b','work/b','b1','/wt/b','/repo','active','2026-09-24T11:00:00Z',NULL,'{}','')`); err != nil {
+		t.Fatalf("seed v103 worktree entries: %v", err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy`).Scan(&count); err != nil {
+		t.Fatalf("read backfilled occupancy: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("backfilled occupancy rows=%d, want one legacy row for the recorded occupant", count)
+	}
+	var sessionRef, recordedAt string
+	var hostPID, hostPIDStart sql.NullInt64
+	var hasIdentity int
+	if err := db.QueryRowContext(ctx, `SELECT session_ref,recorded_at,host_pid,host_pid_start,has_process_identity FROM worktree_occupancy WHERE worktree_id='set-work-a:project-a:claim-a'`).Scan(&sessionRef, &recordedAt, &hostPID, &hostPIDStart, &hasIdentity); err != nil {
+		t.Fatalf("legacy row missing after migration 104: %v", err)
+	}
+	if sessionRef != "ses-legacy" || recordedAt != "2026-09-24T10:00:00Z" || hostPID.Valid || hostPIDStart.Valid || hasIdentity != 0 {
+		t.Fatalf("legacy row = %q/%q/%v/%v/%d, want the migrated session at its verified time with no process identity", sessionRef, recordedAt, hostPID, hostPIDStart, hasIdentity)
+	}
+	var column int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('worktree_entries') WHERE name='occupant_session_ref'`).Scan(&column); err != nil || column != 0 {
+		t.Fatalf("occupant_session_ref column count=%d err=%v, want the column dropped", column, err)
+	}
+	// The table is fold-only: a direct INSERT is refused with the guard off.
+	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,has_process_identity) VALUES('set-work-x:project-x:claim-x','ses-direct','2026-09-25T00:00:00Z',0)`); err == nil {
+		t.Fatal("direct INSERT bypassed the fold guard on worktree_occupancy")
+	}
+}
+
 func TestOpenAppliesSchemaManifest(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -2304,7 +2368,15 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 		{attested, preserved, "a recorded occupant is authority the migration must not overwrite"},
 	} {
 		var got string
-		if err := db.QueryRowContext(ctx, `SELECT occupant_session_ref FROM worktree_entries WHERE set_id=?`, WorktreeSetID(want.workID)).Scan(&got); err != nil {
+		// Migration 89 backfills occupant_session_ref at v89, and migration
+		// 104 copies each value into worktree_occupancy before it drops the
+		// column, so the migrated result is read from worktree_occupancy.
+		err := db.QueryRowContext(ctx, `
+			SELECT COALESCE(o.session_ref, '')
+			  FROM worktree_entries e
+			  LEFT JOIN worktree_occupancy o ON o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
+			 WHERE e.set_id=?`, WorktreeSetID(want.workID)).Scan(&got)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if got != want.occupant {

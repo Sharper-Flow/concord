@@ -11478,29 +11478,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 1,
           "type": "integer"
         },
-        "observed_session_directories": {
-          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "directory": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              },
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "session_ref",
-              "directory"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
         "product_id": {
           "$ref": "#/$defs/id"
         },
@@ -11572,29 +11549,6 @@ const GeneratedPayloadSchemaDocument = `{
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
-        "observed_session_directories": {
-          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "directory": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              },
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "session_ref",
-              "directory"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
@@ -11621,29 +11575,6 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
-        },
-        "observed_session_directories": {
-          "description": "Accepted for compatibility. Worktree removal ignores this host observation and uses the recorded Concord occupancy projection.",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "directory": {
-                "maxLength": 4096,
-                "minLength": 1,
-                "type": "string"
-              },
-              "session_ref": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "required": [
-              "session_ref",
-              "directory"
-            ],
-            "type": "object"
-          },
-          "maxItems": 100,
-          "type": "array"
         },
         "project_id": {
           "$ref": "#/$defs/id"

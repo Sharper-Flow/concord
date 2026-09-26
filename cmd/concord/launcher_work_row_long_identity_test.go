@@ -36,7 +36,7 @@ func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 	seedLauncherCorpusWork(t, s, longID, "scope-long", "task", "Long identity work", "in_progress", 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 	corpusExec(t, s, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
 		longID, "uuid-long-key", longKey, "https://linear.app/example/issue/long-key", "confirmed", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
-	corpusExec(t, s, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts,occupant_session_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+	corpusExec(t, s, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		store.WorktreeSetID(longID), "scope-long-project", "claim-op-1", "work/long-identity", "0000000000000000000000000000000000000000", "/wt/long-identity", "repo-1", "active", "2026-08-01T00:00:00Z", "{}", "session-long")
 
 	port := storeport.New(s)

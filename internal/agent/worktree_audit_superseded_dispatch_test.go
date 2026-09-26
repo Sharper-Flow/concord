@@ -79,7 +79,7 @@ func TestWorktreeAuditReclaimReturnsSupersededRowsAndReportOnly(t *testing.T) {
 	gitRun(t, repoRoot, "worktree", "remove", filepath.Join(root, "work-1"))
 
 	response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-superseded", "observed_session_directories": []map[string]any{},
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-superseded",
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)
@@ -150,7 +150,7 @@ func TestWorktreeAuditReclaimResultCarriesWorkPins(t *testing.T) {
 	supersedeWork(t, s, "work-2", "work-1", version)
 
 	response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
-		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-work-pins", "observed_session_directories": []map[string]any{},
+		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-reclaim-work-pins",
 	})
 	if response.Outcome != OutcomeOK {
 		t.Fatalf("audit reclaim response=%+v err=%+v", response, response.Error)

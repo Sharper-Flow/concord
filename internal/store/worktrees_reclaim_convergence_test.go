@@ -79,7 +79,6 @@ func TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent(t *testing.T) {
 	req := WorktreeReclaimRequest{
 		WorkID: "work-unfolded", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "converge-terminal",
 		ExpectedVersion: 4, Now: time.Unix(40, 0).UTC(), Runner: git, RequireTerminal: true,
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
 	}
 	entry, err := s.ReclaimWorktree(ctx, req)
 	if err != nil {
@@ -157,7 +156,6 @@ func TestReclaimWorktreeConvergenceAdvancesPendingStoredVersion(t *testing.T) {
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: "work-pending", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "converge-unstarted",
 		ExpectedVersion: 3, Now: time.Unix(40, 0).UTC(), Runner: git, RequireUnstarted: true, DefaultRef: "origin/main",
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +196,6 @@ func TestReclaimWorktreeKeepsRefusingDifferentClaimGeneration(t *testing.T) {
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: "work-othergen", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "converge-othergen",
 		ExpectedVersion: 4, Now: time.Unix(40, 0).UTC(), Runner: git, RequireTerminal: true,
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
 	})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindIdempotencyConflict {
@@ -221,13 +218,12 @@ func TestReclaimWorktreeKeepsRefusingDifferentKind(t *testing.T) {
 	insertRawReclaimEvent(t, s, "work-otherkind",
 		reclaimedFixtureEventID("work-otherkind", "wt-work-otherkind"),
 		"work.worktree_occupancy_released", "principal:operator",
-		`{"set_id":"wts:work-otherkind","project_id":"project-w","claim_op_id":"wt-work-otherkind","occupant_session_ref":"ses-1"}`,
+		`{"set_id":"wts:work-otherkind","project_id":"project-w","claim_op_id":"wt-work-otherkind","session_ref":"ses-1"}`,
 		time.Unix(35, 0).UTC())
 
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 		WorkID: "work-otherkind", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "converge-otherkind",
 		ExpectedVersion: 4, Now: time.Unix(40, 0).UTC(), Runner: git, RequireTerminal: true,
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
 	})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindIdempotencyConflict {
@@ -256,7 +252,6 @@ func TestWorktreeAuditReclaimConvergesUnfoldedReclaimEvent(t *testing.T) {
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{
 		ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1",
 		RequestID: "audit-converge", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100,
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
 	})
 	if err != nil {
 		t.Fatal(err)

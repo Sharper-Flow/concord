@@ -268,7 +268,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].ProjectID != "project-1" || entries[0].State != "active" || entries[0].Path != worktree1 || entries[0].OccupantSessionRef != "" {
+	if len(entries) != 1 || entries[0].ProjectID != "project-1" || entries[0].State != "active" || entries[0].Path != worktree1 {
 		t.Fatalf("work-1 entries=%+v, want the original project-1 claim preserved active and unoccupied", entries)
 	}
 

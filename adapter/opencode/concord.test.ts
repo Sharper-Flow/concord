@@ -1704,7 +1704,13 @@ test("work start resume records the verified landing naming the session, work it
   expect(result.outcome).toBe("ok")
   const landings = calls.filter(({ argv }) => argv[1] === "claim-landing")
   expect(landings).toHaveLength(1)
-  expect(JSON.parse(landings[0].input)).toEqual({ work_id: "work-1", session_ref: "session-1", landed_directory: WORKTREE })
+  // The landing payload carries the adapter's process pid; the core reads
+  // the process start time from the kernel.
+  const landingInput = JSON.parse(landings[0].input)
+  expect(landingInput.work_id).toBe("work-1")
+  expect(landingInput.session_ref).toBe("session-1")
+  expect(landingInput.landed_directory).toBe(WORKTREE)
+  expect(landingInput.host_pid).toBe(process.pid)
 
   // A move whose readback names another directory records no landing.
   bindRetargetRoute({ landedDirectory: "/somewhere-else" })
@@ -2072,7 +2078,7 @@ test("work start leaves a resumable claim when the move is refused", async () =>
 
 // Worktree occupancy is recorded when Concord claims the worktree. Removal
 // does not ask the host for a second, non-authoritative session population.
-const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean } = {}) => {
+const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; unbound?: boolean; onListRequest?: () => void } = {}) => {
   if (options.unbound) {
     hostControlPlane().bind(undefined)
     return
@@ -2082,6 +2088,7 @@ const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; u
     get: async ({ url }) => {
       if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
       if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
+      options.onListRequest?.()
       const status = options.listStatus ?? 200
       if (status !== 200) return { response: new Response("host is unwell", { status }) }
       return { data: options.sessions ?? [], response: new Response(null, { status }) }
@@ -2108,21 +2115,27 @@ const auditOk = () => coreEnvelope("concord_work_transition", "worktree_audit_re
   next_valid_intents: [],
 })
 
+// The removal verbs share one report path, and no removal contract input
+// carries a host session observation (CD-0178 D3).
 test("worktree removal operations derive from contract inputs", () => {
-  const expected = contractOperations
+  const observed = contractOperations
     .filter((operation: any) => operation.tool === "concord_work_transition" && operation.input_schema.startsWith("#/schemas/"))
     .filter((operation: any) => Object.hasOwn((payloadSchemas as any)[operation.input_schema.slice("#/schemas/".length)]?.properties ?? {}, "observed_session_directories"))
     .map((operation: any) => operation.id.slice("concord_work_transition.".length))
-  expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(expected.sort())
+  expect(observed).toEqual([])
   expect([...adapter.WORKTREE_REMOVAL_OPERATIONS].sort()).toEqual(["worktree_audit_reclaim", "worktree_destroy", "worktree_reclaim"])
 })
 
-test("a worktree removal attaches the host session observation the caller omitted", async () => {
+// The durable worktree_occupancy projection and the kernel's process
+// liveness own the removal gate (CD-0178 D3). A removal input carries no session
+// observation, and the adapter makes no host session-list round-trip.
+test("a worktree removal attaches no host session observation", async () => {
   for (const operation of ["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"]) {
-    bindSessionRoutes({ sessions: [
-      { id: "ses_alpha", directory: "/worktrees/work-1" },
-      { id: "ses_beta", directory: "/elsewhere" },
-    ] })
+    let hostSessionListCalls = 0
+    bindSessionRoutes({
+      sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }, { id: "ses_beta", directory: "/elsewhere" }],
+      onListRequest: () => { hostSessionListCalls++ },
+    })
     const seen: string[] = []
     adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
       seen.push(input)
@@ -2131,13 +2144,13 @@ test("a worktree removal attaches the host session observation the caller omitte
     const request = operation === "worktree_audit_reclaim" ? auditRemovalRequest() : removalRequest(operation)
     const envelope: any = await rawHostResult(adapter.work_transition.execute(request, contextFor()))
     expect(envelope.outcome, operation).toBe("ok")
-    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toEqual([
-      { session_ref: "ses_alpha", directory: "/worktrees/work-1" },
-      { session_ref: "ses_beta", directory: "/elsewhere" },
-    ])
+    expect(JSON.parse(seen[0]).input.observed_session_directories, operation).toBeUndefined()
+    expect(hostSessionListCalls, operation).toBe(0)
   }
 })
 
+// The adapter neither gathers nor strips a session observation. The transport stays transparent, and the
+// core's generated contract owns rejecting the unknown field.
 test("a caller-supplied session observation passes through untouched", async () => {
   bindSessionRoutes({ sessions: [{ id: "ses_alpha", directory: "/worktrees/work-1" }] })
   let seen = ""
@@ -2164,7 +2177,7 @@ test("audit reclaim refuses an occupied worktree through the core", async () => 
   const envelope: any = await rawHostResult(adapter.work_transition.execute(auditRemovalRequest(), contextFor()))
   expect(envelope.outcome).toBe("error")
   expect(envelope.error.kind).toBe("unauthorized")
-  expect(JSON.parse(seen).input.observed_session_directories).toEqual([{ session_ref: "ses_alpha", directory: "/worktrees/work-1" }])
+  expect(JSON.parse(seen).input.observed_session_directories).toBeUndefined()
 })
 
 test("a worktree removal does not depend on the host session list", async () => {
@@ -2287,7 +2300,6 @@ test("the host-owned tool description publishes the native dispatch route", () =
 })
 
 test("worker_abandon routes through the signed worker-abandon command", async () => {
-  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const calls: Array<{ argv: string[]; input: any }> = []
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
@@ -2306,7 +2318,9 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
   expect(calls[0].argv).toEqual(["concord", "worker-abandon"])
   expect(calls[0].input.work_id).toBe("work-1")
   expect(calls[0].input.attempt_id).toBe("attempt-1")
-  expect(calls[0].input.observed_session_directories).toEqual([{ session_ref: "ses_other", directory: "/elsewhere" }])
+  // worker-fail carries no host session observation; the core reads process
+  // liveness from worktree_occupancy.
+  expect(calls[0].input.observed_session_directories).toBeUndefined()
   expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
   expect(typeof calls[0].input.assertion.signature).toBe("string")
   expect(calls.map(({ argv }) => argv[1])).toEqual(["worker-abandon", "project-resolve", "invoke"])

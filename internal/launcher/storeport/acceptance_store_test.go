@@ -46,8 +46,10 @@ func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 		('scope-ref','proj-a1','primary'),('other-live','proj-b','primary');
 		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES
 		('scope-live','uuid-con-153','CON-153','https://linear.app/example/issue/CON-153','confirmed','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
-		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts,occupant_session_ref) VALUES
-		('`+store.WorktreeSetID("scope-live")+`','proj-a1','claim-op-1','work/scope-live','0000000000000000000000000000000000000000','/wt/scope-live','repo-1','active','2026-08-01T00:00:00Z','{}','session-1');
+		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES
+		('`+store.WorktreeSetID("scope-live")+`','proj-a1','claim-op-1','work/scope-live','0000000000000000000000000000000000000000','/wt/scope-live','repo-1','active','2026-08-01T00:00:00Z','{}');
+		INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES
+		('`+store.WorktreeSetID("scope-live")+`:proj-a1:claim-op-1','session-1','2026-08-01T00:00:00Z',NULL,NULL,0);
 		INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES
 		('loc-a1','proj-a1','canonical_path','/src/proj-a1','/src/proj-a1','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 	`); err != nil {
@@ -108,7 +110,7 @@ func TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy(t *testing.T) {
 	seedLauncherStoreFixture(t, s)
 	port := New(s)
 	port.SessionProbe = func(_ context.Context, entry store.WorktreeEntry) bool {
-		return entry.OccupantSessionRef == "session-1"
+		return entry.State == "active" && entry.Path != ""
 	}
 	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-a", Limit: 100, Section: launcher.SectionRanked})
 	if err != nil {

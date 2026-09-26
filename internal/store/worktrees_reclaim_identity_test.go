@@ -23,8 +23,7 @@ func TestReclaimWorktreeConvergesRecordedReclaimForLaterOperation(t *testing.T) 
 
 	_, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "later-reclaim", ExpectedVersion: 3,
-		Now: time.Unix(30, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	})
+		Now: time.Unix(30, 0).UTC(), Runner: git})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +41,7 @@ func TestReclaimWorktreeRecreatedDirectoryCanBeReclaimedByLaterOperation(t *test
 	}
 	reclaim := WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "first-reclaim", ExpectedVersion: 3,
-		Now: time.Unix(20, 0).UTC(), Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: "project-w",
-	}
+		Now: time.Unix(20, 0).UTC(), Runner: git}
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +81,10 @@ func TestClaimIncarnationEventIDScoping(t *testing.T) {
 	if got := reclaimedEventID("work-w", "project-w", "wt-op-1", 2); got != "work-w:project-w:wt-op-1:worktree-reclaimed:i2" {
 		t.Fatalf("reopened incarnation reclaim identity=%q", got)
 	}
-	if got := occupancyReleasedEventID("work-w", "project-w", "wt-op-1", 0); got != "work-w:project-w:wt-op-1:worktree-occupancy-released" {
+	if got := occupancyReleasedEventID("work-w", "project-w", "wt-op-1", "ses-1", 0); got != "work-w:project-w:wt-op-1:worktree-occupancy-released:ses-1" {
 		t.Fatalf("first incarnation release identity=%q", got)
 	}
-	if got := occupancyReleasedEventID("work-w", "project-w", "wt-op-1", 3); got != "work-w:project-w:wt-op-1:worktree-occupancy-released:i3" {
+	if got := occupancyReleasedEventID("work-w", "project-w", "wt-op-1", "ses-1", 3); got != "work-w:project-w:wt-op-1:worktree-occupancy-released:ses-1:i3" {
 		t.Fatalf("reopened incarnation release identity=%q", got)
 	}
 }

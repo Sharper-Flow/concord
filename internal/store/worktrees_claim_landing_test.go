@@ -76,10 +76,10 @@ func TestClaimWorktreeAdmitsSiblingProjectOccupancy(t *testing.T) {
 	}
 
 	byProject := worktreeEntriesByProject(t, s, "work-w")
-	if byProject["project-w"].State != worktreeEntryActive || byProject["project-w"].OccupantSessionRef != "ses-1" {
+	if byProject["project-w"].State != worktreeEntryActive || worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", byProject["project-w"].ClaimOpID) != "ses-1" {
 		t.Fatalf("source entry=%+v, want active and still occupied by ses-1", byProject["project-w"])
 	}
-	if byProject["project-b"].State != worktreeEntryActive || byProject["project-b"].OccupantSessionRef != "ses-1" {
+	if byProject["project-b"].State != worktreeEntryActive || worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-b", byProject["project-b"].ClaimOpID) != "ses-1" {
 		t.Fatalf("sibling entry=%+v, want active and occupied by ses-1", byProject["project-b"])
 	}
 }
@@ -119,7 +119,7 @@ func TestClaimWorktreeStillRefusesForeignWorkOccupancy(t *testing.T) {
 		t.Fatalf("recovery=%q, want the remedy to name session_vacate", failure.RecoveryAction)
 	}
 	byProject := worktreeEntriesByProject(t, s, "work-w")
-	if byProject["project-w"].OccupantSessionRef != "ses-1" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", byProject["project-w"].ClaimOpID) != "ses-1" {
 		t.Fatalf("source entry=%+v, want the refused claim to leave the occupancy recorded", byProject["project-w"])
 	}
 }

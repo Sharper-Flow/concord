@@ -152,6 +152,14 @@ front of one they already made by asking. Work that is not starting now — a
 future maybe, a note for later — belongs to the intake posture, not to this
 one. Ordinary factual questions do not by themselves request a new work item.
 
+One coordinator session per repository (CD-0178 D2). When a work item needs
+a second Project in another git repository, refuse a single-session move
+across the boundary. The core returns `cross_repository_claim` because the
+host already refuses the move, and the only route is a second coordinator
+session in the target repository. Two Projects in one repository keep the
+within-repository move; otherwise stop, name the repository split, and let
+the operator start the second session.
+
 Ask one material question per turn, with the context and concise options it
 needs. Use the host question format.
 

@@ -28,13 +28,28 @@ func ResolveSessionVacateTargetTx(ctx context.Context, transaction *Transaction,
 		return target, newFailure(KindInvalidOperation, "session_vacate", "vacate requires the resolved Project and linked worktree", false, "run the operation from a linked worktree")
 	}
 	sourceDirectory = filepath.Clean(sourceDirectory)
+	// The source row's session_ref comes from worktree_occupancy (CD-0178
+	// D3); the per-session filter narrows the read to the calling session.
 	err = tx.QueryRowContext(ctx, `
-		SELECT c.work_id, c.project_id, e.path, pl.normalized_value, e.occupant_session_ref
+		SELECT c.work_id, c.project_id, e.path, pl.normalized_value, COALESCE((
+			SELECT o.session_ref
+			  FROM worktree_occupancy o
+			 WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
+			 ORDER BY o.recorded_at LIMIT 1
+		), '')
 		FROM worktree_entries e
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		JOIN project_locators pl ON pl.project_id=c.project_id AND pl.kind='canonical_path'
 		WHERE c.project_id=? AND e.path=? AND e.state='active'
-		  AND (? = '' OR e.occupant_session_ref = '' OR e.occupant_session_ref = ?)
+		  AND (? = '' OR NOT EXISTS (
+			SELECT 1 FROM worktree_occupancy o2
+			 WHERE o2.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
+		  )
+		  OR EXISTS (
+			SELECT 1 FROM worktree_occupancy o3
+			 WHERE o3.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
+			   AND o3.session_ref = ?)
+		  )
 		ORDER BY pl.locator_id
 		LIMIT 1`, projectID, sourceDirectory, firstSessionRef(sessionRef), firstSessionRef(sessionRef)).Scan(&target.WorkID, &target.ProjectID, &target.SourceDirectory, &target.DestinationDirectory, &target.OccupantSessionRef)
 	if err == sql.ErrNoRows {

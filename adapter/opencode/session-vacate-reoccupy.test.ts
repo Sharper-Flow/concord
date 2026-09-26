@@ -264,7 +264,10 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
       parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
     const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? ORDER BY seq", workID)
-    const worktreeEntries = () => dbRows(dbPath, "SELECT c.project_id AS project_id, e.path AS path, e.state AS state, e.occupant_session_ref AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? ORDER BY c.project_id", workID)
+    // CD-0178 D3: occupancy lives in worktree_occupancy, one row per
+    // session. This flow holds at most one occupant at a time, so the
+    // projection reads back as the single recorded session ref or empty.
+    const worktreeEntries = () => dbRows(dbPath, "SELECT c.project_id AS project_id, e.path AS path, e.state AS state, COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? ORDER BY c.project_id", workID)
 
     // One work item holds membership in both Projects from capture, and no
     // worktree. The first work_start resume durably creates the primary

@@ -4,6 +4,6 @@
     "worker-dispatch": ["event_id", "work_id", "attempt_id", "lane_id", "lane_version", "lane_digest", "packet_schema_version", "report_schema_version", "packet_digest"],
     "worker-complete": ["event_id", "work_id", "attempt_id", "readback_model", "report_schema_version", "evidence_origin"],
     "worker-fail": ["event_id", "work_id", "attempt_id", "readback_model", "failure_kind", "detail"],
-    "worker-abandon": ["event_id", "work_id", "attempt_id", "detail", "observed_session_directories"]
+    "worker-abandon": ["event_id", "work_id", "attempt_id", "detail"]
   }
 }

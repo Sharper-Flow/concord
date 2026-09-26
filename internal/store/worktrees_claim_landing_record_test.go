@@ -14,8 +14,8 @@ import (
 // session — or record no occupant, the shape a resumed session lands in — the
 // other active rows of the same work item clear, one durable event names the
 // session, work item, source paths, and landed path, and the same landing
-// replays idempotently. A destination another session occupies refuses
-// before any effect.
+// replays idempotently. A second session's landing in the same worktree adds
+// its own occupancy row and never refuses (CD-0178 D3).
 func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -37,7 +37,7 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	}
 
 	now := time.Unix(30, 0).UTC()
-	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
+	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,10 +49,10 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 	}
 
 	byProject := worktreeEntriesByProject(t, s, "work-w")
-	if byProject["project-b"].OccupantSessionRef != "ses-1" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-b", byProject["project-b"].ClaimOpID) != "ses-1" {
 		t.Fatalf("destination entry=%+v, want ses-1 to hold the claimed worktree", byProject["project-b"])
 	}
-	if byProject["project-w"].OccupantSessionRef != "" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", byProject["project-w"].ClaimOpID) != "" {
 		t.Fatalf("source entry=%+v, want the sibling occupancy cleared by the landing", byProject["project-w"])
 	}
 
@@ -84,7 +84,7 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 		t.Fatalf("recorded sources=%v, want %v", recorded.SourceDirectories, []string{claimedA.Entry.Path})
 	}
 
-	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
+	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
 	}
@@ -95,35 +95,57 @@ func TestClaimLandingTransfersOccupancyInOneTransaction(t *testing.T) {
 		t.Fatalf("landing event count after replay=%d, want still one", count)
 	}
 
-	// The vacated source path is no longer occupied by the session, so a
-	// landing there refuses before effect.
-	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedA.Entry.Path, Now: now})
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("unoccupied destination err=%v, want %s", err, KindWorktreeOwnershipConflict)
+	// A landing back at the vacated source path is the same verified
+	// transfer in the other direction (CD-0178 D3): the landing adds the
+	// session's row there and releases its row at the path it left.
+	backTransfer, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedA.Entry.Path, Now: now, HostPID: 1})
+	if err != nil || backTransfer.AlreadyRecorded {
+		t.Fatalf("transfer back=%+v err=%v, want a fresh transfer", backTransfer, err)
+	}
+	if !slices.Equal(backTransfer.ReleasedSources, []string{claimedB.Entry.Path}) {
+		t.Fatalf("released sources=%v, want %v", backTransfer.ReleasedSources, []string{claimedB.Entry.Path})
+	}
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", claimedA.Entry.ClaimOpID) != "ses-1" {
+		t.Fatal("the source entry must hold the session again after the transfer back")
+	}
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-b", claimedB.Entry.ClaimOpID) != "" {
+		t.Fatal("the previous destination must be empty after the transfer back")
 	}
 
 	// A path with no active row of this work item refuses as absent.
-	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-elsewhere"), Now: now})
-	failure, ok = err.(*Failure)
+	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-elsewhere"), Now: now, HostPID: 1})
+	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindProjectionNotFound {
 		t.Fatalf("absent destination err=%v, want %s", err, KindProjectionNotFound)
 	}
 
-	// Another session's occupancy refuses the landing.
-	if _, err := s.db.Exec(`UPDATE worktree_entries SET occupant_session_ref='ses-9' WHERE set_id=? AND project_id='project-b'`, WorktreeSetID("work-w")); err != nil {
+	// Another session's row never refuses a landing (CD-0178 D3): ses-2's
+	// landing into the worktree the inserted ses-9 row holds adds its own
+	// row, and ses-9's row stays until its own release rule consumes it.
+	if _, err := s.db.Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses-9', '1970-01-01T00:00:00Z', NULL, NULL, 0
+		  FROM worktree_entries WHERE set_id=? AND project_id='project-b' AND state='active';
+		DELETE FROM fold_guard`, WorktreeSetID("work-w")); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
-	failure, ok = err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("foreign occupant err=%v, want %s", err, KindWorktreeOwnershipConflict)
+	secondLanding, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-2", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
+	if err != nil || secondLanding.AlreadyRecorded {
+		t.Fatalf("landing beside another session's row=%+v err=%v, want a fresh record", secondLanding, err)
+	}
+	var rows int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_occupancy WHERE session_ref IN ('ses-2','ses-9') AND worktree_id IN (SELECT set_id || ':' || project_id || ':' || claim_op_id FROM worktree_entries WHERE set_id=? AND project_id='project-b')`, WorktreeSetID("work-w")).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 {
+		t.Fatalf("occupancy rows after the second session's landing=%d, want ses-2 and ses-9 both recorded", rows)
 	}
 	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("landing event count after refusals=%d, want no refused landing to record", count)
+	if count != 3 {
+		t.Fatalf("landing event count=%d, want one per transfer and the add-a-row landing", count)
 	}
 }
 
@@ -153,7 +175,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 	}
 
 	now := time.Unix(30, 0).UTC()
-	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
+	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil || landing.AlreadyRecorded {
 		t.Fatalf("first landing=%+v err=%v, want a fresh transfer", landing, err)
 	}
@@ -162,7 +184,8 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Helper()
 		_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: "work-w", ProjectID: projectID, DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: requestID, ExpectedVersion: expectedVersion,
-			Now: now, Runner: git, ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: projectID,
+			Now: now, Runner: git,
+			ReleaseOccupancy: true, OperatorApprovalRef: "approval:claim-landing-test",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -191,7 +214,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Fatalf("re-claimed path=%s, want the same derived path %s", claimedB2.Entry.Path, claimedB.Entry.Path)
 	}
 
-	second, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
+	second, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil || second.AlreadyRecorded {
 		t.Fatalf("second landing=%+v err=%v, want a fresh transfer at the same derived path", second, err)
 	}
@@ -199,10 +222,10 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Fatalf("released sources=%v, want %v", second.ReleasedSources, []string{claimedA.Entry.Path})
 	}
 	byProject := worktreeEntriesByProject(t, s, "work-w")
-	if byProject["project-w"].OccupantSessionRef != "" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", byProject["project-w"].ClaimOpID) != "" {
 		t.Fatalf("source entry=%+v, want the second landing to clear the sibling occupancy", byProject["project-w"])
 	}
-	if byProject["project-b"].OccupantSessionRef != "ses-1" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-b", byProject["project-b"].ClaimOpID) != "ses-1" {
 		t.Fatalf("destination entry=%+v, want ses-1 to hold the re-claimed worktree", byProject["project-b"])
 	}
 	var count int
@@ -213,7 +236,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 		t.Fatalf("landing event count=%d, want one event per transfer", count)
 	}
 
-	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now})
+	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-w", SessionRef: "ses-1", LandedDirectory: claimedB.Entry.Path, Now: now, HostPID: 1})
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
 	}
@@ -230,7 +253,7 @@ func TestClaimLandingAfterReclaimRecordsSecondTransferAtSamePath(t *testing.T) {
 // landing is the one shape that reaches an unoccupied destination row. Once
 // the host move has read back, the record admits that shape, names the
 // session as the occupant, and replays idempotently. Another session's
-// landing into the recorded row refuses.
+// landing into the recorded worktree adds its own row (CD-0178 D3).
 func TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
@@ -238,7 +261,7 @@ func TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree(t *testing.T) {
 	path := auditWork(t, s, git, "work-resumed", true)
 
 	now := time.Unix(30, 0).UTC()
-	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now})
+	landing, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now, HostPID: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,18 +269,31 @@ func TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree(t *testing.T) {
 		t.Fatalf("landing=%+v, want the resumed session freshly recorded with no released sources", landing)
 	}
 	byProject := worktreeEntriesByProject(t, s, "work-resumed")
-	if byProject["project-w"].OccupantSessionRef != "ses-resumed" {
+	if worktreeOccupancyByEntry(t, s, WorktreeSetID("work-resumed"), "project-w", byProject["project-w"].ClaimOpID) != "ses-resumed" {
 		t.Fatalf("destination entry=%+v, want ses-resumed recorded as the occupant", byProject["project-w"])
 	}
 
-	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now})
+	replay, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-resumed", LandedDirectory: path, Now: now, HostPID: 1})
 	if err != nil || !replay.AlreadyRecorded {
 		t.Fatalf("replay landing=%+v err=%v, want an idempotent replay", replay, err)
 	}
 
-	_, err = s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-other", LandedDirectory: path, Now: now})
-	failure, ok := err.(*Failure)
-	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
-		t.Fatalf("another session's landing err=%v, want %s", err, KindWorktreeOwnershipConflict)
+	// Another session's landing into the recorded row adds its own row:
+	// CD-0104 D5 admits two sessions in one worktree, and CD-0178 D3
+	// refuses no landing because another session holds a row.
+	second, err := s.RecordWorktreeClaimLanding(ctx, WorktreeClaimLandingRequest{WorkID: "work-resumed", SessionRef: "ses-other", LandedDirectory: path, Now: now, HostPID: 1})
+	if err != nil || second.AlreadyRecorded {
+		t.Fatalf("another session's landing=%+v err=%v, want its own row recorded", second, err)
+	}
+	if len(second.ReleasedSources) != 0 {
+		t.Fatalf("released sources=%v, want no sources for a session that holds no other worktree", second.ReleasedSources)
+	}
+	byProject = worktreeEntriesByProject(t, s, "work-resumed")
+	var occupants int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_occupancy WHERE worktree_id=?`, worktreeOccupancyID(WorktreeSetID("work-resumed"), "project-w", byProject["project-w"].ClaimOpID)).Scan(&occupants); err != nil {
+		t.Fatal(err)
+	}
+	if occupants != 2 {
+		t.Fatalf("occupancy rows=%d, want the resumed session and the second session both recorded", occupants)
 	}
 }

@@ -832,7 +832,7 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-first",
 		ExpectedVersion: first.WorkVersion, Runner: ExecGitRunner{},
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: first.ProjectID,
+		ReleaseOccupancy: true, OperatorApprovalRef: "approval:incarnation-first",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -863,7 +863,7 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		WorkID: first.WorkID, ProjectID: first.ProjectID, DefaultRef: "origin/main",
 		PrincipalRef: "principal/operator", RequestID: "reclaim-incarnation-reopened",
 		ExpectedVersion: reopened.WorkVersion, Runner: ExecGitRunner{},
-		ObservedSessionDirectories: emptySessionObservation(), ObservedProjectID: first.ProjectID,
+		ReleaseOccupancy: true, OperatorApprovalRef: "approval:incarnation-reopened",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -879,8 +879,8 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 		t.Fatalf("reclaimed events=%d occupancy released events=%d, want one of each per incarnation", reclaims, releases)
 	}
 	reopenedReclaim := reclaimedEventID(first.WorkID, first.ProjectID, first.OperationID, 1)
-	reopenedRelease := occupancyReleasedEventID(first.WorkID, first.ProjectID, first.OperationID, 1)
-	if reopenedReclaim == legacyReclaim || reopenedRelease == first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-occupancy-released" {
+	reopenedRelease := occupancyReleasedEventID(first.WorkID, first.ProjectID, first.OperationID, "ses-reopened", 1)
+	if reopenedReclaim == legacyReclaim || reopenedRelease == first.WorkID+":"+first.ProjectID+":"+first.OperationID+":worktree-occupancy-released:ses-reopened" {
 		t.Fatalf("reopened incarnation identities=%q %q, want distinct from the first incarnation's", reopenedReclaim, reopenedRelease)
 	}
 	var reclaimPayload string
@@ -902,7 +902,7 @@ func TestReopenedBootstrapClaimRecordsOwnIncarnationEvents(t *testing.T) {
 	if err := json.Unmarshal([]byte(releasePayload), &released); err != nil {
 		t.Fatal(err)
 	}
-	if released.ClaimIncarnation != 1 || released.OccupantSessionRef != "ses-reopened" {
+	if released.ClaimIncarnation != 1 || released.SessionRef != "ses-reopened" {
 		t.Fatalf("reopened release payload=%+v, want incarnation 1 releasing ses-reopened", released)
 	}
 	var afterID, afterPayload, afterOccurredAt string
@@ -1024,8 +1024,8 @@ func TestCrossProjectResumeBootstrapsBWorktree(t *testing.T) {
 	if resumed.OperationID != operationID || resumed.ProductID != "product-bootstrap" || resumed.ProjectID != "project-bootstrap-b" {
 		t.Fatalf("cross-project resume identity=%+v want operation %s in project-bootstrap-b", resumed, operationID)
 	}
-	if resumed.Entry.State != worktreeEntryActive || resumed.Entry.OccupantSessionRef != "ses-cross-resume" {
-		t.Fatalf("resumed entry=%+v want active with the resuming session as occupant", resumed.Entry)
+	if resumed.Entry.State != worktreeEntryActive {
+		t.Fatalf("resumed entry=%+v want active", resumed.Entry)
 	}
 	if expected := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-bootstrap-b", first.WorkID); resumed.Entry.Path != expected {
 		t.Fatalf("resumed path=%s want %s", resumed.Entry.Path, expected)
@@ -1234,8 +1234,8 @@ func TestBootstrapRecordsOccupantSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Entry.OccupantSessionRef != "ses-bootstrap-occupant" {
-		t.Fatalf("captured bootstrap occupant = %q, want ses-bootstrap-occupant", first.Entry.OccupantSessionRef)
+	if first.Entry.State != worktreeEntryActive {
+		t.Fatalf("captured bootstrap entry state = %q, want active", first.Entry.State)
 	}
 
 	// The resume route rebuilds a missing worktree under the existing work
@@ -1257,8 +1257,8 @@ func TestBootstrapRecordsOccupantSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resumed.Entry.OccupantSessionRef != "ses-resume-occupant" {
-		t.Fatalf("resumed bootstrap occupant = %q, want ses-resume-occupant", resumed.Entry.OccupantSessionRef)
+	if resumed.Entry.State != worktreeEntryActive {
+		t.Fatalf("resumed bootstrap entry state = %q, want active", resumed.Entry.State)
 	}
 }
 

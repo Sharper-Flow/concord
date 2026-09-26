@@ -866,10 +866,6 @@
     "page": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "cursor",
-        "limit"
-      ],
       "properties": {
         "cursor": {
           "$ref": "#/$defs/cursor"
@@ -1646,6 +1642,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -1712,6 +1711,12 @@
           "minimum": 1,
           "maximum": 20
         },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -1723,9 +1728,6 @@
     "work_browse_list_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "page"
-      ],
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id"
@@ -1783,6 +1785,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -1794,9 +1799,6 @@
     "work_browse_ready_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "page"
-      ],
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id"
@@ -1810,6 +1812,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -1821,9 +1826,6 @@
     "work_browse_blocked_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "page"
-      ],
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id"
@@ -1844,6 +1846,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -1871,6 +1876,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -1913,8 +1921,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "work_id",
-        "page"
+        "work_id"
       ],
       "properties": {
         "work_id": {
@@ -1933,6 +1940,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -1954,6 +1964,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         }
       }
     },
@@ -1967,6 +1980,9 @@
         "work_id": {
           "$ref": "#/$defs/id"
         },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -1979,8 +1995,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "work_id",
-        "page"
+        "work_id"
       ],
       "properties": {
         "work_id": {
@@ -1988,6 +2003,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -2966,9 +2984,6 @@
     "knowledge_search_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "page"
-      ],
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id"
@@ -3024,6 +3039,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -3084,13 +3102,7 @@
           "$ref": "#/$defs/id"
         },
         "page": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "limit": {
-              "$ref": "#/$defs/limit"
-            }
-          }
+          "$ref": "#/$defs/page"
         },
         "limit": {
           "$ref": "#/$defs/limit"
@@ -4993,15 +5005,15 @@
     "product_row_portfolio_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "page"
-      ],
       "properties": {
         "product_id": {
           "$ref": "#/$defs/id"
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -5413,7 +5425,6 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
-
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -5897,6 +5908,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -6363,6 +6377,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -6527,6 +6544,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -6682,6 +6702,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "budget": {
           "$ref": "#/$defs/budget"
         },
@@ -6763,6 +6786,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"
@@ -7334,6 +7360,9 @@
         "page": {
           "$ref": "#/$defs/page"
         },
+        "limit": {
+          "$ref": "#/$defs/limit"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7374,6 +7403,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -8211,7 +8243,6 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
-
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -8280,7 +8311,6 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
-
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -8539,6 +8569,9 @@
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "limit": {
+          "$ref": "#/$defs/limit"
         },
         "budget": {
           "$ref": "#/$defs/budget"

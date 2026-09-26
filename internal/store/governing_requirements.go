@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -105,6 +106,62 @@ func governingRequirementsForProjectIDs(ctx context.Context, q queryer, ids []st
 		out = append(out, ref)
 	}
 	return out, rows.Err()
+}
+
+func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, productIDs []string) ([]string, error) {
+	if len(productIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(productIDs))
+	args := make([]any, len(productIDs))
+	for i, id := range productIDs {
+		placeholders[i], args[i] = "?", id
+	}
+	query := `SELECT requirement_ref FROM project_governing_requirements WHERE project_id IN (
+		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
+	) UNION SELECT law_id FROM law_subjects WHERE home_project_id IN (
+		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
+	) AND status='accepted' ORDER BY 1`
+	queryArgs := append(append([]any{}, args...), args...)
+	rows, err := q.QueryContext(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "resolve_governing_requirement_refs", "cannot resolve registered requirements and accepted laws", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var refs []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return refs, nil
+}
+
+// ValidateCaptureGoverningRequirements refuses declared refs that resolve in
+// neither the capture scope nor the Product's registries and accepted laws.
+func (s *Store) ValidateCaptureGoverningRequirements(ctx context.Context, productIDs, applicable, declared []string) error {
+	known, err := knownGoverningRequirementRefsForProducts(ctx, s.db, productIDs)
+	if err != nil {
+		return err
+	}
+	resolved := make(map[string]struct{}, len(applicable)+len(known))
+	for _, ref := range applicable {
+		resolved[ref] = struct{}{}
+	}
+	for _, ref := range known {
+		resolved[ref] = struct{}{}
+	}
+	for _, ref := range declared {
+		if _, ok := resolved[ref]; !ok {
+			return newFailure(KindProjectionNotFound, "capture", fmt.Sprintf("governing requirement %q is not registered or accepted; declare the requirement on the Project or name an accepted law ID", ref), false, "reread_entities")
+		}
+	}
+	return nil
 }
 
 // MissingGoverningRequirements returns the applicable requirements the declared

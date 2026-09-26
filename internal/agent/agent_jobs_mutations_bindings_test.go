@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -1263,6 +1264,69 @@ func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("covered capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+}
+
+func TestCaptureRefusesUnknownGoverningRequirement(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	input := []byte(`{"title":"Unknown requirement","value_statement":"reject an invalid governing reference","kind":"task","project_ids":["proj-web"],"governing_requirements":["fabricated_requirement"],"idempotency_key":"unknown-requirement-1"}`)
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
+	if resp.Outcome != OutcomeError || resp.Error == nil {
+		t.Fatalf("unknown requirement capture outcome=%s error=%+v, want typed refusal", resp.Outcome, resp.Error)
+	}
+	if resp.Error.Kind != "unknown_scope" {
+		t.Fatalf("error.kind=%q, want unknown_scope", resp.Error.Kind)
+	}
+	if !strings.Contains(resp.Error.Message, "fabricated_requirement") {
+		t.Fatalf("refusal message %q does not name unknown id", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "declare the requirement on the Project or name an accepted law ID") {
+		t.Fatalf("refusal message %q does not carry the one-line recovery", resp.Error.Message)
+	}
+	if resp.Error.RecoveryAction.Kind != "reread_entities" {
+		t.Fatalf("recovery action %q, want reread_entities so the caller can act on the refusal", resp.Error.RecoveryAction.Kind)
+	}
+}
+
+// TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct proves the
+// resolution target is the Product, not the capture scope alone: a requirement
+// registered on another Project of the same Product resolves, so a capture
+// that legitimately declares it is not refused.
+func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-api", "cross_project_review", "sibling Project obligation"); err != nil {
+		t.Fatalf("seed governing requirement: %v", err)
+	}
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	input := []byte(`{"title":"Sibling obligation","value_statement":"declaring a sibling Project requirement","kind":"task","project_ids":["proj-web"],"governing_requirements":["cross_project_review"],"idempotency_key":"sibling-requirement-1"}`)
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("sibling-requirement capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
+	}
+}
+
+// TestCaptureAcceptsAcceptedLawID proves the second legitimate referencing
+// surface: an accepted law_subjects id visible for the Product's Projects
+// resolves without being registered as a Project requirement. The law row is
+// seeded without a law_domain_homes row, so the pass-through does not depend
+// on the Domain-home projection existing for the law.
+func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	hash := "sha256:" + strings.Repeat("a", 64)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
+		t.Fatalf("seed accepted law: %v", err)
+	}
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+
+	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["synthetic-capture-law"],"idempotency_key":"accepted-law-1"}`)
+	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("accepted-law capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
 	}
 }
 

@@ -5207,6 +5207,43 @@ CREATE TRIGGER worktree_occupancy_guard_delete BEFORE DELETE ON worktree_occupan
 ALTER TABLE worktree_entries DROP COLUMN occupant_session_ref;
 `,
 	},
+	// A database that applied the v11.29.x text of migration 104 holds the
+	// 128-char worktree_id CHECK, which the composed key's domain violates
+	// (component maxima 512). This step rebuilds the table at the widened
+	// bound: the copy runs before the fold-only triggers exist on the
+	// rebuilt table, dropping the old table takes its triggers and indexes
+	// with it, and the recreated indexes and triggers leave the table
+	// exactly as migration 104 now defines it.
+	{
+		Version:  105,
+		Name:     "worktree_occupancy_widen_worktree_id_bound",
+		Breaking: true,
+		SQL: `
+CREATE TABLE worktree_occupancy_rebuilt (
+    worktree_id           TEXT    NOT NULL,
+    session_ref           TEXT    NOT NULL,
+    recorded_at           TEXT    NOT NULL,
+    host_pid              INTEGER,
+    host_pid_start        INTEGER,
+    has_process_identity  INTEGER NOT NULL CHECK(has_process_identity IN (0,1)),
+    CHECK(length(worktree_id) BETWEEN 2 AND 512),
+    CHECK(length(session_ref) BETWEEN 2 AND 128),
+    CHECK(host_pid IS NULL OR host_pid > 0),
+    CHECK(host_pid_start IS NULL OR host_pid_start >= 0),
+    CHECK((has_process_identity = 1) OR (host_pid IS NULL AND host_pid_start IS NULL)),
+    PRIMARY KEY (worktree_id, session_ref)
+);
+INSERT INTO worktree_occupancy_rebuilt (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+SELECT worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity FROM worktree_occupancy;
+DROP TABLE worktree_occupancy;
+ALTER TABLE worktree_occupancy_rebuilt RENAME TO worktree_occupancy;
+CREATE INDEX worktree_occupancy_session ON worktree_occupancy (session_ref);
+CREATE INDEX worktree_occupancy_process ON worktree_occupancy (has_process_identity, host_pid);
+CREATE TRIGGER worktree_occupancy_guard_insert BEFORE INSERT ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_occupancy_guard_update BEFORE UPDATE ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_occupancy_guard_delete BEFORE DELETE ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

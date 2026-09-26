@@ -44,6 +44,12 @@ const (
 	readPopulationWorkPerProduct = 7
 )
 
+// readPopulationBlockedSessionRef is the session_ref of the active approval
+// challenge the fixture seeds. The portfolio witness requires the focus's
+// blocked_sessions to name this session, so the routing detail is tied to the
+// seeded row rather than to any session the producer happened to carry.
+const readPopulationBlockedSessionRef = "session-population"
+
 type readPopulationFixture struct {
 	store      *store.Store
 	service    *Service
@@ -92,6 +98,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	fx.initiative = fx.seedInitiative(t)
 	fx.seedWorktreeClaim(t)
 	fx.seedPopulationRows(t)
+	seedApprovalGatedFocus(t, s)
 	seedReadPopulationProductRows(t, s)
 	return fx
 }
@@ -143,6 +150,58 @@ func seedReadPopulationProductRows(t *testing.T, s *store.Store) {
 	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), statements.String()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// seedApprovalGatedFocus pins the focus work's workflow instance to the
+// approval checkpoint of the definition the instance is already pinned to:
+// the first human-checkpoint step carrying an approval-required action, the
+// shape productRowStepRequiresApprovalCached treats as approval-gated. The
+// producer then ranks approval_required first and fills focus.blocked_sessions
+// from the active challenge seeded beside the focus rows (issue #72). The
+// update lands after every dispatch-based seed, so only the read phase sees
+// the checkpoint state.
+func seedApprovalGatedFocus(t *testing.T, s *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	var ref, digest, currentStep string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx,
+		`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`,
+		readPopulationWork).Scan(&ref, &version, &digest, &currentStep); err != nil {
+		t.Fatal(err)
+	}
+	registered, err := store.VerifyWorkflowDefinitionPin(store.BuiltinWorkflowRegistry(), store.WorkflowDefinitionPin{Ref: ref, Version: version, Digest: digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := approvalCheckpointStep(registered.Definition)
+	if checkpoint == "" {
+		t.Fatalf("pinned workflow definition %s declares no human-checkpoint step with an approval-required action", ref)
+	}
+	execPopulationStatement(t, s, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, checkpoint, readPopulationWork)
+}
+
+// approvalCheckpointStep names the first step of the definition whose kind is
+// a human checkpoint and which carries an approval-required action, or the
+// empty string when the definition declares none.
+func approvalCheckpointStep(definition store.WorkflowDefinition) string {
+	approvalRequired := make(map[string]bool, len(definition.ActionDefinitions))
+	for _, action := range definition.ActionDefinitions {
+		if action.Approval == store.ActionApprovalRequired {
+			approvalRequired[action.ID] = true
+		}
+	}
+	for _, step := range definition.StepGraph.Steps {
+		if step.Kind != store.WorkflowStepHumanCheckpoint {
+			continue
+		}
+		for _, action := range step.Actions {
+			if approvalRequired[action] {
+				return step.ID
+			}
+		}
+	}
+	return ""
 }
 
 // seedReadPopulationFocusWork creates the nonterminal work item every
@@ -557,7 +616,7 @@ func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	issued := time.Now().UTC().Add(-time.Hour)
 	expires := time.Now().UTC().Add(24 * time.Hour)
 	execPopulationStatement(t, fx.store, `INSERT INTO agent_approval_challenges(challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		strings.Repeat("ab", 32), "client-1", "human-1", "session-population", "agent-1", "/repo", "/repo/wt-population",
+		strings.Repeat("ab", 32), "client-1", "human-1", readPopulationBlockedSessionRef, "agent-1", "/repo", "/repo/wt-population",
 		`["prod-alpha"]`, "sha256:"+strings.Repeat("2", 64), "{}", "{}", "lifecycle", "sha256:"+strings.Repeat("1", 64),
 		issued.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano), "active", nil, 1, 0)
 

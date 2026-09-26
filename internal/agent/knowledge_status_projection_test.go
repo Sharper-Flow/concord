@@ -14,7 +14,7 @@ func TestKnowledgeSearchProjectsLawStatusAndSuccessor(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
-		{ID: "CD-0001", Kind: "decision", OutcomeTag: "superseded", NotePath: "docs/decisions/CD-0001.md"},
+		{ID: "CD-0001", Kind: "decision", OutcomeTag: "superseded", SuccessorID: "CD-0002", NotePath: "docs/decisions/CD-0001.md"},
 	}}
 	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-status", "concord_knowledge", "search"), result)
 	if err != nil {
@@ -32,6 +32,9 @@ func TestKnowledgeSearchProjectsLawStatusAndSuccessor(t *testing.T) {
 	}
 	if got := page.Items[0]["status"]; got != "superseded" {
 		t.Fatalf("search item status = %v, want superseded; item=%s", got, raw)
+	}
+	if got := page.Items[0]["successor_id"]; got != "CD-0002" {
+		t.Fatalf("search item successor_id = %v, want CD-0002; item=%s", got, raw)
 	}
 }
 
@@ -62,6 +65,36 @@ func TestKnowledgeSearchOmitsNonLawOutcomeTags(t *testing.T) {
 	}
 	if got := page.Items[0]["successor_id"]; got != "work-2" {
 		t.Fatalf("search item successor_id = %v, want work-2; item=%s", got, raw)
+	}
+}
+
+// A work note whose free outcome tag names a law status is still not law
+// (CD-0020 D3): the projection drops the tag instead of emitting a law
+// status for it.
+func TestKnowledgeSearchOmitsWorkNoteTagsThatNameLawStatuses(t *testing.T) {
+	t.Parallel()
+	for _, tag := range []string{"accepted", "superseded", "published"} {
+		meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+		result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
+			{ID: "work-1", Kind: "work_note", OutcomeTag: tag, NotePath: "notes/work-1.md"},
+		}}
+		response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-worknote-law-tag", "concord_knowledge", "search"), result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(response.Result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var page struct {
+			Items []map[string]any `json:"items"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil || len(page.Items) != 1 {
+			t.Fatalf("search page = %s err=%v", raw, err)
+		}
+		if _, present := page.Items[0]["status"]; present {
+			t.Fatalf("work-note tag %q projected a law status: %s", tag, raw)
+		}
 	}
 }
 

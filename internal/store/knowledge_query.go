@@ -89,9 +89,13 @@ type Q10Payload struct {
 
 // KnowledgeLawStatus reports the record's law status (CD-0020 D3) when the
 // indexed outcome tag carries one: accepted or superseded for law, published
-// for lessons, references, and research. Work-note outcomes are not law
-// statuses, so they project no status.
-func KnowledgeLawStatus(outcomeTag string) string {
+// for lessons, references, and research. A work-note outcome tag is free
+// front-matter text rather than a law status, so a work note projects no
+// status whatever its tag says.
+func KnowledgeLawStatus(kind, outcomeTag string) string {
+	if kind == "work_note" {
+		return ""
+	}
 	switch outcomeTag {
 	case "accepted", "superseded", "published":
 		return outcomeTag
@@ -433,7 +437,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 		}
 	}
 	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
-	if law := KnowledgeLawStatus(status); law != "" {
+	if law := KnowledgeLawStatus(kind, status); law != "" {
 		payload.LawStatus = law
 	}
 	out.Status, out.Note, out.Result = "canonical", &note, payload

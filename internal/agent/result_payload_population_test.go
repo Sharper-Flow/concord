@@ -337,6 +337,103 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 	}
 }
 
+// fullyPopulatedWorkflowReadProjection populates every field of the store's
+// workflow read, including every optional pointer the published contract
+// declares, every internal pointer it does not, and the populated internal
+// slices a shaping that dropped only a copied list would have to name.
+func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
+	binding := &store.WorkflowArchitectureBinding{
+		DomainRegistryContentHash: "sha256:" + repeatHex(64),
+		HomeDomainID:              "child",
+		AffectedDomainIDs:         []string{"root", "child"},
+		DomainModifies:            []string{"child"},
+		DomainRelationModifies:    []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
+		LawAdditions:              []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
+		VerificationObligations:   []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
+	}
+	return store.WorkflowReadProjection{
+		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex(64)},
+		Contract: &store.WorkflowReadContract{
+			Version: 2, Premise: "the approved premise",
+			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
+			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
+			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex(64)}},
+			RigorClass: "prototype_internal", ChangesProductTruth: true, ArchitectureBinding: binding,
+			SelfRepair: &store.WorkflowSelfRepair{RefusalKind: "missing_evidence", BlockedOperation: "workflow_action", EvidenceRefs: []string{"evidence:repair-1"}},
+		},
+		OperatorQuestion: &store.WorkflowOperatorQuestion{
+			ActionID: "confirm_premise", Prompt: "confirm the premise", Header: "premise",
+			Choices:        []store.WorkflowOperatorChoice{{ID: "yes", Label: "Yes", Description: "accept", ActionID: "confirm_premise"}},
+			PremiseSummary: "the premise", ContractSummary: "the contract", DecisionContextDigest: "sha256:" + repeatHex(64),
+		},
+		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
+		CandidateIDs:             []string{"work-2", "work-3"},
+		Conditions:               []store.WorkflowReadCondition{},
+		UnresolvedConditions:     []string{},
+		OverdueAwaits:            []string{"cond-1"},
+		AwaitHealth:              []store.WorkflowReadCondition{{ID: "cond-1", AwaitType: "pr_merge", AwaitRef: "pr:1", ResolutionAuthority: "operator", State: "open"}},
+		UnreadableConditions:     []string{},
+		Ready:                    true,
+		BlockingConditions:       []string{},
+		ImpactNotices:            []store.WorkflowReadNotice{},
+		CompletionWarnings:       []string{"a warning"},
+		StaleLawRevision: &store.StaleLawRevision{
+			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(64),
+			AcceptedSuccessorLawID: "spec-2", AcceptedSuccessorContentHash: "sha256:" + repeatHex(64),
+			RecoveryActions: []string{"supersede_contract"},
+		},
+		ChangesProductTruth: true,
+		ArchitectureBinding: binding,
+		ProposalRecord: &store.WorkflowProposalRecord{
+			WorkVersion: 2, Problem: "the problem", Affected: []string{"work-2"}, Stakes: "the stakes",
+			UserOutcomes: []string{"an outcome"}, Constraints: []string{"a constraint"}, OpenQuestions: []string{"a question"}, RecordedAt: "2026-01-01T00:00:00Z",
+		},
+		ParkedDelivery: &store.WorkflowReadParkedDelivery{WorkID: "work-1", StepID: "delivery", ResumeAction: "record_delivery", ParkedSeconds: 12, Unreconciled: false},
+		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
+			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
+			Artifact: "file:internal/store/impl.go", State: "asserted",
+			ActorRef: "actor:owner", AssertedAt: "2026-01-01T00:00:00Z",
+			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1340",
+			Correction: &store.WorkflowReadDeliveryCorrection{
+				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1340",
+				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-01-02T00:00:00Z",
+			},
+		},
+	}
+}
+
+// TestPublishedWorkflowReadMatchesDerivedContractSet runs the published
+// workflow_read shaping over the maximally populated projection: every
+// emitted field is a $defs/workflow_read/properties name and every declared
+// name is emitted, so the published field set is the contract's own derived
+// set, and the shaped value validates against the closed contract.
+// proves check:published-read-schema-derived.
+func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
+	t.Parallel()
+	projection := fullyPopulatedWorkflowReadProjection()
+	shaped, err := publishedWorkflowRead(&projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := workflowReadPublishedFields()
+	if len(shaped) != len(published) {
+		t.Fatalf("published read emits %d fields, the contract declares %d", len(shaped), len(published))
+	}
+	for field := range shaped {
+		if _, ok := published[field]; !ok {
+			t.Fatalf("published read emits %q outside the derived field set", field)
+		}
+	}
+	raw, err := json.Marshal(shaped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("workflow_read", raw); err != nil {
+		t.Fatalf("published workflow_read does not validate against the generated contract: %v", err)
+	}
+}
+
 // enrichmentPinFixture opens a real store whose work item carries a real
 // workflow pin, the exact subject the mutation enrichment reads through a
 // transaction. The pin is what the runtime stamps onto every mutation result

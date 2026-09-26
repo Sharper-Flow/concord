@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -61,11 +62,13 @@ type workflowDeliveryCorrectedPayload struct {
 // completed delivery assertion inside the caller's transaction. The operator
 // approval must already be consumed exactly once by the owning approval
 // boundary; the mutation derives the operator workflow actor from that
-// approval, records it, and appends the typed correction event. Admission and
-// the approval binding are enforced again in the fold, so replay re-derives
-// the same admission from durable state. The workflow instance stays closed:
-// the fold writes no lifecycle or step state, and a running instance is
-// refused because it corrects delivery through record_delivery instead.
+// approval, records it, and appends the typed correction event. Admission
+// authorizes the exact approval binding against the live approval row here,
+// and the fold re-derives the same admission from the event payload and the
+// log-derived actor row alone, so replay stays replay-pure. The workflow
+// instance stays closed: the fold writes no lifecycle or step state, and a
+// running instance is refused because it corrects delivery through
+// record_delivery instead.
 func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, request WorkflowDeliveryCorrectionRequest) (ApplyOperationResult, error) {
 	sqlTx, err := transactionSQL(tx, "workflow_delivery_correction")
 	if err != nil {
@@ -109,17 +112,40 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 // workflowDeliveryCorrectionOperatorFromApprovalTx derives the operator
 // workflow actor from the consumed one-use approval row, so the durable
 // record shows the operator approval — not a session identity — asserting
-// the correction.
+// the correction. This admission route is the only live-table authorization:
+// it re-checks the row's one-use consumed state and the request's exact
+// binding, and the fold later re-derives the same admission from the event
+// payload and the log-derived workflow_actors row alone.
 func workflowDeliveryCorrectionOperatorFromApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowDeliveryCorrectionRequest) (workflowDeliveryCorrectionOperator, error) {
 	if request.ApprovalRef == "" {
 		return workflowDeliveryCorrectionOperator{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "delivery correction requires an operator approval reference", false, "request the core operator approval for this correction")
 	}
-	var principalRef, clientRef, sessionRef string
-	if err := tx.QueryRowContext(ctx, `SELECT human_principal_ref,client_ref,session_ref FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, request.ApprovalRef).Scan(&principalRef, &clientRef, &sessionRef); err != nil {
+	var principalRef, clientRef, sessionRef, approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence string
+	var usedCount, maxUses int
+	if err := tx.QueryRowContext(ctx, `SELECT human_principal_ref,client_ref,session_ref,operation_digest,scope_json,version_json,consequence,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, request.ApprovalRef).Scan(&principalRef, &clientRef, &sessionRef, &approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &usedCount, &maxUses); err != nil {
 		if err == sql.ErrNoRows {
 			return workflowDeliveryCorrectionOperator{}, newFailure(KindApprovalRequired, "workflow_delivery_correction", "delivery correction requires a consumed operator approval", false, "request the core operator approval for this correction")
 		}
 		return workflowDeliveryCorrectionOperator{}, wrapFailure(KindUnavailable, "workflow_delivery_correction", "cannot read the delivery correction approval", true, "retry once the approval projection is readable", err)
+	}
+	if usedCount != 1 || maxUses != 1 {
+		return workflowDeliveryCorrectionOperator{}, newFailure(KindApprovalRequired, "workflow_delivery_correction", "delivery correction requires a consumed one-use operator approval", false, "request the core operator approval for this correction")
+	}
+	mismatches := make([]string, 0, 4)
+	if !validDigest(request.ApprovalOperationDigest) || request.ApprovalOperationDigest != approvalDigest {
+		mismatches = append(mismatches, "digest")
+	}
+	if request.ApprovalScopeJSON == "" || request.ApprovalScopeJSON != approvalScopeJSON {
+		mismatches = append(mismatches, "scope")
+	}
+	if request.ApprovalVersionsJSON == "" || request.ApprovalVersionsJSON != approvalVersionsJSON {
+		mismatches = append(mismatches, "versions")
+	}
+	if request.ApprovalConsequence == "" || request.ApprovalConsequence != approvalConsequence {
+		mismatches = append(mismatches, "consequence")
+	}
+	if len(mismatches) != 0 {
+		return workflowDeliveryCorrectionOperator{}, newFailure(KindUnauthorized, "workflow_delivery_correction", "delivery correction approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request a fresh approval for the exact correction operation")
 	}
 	tuple := WorkflowActor{PrincipalRef: principalRef, ClientRef: clientRef, AgentRef: "approval:" + request.ApprovalRef, SessionRef: sessionRef, ActorClass: ActorOperator}
 	ref, err := WorkflowActorRef(tuple)
@@ -139,8 +165,8 @@ type workflowDeliveryCorrectionOperator struct {
 
 // foldWorkflowDeliveryCorrected admits one typed delivery correction and
 // leaves every projection of the closed workflow instance untouched. The
-// checks reread durable state, so live application and replay admit the same
-// corrections.
+// checks read only the event payload and log-derived projections, so live
+// application and replay admit the same corrections.
 func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDeliveryCorrectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -257,7 +283,9 @@ func workflowLatestDeliveryAssertionSeqTx(ctx context.Context, tx *sql.Tx, workI
 // TargetPayloadVersion is the stored payload version a correction must name
 // to target it exactly. When a correction exists, Correction carries the
 // effective merge evidence and the coordinator provenance that records the
-// core never verified it.
+// core never verified it. EffectiveArtifact carries the correction-overlay
+// rule as data: the correction's merge evidence when a correction exists,
+// the asserted artifact otherwise.
 type WorkflowReadDeliveryAssertion struct {
 	EventID              string                          `json:"event_id"`
 	Seq                  int64                           `json:"seq"`
@@ -267,6 +295,7 @@ type WorkflowReadDeliveryAssertion struct {
 	ActorRef             string                          `json:"actor_ref"`
 	AssertedAt           string                          `json:"asserted_at"`
 	Correction           *WorkflowReadDeliveryCorrection `json:"correction,omitempty"`
+	EffectiveArtifact    string                          `json:"effective_artifact"`
 }
 
 // WorkflowReadDeliveryCorrection is the typed append-only correction of a
@@ -307,6 +336,7 @@ func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string
 		return nil, err
 	}
 	assertion.Correction = correction
+	assertion.EffectiveArtifact = effectiveDeliveryArtifact(assertion)
 	return assertion, nil
 }
 
@@ -324,18 +354,18 @@ func workflowDeliveryCorrectionRead(ctx context.Context, q queryer, workID, targ
 	return &WorkflowReadDeliveryCorrection{EventID: eventID, Reason: reason, Artifact: artifact, EvidenceSource: evidenceSource, ApprovalRef: approvalRef, CorrectedAt: occurredAt}, nil
 }
 
-// EffectiveArtifact names the artifact every consumer must
-// treat as the delivered evidence: the correction's merge evidence when a
+// effectiveDeliveryArtifact applies the correction-overlay rule the read
+// declares as effective_artifact: the correction's merge evidence when a
 // correction exists, the asserted artifact otherwise. The empty string means
 // no delivery assertion is recorded.
-func (a *WorkflowReadDeliveryAssertion) EffectiveArtifact() string {
-	if a == nil {
+func effectiveDeliveryArtifact(assertion *WorkflowReadDeliveryAssertion) string {
+	if assertion == nil {
 		return ""
 	}
-	if a.Correction != nil {
-		return a.Correction.Artifact
+	if assertion.Correction != nil {
+		return assertion.Correction.Artifact
 	}
-	return a.Artifact
+	return assertion.Artifact
 }
 
 // validMergeEvidenceReference reports whether a coordinator-supplied merge

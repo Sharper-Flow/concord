@@ -149,10 +149,19 @@ func TestDuplicateActiveContractsRecoverWithExactPredecessorSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	version = verdictItemVersion(t, s, workID)
-	wrongApproval := makeRecoveryEventFields(version)
-	wrongApproval["approval_operation_digest"] = "sha256:" + strings.Repeat("d", 64)
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-wrong-approval", WorkflowContractSuperseded, workID, operatorRef, wrongApproval)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "not bound to the exact operation") {
-		t.Fatalf("unrelated recovery approval was accepted: %v", err)
+	// The fold owns the binding's self-consistency: the payload must name the
+	// approval the recorded operator actor asserts, and every binding field
+	// admission checked must be present. A mismatched digest is admission's
+	// refusal, not the fold's, because the fold reads no approval row.
+	unbound := makeRecoveryEventFields(version)
+	unbound["approval_ref"] = "b0bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-unbound", WorkflowContractSuperseded, workID, operatorRef, unbound)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "requires a recorded operator approval actor") {
+		t.Fatalf("recovery binding outside the recorded operator actor was accepted: %v", err)
+	}
+	incomplete := makeRecoveryEventFields(version)
+	incomplete["approval_consequence"] = ""
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("duplicate-recovery-incomplete", WorkflowContractSuperseded, workID, operatorRef, incomplete)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil || !strings.Contains(err.Error(), "carries no complete operator approval binding") {
+		t.Fatalf("incomplete recovery binding was accepted: %v", err)
 	}
 	if got := verdictItemVersion(t, s, workID); got != version {
 		t.Fatalf("rejected recovery approval changed work version from %d to %d", version, got)

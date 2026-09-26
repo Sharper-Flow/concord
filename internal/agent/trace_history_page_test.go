@@ -63,8 +63,8 @@ func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 
 // A history page for work with a workflow instance carries the published
 // workflow_read subset: the delivery assertion with the target_payload_version
-// a correction admission consumes, and none of the projection's internal
-// fields the closed result schema refuses.
+// a correction admission consumes and the effective artifact the correction
+// overlay selects, and no projection field the contract does not declare.
 func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	t.Parallel()
 	workflow := store.WorkflowReadProjection{
@@ -74,6 +74,7 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 			EventID: "assertion-1", Seq: 7, TargetPayloadVersion: 2,
 			Artifact: "file:internal/store/impl.go", State: "asserted",
 			ActorRef: "actor:owner", AssertedAt: "2026-09-24T00:00:00Z",
+			EffectiveArtifact: "https://github.com/Sharper-Flow/concord/pull/1339",
 			Correction: &store.WorkflowReadDeliveryCorrection{
 				EventID: "correction-1", Reason: "asserted repository paths", Artifact: "https://github.com/Sharper-Flow/concord/pull/1339",
 				EvidenceSource: store.DeliveryEvidenceSourceCoordinatorAsserted, ApprovalRef: "approval-1", CorrectedAt: "2026-09-25T00:00:00Z",
@@ -104,7 +105,8 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	var page struct {
 		Workflow *struct {
 			DeliveryAssertion *struct {
-				TargetPayloadVersion int `json:"target_payload_version"`
+				TargetPayloadVersion int    `json:"target_payload_version"`
+				EffectiveArtifact    string `json:"effective_artifact"`
 				Correction           *struct {
 					Artifact       string `json:"artifact"`
 					EvidenceSource string `json:"evidence_source"`
@@ -121,6 +123,9 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	if page.Workflow.DeliveryAssertion.TargetPayloadVersion != 2 {
 		t.Fatalf("target_payload_version = %d, want 2", page.Workflow.DeliveryAssertion.TargetPayloadVersion)
 	}
+	if page.Workflow.DeliveryAssertion.EffectiveArtifact != "https://github.com/Sharper-Flow/concord/pull/1339" {
+		t.Fatalf("effective_artifact = %q, want the corrected merge evidence", page.Workflow.DeliveryAssertion.EffectiveArtifact)
+	}
 	if page.Workflow.DeliveryAssertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
 		t.Fatalf("correction provenance = %q, want coordinator_asserted", page.Workflow.DeliveryAssertion.Correction.EvidenceSource)
 	}
@@ -129,9 +134,12 @@ func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflowShape := shapedWorkflow["workflow"].(map[string]any)
-	for _, internal := range workflowReadInternalFields {
-		if _, present := workflowShape[internal]; present {
-			t.Fatalf("published page leaks the internal field %q: %s", internal, envelope.Result)
+	// Every published key is a contract name: the field set the page emits is
+	// derived from $defs/workflow_read/properties, not from a copied list.
+	published := workflowReadPublishedFields()
+	for field := range workflowShape {
+		if _, ok := published[field]; !ok {
+			t.Fatalf("published page emits %q outside the derived workflow_read field set: %s", field, envelope.Result)
 		}
 	}
 }

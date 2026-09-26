@@ -56,8 +56,10 @@ type WorkflowActionExecutionRequest struct {
 	LawModifies            []string
 	ContractDigest         string
 	// Approval binding is copied from the authenticated mutation boundary into
-	// a recovery event. The fold compares these values with the consumed
-	// approval record instead of trusting the approval reference alone.
+	// a recovery event. Admission verified and consumed the approval row
+	// against these exact values; the fold re-checks the recorded binding for
+	// self-consistency and the operator actor from the log, so a replay
+	// re-derives the admission without the mutable approval row.
 	ApprovalOperationDigest string
 	ApprovalScopeJSON       string
 	ApprovalVersionsJSON    string

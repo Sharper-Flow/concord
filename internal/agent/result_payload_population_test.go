@@ -631,6 +631,47 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 			}
 		}
 	},
+	// The fixture's portfolio focus is the approval-gated work item, so the
+	// portfolio read must carry the focus.blocked_sessions routing detail the
+	// schema declares: the seeded active challenge session. A missing focus,
+	// a different attention kind, or an empty member all fail here, so the
+	// declaration cannot pass on an empty value.
+	"concord_product_view.portfolio": func(t *testing.T, result json.RawMessage) {
+		var page struct {
+			Rows []struct {
+				ProductID string `json:"product_id"`
+				Focus     *struct {
+					WorkID          string `json:"work_id"`
+					AttentionKind   string `json:"attention_kind"`
+					BlockedSessions []struct {
+						SessionRef string `json:"session_ref"`
+					} `json:"blocked_sessions"`
+				} `json:"focus"`
+			} `json:"rows"`
+		}
+		if err := json.Unmarshal(result, &page); err != nil {
+			t.Fatalf("decode portfolio result: %v", err)
+		}
+		gated := 0
+		for _, row := range page.Rows {
+			if row.Focus == nil || row.Focus.AttentionKind != store.ProductRowAttentionApprovalRequired {
+				continue
+			}
+			gated++
+			if row.Focus.WorkID != readPopulationWork {
+				t.Fatalf("approval_required focus names %q, want the fixture focus work %q", row.Focus.WorkID, readPopulationWork)
+			}
+			if len(row.Focus.BlockedSessions) == 0 {
+				t.Fatalf("approval-gated focus on %s carries no blocked sessions; the active challenge row did not populate focus.blocked_sessions", row.ProductID)
+			}
+			if row.Focus.BlockedSessions[0].SessionRef != readPopulationBlockedSessionRef {
+				t.Fatalf("blocked session %q is not the seeded challenge session %q", row.Focus.BlockedSessions[0].SessionRef, readPopulationBlockedSessionRef)
+			}
+		}
+		if gated == 0 {
+			t.Fatal("portfolio names no approval_required focus; the fixture lost its approval-gated focus work")
+		}
+	},
 }
 
 // readPopulationRows names, for each read operation without an exemption, the

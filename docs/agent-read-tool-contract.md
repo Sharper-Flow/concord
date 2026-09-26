@@ -115,14 +115,16 @@ the one canonical locator for a known terminal work/knowledge item.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, and index watermark |
-| `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome |
+| `search` | Q9 | Product scope; optional Project/domain; closed knowledge kinds (every manifest kind, with `specification` and `note` as aliases for `spec` and `work_note`); tags; bounded text; time window; cursor/limit | `knowledge_page`: summaries, canonical locators, commit/content identity, index watermark, and optional per-item law `status` (`accepted`/`superseded`/`published`) with `successor_id` |
+| `resolve_note` | Q10 | exactly one work or knowledge reference | `canonical_note_result`: one locator or typed not-compacted/missing/ambiguous outcome; a canonical answer may add law `status` and `successor_id`, never altering `state` |
 
 Search never returns an unbounded artifact body. Bounded text may match a
 fold-only projected law body, but that match remains ranked discovery data and
 never law authority. A canonical locator identifies the Git authority; the
 accepted client may then read that authority through its normal bounded
 file/resource path. Index lag and canonical-Git reachability remain explicit.
+Law `status` and `successor_id` are additive projections of the indexed record
+(CD-0020 D3); `state` keeps its PM1 Q10 locator meaning.
 
 ## 3. Shared read-input constraints
 

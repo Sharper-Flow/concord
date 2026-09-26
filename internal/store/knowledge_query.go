@@ -31,6 +31,7 @@ type KnowledgeItem struct {
 	Title         string   `json:"title"`
 	CompletedAt   string   `json:"completed_at"`
 	OutcomeTag    string   `json:"outcome_tag"`
+	SuccessorID   string   `json:"successor_id,omitempty"`
 	LessonTags    []string `json:"lesson_tags"`
 	Summary       string   `json:"summary"`
 	ProductIDs    []string `json:"product_ids,omitempty"`
@@ -80,8 +81,22 @@ type Q10Result struct {
 }
 
 type Q10Payload struct {
-	Status string         `json:"status"`
-	Note   *CanonicalNote `json:"note,omitempty"`
+	Status      string         `json:"status"`
+	Note        *CanonicalNote `json:"note,omitempty"`
+	LawStatus   string         `json:"law_status,omitempty"`
+	SuccessorID string         `json:"successor_id,omitempty"`
+}
+
+// KnowledgeLawStatus reports the record's law status (CD-0020 D3) when the
+// indexed outcome tag carries one: accepted or superseded for law, published
+// for lessons, references, and research. Work-note outcomes are not law
+// statuses, so they project no status.
+func KnowledgeLawStatus(outcomeTag string) string {
+	switch outcomeTag {
+	case "accepted", "superseded", "published":
+		return outcomeTag
+	}
+	return ""
 }
 
 func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
@@ -245,7 +260,7 @@ func scanKnowledgeItem(rows *sql.Rows) (KnowledgeItem, error) {
 func scanKnowledgeItemForScope(rows *sql.Rows) (KnowledgeItem, error) {
 	var item KnowledgeItem
 	var lessonTags, productIDs, projectIDs, domainIDs, tagIDs string
-	args := []any{&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &domainIDs, &tagIDs}
+	args := []any{&item.ID, &item.Kind, &item.Title, &item.CompletedAt, &item.OutcomeTag, &item.SuccessorID, &lessonTags, &item.Summary, &item.HomeProjectID, &item.HomeLocatorID, &item.NotePath, &item.Commit, &item.ContentHash, &item.ScopeMode, &productIDs, &projectIDs, &domainIDs, &tagIDs}
 	args = append(args, &item.MatchClass)
 	if err := rows.Scan(args...); err != nil {
 		return item, wrapFailure(KindUnavailable, "PM1.Q9", "cannot decode a knowledge index row", true, "retry once the database is readable", err)
@@ -417,7 +432,11 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
 		}
 	}
-	out.Status, out.Note, out.Result = "canonical", &note, &Q10Payload{Status: "canonical", Note: &note}
+	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
+	if law := KnowledgeLawStatus(status); law != "" {
+		payload.LawStatus = law
+	}
+	out.Status, out.Note, out.Result = "canonical", &note, payload
 	return out, nil
 }
 
@@ -632,7 +651,7 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int)
 	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
 		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 WHEN ` + boundedTextMatch + ` THEN 1 ELSE 2 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
-		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
+		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,COALESCE(aw.successor_work_id,''),aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
 		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY product_id)), '[]'),` +
 		`COALESCE((SELECT json_group_array(project_id) FROM (SELECT project_id FROM archived_work_projects WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY project_id)), '[]'),` +
 		scopeSelect +

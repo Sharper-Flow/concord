@@ -56,13 +56,17 @@ func makeGitHomeUnreachable(t *testing.T, repoPath string) {
 }
 
 // knowledgeItemFields is the closed set of per-item fields the knowledge page
-// contract carries. Search answers a locator, never a document body.
+// contract carries. Search answers a locator, never a document body. The law
+// status and successor are scalar projections of the indexed record (TS3), so
+// they stay on the locator side of the body boundary.
 var knowledgeItemFields = map[string]bool{
 	"knowledge_id": true,
 	"kind":         true,
 	"locator":      true,
 	"commit_oid":   true,
 	"content_hash": true,
+	"status":       true,
+	"successor_id": true,
 }
 
 // knowledgeSearchObservation drives concord_knowledge.search and reshapes the

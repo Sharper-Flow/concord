@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -51,12 +50,12 @@ func openLauncherStore(t *testing.T) *store.Store {
 // entry and requires it to answer without erroring the screen.
 func readDomainSection(t *testing.T, s *store.Store, product string) launcher.Snapshot {
 	t.Helper()
-	snapshot, err := New(s).Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: product, Limit: 20, Section: launcher.SectionDomains})
+	snapshot, err := New(s).Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: product, Limit: 20})
 	if err != nil {
 		t.Fatalf("S2 Domain read errored the screen: %v", err)
 	}
-	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
-		t.Fatalf("S2 Domain read landed on %s/%s", snapshot.Screen, snapshot.Section)
+	if snapshot.Screen != launcher.ScreenProduct {
+		t.Fatalf("S2 Domain read landed on %s", snapshot.Screen)
 	}
 	if !snapshot.Domains.Read {
 		t.Fatalf("S2 Domain section was not marked read: %#v", snapshot.Domains)
@@ -149,20 +148,6 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 	if len(pair.SharedDomains) != 1 || pair.SharedDomains[0] != pm1fixture.SingleDomainRootID {
 		t.Fatalf("overlap shared Domains = %#v", pair.SharedDomains)
 	}
-	summary := snapshot.S2AnswerStack().Domain.Domain
-	if !summary.Evaluated || len(summary.UnresolvedOverlaps) != 1 {
-		t.Fatalf("S2 Domain panel hid the unresolved overlap: %#v", summary)
-	}
-
-	// The operator-visible row carries the same four values in one line, so the
-	// section is legible without color.
-	row := domainProjectionRow(t, snapshot)
-	if row[0] != pm1fixture.SingleDomainRootID+" "+pm1fixture.SingleDomainName || row[1] != "HOME" || row[2] != "-" {
-		t.Fatalf("rendered Domain row identity = %#v", row)
-	}
-	if row[3] != "r0 law1 act2" {
-		t.Fatalf("rendered Domain row counts = %q, want %q", row[3], "r0 law1 act2")
-	}
 }
 
 // absentRegistryStore seeds a Product whose work list is readable while its
@@ -241,21 +226,6 @@ func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T
 	// would produce.
 	if len(absent.Domains.Domains) != 0 {
 		t.Fatalf("unprojected registry produced Domain rows: %#v", absent.Domains.Domains)
-	}
-	if summary := absent.S2AnswerStack().Domain.Domain; summary.Evaluated || summary.UnavailableReason != string(store.KindDomainRegistryAbsent) {
-		t.Fatalf("unreadable Domain panel claimed evaluation: %#v", summary)
-	}
-	if summary := empty.S2AnswerStack().Domain.Domain; !summary.Evaluated || summary.UnavailableReason != "" {
-		t.Fatalf("authoritative-empty Domain panel claimed unavailability: %#v", summary)
-	}
-
-	// The operator sees the difference too: one row names the Domain, the other
-	// names the missing registry.
-	if row := domainProjectionRow(t, absent); row[0] != "unavailable: "+string(store.KindDomainRegistryAbsent) || row[1] != "!" {
-		t.Fatalf("unavailable Domain section rendered as an ordinary row: %#v", row)
-	}
-	if row := domainProjectionRow(t, empty); strings.HasPrefix(row[0], "unavailable:") {
-		t.Fatalf("authoritative-empty Domain section rendered as unavailable: %#v", row)
 	}
 }
 
@@ -336,39 +306,4 @@ func TestS2DomainSectionBoundedOverlapKeepsRegistryRows(t *testing.T) {
 		t.Fatalf("overlap pairs = %d, want the 50-pair bound", len(snapshot.Domains.Overlaps))
 	}
 
-	// The S2 panel states the bounded enumeration as unavailable instead of
-	// evaluating clean from partial data.
-	summary := snapshot.S2AnswerStack().Domain.Domain
-	if summary.Evaluated || summary.UnavailableReason != "domain_overlaps_bounded" {
-		t.Fatalf("bounded overlap enumeration evaluated clean: %#v", summary)
-	}
-
-	// 80 and 120 column terminal rendering keeps the registry rows visible and
-	// carries no unavailable row for the bounded part.
-	for _, width := range []int{80, 120} {
-		projection := launcher.Project(snapshot, width, func(s string) int { return utf8.RuneCountInString(s) })
-		if len(projection.Rows) != 8 {
-			t.Fatalf("width %d rendered %d Domain rows: %#v", width, len(projection.Rows), projection.Rows)
-		}
-		for _, row := range projection.Rows {
-			if strings.HasPrefix(row[0], "unavailable:") {
-				t.Fatalf("width %d rendered the bounded section unavailable: %#v", width, row)
-			}
-		}
-	}
-}
-
-// domainProjectionRow renders the snapshot through the terminal-independent
-// projection and returns its single Domain row. The fixture text is ASCII,
-// so a rune count prices its display cells.
-func domainProjectionRow(t *testing.T, snapshot launcher.Snapshot) []string {
-	t.Helper()
-	projection := launcher.Project(snapshot, 120, func(s string) int { return utf8.RuneCountInString(s) })
-	if len(projection.Rows) != 1 {
-		t.Fatalf("Domain projection rendered %d rows: %#v", len(projection.Rows), projection.Rows)
-	}
-	if len(projection.Rows[0]) != 4 {
-		t.Fatalf("Domain projection row shape = %#v", projection.Rows[0])
-	}
-	return projection.Rows[0]
 }

@@ -18,7 +18,6 @@ import (
 type screenStub struct {
 	state    launcher.Snapshot // portfolio and default answer
 	product  launcher.Snapshot // Product screen answer
-	work     launcher.Snapshot // Work screen answer
 	projects []launcher.ProjectOption
 	resolve  func(key string) (launcher.SessionHandoff, error)
 }
@@ -28,10 +27,6 @@ func (p *screenStub) Read(_ context.Context, request launcher.ReadRequest) (laun
 	case launcher.ReadProduct, launcher.ReadDomains:
 		if p.product.Screen != "" {
 			return p.product, nil
-		}
-	case launcher.ReadWork:
-		if p.work.Screen != "" {
-			return p.work, nil
 		}
 	}
 	return p.state, nil
@@ -70,6 +65,9 @@ func assertSizedFlowFrames(t *testing.T, m *Model, marker string) {
 		assertHeaderCellAlignment(t, width, frame, content)
 		if got := strings.Count(frame, "arrows move"); got != 1 {
 			t.Fatalf("width %d footer count=%d, want 1", width, got)
+		}
+		if got := strings.Count(frame, "╭"); got != 1 {
+			t.Fatalf("width %d pane count=%d, want the single-surface pane", width, got)
 		}
 	}
 }
@@ -164,10 +162,10 @@ func cellStarts(line string, cells []string) []int {
 	return starts
 }
 
-// rankedRowLine locates the ranked row whose identity cell names id and
-// returns the one frame line that carries it, so cell assertions inspect the
-// row itself and never a detail pane that happens to repeat a value.
-func rankedRowLine(t *testing.T, width int, frame string, content renderedPane, id string) string {
+// rankedRowLine locates the work-list row whose cells name needle and returns
+// the one frame line that carries it, so cell assertions inspect the row
+// itself.
+func rankedRowLine(t *testing.T, width int, frame string, content renderedPane, needle string) string {
 	t.Helper()
 	for _, row := range content.rows {
 		identity := ""
@@ -177,7 +175,7 @@ func rankedRowLine(t *testing.T, width int, frame string, content renderedPane, 
 				break
 			}
 		}
-		if identity == "" || !strings.Contains(identity, id) {
+		if identity == "" || !strings.Contains(identity, needle) {
 			continue
 		}
 		for _, line := range strings.Split(frame, "\n") {
@@ -187,7 +185,7 @@ func rankedRowLine(t *testing.T, width int, frame string, content renderedPane, 
 		}
 		t.Fatalf("width %d: row %q renders on no single frame line: %q", width, identity, frame)
 	}
-	t.Fatalf("width %d: no ranked row names %q: %q", width, id, frame)
+	t.Fatalf("width %d: no work row names %q: %q", width, needle, frame)
 	return ""
 }
 
@@ -246,11 +244,9 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 			Rows: []launcher.ProductRow{{ID: "product-1", Name: "Readable Product"}},
 		},
 		product: launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
 			Ranked: []launcher.RankedWork{{ID: "work-1", Title: "Readable work", Lifecycle: "needed", Priority: 1}},
 		},
-		work: launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-1", Coverage: "authoritative"},
 	}
 	core := launcher.New(stub)
 	if err := core.Enter(context.Background()); err != nil {
@@ -258,8 +254,8 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 	}
 	m := New(core, context.Background(), Profile{})
 	assertSizedFlowFrames(t, m, "Readable Product")
-	// Selecting the Product lands on its work list; Enter acts on the
-	// selected work without a section detour.
+	// Selecting the Product lands on its work list; Enter launches the
+	// selected work's session straight from the row.
 	m.UpdateKey("enter")
 	m.Sync()
 	assertSizedFlowFrames(t, m, "Readable work")
@@ -269,15 +265,17 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 		return nil
 	})
 	m.UpdateKey("enter")
-	if launched.WorkID != "work-1" {
+	if launched.WorkID != "work-1" || launched.ProductID != "product-1" || launched.Agent != launcher.DefaultSessionAgent {
 		t.Fatalf("session handoff = %#v", launched)
 	}
-	assertSizedFlowFrames(t, m, "S3 WORK DETAIL")
+	if got := core.Snapshot().Screen; got != launcher.ScreenProduct {
+		t.Fatalf("launching from the row changed the screen to %q", got)
+	}
+	assertSizedFlowFrames(t, m, "Readable work")
 
 	degraded := &screenStub{
 		state: launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", Backlog: true,
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", Backlog: true,
 			Ranked: []launcher.RankedWork{{ID: "backlog", Title: "New / Backlog", Backlog: true}},
 		},
 		projects: []launcher.ProjectOption{{ID: "project-1", Name: "Project one", Role: "primary", Path: "/project-one"}},
@@ -289,15 +287,13 @@ func TestLauncherOperatorFlowUsesSizedTables(t *testing.T) {
 	degradedModel.UpdateKey("enter")
 	typeString(t, degradedModel, "UNKNOWN-1")
 	degradedModel.UpdateKey("enter")
-	assertSizedFlowFrames(t, degradedModel, "PROJECTS")
+	assertSizedFlowFrames(t, degradedModel, "Project one")
 }
 
 // TestProductSelectPrecedesWorkList proves
 // check:launcher.product_select_precedes_work: the screen selector is the
 // outer selector in renderContent, so a populated candidate feed can never
-// push the Product select or the Product work list out of the frame. Before
-// this precedence held, any snapshot carrying candidates rendered the
-// candidate feed on every screen.
+// push the Product select or the Product work list out of the frame.
 func TestProductSelectPrecedesWorkList(t *testing.T) {
 	candidates := []launcher.Candidate{
 		{ID: "/scan/root", Kind: launcher.CandidateProject, Name: "Scan Root", Path: "/scan/root", Available: true},
@@ -309,8 +305,7 @@ func TestProductSelectPrecedesWorkList(t *testing.T) {
 			Candidates: candidates,
 		},
 		product: launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
 			Ranked: []launcher.RankedWork{{ID: "work-1", Title: "Scoped work", Lifecycle: "needed", Priority: 1}},
 		},
 	}
@@ -324,7 +319,7 @@ func TestProductSelectPrecedesWorkList(t *testing.T) {
 	if !strings.Contains(rendered, "Registered Product") {
 		t.Fatalf("Product select lost its Product rows to the candidate feed: %q", rendered)
 	}
-	if strings.Contains(rendered, "CANDIDATES") {
+	if strings.Contains(rendered, "Scan Root") {
 		t.Fatalf("candidate feed rendered over the Product select: %q", rendered)
 	}
 	// Selecting the Product reads the Product screen. The stale candidate feed
@@ -341,31 +336,29 @@ func TestProductSelectPrecedesWorkList(t *testing.T) {
 	if !strings.Contains(rendered, "Scoped work") {
 		t.Fatalf("Product screen lost its work list to the candidate feed: %q", rendered)
 	}
-	if strings.Contains(rendered, "CANDIDATES") {
+	if strings.Contains(rendered, "Scan Root") {
 		t.Fatalf("candidate feed rendered over the Product screen: %q", rendered)
 	}
 }
 
-// TestProductSelectOpensTheWorkListAndKeepsDomainReachable proves
-// check:launcher.product_work_first: selecting
-// a Product immediately shows the scrollable Product-scoped list of
-// non-terminal work whose rows carry lifecycle, linked issue key, and
-// live-session state, ending with the New / Backlog row, while the Domain and
-// law context stays one Tab away with its data and never takes the entry
-// focus.
-func TestProductSelectOpensTheWorkListAndKeepsDomainReachable(t *testing.T) {
+// TestProductEntrySeatsTheRecencyWorkList proves check:launcher-work-list-
+// recency-order at the frame: selecting a Product seats the work list sorted
+// most recently updated first, whose rows carry the number, the readiness
+// marker, the linked Linear key, the title, the blocking ticket reference,
+// and the relative Updated and Live columns, ending with the New / Backlog
+// row.
+func TestProductEntrySeatsTheRecencyWorkList(t *testing.T) {
 	stub := &screenStub{
 		state: launcher.Snapshot{
 			Screen: launcher.ScreenPortfolio, Coverage: "authoritative",
 			Rows: []launcher.ProductRow{{ID: "product-1", Name: "Registered Product"}},
 		},
 		product: launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionDomains,
-			Coverage: "authoritative", ActiveWorkOnly: true, Backlog: true,
-			Domains: launcher.DomainSection{Read: true, State: "authoritative", Domains: []launcher.DomainRow{{ID: "product-root:one", Name: "Product One", Home: true}}},
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
+			ActiveWorkOnly: true, Backlog: true,
 			Ranked: []launcher.RankedWork{
-				{ID: "work-linked", Title: "Linked work", Lifecycle: "in_progress", Priority: 1, LinearIssueKey: "CON-153", Live: 1},
-				{ID: "work-plain", Title: "Plain work", Lifecycle: "needed", Priority: 2},
+				{ID: "work-linked", Title: "Linked work", Lifecycle: "in_progress", Priority: 1, LinearIssueKey: "CON-153", Live: 1, UpdatedAt: "2026-09-25T08:00:00Z", Blockers: []launcher.Blocker{{ID: "work-b", IssueKey: "CON-77"}}},
+				{ID: "work-plain", Title: "Plain work", Lifecycle: "needed", Priority: 2, UpdatedAt: "2026-09-20T08:00:00Z"},
 			},
 		},
 	}
@@ -377,16 +370,10 @@ func TestProductSelectOpensTheWorkListAndKeepsDomainReachable(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.UpdateKey("enter")
 	m.Sync()
-	snapshot := core.Snapshot()
-	if snapshot.Section != launcher.SectionRanked || snapshot.PanelFocus != launcher.S2PanelNext {
-		t.Fatalf("Product entry must seat the work list, got section=%q panel=%q", snapshot.Section, snapshot.PanelFocus)
-	}
 	rendered := m.Render()
 	content := m.renderContent(m.snapshot, m.cursor)
-	linkedRow := rankedRowLine(t, 120, rendered, content, "work-linked")
-	for _, want := range []string{
-		"1 ~ACTIVE work-linked Linked work", "in_progress", "CON-153", "yes",
-	} {
+	linkedRow := rankedRowLine(t, 120, rendered, content, "Linked work")
+	for _, want := range []string{"1", "~ACTIVE", "CON-153", "Linked work", "!CON-77", "yes"} {
 		if !strings.Contains(linkedRow, want) {
 			t.Fatalf("entry work list row missing %q: %q", want, linkedRow)
 		}
@@ -394,23 +381,8 @@ func TestProductSelectOpensTheWorkListAndKeepsDomainReachable(t *testing.T) {
 	if !strings.Contains(rendered, "New / Backlog") {
 		t.Fatalf("entry work list missing the New / Backlog row: %q", rendered)
 	}
-	if !strings.Contains(rendered, "DOMAIN: no unresolved overlaps") {
-		t.Fatalf("Domain context is not summarized on the Product screen: %q", rendered)
-	}
-	if strings.Contains(rendered, "DOMAINS:") && strings.Contains(rendered, "not_read") {
-		t.Fatalf("reached Domain context rendered unread: %q", rendered)
-	}
-	// The Domain and law context panel is reachable by pane focus: at this
-	// split width the detail pane is the outer Tab stop, so two Tabs land on
-	// the Domain panel, which the entry read already populated.
-	m.UpdateKey("tab")
-	m.UpdateKey("tab")
-	m.Sync()
-	rendered = m.Render()
-	for _, want := range []string{"product-root:one Product One", "HOME"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("Domain panel lost %q: %q", want, rendered)
-		}
+	if strings.Contains(rendered, "DOMAIN") {
+		t.Fatalf("quiet frame rendered a Domain line for a clean registry: %q", rendered)
 	}
 }
 
@@ -420,8 +392,7 @@ func TestProductSelectOpensTheWorkListAndKeepsDomainReachable(t *testing.T) {
 // drops it, so Enter can never land on finished work.
 func TestWorkListExcludesTerminalItems(t *testing.T) {
 	stub := &screenStub{state: launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", ActiveWorkOnly: true,
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true,
 		Ranked: []launcher.RankedWork{
 			{ID: "work-live", Title: "Live work", Lifecycle: "in_progress", Priority: 1},
 			{ID: "work-done", Title: "Finished work", Lifecycle: "completed", Priority: 2, Terminal: true, TerminalAt: "2026-09-01T00:00:00Z"},
@@ -434,23 +405,23 @@ func TestWorkListExcludesTerminalItems(t *testing.T) {
 		t.Fatalf("active picker rows = %#v, want only work-live", rows)
 	}
 	rendered := m.Render()
-	if strings.Contains(rendered, "work-done") || strings.Contains(rendered, "completed") {
+	if strings.Contains(rendered, "work-done") || strings.Contains(rendered, "Finished work") {
 		t.Fatalf("active picker rendered terminal work: %q", rendered)
 	}
-	if !strings.Contains(rendered, "work-live") {
+	if !strings.Contains(rendered, "Live work") {
 		t.Fatalf("active picker lost its live row: %q", rendered)
 	}
 }
 
 // TestWorkRowRendersIssueKeyAndOccupancy proves
 // check:launcher.work_row_issue_key_and_occupancy at the render boundary: a
-// work row carries its identity, lifecycle, the correlated issue key when
-// one exists, and the host-attested occupancy state on its own line at every
-// supported width. The row reserves the full linked key — a truncated key is
-// a missing key — so the long real-store shapes drive the fixture: a
-// 42-character issue key and a 37-character work ID. The row yields its
-// title first, then its marker, and compacts the work identity to a
-// head-and-tail form; the detail pane keeps the full identity.
+// work row carries its number, readiness marker, the correlated issue key
+// when one exists, the title, the blocking ticket reference, and the
+// host-attested occupancy state on its own line at every supported width. The
+// row reserves the full linked key — a truncated key is a missing key — so
+// the long real-store shapes drive the fixture: a 42-character issue key and
+// a 37-character work ID. The single-surface table bounds the title, so the
+// mandated cells seat on every row at every width.
 func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	const (
 		longKey = "LONG-LINKED-ISSUE-KEY-405-PLATFORM-FIXTURE"
@@ -461,11 +432,10 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 	}
 	title := "Deliver the launcher correction with a realistic title long enough to overflow every narrow row"
 	stub := &screenStub{state: launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", ActiveWorkOnly: true, Backlog: true,
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true, Backlog: true,
 		Ranked: []launcher.RankedWork{
-			{ID: longID, Title: title, Lifecycle: "in_progress", Priority: 1, LinearIssueKey: longKey, Live: 1},
-			{ID: "work-plain", Title: "Plain work", Lifecycle: "needed", Priority: 2},
+			{ID: longID, Title: title, Lifecycle: "in_progress", Priority: 1, LinearIssueKey: longKey, LinearIssueURL: "https://linear.example/" + longKey, Live: 1, UpdatedAt: "2026-09-25T08:00:00Z"},
+			{ID: "work-plain", Title: "Plain work", Lifecycle: "needed", Priority: 2, Ready: true},
 		},
 	}}
 	core := launcher.New(stub)
@@ -475,50 +445,37 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 		m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
 		frame := m.Render()
 		content := m.renderContent(m.snapshot, m.cursor)
-		linkedRow := rankedRowLine(t, width, frame, content, longID[len(longID)-4:])
-		for _, want := range []string{"in_progress", longKey, "yes", longID[len(longID)-4:]} {
+		linkedRow := rankedRowLine(t, width, frame, content, longKey[len(longKey)-6:])
+		for _, want := range []string{"~ACTIVE", longKey, "yes"} {
 			if !strings.Contains(linkedRow, want) {
 				t.Fatalf("width %d: linked row line lost %q: %q", width, want, linkedRow)
 			}
 		}
 		if width == 200 {
-			if !strings.Contains(linkedRow, longID) || !strings.Contains(linkedRow, "~ACTIVE") {
-				t.Fatalf("width %d: linked row line lost its full identity and marker: %q", width, linkedRow)
+			if !strings.Contains(linkedRow, title) {
+				t.Fatalf("width %d: the row starved its own title: %q", width, linkedRow)
 			}
-		} else if strings.Contains(linkedRow, longID) {
-			t.Fatalf("width %d: the full work ID crowded the mandated cells: %q", width, linkedRow)
+		} else if !strings.Contains(linkedRow, "…") || strings.Contains(linkedRow, title) {
+			t.Fatalf("width %d: the over-width title neither truncated nor yielded to the mandated cells: %q", width, linkedRow)
 		}
-		plainRow := rankedRowLine(t, width, frame, content, "lain")
-		for _, want := range []string{"needed", "no"} {
+		plainRow := rankedRowLine(t, width, frame, content, "Plain work")
+		for _, want := range []string{"+READY", "no"} {
 			if !strings.Contains(plainRow, want) {
 				t.Fatalf("width %d: plain row line lost %q: %q", width, want, plainRow)
 			}
 		}
-		if width == 80 && !strings.Contains(plainRow, "…lain") {
-			t.Fatalf("width %d: the plain row lost its compacted identity: %q", width, plainRow)
+		if strings.Contains(plainRow, longKey) {
+			t.Fatalf("width %d: the plain row grew the linked key: %q", width, plainRow)
 		}
-		backlogRow := rankedRowLine(t, width, frame, content, "acklog")
-		if width == 80 {
-			// A 42-character key starves the picker row's Work cell to its
-			// own name; the row still ends the list.
-			if !strings.Contains(backlogRow, "backlog") {
-				t.Fatalf("width %d: the picker row lost its name: %q", width, backlogRow)
-			}
-		} else if !strings.Contains(backlogRow, "New / Backlog") {
+		backlogRow := rankedRowLine(t, width, frame, content, "New / Backlog")
+		if !strings.Contains(backlogRow, "New / Backlog") {
 			t.Fatalf("width %d: the New / Backlog row lost its picker label: %q", width, backlogRow)
 		}
-		if width == 80 {
-			if strings.Contains(linkedRow, title) {
-				t.Fatalf("width %d: the title crowded the full linked key: %q", width, linkedRow)
-			}
-			continue
-		}
-		// At a width that seats the detail pane, the pane wraps the
-		// over-width identity instead of clipping it: the head and tail of
-		// both identifiers render in full.
-		for _, probe := range []string{longKey[:10], longKey[len(longKey)-6:], longID[:10], longID[len(longID)-6:]} {
-			if !strings.Contains(frame, probe) {
-				t.Fatalf("width %d: the detail pane lost identity probe %q: %q", width, probe, frame)
+		// The single-surface table carries the whole row on one line inside
+		// the frame at every width.
+		for _, line := range strings.Split(frame, "\n") {
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("width %d: line exceeds the terminal: %d: %q", width, got, line)
 			}
 		}
 	}
@@ -529,17 +486,10 @@ func TestWorkRowRendersIssueKeyAndOccupancy(t *testing.T) {
 // live session holds opens a confirmation gate, launches nothing until Enter
 // confirms, and releases the item on Esc.
 func TestOccupiedWorkRequiresExplicitConfirmation(t *testing.T) {
-	stub := &screenStub{
-		state: launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", ActiveWorkOnly: true,
-			Ranked: []launcher.RankedWork{{ID: "work-occupied", Title: "Occupied work", Lifecycle: "in_progress", Priority: 1, Live: 1}},
-		},
-		work: launcher.Snapshot{
-			Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-occupied",
-			Coverage: "authoritative",
-		},
-	}
+	stub := &screenStub{state: launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true,
+		Ranked: []launcher.RankedWork{{ID: "work-occupied", Title: "Occupied work", Lifecycle: "in_progress", Priority: 1, Live: 1}},
+	}}
 	core := launcher.New(stub)
 	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
@@ -560,11 +510,15 @@ func TestOccupiedWorkRequiresExplicitConfirmation(t *testing.T) {
 	if rendered := m.Render(); strings.Contains(rendered, "CONFIRM:") {
 		t.Fatalf("Esc left the confirmation gate up: %q", rendered)
 	}
-	// A fresh Enter confirms: the launch fires once, identity only.
+	// A fresh Enter confirms: the launch fires once, identity only, and no
+	// work-detail screen ever appears.
 	m.UpdateKey("enter")
 	m.UpdateKey("enter")
 	if len(launched) != 1 || launched[0].WorkID != "work-occupied" || launched[0].Agent != launcher.DefaultSessionAgent {
 		t.Fatalf("confirmed launch = %#v, want one identity-only handoff", launched)
+	}
+	if core.Snapshot().Screen != launcher.ScreenProduct {
+		t.Fatalf("confirmed launch moved the screen to %q", core.Snapshot().Screen)
 	}
 }
 
@@ -577,8 +531,7 @@ func TestOccupiedWorkRequiresExplicitConfirmation(t *testing.T) {
 func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 	product := func() launcher.Snapshot {
 		return launcher.Snapshot{
-			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-			PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative", ActiveWorkOnly: true, Backlog: true,
+			Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true, Backlog: true,
 			Ranked: []launcher.RankedWork{{ID: "work-1", Title: "Live work", Lifecycle: "needed", Priority: 1}},
 		}
 	}
@@ -664,173 +617,120 @@ func TestPortfolioRendersCandidateFeedWhenEmpty(t *testing.T) {
 	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
 	rendered := m.Render()
-	if !strings.Contains(rendered, "CANDIDATES") || !strings.Contains(rendered, "Scan Root") {
+	if !strings.Contains(rendered, "Scan Root") || !strings.Contains(rendered, "Candidate") {
 		t.Fatalf("empty portfolio must render the candidate feed, got %q", rendered)
 	}
-	if !strings.Contains(rendered, "STATUS: first_run") {
+	if !strings.Contains(rendered, "COVERAGE: first_run") {
 		t.Fatalf("first-run coverage banner lost: %q", rendered)
 	}
 }
 
-// TestDetailPaneCarriesFocusFieldsTheStatusBarDrops proves
-// check:launcher/detail-pane-carries-focus-fields: the split frame's detail
-// pane renders the focus fields the core computes for the selected Product
-// row, which focusText reduces to one identifier string in the status bar.
-func TestDetailPaneCarriesFocusFieldsTheStatusBarDrops(t *testing.T) {
-	core := launcher.New(nil)
-	core.RestoreSnapshot(focusedDetailSnapshot())
+// TestOpenIssueOpensTheLinkedIssueFromTheRow proves the `o` action: the
+// linked row opens its Linear issue in the browser, and a row without a
+// linked issue offers nothing to open.
+func TestOpenIssueOpensTheLinkedIssueFromTheRow(t *testing.T) {
+	linked := launcher.RankedWork{
+		ID: "work-1", Title: "Linked work", Lifecycle: "in_progress",
+		LinearIssueKey: "CON-153", LinearIssueURL: "https://linear.example/CON-153", Live: 1,
+	}
+	plain := launcher.RankedWork{ID: "work-2", Title: "Plain work", Lifecycle: "needed", Ready: true}
+	opened := []string{}
+	original := openIssueURL
+	openIssueURL = func(url string) error { opened = append(opened, url); return nil }
+	defer func() { openIssueURL = original }()
+
+	stub := &screenStub{state: launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true,
+		Ranked: []launcher.RankedWork{linked, plain},
+	}}
+	core := launcher.New(stub)
+	core.RestoreSnapshot(stub.state)
 	m := New(core, context.Background(), Profile{})
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	rendered := m.Render()
-	if !strings.Contains(rendered, "FOCUS: product/Concord") {
-		t.Fatalf("status bar lost the focus identifier: %q", rendered)
+	m.UpdateKey("o")
+	if len(opened) != 1 || opened[0] != linked.LinearIssueURL {
+		t.Fatalf("o on the linked row opened %q", opened)
 	}
-	for _, want := range []string{
-		"FOCUS: Ship the detail pane",
-		"WORK: work-42",
-		"KIND: task",
-		"LIFECYCLE: in_progress",
-		"ATTENTION: approval_required",
-		"BLOCKED SESSIONS: 2",
-		"OLDEST BLOCKED: session-7",
-		"PRIORITY: 3",
-		"WORKFLOW: execution",
-		"PROJECTS: 1",
-		"STAGE: build",
-		"STAGE MATURITY: stable",
-		"STAGE AUDIENCE: operator",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("detail pane dropped focus field %q: %q", want, rendered)
-		}
+	// The unlinked row offers nothing to open.
+	m.UpdateKey("j")
+	m.UpdateKey("o")
+	if len(opened) != 1 {
+		t.Fatalf("o on the unlinked row opened %q", opened)
 	}
-	if strings.Contains(rendered, "DETAIL *") {
-		t.Fatalf("unfocused detail pane rendered the focus marker: %q", rendered)
+	// The portfolio screen has no issue to open either.
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "authoritative", Rows: []launcher.ProductRow{{ID: "p-1", Name: "One"}}})
+	m.Sync()
+	m.UpdateKey("o")
+	if len(opened) != 1 {
+		t.Fatalf("o on the portfolio opened %q", opened)
 	}
 }
 
-// TestPortfolioTabReachesDetailAndFocusedDetailOwnsThePrimaryKeys proves
-// pane focus on the portfolio screen: Tab joins the detail pane into the
-// Tab cycle there, the focused pane consumes movement and Enter without
-// moving or activating the primary selection, and focus leaves the pane on
-// Tab, on a narrow resize, and on a screen change.
-func TestPortfolioTabReachesDetailAndFocusedDetailOwnsThePrimaryKeys(t *testing.T) {
-	core := launcher.New(nil)
-	core.RestoreSnapshot(focusedDetailSnapshot())
-	m := New(core, context.Background(), Profile{})
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	if strings.Contains(m.Render(), "DETAIL *") {
-		t.Fatalf("unfocused detail pane rendered the focus marker: %q", m.Render())
+// TestFrameHasNoDiagnosticLines proves check:launcher-frame-no-diagnostic-
+// lines: a healthy frame carries no title line, no diagnostic block, no
+// always-on probe or summary lines, and no retired section labels — the one
+// status line, the bordered table, and the footer are the whole frame.
+func TestFrameHasNoDiagnosticLines(t *testing.T) {
+	portfolio := launcher.Snapshot{
+		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord", Coverage: "authoritative",
+		Probes: []launcher.ProbeStatus{{Name: "vision", Available: true}, {Name: "lgrep", Available: true}},
+		Rows:   []launcher.ProductRow{{ID: "p-1", Name: "Alpha", Stage: "in_progress", Reliance: "clear", Actions: 1, Focus: "Hold"}},
 	}
-	m.UpdateKey("tab")
-	if !m.detailFocus || !strings.Contains(m.Render(), "DETAIL *") {
-		t.Fatalf("portfolio Tab did not focus the detail pane: focus=%v render=%q", m.detailFocus, m.Render())
+	product := launcher.Snapshot{
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative", ActiveWorkOnly: true,
+		Probes:   []launcher.ProbeStatus{{Name: "vision", Available: true}, {Name: "lgrep", Available: true}},
+		Ranked:   []launcher.RankedWork{{ID: "work-1", Title: "Live work", Lifecycle: "in_progress"}},
+		Domains:  launcher.DomainSection{Read: true, State: "authoritative"},
+		Reliance: "authoritative", Watermark: "w9", ObservedAt: "1m",
 	}
-	if got := core.Snapshot().Screen; got != launcher.ScreenPortfolio {
-		t.Fatalf("focusing the detail pane changed the screen: %q", got)
-	}
-	// The focused pane owns movement and Enter: the primary cursor stays
-	// put and Enter activates nothing.
-	m.UpdateKey("j")
-	m.UpdateKey("enter")
-	if m.cursor != 0 || m.scroll != 0 {
-		t.Fatalf("focused detail movement moved the primary cursor: cursor=%d scroll=%d", m.cursor, m.scroll)
-	}
-	if got := core.Snapshot().Screen; got != launcher.ScreenPortfolio {
-		t.Fatalf("focused detail Enter activated the primary row: screen=%q", got)
-	}
-	// Tab returns pane focus to the primary pane.
-	m.UpdateKey("tab")
-	if m.detailFocus || strings.Contains(m.Render(), "DETAIL *") {
-		t.Fatalf("Tab did not return pane focus to the primary pane: %q", m.Render())
-	}
-	// The minimum split width (the two declared pane minima) still seats the
-	// pane; one column below it does not, and Tab stays a no-op there.
-	m.Update(tea.WindowSizeMsg{Width: detailPaneWidth + primaryPaneMinWidth, Height: 24})
-	m.UpdateKey("tab")
-	if !m.detailFocus {
-		t.Fatal("minimum-split-width Tab did not focus the detail pane")
-	}
-	m.UpdateKey("tab")
-	m.Update(tea.WindowSizeMsg{Width: detailPaneWidth + primaryPaneMinWidth - 1, Height: 24})
-	m.UpdateKey("tab")
-	if m.detailFocus || strings.Contains(m.Render(), "DETAIL") {
-		t.Fatalf("narrow frame joined or focused the absent detail pane: %q", m.Render())
-	}
-	// A resize back into the split keeps the pane unfocused, and a screen
-	// change drops a focused pane with it.
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	if m.detailFocus {
-		t.Fatal("resize kept the detail focus the narrow frame dropped")
-	}
-	m.UpdateKey("tab")
-	if !m.detailFocus {
-		t.Fatal("split-width Tab did not focus the detail pane")
-	}
-	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionDomains, Coverage: "authoritative"})
-	m.Sync()
-	if m.detailFocus || strings.Contains(m.Render(), "DETAIL *") {
-		t.Fatalf("screen change kept the focused detail pane: %q", m.Render())
+	for name, snapshot := range map[string]launcher.Snapshot{"portfolio": portfolio, "product": product} {
+		t.Run(name, func(t *testing.T) {
+			core := launcher.New(nil)
+			core.RestoreSnapshot(snapshot)
+			m := New(core, context.Background(), Profile{})
+			m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+			m.Sync()
+			rendered := m.Render()
+			for _, retired := range []string{
+				"CONCORD LAUNCHER", "PRODUCT:", "WATERMARK:", "SCREEN:", "RELIANCE:", "SECTION:",
+				"S2 PRODUCT COORDINATION", "S3 WORK DETAIL", "DETAIL", "KNOWLEDGE", "HISTORY",
+				"VISION:", "LGREP:", "STATUS:",
+			} {
+				if strings.Contains(rendered, retired) {
+					t.Fatalf("healthy frame rendered %q: %q", retired, rendered)
+				}
+			}
+			for _, required := range []string{"FOCUS:", "COVERAGE: authoritative", "╭"} {
+				if !strings.Contains(rendered, required) {
+					t.Fatalf("healthy frame lost %q: %q", required, rendered)
+				}
+			}
+			if got := strings.Count(rendered, "╭"); got != 1 {
+				t.Fatalf("frame rendered %d panes, want the single surface: %q", got, rendered)
+			}
+		})
 	}
 }
 
-// TestDetailPaneFollowsTheSelectedWork proves the split frame's detail pane
-// renders the selected work's typed fields on the screens that seat a work
-// list, and follows the cursor as it moves. An ambient product's computed
-// focus is portfolio detail: it must never stand in for the selected work's
-// detail on the Product and Work screens.
-func TestDetailPaneFollowsTheSelectedWork(t *testing.T) {
-	snapshot := launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
-		Rows: []launcher.ProductRow{{
-			ID: "product-1", Name: "Alpha", Stage: "in_progress",
-			Focus: "Ship the ambient focus", FocusID: "work-ambient", FocusWorkflowStepLabel: "execution",
-		}},
-		Ranked: []launcher.RankedWork{
-			{ID: "work-1", Kind: "task", Title: "Live", Lifecycle: "in_progress", Priority: 3, LinearIssueKey: "CON-9", Live: 1},
-			{ID: "work-2", Kind: "bug", Title: "Done", Lifecycle: "completed", Priority: 2, Terminal: true, TerminalAt: "2026-08-05T00:00:00Z"},
-		},
-	}
+// TestWorkScreenLeavesTheFrame proves check:launcher-no-work-detail-screen: a
+// work-detail snapshot renders no work screen — the projection answers
+// nothing, so the frame keeps its single surface with no detail pane and no
+// S3 labels.
+func TestWorkScreenLeavesTheFrame(t *testing.T) {
 	core := launcher.New(nil)
-	core.RestoreSnapshot(snapshot)
+	core.RestoreSnapshot(launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-1", Coverage: "authoritative"})
 	m := New(core, context.Background(), Profile{})
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	rendered := m.Render()
-	for _, want := range []string{"WORK: work-1", "KIND: task", "LIFECYCLE: in_progress", "ISSUE: CON-9", "LIVE SESSIONS: 1", "PRIORITY: 3"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("detail pane lost the selected work field %q: %q", want, rendered)
-		}
-	}
-	// The ambient product's focus fields are not selected-work detail.
-	for _, absent := range []string{"Ship the ambient focus", "work-ambient"} {
-		if strings.Contains(rendered, absent) {
-			t.Fatalf("detail pane rendered ambient product focus %q as work detail: %q", absent, rendered)
-		}
-	}
-	// The pane follows the cursor onto the second ranked row.
-	m.UpdateKey("j")
-	rendered = m.Render()
-	for _, want := range []string{"WORK: work-2", "KIND: bug", "TERMINAL: 2026-08-05T00:00:00Z"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("detail pane did not follow the cursor to %q: %q", want, rendered)
-		}
-	}
-	// The Work screen feeds the pane from its loaded work detail.
-	core.RestoreSnapshot(launcher.Snapshot{
-		Screen: launcher.ScreenWork, AmbientProduct: "product-1", SelectedWorkID: "work-2", Section: launcher.SectionRelations,
-		Coverage: "authoritative",
-		Detail: launcher.WorkDetail{
-			Item:     launcher.RankedWork{ID: "work-2", Kind: "bug", Title: "Done", Lifecycle: "completed", Priority: 2},
-			Workflow: "execution",
-			Projects: []string{"core"},
-		},
-	})
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	m.Sync()
-	rendered = m.Render()
-	for _, want := range []string{"WORK: work-2", "WORKFLOW: execution"} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("Work screen detail pane lost %q: %q", want, rendered)
+	rendered := m.Render()
+	for _, retired := range []string{"S3 WORK DETAIL", "LIFECYCLE:", "WORKFLOW:", "HISTORY", "BLOCKER:", "DETAIL"} {
+		if strings.Contains(rendered, retired) {
+			t.Fatalf("work-detail frame rendered %q: %q", retired, rendered)
 		}
+	}
+	if got := strings.Count(rendered, "╭"); got != 1 {
+		t.Fatalf("work-detail frame rendered %d panes, want the single surface", got)
+	}
+	if content := m.renderContent(m.snapshot, m.cursor); len(content.rows) != 0 || len(content.tableHeaders) != 0 {
+		t.Fatalf("the removed work screen still projects a table: %#v", content)
 	}
 }

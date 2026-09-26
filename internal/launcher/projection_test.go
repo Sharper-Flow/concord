@@ -15,11 +15,12 @@ func rankedProjectionSnapshot() Snapshot {
 			Lifecycle:    "in_progress",
 			Priority:     int64(i + 1),
 			Urgency:      "high",
+			UpdatedAt:    "2026-09-2" + string(rune('0'+i)) + "T00:00:00Z",
 			TerminalAt:   "2026-09-01T00:00:00Z",
 			ProjectCount: 2,
 		})
 	}
-	return Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Section: SectionRanked, Ranked: rows}
+	return Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Coverage: "authoritative", Ranked: rows}
 }
 
 // TestProjectConsumesWidthBudgetByDroppingLowestPriorityColumns proves
@@ -30,13 +31,13 @@ func rankedProjectionSnapshot() Snapshot {
 func TestProjectConsumesWidthBudgetByDroppingLowestPriorityColumns(t *testing.T) {
 	snapshot := rankedProjectionSnapshot()
 	wide := Project(snapshot, 400, fixtureMeasure(nil))
-	wantOrder := "Work,Kind,Priority,Urgency,Readiness,Lifecycle,TerminalAt,Projects"
+	wantOrder := "Work,Updated,Live"
 	if strings.Join(wide.Columns, ",") != wantOrder {
 		t.Fatalf("wide projection columns = %v, want %s", wide.Columns, wantOrder)
 	}
 	for _, row := range wide.Rows {
-		if len(row) != 8 {
-			t.Fatalf("wide row %#v is not parallel to the 8 declared columns", row)
+		if len(row) != 3 {
+			t.Fatalf("wide row %#v is not parallel to the 3 declared columns", row)
 		}
 	}
 	narrow := Project(snapshot, 30, fixtureMeasure(nil))
@@ -46,10 +47,8 @@ func TestProjectConsumesWidthBudgetByDroppingLowestPriorityColumns(t *testing.T)
 	if narrow.Columns[0] != "Work" {
 		t.Fatalf("narrow projection dropped the highest-priority column: %v", narrow.Columns)
 	}
-	// TerminalAt and Projects are the declared lowest priority: they drop
-	// before anything that survives a narrowed budget.
 	for _, column := range narrow.Columns {
-		if column == "TerminalAt" || column == "Projects" {
+		if column == "Live" {
 			t.Fatalf("lowest-priority column %q survived the narrow budget: %v", column, narrow.Columns)
 		}
 	}
@@ -85,15 +84,12 @@ func TestProjectNeverDropsTheHighestPriorityColumn(t *testing.T) {
 func TestProjectKeepsEveryColumnWhenTheBudgetSeatsIt(t *testing.T) {
 	snapshot := rankedProjectionSnapshot()
 	at120 := Project(snapshot, 120, fixtureMeasure(nil))
-	if len(at120.Columns) != 8 {
+	if len(at120.Columns) != 3 {
 		t.Fatalf("120-column projection dropped fitting columns: %v", at120.Columns)
 	}
-	domains := Snapshot{Screen: ScreenProduct, Section: SectionDomains, Domains: DomainSection{
-		Read: true, State: "authoritative",
-		Domains: []DomainRow{{ID: "d-1", Name: "Domain one", Home: true}},
-	}}
-	if got := len(Project(domains, 120, fixtureMeasure(nil)).Columns); got != 4 {
-		t.Fatalf("domain projection columns = %d, want 4", got)
+	portfolio := Snapshot{Screen: ScreenPortfolio, Coverage: "authoritative", Rows: []ProductRow{{ID: "p-1", Name: "One", Reliance: "clear", Actions: 1}}}
+	if got := len(Project(portfolio, 120, fixtureMeasure(nil)).Columns); got != 2 {
+		t.Fatalf("portfolio projection columns = %d, want 2", got)
 	}
 }
 
@@ -198,34 +194,28 @@ func TestColumnBudgetConsumesTheSuppliedMeasure(t *testing.T) {
 }
 
 // TestProjectShedsByTheSuppliedMeasure applies the supplied measurement
-// through the Project entry point. The fixture prices the cells: Product
-// "p-1 界界界界" spans 12 cells (8 runes) and Focus "界界界界" 8 cells (4
-// runes), so the four-column set spans 48 cells and seats from width 48,
-// while a rune count keeps the focus column until width 51. Width 51
-// separates the two: the cells shed, the runes would keep.
+// through the Project entry point. The fixture prices the cells: the Product
+// name "界界界界" spans 8 cells (4 runes) and the Actions text "ip:0 b:0 r:0
+// p:0 a:0" prices far wider than its runes, so the two-column set seats and
+// sheds on the supplied prices, not on a rune count.
 func TestProjectShedsByTheSuppliedMeasure(t *testing.T) {
 	snapshot := Snapshot{
 		Screen: ScreenPortfolio,
 		Rows: []ProductRow{{
 			ID: "p-1", Name: "界界界界", Stage: "in_progress",
-			Reliance: "clear", Actions: 1, Focus: "界界界界",
+			Reliance: "clear", Actions: 1,
 		}},
 	}
 	measure := fixtureMeasure(map[string]int{
-		"p-1 界界界界": 12,
-		"界界界界":     8,
+		"界界界界": 8,
+		"1":    40, // the collapsed Actions cell, priced absurdly wide
 	})
-	narrow := Project(snapshot, 51, measure)
-	if len(narrow.Columns) != 4 {
-		t.Fatalf("width-51 projection kept %d columns, want 4: %v", len(narrow.Columns), narrow.Columns)
+	narrow := Project(snapshot, 20, measure)
+	if len(narrow.Columns) != 1 || narrow.Columns[0] != "Product" {
+		t.Fatalf("narrow projection kept %v, want [Product] under the supplied prices", narrow.Columns)
 	}
-	for _, column := range narrow.Columns {
-		if column == "Focus" {
-			t.Fatalf("focus column survived a budget its cells exceed: %v", narrow.Columns)
-		}
-	}
-	wide := Project(snapshot, 58, measure)
-	if len(wide.Columns) != 5 {
-		t.Fatalf("width-58 projection dropped fitting columns: %v", wide.Columns)
+	wide := Project(snapshot, 60, measure)
+	if len(wide.Columns) != 2 {
+		t.Fatalf("wide projection dropped fitting columns: %v", wide.Columns)
 	}
 }

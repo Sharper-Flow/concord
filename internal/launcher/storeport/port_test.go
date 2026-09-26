@@ -139,12 +139,12 @@ func TestReadDomainsMapsAbsentRegistryToTypedUnavailableSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := New(s)
-	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: "product", Limit: 20, Section: launcher.SectionDomains})
+	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: "product", Limit: 20})
 	if err != nil {
 		t.Fatalf("absent registry must not error the screen: %v", err)
 	}
-	if snapshot.Screen != launcher.ScreenProduct || snapshot.Section != launcher.SectionDomains {
-		t.Fatalf("screen/section = %s/%s", snapshot.Screen, snapshot.Section)
+	if snapshot.Screen != launcher.ScreenProduct {
+		t.Fatalf("screen = %s", snapshot.Screen)
 	}
 	// The absent registry is typed only in the Domain section. Screen
 	// coverage follows the work read, and the Product work list survives.
@@ -184,7 +184,7 @@ func TestProductReadAppendsTerminalDrillDownTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := New(s)
-	snapshot, err := port.Read(ctx, launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "drill", Limit: 20, Section: launcher.SectionRanked})
+	snapshot, err := port.Read(ctx, launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "drill", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,11 +197,5 @@ func TestProductReadAppendsTerminalDrillDownTail(t *testing.T) {
 	}
 	if done.ID != "drill-done" || !done.Terminal || done.TerminalAt != "2026-08-04T00:00:00Z" || done.Kind != "bug" || done.Readiness() != "terminal" {
 		t.Fatalf("terminal drill-down item=%#v", done)
-	}
-	// The store answer feeds the S2 summary contract: the terminal tail must
-	// not answer blocked/next.
-	stack := snapshot.S2AnswerStack()
-	if stack.Blocked.Work == nil || stack.Blocked.Work.ID != "drill-live" {
-		t.Fatalf("terminal tail supplied a coordination summary: %#v", stack)
 	}
 }

@@ -282,7 +282,7 @@ the guarantees.
   (`internal/store/product_row_test.go`).
 - Criterion 2 is proved by `TestProductRowsC14AuthoritativeEmptyAndTerminalOnly`
   (`internal/store/product_row_test.go`).
-- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesC14Meaning`
+- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesAttentionMarkers`
   (`internal/launcher/model_test.go`), which fixes the stable-suffix rule.
 - Criterion 4 is proved by `TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier`
   (`internal/store/product_row_test.go`).

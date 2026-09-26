@@ -246,7 +246,7 @@ the guarantee.
 - Criterion 4 is proved by
   `TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle`
   (`internal/launcher/storeport/port_test.go`) together with
-  `TestProjectionIsDeterministicAndCarriesC14Meaning`
+  `TestProjectionIsDeterministicAndCarriesAttentionMarkers`
   (`internal/launcher/model_test.go`).
 - Criterion 5 is proved by the bound `Q5-ready-ranking` scenario of
   `scenarios/product-memory-query.v1.json`, executed by

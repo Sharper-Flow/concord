@@ -15,7 +15,7 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 )
 
-func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
+func TestFrameHasTerminalGeometryAndSingleSurface(t *testing.T) {
 	cases := []struct {
 		name          string
 		width, height int
@@ -36,10 +36,7 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 			name:  "120x40",
 			width: 120, height: 40,
 			snapshot: launcher.Snapshot{
-				Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Section: launcher.SectionRanked, PanelFocus: launcher.S2PanelNext,
-				Coverage: "authoritative", Domains: launcher.DomainSection{
-					Read: true, State: "authoritative", Domains: []launcher.DomainRow{{ID: "operator-surface", Name: "Operator surface", Home: true}},
-				},
+				Screen: launcher.ScreenProduct, AmbientProduct: "Concord", Coverage: "authoritative",
 				Ranked: fixtureRankedWorks(45),
 			},
 			golden: "frame-120x40.golden",
@@ -68,17 +65,20 @@ func TestFrameHasTerminalGeometryAndStableHeader(t *testing.T) {
 					t.Fatalf("line %d width=%d, want %d: %q", i, width, tc.width, line)
 				}
 			}
-			if got := strings.Count(frame, "CONCORD LAUNCHER"); got != 1 {
-				t.Fatalf("header count=%d, want 1", got)
+			if got := strings.Count(frame, "CONCORD LAUNCHER"); got != 0 {
+				t.Fatalf("title line count=%d, want 0", got)
 			}
 			if !strings.Contains(frame, "╭") || !strings.Contains(frame, "╰") {
 				t.Fatal("frame does not contain a rounded pane")
 			}
-			if tc.name == "80x24" && (!strings.Contains(frame, "Product") || !strings.Contains(frame, "Stage")) {
-				t.Fatal("scrolled portfolio frame lost the column header")
+			if got := strings.Count(frame, "╭"); got != 1 {
+				t.Fatalf("frame pane count=%d, want the single surface", got)
 			}
-			if tc.name == "120x40" && !strings.Contains(frame, "S2 PRODUCT COORDINATION") {
-				t.Fatal("scrolled S2 frame lost its section label")
+			if tc.name == "80x24" && (!strings.Contains(frame, "Product") || !strings.Contains(frame, "Actions")) {
+				t.Fatal("scrolled portfolio frame lost the Product and Actions column headers")
+			}
+			if tc.name == "120x40" && strings.Contains(frame, "S2 PRODUCT COORDINATION") {
+				t.Fatal("scrolled work list rendered the retired S2 section label")
 			}
 
 			path := filepath.Join("testdata", tc.golden)
@@ -106,8 +106,8 @@ func fixturePortfolioRows(count int) []launcher.ProductRow {
 	return rows
 }
 
-// focusedDetailSnapshot carries one Product row whose twelve focus fields the
-// core computes on every refresh, so the detail pane has typed data to render.
+// focusedDetailSnapshot carries one Product row whose focus fields the core
+// computes on every refresh, so the frame has typed portfolio data to render.
 func focusedDetailSnapshot() launcher.Snapshot {
 	return launcher.Snapshot{
 		Screen: launcher.ScreenPortfolio, AmbientProduct: "Concord",
@@ -125,81 +125,44 @@ func focusedDetailSnapshot() launcher.Snapshot {
 	}
 }
 
-// TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima proves the split
-// geometry by measurement, not screenshots:
-// check:launcher/frame-joins-two-panes joins a second pane at the frame,
-// check:launcher/pane-widths-sum-to-frame holds the two pane widths equal to
-// the frame width with a shared border and an unchanged frame height, and
-// check:launcher/narrow-frame-stays-single-pane keeps one pane below the
-// seated minima.
-func TestFrameJoinsDetailPaneWhenWidthSeatsBothMinima(t *testing.T) {
+// TestFrameStaysSingleSurfaceAtEveryWidth proves the frame geometry by
+// measurement: one bordered table spans the frame at every supported width,
+// the title line and detail pane stay retired, and no line exceeds the
+// terminal.
+func TestFrameStaysSingleSurfaceAtEveryWidth(t *testing.T) {
 	core := launcher.New(nil)
 	core.RestoreSnapshot(focusedDetailSnapshot())
-	model := New(core, context.Background(), Profile{})
-	model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
-	frame := model.Render()
-	lines := strings.Split(frame, "\n")
-	if len(lines) != 24 {
-		t.Fatalf("split frame height=%d, want 24", len(lines))
-	}
-	if got := strings.Count(frame, "╭"); got != 2 {
-		t.Fatalf("split frame pane count=%d, want 2: %q", got, frame)
-	}
-	boundary := primaryPaneWidth(120)
-	if boundary != 120-detailPaneWidth {
-		t.Fatalf("primary pane width=%d, want frame minus the declared detail budget", boundary)
-	}
-	top := []rune(lines[2])
-	if top[boundary-1] != '╮' || top[boundary] != '╭' {
-		t.Fatalf("top border is not split at column %d: %q", boundary, lines[2])
-	}
-	body := []rune(lines[4])
-	if body[boundary-1] != '│' || body[boundary] != '│' {
-		t.Fatalf("pane boundary at column %d is not a shared border: %q", boundary, lines[4])
-	}
-	detailWidth := lipgloss.Width(string(top[boundary:]))
-	if boundary+detailWidth != 120 {
-		t.Fatalf("pane widths %d + %d do not sum to the frame width 120", boundary, detailWidth)
-	}
-	for i, line := range lines {
-		if got := lipgloss.Width(line); got != 120 {
-			t.Fatalf("split frame line %d width=%d, want 120: %q", i, got, line)
+	for _, width := range []int{80, 100, 113, 114, 120, 200} {
+		model := New(core, context.Background(), Profile{})
+		model.Update(tea.WindowSizeMsg{Width: width, Height: 24})
+		frame := model.Render()
+		lines := strings.Split(frame, "\n")
+		if len(lines) != 24 {
+			t.Fatalf("width %d: frame height=%d, want 24", width, len(lines))
 		}
-	}
-
-	// Below the seated minima the frame stays single-pane and no detail
-	// content leaks into it.
-	model.Update(tea.WindowSizeMsg{Width: 113, Height: 24})
-	narrow := model.Render()
-	if got := strings.Count(narrow, "╭"); got != 1 {
-		t.Fatalf("narrow frame pane count=%d, want 1: %q", got, narrow)
-	}
-	if strings.Contains(narrow, "DETAIL") {
-		t.Fatalf("narrow frame leaked the detail pane: %q", narrow)
-	}
-	model.Update(tea.WindowSizeMsg{Width: 114, Height: 24})
-	minimum := strings.Split(model.Render(), "\n")
-	if len(minimum) != 24 {
-		t.Fatalf("minimum split height=%d, want 24", len(minimum))
-	}
-	border := []rune(minimum[2])
-	if len(border) != 114 || border[79] != '╮' || border[80] != '╭' {
-		t.Fatalf("minimum split must have 80-column primary and 34-column detail: %q", minimum[2])
-	}
-	for i, line := range minimum {
-		if got := lipgloss.Width(line); got != 114 {
-			t.Fatalf("minimum split line %d width=%d, want 114", i, got)
+		if got := strings.Count(frame, "╭"); got != 1 {
+			t.Fatalf("width %d: frame pane count=%d, want 1: %q", width, got, frame)
+		}
+		if strings.Contains(frame, "DETAIL") || strings.Contains(frame, "CONCORD LAUNCHER") {
+			t.Fatalf("width %d: the retired title line or detail pane rendered: %q", width, frame)
+		}
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != width {
+				t.Fatalf("width %d: line %d width=%d, want %d", width, i, got, width)
+			}
+		}
+		if !strings.Contains(frame, "FOCUS:") || !strings.Contains(frame, "COVERAGE:") {
+			t.Fatalf("width %d: the status line lost its halves: %q", width, frame)
 		}
 	}
 }
 
-// TestFrameSplitHoldsAtUnicodeDisplayWidths proves the split geometry at
-// Unicode display widths: a wide-rune work title clips inside its pane by
-// display width and neither the pane boundary nor the frame width moves.
-func TestFrameSplitHoldsAtUnicodeDisplayWidths(t *testing.T) {
+// TestFrameHoldsAtUnicodeDisplayWidths proves the frame geometry at Unicode
+// display widths: a wide-rune work title clips inside its pane by display
+// width and the frame width never moves.
+func TestFrameHoldsAtUnicodeDisplayWidths(t *testing.T) {
 	snapshot := launcher.Snapshot{
-		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Section: launcher.SectionRanked,
-		PanelFocus: launcher.S2PanelBlocked, Coverage: "authoritative",
+		Screen: launcher.ScreenProduct, AmbientProduct: "product-1", Coverage: "authoritative",
 		Ranked: []launcher.RankedWork{
 			{ID: "work-1", Kind: "task", Title: strings.Repeat("作業", 40), Lifecycle: "in_progress", Priority: 1, Ready: true},
 			{ID: "work-2", Kind: "bug", Title: "plain", Lifecycle: "needed", Priority: 2},
@@ -214,21 +177,16 @@ func TestFrameSplitHoldsAtUnicodeDisplayWidths(t *testing.T) {
 	if len(lines) != 24 {
 		t.Fatalf("unicode frame height=%d, want 24", len(lines))
 	}
-	if got := strings.Count(frame, "╭"); got != 2 {
-		t.Fatalf("unicode frame pane count=%d, want 2", got)
-	}
-	boundary := primaryPaneWidth(120)
-	top := []rune(lines[2])
-	if top[boundary-1] != '╮' || top[boundary] != '╭' {
-		t.Fatalf("unicode top border is not split at column %d: %q", boundary, lines[2])
+	if got := strings.Count(frame, "╭"); got != 1 {
+		t.Fatalf("unicode frame pane count=%d, want 1", got)
 	}
 	for i, line := range lines {
 		if got := lipgloss.Width(line); got != 120 {
-			t.Fatalf("unicode frame line %d width=%d, want 120: %q", i, got, line)
+			t.Fatalf("unicode frame line %d width=%d, want 120", i, got)
 		}
 	}
-	if !strings.Contains(frame, "WORK: work-1") {
-		t.Fatalf("unicode frame lost the selected work detail: %q", frame)
+	if !strings.Contains(frame, "plain") {
+		t.Fatalf("unicode frame lost its plain row: %q", frame)
 	}
 }
 
@@ -275,9 +233,9 @@ func TestColumnBudgetShedsAtCellAccurateThresholds(t *testing.T) {
 
 // TestProjectShedsByTheRendererMeasure applies the renderer's measure
 // through the Project entry point the model's Sync uses. The Product row
-// "p-1 界界界界" spans 12 display cells (8 runes) and Focus "界界界界" 8
-// cells (4 runes), so the cells shed the focus column from width 51 while a
-// rune count would keep it, and both seat the full set at 58.
+// "界界界界" spans 8 display cells (4 runes) and the Actions header 7, so
+// the two-column set spans 21 cells: it seats at 21 and sheds the Actions
+// column at 20.
 func TestProjectShedsByTheRendererMeasure(t *testing.T) {
 	core := launcher.New(nil)
 	core.RestoreSnapshot(launcher.Snapshot{
@@ -289,24 +247,23 @@ func TestProjectShedsByTheRendererMeasure(t *testing.T) {
 		}},
 	})
 	snapshot := core.Snapshot()
-	narrow := launcher.Project(snapshot, 51, lipgloss.Width)
-	if len(narrow.Columns) != 4 {
-		t.Fatalf("width-51 projection kept %d columns, want 4: %v", len(narrow.Columns), narrow.Columns)
+	// The Actions header prices 7 cells, so the two-column set spans
+	// 2 + (8+2) + (7+2) = 21 cells.
+	narrow := launcher.Project(snapshot, 20, lipgloss.Width)
+	if len(narrow.Columns) != 1 || narrow.Columns[0] != "Product" {
+		t.Fatalf("width-20 projection kept %d columns, want 1: %v", len(narrow.Columns), narrow.Columns)
 	}
-	for _, column := range narrow.Columns {
-		if column == "Focus" {
-			t.Fatalf("focus column survived a budget its cells exceed: %v", narrow.Columns)
-		}
-	}
-	wide := launcher.Project(snapshot, 58, lipgloss.Width)
-	if len(wide.Columns) != 5 {
-		t.Fatalf("width-58 projection dropped fitting columns: %v", wide.Columns)
+	wide := launcher.Project(snapshot, 21, lipgloss.Width)
+	if len(wide.Columns) != 2 {
+		t.Fatalf("width-21 projection dropped fitting columns: %v", wide.Columns)
 	}
 }
 
 func fixtureRankedWorks(count int) []launcher.RankedWork {
 	rows := make([]launcher.RankedWork, count)
 	for i := range rows {
+		// UpdatedAt stays unset so the golden's Updated cells are the stable
+		// "-" and never age with the wall clock.
 		rows[i] = launcher.RankedWork{ID: "work-" + fmt.Sprint(i+1), Kind: "task", Title: "Work " + fmt.Sprint(i+1), Lifecycle: "in_progress", Ready: true}
 	}
 	return rows

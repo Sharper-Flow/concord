@@ -2,11 +2,18 @@ package launcher
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
+// Projection is the deterministic, terminal-independent projection the
+// renderer draws: one bordered table per screen, with no permanent header
+// lines. Markers parallel the rows; "!" marks a row whose facts already
+// demand attention, so the renderer colours a data fact and never sniffs a
+// rendered string for its colour.
 type Projection struct {
-	Header  []string
 	Columns []string
 	Rows    [][]string
 	Markers []string
@@ -20,139 +27,286 @@ type Projection struct {
 type CellMeasure func(string) int
 
 // Project is a deterministic, terminal-independent projection. It performs
-// no reads and emits textual reliance markers so meaning survives no-color
-// output and screen-reader consumption. Width is the terminal budget the
-// projected table may span, and measure prices each cell in the display
-// cells a terminal spends: when the set does not fit, columns drop from the
+// no reads and emits textual markers so meaning survives no-color output and
+// screen-reader consumption. Width is the terminal budget the projected
+// table may span, and measure prices each cell in the display cells a
+// terminal spends: when the set does not fit, columns drop from the
 // per-screen priority order until it does, so a narrowed pane sheds whole
 // columns instead of truncating all of them.
 func Project(snapshot Snapshot, width int, measure CellMeasure) Projection {
-	return applyColumnBudget(project(snapshot), width, measure)
+	return applyColumnBudget(project(snapshot, width, measure), width, measure)
 }
 
-func project(snapshot Snapshot) Projection {
-	columns := []string{"Product", "Stage", "Reliance", "Actions", "Focus"}
+func project(snapshot Snapshot, width int, measure CellMeasure) Projection {
+	switch snapshot.Screen {
+	case ScreenPortfolio:
+		return projectPortfolio(snapshot)
+	case ScreenProduct:
+		return projectWorkList(snapshot, width, measure)
+	default:
+		return Projection{}
+	}
+}
+
+// projectPortfolio renders the portfolio's two columns: the Product and its
+// live Actions counts. An abnormal reliance or unavailable counts mark the
+// row: the marker colours the row and prefixes the Actions cell, so the
+// attention fact survives no-color output and screen-reader consumption.
+func projectPortfolio(snapshot Snapshot) Projection {
+	columns := []string{"Product", "Actions"}
 	rows := make([][]string, 0, len(snapshot.Rows))
 	markers := make([]string, 0, len(snapshot.Rows))
-	if snapshot.Screen == ScreenProduct && snapshot.Section == SectionDomains {
-		columns = []string{"Domain", "Marker", "Parent", "Relations"}
-		for _, domain := range snapshot.Domains.Domains {
-			marker := "DOMAIN"
-			if domain.Home {
-				marker = "HOME"
-			}
-			parent := domain.ParentID
-			if parent == "" {
-				parent = "-"
-			}
-			relations := 0
-			for _, relation := range snapshot.Domains.Relations {
-				if relation.Source == domain.ID || relation.Target == domain.ID {
-					relations++
-				}
-			}
-			rows = append(rows, []string{domain.ID + " " + domain.Name, marker, parent, fmt.Sprintf("r%d law%d act%d", relations, domain.CurrentLawCount, domain.ActiveWorkCount)})
-		}
-		if snapshot.Domains.State == "unavailable" {
-			rows = append(rows, []string{"unavailable: " + snapshot.Domains.Reason, "!", "-", "-"})
-		}
-	}
-	if snapshot.Screen == ScreenProduct && snapshot.Section != SectionDomains {
-		columns = []string{"Work", "Kind", "Priority", "Urgency", "Readiness", "Lifecycle", "TerminalAt", "Projects"}
-		for _, item := range snapshot.Ranked {
-			terminalAt := item.TerminalAt
-			if terminalAt == "" {
-				terminalAt = "-"
-			}
-			rows = append(rows, []string{item.ID + " " + item.Title, item.Kind, fmt.Sprintf("%d", item.Priority), item.Urgency, item.Readiness(), item.Lifecycle, terminalAt, fmt.Sprintf("%d", item.ProjectCount)})
-		}
-		if len(snapshot.Ranked) == 0 {
-			rows = append(rows, drillDownStateRow(rankedSectionState(snapshot), columns))
-		}
-	}
-	if snapshot.Screen == ScreenWork {
-		columns = []string{"Work", "Lifecycle", "Priority", "Urgency", "Projects", "Section"}
-		item := snapshot.Detail.Item
-		rows = append(rows, []string{item.ID + " " + item.Title, item.Lifecycle, fmt.Sprintf("%d", item.Priority), item.Urgency, fmt.Sprintf("%d", item.ProjectCount), string(snapshot.Section)})
-	}
-	if snapshot.Screen != ScreenPortfolio {
-		ambient := snapshot.AmbientProduct
-		if ambient == "" {
-			ambient = "(none)"
-		}
-		return Projection{Header: []string{"PRODUCT: " + ambient, "WATERMARK: " + watermarkText(snapshot.Watermark), "AGE: " + watermarkText(snapshot.ObservedAt), "SCREEN: " + string(snapshot.Screen), "RELIANCE: " + relianceText(snapshot.Reliance), "COVERAGE: " + coverageText(snapshot.Coverage), "SECTION: " + string(snapshot.Section)}, Columns: columns, Rows: rows, Markers: []string{strings.ToUpper(string(snapshot.Section))}}
-	}
 	for _, row := range snapshot.Rows {
-		name := row.Name + row.NameSuffix
-		reliance := row.Reliance
-		marker := "OK"
-		if reliance != "clear" && reliance != "ready" && reliance != "" {
-			marker = "!"
+		actions := actionText(row)
+		marker := rowMarker(row)
+		if marker == "!" {
+			actions = "! " + actions
 		}
-		actions := fmt.Sprintf("ip:%d b:%d r:%d p:%d a:%d", row.InProgress, row.Blocked, row.Ready, row.ActiveProblems, row.ApprovalRequired)
-		if row.OverdueAwaits > 0 {
-			actions += fmt.Sprintf(" overdue:%d", row.OverdueAwaits)
-		}
-		if row.FocusAttentionKind == "approval_required" && row.FocusBlockedSessionCount > 0 {
-			actions += fmt.Sprintf(" (waiting: %s)", row.FocusOldestBlockedSession)
-		}
-		if row.Actions != 0 && row.InProgress == 0 && row.Blocked == 0 && row.Ready == 0 && row.ActiveProblems == 0 && row.ApprovalRequired == 0 {
-			actions = fmt.Sprintf("%d", row.Actions)
-		}
-		if row.CountsState == "unavailable" {
-			actions = "unavailable: " + row.UnavailableReason
-		}
-		focus := row.Focus
-		if focus == "" {
-			focus = "none: " + row.FocusAbsentReason
-		}
-		rows = append(rows, []string{
-			name,
-			row.Stage,
-			marker + " " + reliance,
-			actions,
-			focus,
-		})
+		rows = append(rows, []string{row.Name + row.NameSuffix, actions})
 		markers = append(markers, marker)
 	}
-	ambient := snapshot.AmbientProduct
-	if ambient == "" {
-		ambient = "(none)"
+	return Projection{Columns: columns, Rows: rows, Markers: markers}
+}
+
+// projectWorkList renders the Product screen's work list sorted by
+// updated_at descending (the default MRU ordering), one row per work item:
+// number, readiness marker, the linked Linear key when linked, the title,
+// and the blocking ticket reference, with relative updated and live-session
+// columns. The Work cell bounds itself so the Updated and Live cells seat on
+// every row at every supported width.
+func projectWorkList(snapshot Snapshot, width int, measure CellMeasure) Projection {
+	columns := []string{"Work", "Updated", "Live"}
+	ranked := SortRankedByRecency(snapshot.Ranked)
+	now := relativeTimeNow()
+	updatedWidth, liveWidth := measure(columns[1]), measure(columns[2])
+	for _, item := range ranked {
+		if cells := measure(RelativeTime(item.UpdatedAt, now)); cells > updatedWidth {
+			updatedWidth = cells
+		}
+		if cells := measure(liveCellText(item, snapshot)); cells > liveWidth {
+			liveWidth = cells
+		}
 	}
-	watermark := snapshot.Watermark
-	if watermark == "" {
-		watermark = "unknown"
+	// The cursor gutter and each column's inter-column padding, priced as
+	// the renderer prices them.
+	workBudget := width - projectedCursorGutter - 3*projectedColumnPadding - updatedWidth - liveWidth
+	workBudget = max(minWorkCellBudget, workBudget)
+	rows := make([][]string, 0, len(ranked))
+	markers := make([]string, 0, len(ranked))
+	for i, item := range ranked {
+		rows = append(rows, []string{
+			workCellText(i+1, item, workBudget, measure),
+			RelativeTime(item.UpdatedAt, now),
+			liveCellText(item, snapshot),
+		})
+		marker := ""
+		if item.Readiness() == "blocked" {
+			marker = "!"
+		}
+		markers = append(markers, marker)
 	}
-	age := snapshot.ObservedAt
-	if age == "" {
-		age = "unknown"
+	if len(ranked) == 0 {
+		rows = append(rows, drillDownStateRow(rankedSectionState(snapshot), columns))
+		markers = append(markers, stateRowMarker(snapshot))
 	}
-	reliance := snapshot.Reliance
-	if reliance == "" {
-		reliance = "unknown"
+	if snapshot.Backlog {
+		// The picker row is an action, not a work item: it ends the list and
+		// opens the issue-key prompt.
+		picker := RankedWork{ID: "backlog", Kind: "new", Title: "New / Backlog", Lifecycle: "needed", Backlog: true}
+		rows = append(rows, []string{workCellText(len(ranked)+1, picker, workBudget, measure), RelativeTime("", now), ""})
+		markers = append(markers, "")
 	}
-	coverage := snapshot.Coverage
-	if coverage == "" {
-		coverage = "unknown"
+	return Projection{Columns: columns, Rows: rows, Markers: markers}
+}
+
+// SortRankedByRecency orders work rows most-recently-updated first and
+// returns the ordered copy: an unparsable or absent updated_at sorts last,
+// and equal keys keep their given order. The read port cuts its bounded page
+// by the same key, so the display order and the page cut agree.
+func SortRankedByRecency(ranked []RankedWork) []RankedWork {
+	out := append([]RankedWork(nil), ranked...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ti, tj := parseTime(out[i].UpdatedAt), parseTime(out[j].UpdatedAt)
+		if ti.Equal(tj) {
+			return false
+		}
+		if ti.IsZero() {
+			return false
+		}
+		if tj.IsZero() {
+			return true
+		}
+		return ti.After(tj)
+	})
+	return out
+}
+
+func parseTime(value string) time.Time {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
 	}
-	return Projection{
-		Header: []string{
-			"PRODUCT: " + ambient,
-			"WATERMARK: " + watermark,
-			"AGE: " + age,
-			"SCREEN: " + string(snapshot.Screen),
-			"RELIANCE: " + reliance,
-			"COVERAGE: " + coverage,
-		},
-		Columns: columns, Rows: rows, Markers: markers,
+	return parsed
+}
+
+// relativeTimeNow is the clock the Updated cell ages against. Tests replace
+// it; production leaves the wall clock in place.
+var relativeTimeNow = time.Now
+
+// RelativeTime renders a timestamp as the compact relative age the Updated
+// column carries: "2h", "3d", and so on. An absent or unparsable timestamp
+// renders as "-", never as a fabricated age.
+func RelativeTime(value string, now time.Time) string {
+	parsed := parseTime(value)
+	if parsed.IsZero() {
+		return "-"
+	}
+	d := now.Sub(parsed)
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h"
+	case d < 30*24*time.Hour:
+		return strconv.Itoa(int(d.Hours()/24)) + "d"
+	case d < 365*24*time.Hour:
+		return strconv.Itoa(int(d.Hours()/(24*30))) + "mo"
+	default:
+		return strconv.Itoa(int(d.Hours()/(24*365))) + "y"
 	}
 }
 
-func watermarkText(value string) string {
-	if value == "" {
-		return "unknown"
+// liveCellText is the live-session cell: "yes" when a live session holds the
+// work, "no" when the host attested none under the active-only picker, and
+// empty where the read carried no occupancy answer.
+func liveCellText(item RankedWork, snapshot Snapshot) string {
+	if item.Live > 0 {
+		return "yes"
 	}
-	return value
+	if snapshot.ActiveWorkOnly && !item.Backlog {
+		return "no"
+	}
+	return ""
+}
+
+// workCellText composes one work row's Work cell within the budget: the row
+// number, the readiness marker, the linked Linear key when linked, the
+// title, and each blocking ticket reference. The title truncates first; the
+// marker, number, key, and blocking references yield last, in that order.
+// The Backlog picker row is an action, not work state, so it carries no
+// readiness marker.
+func workCellText(number int, item RankedWork, budget int, measure CellMeasure) string {
+	head := strconv.Itoa(number) + " "
+	line := head
+	spare := budget - measure(head)
+	if !item.Backlog {
+		marker := rankedMarker(item) + " "
+		if spare >= measure(marker) {
+			line += marker
+			spare -= measure(marker)
+		}
+	}
+	if key := item.LinearIssueKey; key != "" && spare >= measure(key)+1 {
+		line += key + " "
+		spare -= measure(key) + 1
+	}
+	if title := item.Title; title != "" && spare > 1 {
+		truncated := truncateCells(title, spare, measure)
+		line += truncated
+		spare -= measure(truncated)
+	}
+	if spare > 1 {
+		for _, blocker := range item.Blockers {
+			reference := blocker.IssueKey
+			if reference == "" {
+				reference = blocker.ID
+			}
+			cell := " !" + reference
+			if spare < measure(cell) {
+				break
+			}
+			line += cell
+			spare -= measure(cell)
+		}
+	}
+	return line
+}
+
+// rankedMarker is the readiness marker the Work cell leads with. The words
+// stay readable with colour off.
+func rankedMarker(item RankedWork) string {
+	switch item.Readiness() {
+	case "terminal":
+		return "-TERMINAL"
+	case "blocked":
+		return "!BLOCKED"
+	case "ready":
+		return "+READY"
+	default:
+		return "~ACTIVE"
+	}
+}
+
+// truncateCells clips a cell to a display-width budget and marks the cut
+// with an ellipsis, so a clipped title never reads as complete. It measures
+// with the supplied CellMeasure.
+func truncateCells(value string, width int, measure CellMeasure) string {
+	if width <= 0 || measure(value) <= width {
+		return value
+	}
+	cut := width - 1 // the ellipsis occupies the final cell
+	clipped := ""
+	for _, r := range value {
+		next := clipped + string(r)
+		if measure(next) > cut {
+			break
+		}
+		clipped = next
+	}
+	return clipped + "…"
+}
+
+func actionText(row ProductRow) string {
+	if row.CountsState == "unavailable" {
+		text := "unavailable: " + row.UnavailableReason
+		if len(row.UnavailableOmissions) > 0 {
+			text += " (omissions: " + strings.Join(row.UnavailableOmissions, ",") + ")"
+		}
+		return text
+	}
+	if row.InProgress == 0 && row.Blocked == 0 && row.Ready == 0 && row.ActiveProblems == 0 && row.ApprovalRequired == 0 && row.Actions != 0 {
+		return fmt.Sprintf("%d", row.Actions)
+	}
+	return "ip:" + fmt.Sprintf("%d", row.InProgress) + " b:" + fmt.Sprintf("%d", row.Blocked) + " r:" + fmt.Sprintf("%d", row.Ready) + " p:" + fmt.Sprintf("%d", row.ActiveProblems) + " a:" + fmt.Sprintf("%d", row.ApprovalRequired)
+}
+
+// rowMarker marks the portfolio rows whose facts already demand attention:
+// an abnormal reliance (not clear, ready, or empty; stale; or blocking
+// execution) and unavailable action counts.
+func rowMarker(row ProductRow) string {
+	if row.CountsState == "unavailable" {
+		return "!"
+	}
+	reliance := row.Reliance
+	if row.RelianceStale || row.BlocksExecution {
+		reliance = "stale"
+	}
+	if reliance != "" && reliance != "clear" && reliance != "ready" {
+		return "!"
+	}
+	return ""
+}
+
+func stateRowMarker(snapshot Snapshot) string {
+	if rankedSectionState(snapshot) != "authoritative-empty" {
+		return "!"
+	}
+	return ""
 }
 
 const (
@@ -162,6 +316,10 @@ const (
 	// projectedCursorGutter reserves the two-column cursor gutter the renderer
 	// places inside every data table.
 	projectedCursorGutter = 2
+	// minWorkCellBudget keeps a Work cell wide enough for its number, its
+	// readiness marker, and a usable title head, where a narrowed table would
+	// otherwise starve the one cell every row is read by.
+	minWorkCellBudget = 14
 )
 
 // ColumnBudget returns how many leading columns of a projected table fit the
@@ -246,111 +404,11 @@ func rankedSectionState(snapshot Snapshot) string {
 }
 
 // drillDownStateRow renders a list state as one row with the column arity the
-// section already declared, mirroring the Domains unavailable row.
+// screen already declared.
 func drillDownStateRow(state string, columns []string) []string {
 	row := []string{state}
 	for i := 1; i < len(columns); i++ {
 		row = append(row, "-")
 	}
 	return row
-}
-func relianceText(value string) string {
-	if value == "" {
-		return "unknown"
-	}
-	return value
-}
-func coverageText(value string) string {
-	if value == "" {
-		return "unknown"
-	}
-	return value
-}
-
-// RankedColumn is one data column in the Product work projection.
-type RankedColumn struct {
-	Key, Value string
-}
-
-// mandatedRankedKeys lists the columns the launcher contract requires on
-// every non-terminal Product work row: lifecycle, the linked issue key, and
-// the live-session state. Their mandate is per row, so neither the constant
-// collapse nor a shed column may remove them; the renderer bounds the Work
-// cell so these columns always fit instead.
-var mandatedRankedKeys = map[string]bool{"lifecycle": true, "issue": true, "live": true}
-
-// MandatedRankedColumn reports whether the launcher contract requires the
-// named column on every non-terminal Product work row.
-func MandatedRankedColumn(key string) bool {
-	return mandatedRankedKeys[key]
-}
-
-// RankedColumns returns the stable data columns for a work item. The
-// mandated columns lead the display order; the rest follow in shed priority
-// so a narrowed pane drops descriptive columns first.
-func RankedColumns(item RankedWork, snapshot Snapshot) []RankedColumn {
-	kind := item.Kind
-	if kind == "" {
-		kind = "-"
-	}
-	live := ""
-	if item.Live > 0 {
-		live = "yes"
-	} else if snapshot.ActiveWorkOnly && !item.Backlog {
-		live = "no"
-	}
-	return []RankedColumn{
-		{Key: "lifecycle", Value: item.Lifecycle},
-		{Key: "issue", Value: item.LinearIssueKey},
-		{Key: "live", Value: live},
-		{Key: "kind", Value: kind},
-		{Key: "priority", Value: fmt.Sprintf("%d", item.Priority)},
-		{Key: "urgency", Value: urgencyText(item.Urgency)},
-		{Key: "terminal", Value: item.TerminalAt},
-		{Key: "projects", Value: fmt.Sprintf("%d", item.ProjectCount)},
-	}
-}
-
-// urgencyText defaults an unset urgency to the standard label the detail
-// pane renders, so the column never shows an empty urgency.
-func urgencyText(value string) string {
-	if value == "" {
-		return "standard"
-	}
-	return value
-}
-
-// CollapsedRankedKeys returns columns that carry one value across visible
-// rows. The mandated columns never collapse: a constant lifecycle or
-// live-session state is still a fact each row must carry.
-func CollapsedRankedKeys(ranked []RankedWork, snapshot Snapshot) map[string]bool {
-	constant := map[string]bool{}
-	if len(ranked) == 0 {
-		return constant
-	}
-	first := RankedColumns(ranked[0], snapshot)
-	for _, column := range first {
-		if mandatedRankedKeys[column.Key] {
-			continue
-		}
-		same := true
-		for _, item := range ranked[1:] {
-			values := RankedColumns(item, snapshot)
-			found := false
-			for _, value := range values {
-				if value.Key == column.Key {
-					found = value.Value == column.Value
-					break
-				}
-			}
-			if !found {
-				same = false
-				break
-			}
-		}
-		if same {
-			constant[column.Key] = true
-		}
-	}
-	return constant
 }

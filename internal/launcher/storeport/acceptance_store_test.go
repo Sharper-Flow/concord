@@ -71,7 +71,7 @@ func TestProductReadScopesWorkToProductAndActiveLifeCycle(t *testing.T) {
 	defer s.Close()
 	seedLauncherStoreFixture(t, s)
 	port := New(s)
-	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-a", Limit: 100, Section: launcher.SectionRanked})
+	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-a", Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +93,11 @@ func TestProductReadScopesWorkToProductAndActiveLifeCycle(t *testing.T) {
 	if !snapshot.ActiveWorkOnly {
 		t.Fatal("Product snapshot must set ActiveWorkOnly so the picker drops terminal rows")
 	}
+	// The active segment is recency ordered: scope-ref carries the latest
+	// updated_at, so it leads the segment the picker displays.
+	if len(snapshot.Ranked) < 2 || snapshot.Ranked[0].ID != "scope-ref" || snapshot.Ranked[1].ID != "scope-live" {
+		t.Fatalf("active segment is not recency ordered: %#v", snapshot.Ranked)
+	}
 }
 
 // TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy proves
@@ -112,7 +117,7 @@ func TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy(t *testing.T) {
 	port.SessionProbe = func(_ context.Context, entry store.WorktreeEntry) bool {
 		return entry.State == "active" && entry.Path != ""
 	}
-	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-a", Limit: 100, Section: launcher.SectionRanked})
+	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-a", Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +126,7 @@ func TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy(t *testing.T) {
 		byID[row.ID] = row
 	}
 	live := byID["scope-live"]
-	if live.LinearIssueKey != "CON-153" || live.Worktree != "/wt/scope-live" || live.Live != 1 {
+	if live.LinearIssueKey != "CON-153" || live.LinearIssueURL != "https://linear.app/example/issue/CON-153" || live.Worktree != "/wt/scope-live" || live.Live != 1 {
 		t.Fatalf("linked occupied row = %#v", live)
 	}
 	ref := byID["scope-ref"]
@@ -189,22 +194,15 @@ func TestLauncherPortReadsPerformNoDurableWrite(t *testing.T) {
 	port := New(s)
 	port.SessionProbe = func(context.Context, store.WorktreeEntry) bool { return false }
 	ctx := context.Background()
-	read := func(kind launcher.ReadKind, product, work string, section launcher.Section) {
+	read := func(kind launcher.ReadKind, product string) {
 		t.Helper()
-		if _, err := port.Read(ctx, launcher.ReadRequest{Kind: kind, Product: product, Work: work, Limit: 20, Section: section}); err != nil {
+		if _, err := port.Read(ctx, launcher.ReadRequest{Kind: kind, Product: product, Limit: 20}); err != nil {
 			t.Fatalf("read %s must stay readable even when degraded: %v", kind, err)
 		}
 	}
-	degradedRead := func(kind launcher.ReadKind, product, work string, section launcher.Section) {
-		t.Helper()
-		// A typed unavailable section is a rendered state, not a write.
-		_, _ = port.Read(ctx, launcher.ReadRequest{Kind: kind, Product: product, Work: work, Limit: 20, Section: section})
-	}
-	read(launcher.ReadPortfolio, "", "", "")
-	read(launcher.ReadProduct, "scope-a", "", launcher.SectionRanked)
-	read(launcher.ReadDomains, "scope-a", "", launcher.SectionDomains)
-	read(launcher.ReadWork, "scope-a", "scope-live", "")
-	degradedRead(launcher.ReadKnowledge, "scope-a", "", launcher.SectionKnowledge)
+	read(launcher.ReadPortfolio, "")
+	read(launcher.ReadProduct, "scope-a")
+	read(launcher.ReadDomains, "scope-a")
 	if _, err := port.Candidates(ctx, 10); err != nil {
 		t.Fatalf("candidates: %v", err)
 	}

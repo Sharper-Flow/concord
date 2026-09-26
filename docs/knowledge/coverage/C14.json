@@ -14,7 +14,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesC14Meaning"
+      "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesAttentionMarkers"
     },
     {
       "kind": "go_test",

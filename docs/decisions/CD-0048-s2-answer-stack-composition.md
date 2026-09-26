@@ -1,12 +1,15 @@
 # CD-0048: S2 composes the answers the store already materialized
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-26)
 - **Date:** 2026-08-20
 - **Scope:** `docs/terminal-launcher-contract.md` §5 Tab semantics and S2
   composition; issue #228
 - **Approval:** Operator accepted the drafted decision as written on 2026-08-20; the
   public record is
-  [issue #228 comment](https://github.com/Sharper-Flow/concord/issues/228#issuecomment-5361273350)
+  [issue #228 comment](https://github.com/Sharper-Flow/concord/issues/228#issuecomment-5361273350).
+  The operator approved the single-surface amendment on 2026-09-26
+  ([Concord (CON) issue 472](https://linear.app/sharper-flow/issue/CON-472/tui-layout-cleanup-survey-driven-per-view-redesign));
+  D1, D2, and D4 below carry it.
 - **Related:** CD-0014, CD-0016, CD-0041,
   [`terminal-launcher-contract.md`](../terminal-launcher-contract.md) §3, §5,
   §8, §11, §12, §13
@@ -46,35 +49,36 @@ materialized, in the order §3 already states.
 
 ## Decision
 
-### D1. S2 renders as a panel stack in §3's job order
+### D1. S2's answers stay store-materialized; the panel stack is superseded
 
-One vertical stack, one panel per §3 clause, top to bottom: governing
-Domain with its overlap state, blocked and blockers, next work. The ambient
-Product line above the stack stays as §8 requires. Domain hierarchy browse and
-the bounded knowledge section render inside the expanded panels.
+Amended 2026-09-26: the launcher no longer renders S2 as a panel stack. Per
+CD-0108 D2 as amended, each Product screen renders one work list; the
+governing Domain and its overlap state surface as a single line only when an
+unresolved overlap exists; blocked and next state carry through the work
+list's readiness markers, blocking ticket references, and `updated_at`-descending
+ordering. The Context table above still holds: every §13 answer remains
+materialized by the store before the launcher renders, and the launcher adds
+no computation over it.
 
-### D2. Collapsed panels carry the answer and its reason
+### D2. Quiet means healthy
 
-When focus leaves a panel it collapses to one stable line showing the
-store-materialized value and its reason — the attention tier for the Product,
-the overlap pair and resolution state for the Domain, blocker identities with
-authority for the blocked panel. A Domain with no unresolved overlap keeps a
-stable line stating that, so evaluated-clean stays distinguishable from
-unevaluated and redraw remains idempotent per §8.
+Amended 2026-09-26: a Domain with no unresolved overlap renders nothing, per
+CD-0108 D2 as amended. Evaluated-clean stays distinguishable from unevaluated
+at the store boundary: the abnormal line names the pair and its resolution
+state, and redraw over unchanged state stays byte-identical.
 
-### D3. Ordering is unchanged and unchangeable here
+### D3. Ordering stays store-owned
 
-Panel order is §3's job-order sentence. Panel values order by the stored rank
-and existing deterministic store tiers. No launcher-side score, weighting, or
-recency inference exists in this composition; §12.6 applies to summary lines
-exactly as it applies to rows.
+Amended 2026-09-26: the work list orders by stored `updated_at` descending
+with a deterministic tiebreak. Recency is a stored column, not a launcher
+inference; no launcher-side score, weighting, or model-assigned ordering
+exists, and §12.6 applies unchanged.
 
-### D4. §5's Tab row is refined, not replaced
+### D4. §5's Tab row realigns with the successor contract
 
-Tab cycles panel focus within S2's stack instead of swapping full-screen
-sections. The keymap table's Tab row changes its Action text to match; the
-S3 knowledge section keeps its existing Tab behaviour. No other §5 key
-changes, and §11's widget floor is untouched.
+Amended 2026-09-26: Tab no longer cycles panel focus, because the panel stack
+is gone. The §5 key table realigns when the successor launcher contract
+registers; that realignment is the tracked follow-up and changes nothing here.
 
 ### D5. The action surface does not move
 
@@ -112,11 +116,20 @@ already narrows the launcher to status plus resume.
 
 ## Verification
 
-- `docs/terminal-launcher-contract.md` §5's Tab row matches D4; no other
-  section changes.
+- `docs/terminal-launcher-contract.md` §5's Tab row realigns with the successor
+  launcher contract registration; no other section changes with this amendment.
 - `python3 scripts/check-doc-links.py`, `python3 scripts/check-public-content.py`,
   and `python3 scripts/check-knowledge-index.py` pass with this record indexed
   exactly once.
-- Implementation acceptance tests assert: panel order fixed, summary lines
-  carry store-materialized values only, no-overlap Domain renders a stable
-  line, redraw over unchanged state is byte-identical.
+- Store materialization of the §13 answers is proved by
+  `TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore`,
+  `TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable`, and
+  `TestS2DomainSectionBoundedOverlapKeepsRegistryRows`
+  (`internal/launcher/storeport`).
+- Rendering after the amendment is proved by
+  `TestDomainContextRendersOnlyWhenAbnormal`,
+  `TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive`,
+  `TestWorkListProjectionIsRecencyOrdered`, and `TestWorkListRedrawIsByteIdentical`
+  (`internal/launcher`, `internal/launcher/render/bubbletea`): abnormal-only
+  Domain lines, store-materialized row values, recency ordering, and
+  byte-identical redraw over unchanged state.

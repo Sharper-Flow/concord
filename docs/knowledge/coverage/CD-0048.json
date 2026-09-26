@@ -2,23 +2,31 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestS2AnswerStackPanelOrderIsFixed"
+      "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestS2AnswerStackSummaryValuesAreStoreMaterialized"
+      "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestS2NoUnresolvedOverlapIsDistinctFromUnavailable"
+      "value": "internal/launcher/storeport.TestS2DomainSectionBoundedOverlapKeepsRegistryRows"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestS2AnswerStackRenderIsIdempotent"
+      "value": "internal/launcher/render/bubbletea.TestDomainContextRendersOnlyWhenAbnormal"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestS2PanelFocusCyclesAndS3SectionsRemainSeparate"
+      "value": "internal/launcher.TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher.TestWorkListProjectionIsRecencyOrdered"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestWorkListRedrawIsByteIdentical"
     }
   ],
   "id": "CD-0048",

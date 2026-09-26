@@ -126,7 +126,7 @@ evidence that the implication was not enough.
   (`internal/launcher/render/bubbletea/model_test.go`) proves D3 by asserting the
   session argument vector is exactly the Concord binary and `session`, with
   identity carried in the environment. No session identifier can be forwarded.
-- `TestLaunchHandoffIsIdentityOnlyAndS1CannotReachWork`
+- `TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap`
   (`internal/launcher/render/bubbletea/model_test.go`) and
   `TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts` (`cmd/concord`)
   remain the existing anchors for the CD-0031 handoff this record preserves.

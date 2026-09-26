@@ -3190,11 +3190,16 @@ func (s *Store) EnsureLinearIssueWork(ctx context.Context, productID, remoteUUID
 // work item with external_ref linear:<uuid>, records the imported remote
 // Project on the Initiative's project link in the same transaction, so the
 // entries of an imported Initiative acquire its Project on their next sync,
-// and lands the Project's markdown content as the Initiative narrative
-// through the folded revision event (CD-0171 d3). The import is one-way and
-// once: a repeated import of the same remote identity refuses with a typed
-// duplicate, and nothing here ever writes back to Linear.
-func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUID, name, description, narrative, url string) (ImportedLinearInitiative, error) {
+// and lands the Project's doc as the Initiative narrative through the folded
+// revision event (CD-0171 d3): the content is the doc, and a Project without
+// content contributes a description that exceeds the 256-character statement
+// budget instead. The summary maps to the value statement; a description that
+// fits the budget is the statement when the summary is empty. The import
+// refuses with a typed failure when a description would be silently dropped.
+// The import is one-way and once: a repeated import of the same remote
+// identity refuses with a typed duplicate, and nothing here ever writes back
+// to Linear.
+func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUID, name, summary, description, content, url string) (ImportedLinearInitiative, error) {
 	if len(remoteUUID) < 2 || len(remoteUUID) > 128 {
 		return ImportedLinearInitiative{}, newFailure(KindInvalidPayload, "linear_initiative_import", "remote initiative uuid must be 2 to 128 characters", false, "supply the Linear initiative uuid")
 	}
@@ -3223,12 +3228,34 @@ func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUI
 	} else if err != nil {
 		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot read the primary Project", true, "retry once the database is readable", err)
 	}
-	valueStatement := description
-	if valueStatement == "" {
-		valueStatement = "Imported one-way from Linear initiative " + name + "; no outbound sync."
-	}
+	valueStatement := summary
 	if len(valueStatement) > 256 {
 		valueStatement = valueStatement[:253] + "..."
+	}
+	// Every byte of the Project's text needs a destination. The content is
+	// the doc; when the Project holds no content, a description that exceeds
+	// the statement budget is the doc instead, so the import keeps it whole
+	// as the narrative. A description that fits the budget is the statement
+	// when the summary is empty. A description over budget beside a content
+	// has nowhere to land and importing it would silently drop its text, so
+	// the import refuses typed and names the loss. A short description
+	// beside a summary is auxiliary text: the summary holds the statement
+	// and the content holds the doc, so no destination remains for it.
+	doc := content
+	if description != "" {
+		switch {
+		case len(description) > 256 && content == "":
+			doc = description
+		case len(description) > 256:
+			return ImportedLinearInitiative{}, newFailure(KindInvalidPayload, "linear_initiative_import",
+				"the Linear Project description is too long to import without dropping its text: the content already holds the doc",
+				false, "move the description text into the Linear Project content, or shorten the description")
+		case summary == "":
+			valueStatement = description
+		}
+	}
+	if valueStatement == "" {
+		valueStatement = "Imported one-way from Linear initiative " + name + "; no outbound sync."
 	}
 	digest := sha256.Sum256([]byte("linear-initiative-import:" + externalRef))
 	workID := "initiative-" + hex.EncodeToString(digest[:])[7:31]
@@ -3245,13 +3272,15 @@ func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUI
 		{EventID: "linear-initiative-import:" + externalRef + ":create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: payload},
 		{EventID: "linear-initiative-import:" + externalRef + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 	}
-	// The imported Project's content is the Initiative narrative the drain
-	// sends as the Linear Project's markdown content (CD-0171 d3). The
-	// narrative fold refuses an empty revision, so an import without content
-	// starts at the empty default and a drained project_update keeps Linear's
-	// current content only when the Initiative holds none.
-	if narrative != "" {
-		narrativeEvent, err := InitiativeNarrativeEvent("linear-initiative-import:"+externalRef+":narrative", workID, narrative, "imported from Linear", "operator", now, 2)
+	// The imported Project's doc is the Initiative narrative the drain sends
+	// as the Linear Project's markdown content (CD-0171 d3); a Project with
+	// no content contributes its long description as the doc instead. The
+	// narrative fold refuses an empty revision, so an import with neither
+	// lands no narrative event, and the drained project_update then omits
+	// content — Linear keeps its current markdown instead of seeing it
+	// cleared.
+	if doc != "" {
+		narrativeEvent, err := InitiativeNarrativeEvent("linear-initiative-import:"+externalRef+":narrative", workID, doc, "imported from Linear", "operator", now, 2)
 		if err != nil {
 			return ImportedLinearInitiative{}, err
 		}

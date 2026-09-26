@@ -142,13 +142,17 @@ type Issue struct {
 }
 
 // Project is the remote Linear project identity and content. Content is the
-// project's markdown document; Description is the short field (CD-0171 d3).
-// TeamIDs lists the teams the project belongs to, so the initiative import
-// can verify the project belongs to the Product's connection team before
-// binding it (CD-0171 D1). Only GetProject populates it.
+// project's markdown document; Summary is the short statement field the
+// initiative import maps to the Concord value statement; Description is
+// Linear's legacy project text, which a project without content may hold as
+// a long document. TeamIDs lists the teams the project belongs to, so the
+// initiative import can verify the project belongs to the Product's
+// connection team before binding it (CD-0171 D1). Only GetProject populates
+// Summary and TeamIDs.
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
+	Summary     string    `json:"summary"`
 	Description string    `json:"description"`
 	Content     string    `json:"content"`
 	URL         string    `json:"url"`
@@ -169,17 +173,19 @@ type CreateProjectInput struct {
 }
 
 // UpdateProjectInput carries the mutable project fields the drain
-// synchronizes for an Initiative. Description and Content are full-state
-// fields: the input is a linearPayload-shaped snapshot of the Initiative, so
-// both always ride the request and an empty value clears the remote field
-// instead of leaving stale markdown behind.
+// synchronizes for an Initiative. Description is a full-state field and
+// always rides: it carries the value statement, so the first convergence
+// flattens a long Linear description a pre-import Project left behind.
+// Content rides only when the caller holds a narrative: an omitted content
+// keeps the remote markdown, because the drain never clears the Project doc
+// — an Initiative with no narrative has nothing to say about it.
 // Name keeps omitempty: a Linear Project requires a name, and an Initiative
 // always has a title, so an omitted name can only mean a caller that never
 // intended to send one.
 type UpdateProjectInput struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description"`
-	Content     string `json:"content"`
+	Content     string `json:"content,omitempty"`
 }
 
 // ResolvedIssue is one fetched issue together with its owning team and state,
@@ -481,7 +487,7 @@ func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, e
 			} `json:"teams"`
 		} `json:"project"`
 	}
-	query := "query($id: String!) { project(id: $id) { id name description content url updatedAt teams { nodes { id } } } }"
+	query := "query($id: String!) { project(id: $id) { id name summary description content url updatedAt teams { nodes { id } } } }"
 	if err := c.call(ctx, query, map[string]any{"id": projectUUID}, &payload); err != nil {
 		return Project{}, err
 	}

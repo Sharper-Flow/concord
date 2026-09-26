@@ -1405,10 +1405,11 @@ func TestLinearDrainQueuesEntryUpdateWhenTheProjectLinksMidFlight(t *testing.T) 
 	}
 }
 
-// Project_update carries the Initiative's full
-// state, so an Initiative with no narrative sends an explicit empty content
-// and the stale markdown leaves the Linear Project instead of lingering.
-func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
+// Project_update keeps description=statement and rides content only when the
+// Initiative holds a narrative: an empty narrative omits content, so the
+// remote markdown stays instead of being cleared by a drain that has nothing
+// to say about it.
+func TestLinearDrainProjectUpdateKeepsRemoteContentWithoutNarrative(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "narrclear-product", "narrclear-project")
 	enableLinearProduct(t, dbPath, "narrclear-product")
@@ -1441,10 +1442,11 @@ func TestLinearDrainProjectUpdateClearsAnEmptyNarrative(t *testing.T) {
 	if code := runWithInput([]string{"linear", "outbox-drain"}, strings.NewReader(`{"product_id":"narrclear-product"}`), &out, &errOut); code != 0 {
 		t.Fatalf("drain exit=%d stderr=%q", code, errOut.String())
 	}
-	for _, want := range []string{`"description":"Initiative value"`, `"content":""`} {
-		if !strings.Contains(updateBody, want) {
-			t.Fatalf("projectUpdate body = %q, want %q: a cleared narrative must leave no stale markdown", updateBody, want)
-		}
+	if !strings.Contains(updateBody, `"description":"Initiative value"`) {
+		t.Fatalf("projectUpdate body = %q, want %q: the statement rides as the description", updateBody, `"description":"Initiative value"`)
+	}
+	if strings.Contains(updateBody, `"content":`) {
+		t.Fatalf("projectUpdate body = %q carries a content field; an empty narrative must keep the remote markdown", updateBody)
 	}
 }
 

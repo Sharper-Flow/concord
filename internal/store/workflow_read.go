@@ -465,8 +465,8 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 	}
 	var contract WorkflowReadContract
 	var required, routes, mandates string
-	var modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies); err == nil {
+	var modifies, rigorClass string
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &rigorClass); err == nil {
 		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
 			return nil, newFailure(KindInvariantViolation, "workflow_read", "workflow history contract arrays are malformed", false, "rebuild projections from the event log")
 		}
@@ -474,7 +474,12 @@ func readWorkflowSummaryTx(ctx context.Context, tx *sql.Tx, workID string) (*Wor
 		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
 		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
 		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		contract.RigorClass = rigorClass
 		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
+		if err != nil {
+			return nil, err
+		}
+		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, workID, contract.Version)
 		if err != nil {
 			return nil, err
 		}

@@ -4027,6 +4027,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -4053,6 +4056,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -4087,6 +4093,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -4117,6 +4126,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -4150,6 +4162,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"

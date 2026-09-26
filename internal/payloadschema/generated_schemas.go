@@ -1934,6 +1934,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_add_entry_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "child_work_id": {
           "$ref": "#/$defs/id"
         },
@@ -1971,6 +1974,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_change_requiredness_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "child_work_id": {
           "$ref": "#/$defs/id"
         },
@@ -2115,6 +2121,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_remove_entry_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "child_work_id": {
           "$ref": "#/$defs/id"
         },
@@ -2142,6 +2151,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_reorder_entry_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "child_work_id": {
           "$ref": "#/$defs/id"
         },
@@ -2175,6 +2187,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_revise_narrative_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },

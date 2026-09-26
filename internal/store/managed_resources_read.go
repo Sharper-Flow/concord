@@ -65,9 +65,13 @@ func (s *Store) Resources(ctx context.Context, req ResourcesRequest) (ResourcesR
 	if (req.ProductID == "") == (req.ResourceID == "") {
 		return out, newFailure(KindInvalidFilter, resourcesQueryID, "exactly one of product_id or resource_id scopes a resource read", false, "supply a Product or a resource identity")
 	}
-	if req.Limit < 1 || req.Limit > 100 {
-		return out, newFailure(KindInvalidFilter, resourcesQueryID, "limit must be between 1 and 100", false, "supply a bounded limit")
+	// queryLimit maps the bare first call's 0 to the PM1 default 20; only
+	// out-of-range values refuse. resourcesTx binds the resolved limit.
+	limit, err := queryLimit(req.Limit)
+	if err != nil {
+		return out, err
 	}
+	req.Limit = limit
 	if req.Class != "" && req.Class != "infrastructure" && req.Class != "saas" {
 		return out, newFailure(KindInvalidFilter, resourcesQueryID, "unknown resource class "+req.Class, false, "use infrastructure or saas")
 	}

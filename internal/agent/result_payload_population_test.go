@@ -633,12 +633,87 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 	},
 }
 
+// readPopulationRows names, for each read operation without an exemption, the
+// dotted JSON paths of its primary row collections: the arrays whose rows are
+// the read's answer rather than optional nested detail whose empty value is
+// correct. Paths decode against the dispatched result bytes, so each name must
+// match the generated result schema, not the Go struct spelling.
+var readPopulationRows = map[string][]string{
+	"concord_product_view.resolve":             {"projects"},
+	"concord_product_view.snapshot":            {"previews"},
+	"concord_product_view.portfolio":           {"rows"},
+	"concord_product_view.blocked_sessions":    {"sessions"},
+	"concord_product_view.resources":           {"resources"},
+	"concord_work_browse.list":                 {"items"},
+	"concord_work_browse.blocked":              {"items"},
+	"concord_work_browse.ready":                {"items"},
+	"concord_work_browse.scope":                {"memberships"},
+	"concord_work_browse.resource_claims":      {"claims"},
+	"concord_work_browse.messages":             {"messages"},
+	"concord_work_browse.worktree_audit":       {"drift"},
+	"concord_work_trace.history":               {"events"},
+	"concord_work_trace.observations":          {"observations"},
+	"concord_work_trace.external_observations": {"external_observations"},
+	"concord_work_trace.relations":             {"edges"},
+	"concord_work_trace.continuity":            {"boundaries.items"},
+	"concord_work_trace.research":              {"revisions"},
+	"concord_knowledge.search":                 {"items"},
+	"concord_knowledge.unprocessed":            {"paths"},
+	"concord_work_initiative.entries":          {"entries"},
+	"concord_domain.list":                      {"domains"},
+	"concord_domain.detail":                    {"current_law", "relations", "observations"},
+	"concord_domain.active_work":               {"work"},
+	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
+	"concord_domain.overlaps":                  {"pairs"},
+}
+
+// readPopulationRowExemptions names every read whose probed input carries no
+// primary row collection, with the reason. A read lands here only when seeding
+// cannot apply: its answer is a scalar summary, or its only arrays populate on
+// states the probed input cannot reach.
+var readPopulationRowExemptions = map[string]string{
+	"concord_work_browse.worktree_inspect": "the probed status mode answers a scalar status summary and carries no row collection",
+	"concord_knowledge.resolve_note":       "an unambiguous resolution answers one located note; candidates populate only when resolution is ambiguous",
+}
+
+// populationRowPathLength decodes one dotted JSON path against a dispatched
+// result and returns the length of the array it names. Unmarshalling into any
+// turns JSON objects into map[string]any and arrays into []any, so a path that
+// crosses a missing member, a scalar, or a non-array fails loudly instead of
+// silently counting zero rows.
+func populationRowPathLength(t *testing.T, result json.RawMessage, opID, path string) int {
+	t.Helper()
+	var document any
+	if err := json.Unmarshal(result, &document); err != nil {
+		t.Fatalf("decode %s result: %v", opID, err)
+	}
+	current := document
+	for _, segment := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			t.Fatalf("%s row path %q crosses a non-object where it expects member %q", opID, path, segment)
+		}
+		next, ok := object[segment]
+		if !ok {
+			t.Fatalf("%s row path %q names no member %q in the dispatched result", opID, path, segment)
+		}
+		current = next
+	}
+	rows, ok := current.([]any)
+	if !ok {
+		t.Fatalf("%s row path %q does not decode to an array", opID, path)
+	}
+	return len(rows)
+}
+
 // TestAllReadEnvelopesValidateAtPopulationScale dispatches every read the
 // generated contract declares against a population-scale store, through the
 // same Dispatch path a real call takes, and requires an ok outcome whose
-// result the generated payload schema accepts. A read that refuses, or that
-// answers with a payload its own schema rejects, fails here at population
-// scale instead of at an agent call.
+// result the generated payload schema accepts. A read that refuses, that
+// answers with a payload its own schema rejects, or whose declared primary row
+// collections come back empty fails here at population scale instead of at an
+// agent call. Every read must carry a row declaration or an exemption: a new
+// read with neither fails the loop before it dispatches.
 func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 	t.Parallel()
 	if readPopulationSkipUnderRace {
@@ -654,6 +729,14 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 		if !ok {
 			t.Fatalf("read operation %s has no population input; add one to readPopulationInputs", op.ID)
 		}
+		rows, declared := readPopulationRows[op.ID]
+		_, exempt := readPopulationRowExemptions[op.ID]
+		switch {
+		case declared && exempt:
+			t.Fatalf("read operation %s carries both a row declaration and an exemption; keep it in exactly one", op.ID)
+		case !declared && !exempt:
+			t.Fatalf("read operation %s has neither a row declaration nor an exemption; declare its primary row collections in readPopulationRows or exempt it in readPopulationRowExemptions with a reason", op.ID)
+		}
 		t.Run(op.ID, func(t *testing.T) {
 			response := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: op.Tool, Operation: op.Operation, Input: json.RawMessage(input)}, fx.envelope(t))
 			if response.Outcome != OutcomeOK {
@@ -664,6 +747,11 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 			}
 			if witness, ok := readPopulationWitnesses[op.ID]; ok {
 				witness(t, response.Result)
+			}
+			for _, path := range rows {
+				if populationRowPathLength(t, response.Result, op.ID, path) == 0 {
+					t.Fatalf("%s answers an empty row collection at %q; extend seedReadPopulationFixture or exempt the read with a reason", op.ID, path)
+				}
 			}
 		})
 	}

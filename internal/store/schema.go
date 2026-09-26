@@ -5162,7 +5162,15 @@ CREATE TABLE worktree_occupancy (
     host_pid              INTEGER,
     host_pid_start        INTEGER,
     has_process_identity  INTEGER NOT NULL CHECK(has_process_identity IN (0,1)),
-    CHECK(length(worktree_id) BETWEEN 2 AND 128),
+    -- worktree_id is the composite worktreeOccupancyID(set, project, claim_op):
+    -- set_id, project_id, and claim_op_id each fit their own bounds, but the
+    -- composite does not fit a reference-sized column. claim_op_id embeds a
+    -- sha256 event digest plus the claim operation name and the project id,
+    -- so a real claim composes 150-280 characters. The bound guards the
+    -- composite against unbounded garbage while admitting every id the fold
+    -- writes (29 + 1 + 128 + 1 + 256 + separators = 415 at the component
+    -- maxima).
+    CHECK(length(worktree_id) BETWEEN 2 AND 512),
     CHECK(length(session_ref) BETWEEN 2 AND 128),
     CHECK(host_pid IS NULL OR host_pid > 0),
     CHECK(host_pid_start IS NULL OR host_pid_start >= 0),
@@ -5679,7 +5687,12 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigratio
 // schema_repair_test.go must move with it. Migrations 49 and 75 carry the
 // variants v8.4.0–v8.5.2 shipped after an edit swapped their closing
 // indentation; the canonical text keeps the indentation every earlier
-// release recorded.
+// release recorded. Migration 104 carries the variant v11.29.2 shipped with
+// a reference-sized CHECK on worktree_id that rejected every real composite
+// worktreeOccupancyID (a claim_op_id embeds a sha256 digest plus the claim
+// name plus the project id, 150-280 characters); the canonical text widens
+// the bound to the composite's component maxima, and databases created by
+// v11.29.2 keep opening against their recorded checksum.
 var migrationShippedVariantChecksums = map[int][]string{
 	3:  {"c8ca3aa3d712044cab66d22184c20cae39472401fd2ea778f29b3c50dee94b90"},
 	7:  {"5c5d5aa28ef3d5bac4a345a860d700410c81821dc7a68ddb6930205f99c1b60d"},
@@ -5699,6 +5712,7 @@ var migrationShippedVariantChecksums = map[int][]string{
 	40: {"95793496a0186de993c15950c3209cada38fe6d5e00985e53edab54d0a75519d", "c0da41426b30025a1e2c2ec3e1d6276b6964e074a39fba1678ac8f8b59bf89ff"},
 	49: {"3b6c137b687ec12b634b38ff45a614ffd4b4c5dfda79ab706f3c242c167a4d83"},
 	75: {"a964f034d80d8011e54ee04cd0d32d206094401cf73e9602ed3ff5c1ac3808c2"},
+	104: {"d179cc9d455a102552b8bebdf9c1eae3e33422daf473b735f5569f0a6ec0b77a"},
 }
 
 func shippedVariantAccepted(version int, checksum string) bool {

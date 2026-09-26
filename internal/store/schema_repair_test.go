@@ -138,6 +138,7 @@ func TestShippedVariantTableIsFrozen(t *testing.T) {
 	frozen := map[int]int{
 		3: 1, 7: 1, 8: 1, 9: 2, 15: 1, 16: 1, 18: 1, 20: 1, 22: 1,
 		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2, 49: 1, 75: 1,
+		104: 1,
 	}
 	if len(migrationShippedVariantChecksums) != len(frozen) {
 		t.Fatalf("shipped variant table has %d migrations, frozen at %d; an in-place edit must ship a repair migration",

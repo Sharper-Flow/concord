@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -27,6 +29,7 @@ const (
 	readPopulationProject       = "proj-web"
 	readPopulationKnowledgeHome = "proj-knowledge"
 	readPopulationWork          = "work-population"
+	readPopulationPeer          = "work-population-2"
 	readPopulationInitiative    = "population-initiative"
 	readPopulationRootDomain    = "product-root:population"
 	readPopulationChildDomain   = "sync"
@@ -34,6 +37,8 @@ const (
 	readPopulationDecision      = "CD-0201"
 	readPopulationSpec          = "SPEC-0201"
 	readPopulationLesson        = "knowledge-lesson-population"
+	readPopulationResource      = "population-queue"
+	readPopulationUnprocessed   = "docs/notes/unprocessed-observation.md"
 
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
@@ -75,7 +80,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	fx.seedResearchPack(t)
 
 	fx.service, _, fx.grant = newAuthorizedService(t, s, "client-1", "human-1",
-		[]Capability{"product_read", "work_define", "work_transition", "work_initiative"},
+		[]Capability{"product_read", "work_define", "work_transition", "work_relate", "work_initiative"},
 		[]string{readPopulationProduct}, []string{readPopulationProject},
 		store.ProjectResolution{ProjectID: readPopulationProject})
 	fx.grant.SessionRef = "session-population"
@@ -86,6 +91,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// would occupy the identity the fold assigns.
 	fx.initiative = fx.seedInitiative(t)
 	fx.seedWorktreeClaim(t)
+	fx.seedPopulationRows(t)
 	seedReadPopulationProductRows(t, s)
 	return fx
 }
@@ -193,6 +199,9 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 		constitutionPath: "The child Domain owns population constitution law.\n",
 		decisionPath:     "The child Domain owns synchronization decisions.\n",
 		specPath:         "The child Domain owns the synchronization specification.\n",
+		// No manifest record, disposition, or exclusion names this file, so the
+		// unprocessed read answers it as one unprocessed path.
+		readPopulationUnprocessed: "An unprocessed observation awaiting formalization.\n",
 		lessonPath: "---\n" +
 			"id: " + readPopulationLesson + "\n" +
 			"type: lesson\n" +
@@ -424,4 +433,140 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 		ManifestDigest: fx.grant.ManifestDigest,
 	}
 	return env
+}
+
+// seedPopulationRows gives every declared primary row collection at least one
+// row: a peer work item bound to the child Domain, Domain attachments and
+// observations, a relation edge, a peer message, a resource claim, an external
+// observation, an active approval challenge, a summary context boundary, and
+// one unmanifested markdown file in the knowledge home. Mutations and folds run
+// through the store's own APIs; the two fold-guarded SQL statements seed
+// authorization-shaped rows no public store API authors, mirroring the store
+// fixtures the bulk Product rows and workflow contracts already follow.
+func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
+	t.Helper()
+	fx.seedPopulationPeerWork(t)
+	fx.seedPopulationDomainRows(t)
+	fx.seedPopulationFocusRows(t)
+}
+
+// seedPopulationPeerWork creates a second work item bound to the child Domain
+// beside the focus work, then links it, messages it, and claims a resource
+// through the real dispatch path. The shared binding gives the Domain overlap
+// read an unresolved pair, and the link gives the relations read an edge.
+func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	if err := pm1fixture.SeedWorkItem(ctx, fx.store, readPopulationProject, readPopulationPeer, "Population peer", 2); err != nil {
+		t.Fatalf("seed population peer work: %v", err)
+	}
+	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population peer','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, readPopulationPeer, actorRef, `["`+readPopulationDecision+`"]`)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) SELECT ?,1,'prod-alpha',content_hash,?,content_hash FROM domain_registries WHERE product_id='prod-alpha'`, readPopulationPeer, readPopulationChildDomain)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationChildDomain)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationDecision)
+
+	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
+	_, peerVersion := readWorkFromStore(t, fx.store, readPopulationPeer)
+	link := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: json.RawMessage(`{"from_work_id":"` + fx.workID + `","to_work_id":"` + readPopulationPeer + `","from_expected_version":` + strconv.FormatInt(focusVersion, 10) + `,"to_expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"kind":"blocks","reason":"population relation row","idempotency_key":"population-link"}`)}, fx.envelope(t))
+	if link.Outcome != OutcomeOK {
+		t.Fatalf("population link outcome=%s err=%+v", link.Outcome, link.Error)
+	}
+	_, peerVersion = readWorkFromStore(t, fx.store, readPopulationPeer)
+	send := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: json.RawMessage(`{"work_id":"` + readPopulationPeer + `","recipient_work_id":"` + fx.workID + `","body":"population message row","expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"idempotency_key":"population-message"}`)}, fx.envelope(t))
+	if send.Outcome != OutcomeOK {
+		t.Fatalf("population message_send outcome=%s err=%+v", send.Outcome, send.Error)
+	}
+	_, focusVersion = readWorkFromStore(t, fx.store, fx.workID)
+	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "resource_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","resource_key":"queue:population-claim","reason":"population claim row","expected_version":` + strconv.FormatInt(focusVersion, 10) + `,"idempotency_key":"population-claim-row"}`)}, fx.envelope(t))
+	if claim.Outcome != OutcomeOK {
+		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
+	}
+}
+
+// seedPopulationDomainRows attaches the home Project and one managed resource
+// to the child Domain and records a Domain observation, so the Domain
+// attachment and observation reads answer rows instead of empty collections.
+func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := store.CreateManagedResource(ctx, fx.store, store.ManagedResourceCreateRequest{
+		EventID: "population-resource", ResourceID: readPopulationResource, ProductID: readPopulationProduct,
+		DisplayName: "Population queue", Class: "infrastructure", Kind: "queue", Purpose: "dispatches population work",
+		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
+		MetadataSchemaVersion: "1", Metadata: json.RawMessage(`{}`), ExpectedProductVersion: 0,
+		Actor: "operator", OccurredAt: fixedTime(),
+	}); err != nil {
+		t.Fatalf("create population managed resource: %v", err)
+	}
+	if err := store.ReplaceDomainProjectAttachments(ctx, fx.store, store.DomainProjectAttachmentsRequest{
+		EventID: "population-project-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,
+		ExpectedVersion: 0, Attachments: []store.DomainProjectAttachment{{ProjectID: readPopulationProject, Role: "primary"}},
+		Actor: "operator", OccurredAt: fixedTime(),
+	}); err != nil {
+		t.Fatalf("seed population Project attachments: %v", err)
+	}
+	if err := store.ReplaceDomainResourceAttachments(ctx, fx.store, store.DomainResourceAttachmentsRequest{
+		EventID: "population-resource-edges", ProductID: readPopulationProduct, DomainID: readPopulationChildDomain,
+		ExpectedVersion: 0, Attachments: []store.DomainResourceAttachment{{ResourceID: readPopulationResource, Purpose: "dispatches population work", Environments: []string{"production"}}},
+		Actor: "operator", OccurredAt: fixedTime().Add(1),
+	}); err != nil {
+		t.Fatalf("seed population resource attachments: %v", err)
+	}
+	observation := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_domain", Operation: "observation_record", Input: json.RawMessage(`{"product_id":"prod-alpha","domain_id":"sync","statement":"population domain observation","idempotency_key":"population-domain-observation"}`)}, fx.envelope(t))
+	if observation.Outcome != OutcomeOK {
+		t.Fatalf("population domain observation_record outcome=%s err=%+v", observation.Outcome, observation.Error)
+	}
+}
+
+// seedPopulationFocusRows captures one external observation for the focus work
+// through the store's fold API, then seeds the two rows no public store API
+// authors: an active approval challenge for the blocked-session read and a
+// summary context boundary for the continuity read. Both mirror the store's
+// own fixtures for those tables.
+func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	policy, ok := store.ExternalSubjectPolicyFor("environment")
+	if !ok {
+		t.Fatal("no reviewed external subject policy for environment")
+	}
+	if err := fx.store.Transact(ctx, func(tx *store.Transaction) error {
+		return store.AppendExternalObservationCaptureTx(ctx, tx, fx.workID, "human-1", fixedTime(), store.ExternalObservationCapture{
+			ObservationID:         "xobs:0123456789abcdef",
+			SubjectKind:           "environment",
+			SubjectRef:            "environment://prod",
+			CaptureMethod:         store.CaptureTrustedClientReport,
+			CapturedAt:            "2026-09-01T00:00:00Z",
+			ReportingAuthorityRef: "client:reporter-1",
+			ObservedUniverse: store.ObservedUniverse{
+				Shape: store.UniverseCollection, AppliedScope: "provider:services(env=prod)",
+				AnchorToken: "page-1", Coverage: store.CoveragePartial,
+				ObservedRefs: []string{"svc-a", "svc-b", "svc-c"},
+				TotalKind:    store.TotalGte, TotalValue: 4,
+				CanonicalIdentityKey: "service_name",
+				Omissions:            []string{"pagination-truncated:page-2"},
+			},
+			FreshnessPolicyRef:  store.PolicyRef(policy),
+			DivergencePolicyRef: store.PolicyRef(policy),
+		})
+	}); err != nil {
+		t.Fatalf("capture population external observation: %v", err)
+	}
+
+	issued := time.Now().UTC().Add(-time.Hour)
+	expires := time.Now().UTC().Add(24 * time.Hour)
+	execPopulationStatement(t, fx.store, `INSERT INTO agent_approval_challenges(challenge_ref,client_ref,principal_ref,session_ref,agent_ref,directory,worktree,product_scope_json,operation_digest,scope_json,version_json,consequence,host_assertion_digest,issued_at,expires_at,status,consumed_at,max_uses,used_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		strings.Repeat("ab", 32), "client-1", "human-1", "session-population", "agent-1", "/repo", "/repo/wt-population",
+		`["prod-alpha"]`, "sha256:"+strings.Repeat("2", 64), "{}", "{}", "lifecycle", "sha256:"+strings.Repeat("1", 64),
+		issued.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano), "active", nil, 1, 0)
+
+	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
+	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,?,'request:population','2026-09-01T00:00:00Z')`,
+		fx.workID, focusVersion, registered.Definition.Ref, registered.Definition.Version, registered.Digest, actorRef)
 }

@@ -156,7 +156,9 @@ type WorkflowReadProjection struct {
 	// DeliveryAssertion carries the current completed delivery assertion with
 	// its typed correction. The asserted artifact is the unchanged original
 	// event; the correction, when present, holds the effective merge evidence
-	// and its coordinator provenance.
+	// and its coordinator provenance, and the assertion carries that overlay's
+	// selection as effective_artifact: the correction's merge evidence when a
+	// correction exists, the asserted artifact otherwise.
 	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
 }
 

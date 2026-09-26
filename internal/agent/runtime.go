@@ -9,8 +9,10 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -1586,11 +1588,28 @@ func (r runtime) q7(base Envelope, q store.Q7Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }
 
-// workflowReadInternalFields lists the projection fields the published
-// workflow_read contract does not declare. The closed result schema refuses
-// undeclared keys, so the public history read drops exactly these fields and
-// keeps every published one, delivery_assertion included.
-var workflowReadInternalFields = []string{"changes_product_truth", "overdue_awaits", "await_health", "withheld_operator_question", "proposal_record", "architecture_binding"}
+// publishedWorkflowReadFields derives the published workflow_read field set
+// from the generated contract's $defs/workflow_read/properties. The contract
+// schema is the declared boundary, so the published read is exactly the set
+// it declares: a projection field the contract names is published, and one it
+// does not name is dropped, without a hand-maintained list that can drift.
+var (
+	publishedWorkflowReadOnce   sync.Once
+	publishedWorkflowReadFields map[string]struct{}
+)
+
+func workflowReadPublishedFields() map[string]struct{} {
+	publishedWorkflowReadOnce.Do(func() {
+		publishedWorkflowReadFields = map[string]struct{}{}
+		defs, _ := payloadschema.Document()["$defs"].(map[string]any)
+		read, _ := defs["workflow_read"].(map[string]any)
+		properties, _ := read["properties"].(map[string]any)
+		for field := range properties {
+			publishedWorkflowReadFields[field] = struct{}{}
+		}
+	})
+	return publishedWorkflowReadFields
+}
 
 // publishedWorkflowRead shapes the store projection into the published
 // workflow_read subset. The history page carries it so a reader sees the
@@ -1605,8 +1624,11 @@ func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string
 	if err := json.Unmarshal(raw, &shaped); err != nil {
 		return nil, err
 	}
-	for _, field := range workflowReadInternalFields {
-		delete(shaped, field)
+	published := workflowReadPublishedFields()
+	for field := range shaped {
+		if _, ok := published[field]; !ok {
+			delete(shaped, field)
+		}
 	}
 	return shaped, nil
 }

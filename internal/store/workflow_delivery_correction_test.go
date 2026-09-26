@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The delivery correction admits one typed, append-only correction of a
@@ -200,6 +202,65 @@ func requireDeliveryCorrectionRefusal(t *testing.T, err error, wantKind FailureK
 	}
 }
 
+// TestMergeEvidenceSchemaAlignsWithFoldRule proves the generated contract's
+// $defs/merge_evidence and both correct_delivery delivery_artifact sites
+// carry the fold's rule: every value the schema admits the fold admits, and
+// every value it refuses the fold refuses. A divergence admits at the
+// request what the fold refuses, or the reverse.
+// proves check:merge-evidence-schema-alignment.
+func TestMergeEvidenceSchemaAlignsWithFoldRule(t *testing.T) {
+	t.Parallel()
+	document := payloadschema.Document()
+	defs, _ := document["$defs"].(map[string]any)
+	mergeEvidence, _ := defs["merge_evidence"].(map[string]any)
+	if mergeEvidence == nil {
+		t.Fatal("generated payload schema declares no $defs/merge_evidence")
+	}
+	if mergeEvidence["$ref"] != "#/$defs/reference" {
+		t.Fatalf("merge_evidence ref = %v, want the 2..128 ValidReference bound", mergeEvidence["$ref"])
+	}
+	if mergeEvidence["pattern"] != "^https://" {
+		t.Fatalf("merge_evidence pattern = %v, want the https scheme rule", mergeEvidence["pattern"])
+	}
+	not, _ := mergeEvidence["not"].(map[string]any)
+	if userinfo, _ := not["pattern"].(string); userinfo == "" {
+		t.Fatal("merge_evidence declares no not-pattern refusing userinfo")
+	}
+	for _, site := range []struct{ def, field string }{
+		{"work_transition_correct_delivery_input", "delivery_artifact"},
+		{"workflow_delivery_correction", "artifact"},
+	} {
+		object, _ := defs[site.def].(map[string]any)
+		properties, _ := object["properties"].(map[string]any)
+		property, _ := properties[site.field].(map[string]any)
+		if property["$ref"] != "#/$defs/merge_evidence" {
+			t.Fatalf("%s.%s = %v, want the shared $defs/merge_evidence", site.def, site.field, property["$ref"])
+		}
+	}
+	candidates := []string{
+		deliveryCorrectionMergeRef,
+		"https://" + strings.Repeat("a", 120),
+		"https://github.com/x@y",
+		"https://github.com/x/pull@" + deliveryCorrectionApprovalHold,
+		"https://" + strings.Repeat("a", 121),
+		"https://user:pass@github.com/x",
+		"https://@github.com/x",
+		"https://ho st/x",
+		"http://github.com/x",
+		deliveryCorrectionWrongPath,
+	}
+	// foldAdmitsMergeEvidence is the rule the fold applies to the recorded
+	// merge evidence: the 2..128 whitespace-free reference bound composed
+	// with the external https rule.
+	foldAdmitsMergeEvidence := func(value string) bool { return ValidReference(value) && validMergeEvidenceReference(value) }
+	for _, value := range candidates {
+		schemaErr := payloadschema.ValidateValue(value, mergeEvidence, document, "$")
+		if (schemaErr == nil) != foldAdmitsMergeEvidence(value) {
+			t.Fatalf("merge evidence %q: schema verdict (%v) diverges from fold verdict %v", value, schemaErr, foldAdmitsMergeEvidence(value))
+		}
+	}
+}
+
 // TestTerminalDeliveryCorrectionAdmission proves the admission gate: the
 // correction is admitted only with the target identity, version, reason, and
 // merge evidence, behind a consumed one-use operator approval bound to this
@@ -349,6 +410,9 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 	if before.DeliveryAssertion == nil || before.DeliveryAssertion.Correction != nil || before.DeliveryAssertion.Artifact != deliveryCorrectionWrongPath {
 		t.Fatalf("read before correction = %+v, want the bare wrong assertion", before.DeliveryAssertion)
 	}
+	if before.DeliveryAssertion.EffectiveArtifact != deliveryCorrectionWrongPath {
+		t.Fatalf("effective artifact without a correction = %q, want the asserted artifact", before.DeliveryAssertion.EffectiveArtifact)
+	}
 	// The read supplies the exact target identity the correction admission
 	// consumes: event id, sequence, and stored payload version.
 	target := before.DeliveryAssertion
@@ -379,8 +443,8 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 	if correction.Artifact != deliveryCorrectionMergeRef || correction.EvidenceSource != "coordinator_asserted" || correction.Reason == "" || correction.ApprovalRef != deliveryCorrectionApprovalRef {
 		t.Fatalf("correction read = %+v, want the merge evidence under coordinator provenance", correction)
 	}
-	if assertion.EffectiveArtifact() != deliveryCorrectionMergeRef {
-		t.Fatalf("effective artifact = %q, want the corrected merge evidence", assertion.EffectiveArtifact())
+	if assertion.EffectiveArtifact != deliveryCorrectionMergeRef {
+		t.Fatalf("effective artifact = %q, want the corrected merge evidence", assertion.EffectiveArtifact)
 	}
 	var replayedPayload string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM domain_events WHERE event_id=?`, targetEventID).Scan(&replayedPayload); err != nil {
@@ -415,5 +479,41 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 	}
 	if instanceState != "completed" {
 		t.Fatalf("replay reopened the instance to %q", instanceState)
+	}
+}
+
+// TestTerminalDeliveryCorrectionReplaysWithoutApprovalRows proves the fold's
+// replay purity: the recorded correction re-derives its admission from the
+// event payload and the log-derived workflow_actors row alone, so a replay
+// admits it after every approval row is purged, and the read stays the same.
+// A fold that re-authorized against the mutable agent_approvals table would
+// refuse here and make a rebuilt projection diverge from the live one.
+// proves check:correction-replay-purity.
+func TestTerminalDeliveryCorrectionReplaysWithoutApprovalRows(t *testing.T) {
+	t.Parallel()
+	const workID = "delivery-correction-replay-purity"
+	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
+	if err := runDeliveryCorrection(t, s, deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
+		t.Fatalf("approved delivery correction refused: %v", err)
+	}
+	live, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.DeliveryAssertion == nil || live.DeliveryAssertion.Correction == nil {
+		t.Fatalf("live read carries no corrected delivery assertion: %+v", live.DeliveryAssertion)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM agent_approvals`); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("replay without approval rows refused the recorded correction: %v", err)
+	}
+	replayed, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(replayed.DeliveryAssertion, live.DeliveryAssertion) {
+		t.Fatalf("replayed read %+v diverges from the live read %+v after the approval purge", replayed.DeliveryAssertion, live.DeliveryAssertion)
 	}
 }

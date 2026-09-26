@@ -182,44 +182,44 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	}
 
 	// The corrected assertion round-trips through the closed workflow_read
-	// contract, and the required target_payload_version fails closed when a
-	// reader drops it: the read must stay able to name the exact target a
-	// correction admission consumes.
-	projectionJSON, err := json.Marshal(projection)
+	// contract, and the required target_payload_version and effective_artifact
+	// fail closed when a reader drops them: the read must stay able to name
+	// the exact target a correction admission consumes and the artifact the
+	// correction overlay selects.
+	published, err := publishedWorkflowRead(&projection)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var shaped map[string]any
-	if err := json.Unmarshal(projectionJSON, &shaped); err != nil {
-		t.Fatal(err)
-	}
-	// The projection carries internal observation fields the published
-	// contract does not declare (changes_product_truth, overdue_awaits,
-	// await_health, withheld_operator_question, proposal_record,
-	// architecture_binding). That divergence predates the delivery
-	// correction; this attempt owns delivery_assertion only, so the
-	// round-trip covers the published subset.
-	for _, internal := range []string{"changes_product_truth", "overdue_awaits", "await_health", "withheld_operator_question", "proposal_record", "architecture_binding"} {
-		delete(shaped, internal)
-	}
-	published, err := json.Marshal(shaped)
+	publishedJSON, err := json.Marshal(published)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidatePayloadSchema("workflow_read", published); err != nil {
+	if err := ValidatePayloadSchema("workflow_read", publishedJSON); err != nil {
 		t.Fatalf("published workflow_read subset does not round-trip through the closed contract: %v", err)
 	}
-	assertionShape, ok := shaped["delivery_assertion"].(map[string]any)
+	assertionShape, ok := published["delivery_assertion"].(map[string]any)
 	if !ok {
-		t.Fatalf("read shape carries no delivery_assertion object: %+v", shaped["delivery_assertion"])
+		t.Fatalf("read shape carries no delivery_assertion object: %+v", published["delivery_assertion"])
+	}
+	if assertionShape["effective_artifact"] != deliveryCorrectionAgentMergeRef {
+		t.Fatalf("effective_artifact = %v, want the merge evidence", assertionShape["effective_artifact"])
 	}
 	delete(assertionShape, "target_payload_version")
-	withoutVersion, err := json.Marshal(shaped)
+	withoutVersion, err := json.Marshal(published)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ValidatePayloadSchema("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
 		t.Fatalf("dropped target_payload_version validated as %v, want a required-field refusal naming it", err)
+	}
+	delete(assertionShape, "effective_artifact")
+	assertionShape["target_payload_version"] = targetPayloadVersion
+	withoutEffective, err := json.Marshal(published)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePayloadSchema("workflow_read", withoutEffective); err == nil || !strings.Contains(err.Error(), "effective_artifact") {
+		t.Fatalf("dropped effective_artifact validated as %v, want a required-field refusal naming it", err)
 	}
 
 	// The public history read carries the same effective assertion beside the

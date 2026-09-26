@@ -2495,6 +2495,14 @@ const GeneratedPayloadSchemaDocument = `{
       "minimum": 1,
       "type": "integer"
     },
+    "merge_evidence": {
+      "$ref": "#/$defs/reference",
+      "not": {
+        "pattern": "//[^/]*@"
+      },
+      "pattern": "^https://",
+      "type": "string"
+    },
     "mutation_changed_ref": {
       "additionalProperties": false,
       "properties": {
@@ -11312,10 +11320,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/approval"
         },
         "delivery_artifact": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "pattern": "^https://",
-          "type": "string"
+          "$ref": "#/$defs/merge_evidence"
         },
         "delivery_state": {
           "enum": [
@@ -12117,6 +12122,11 @@ const GeneratedPayloadSchemaDocument = `{
         "correction": {
           "$ref": "#/$defs/workflow_delivery_correction"
         },
+        "effective_artifact": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
         "event_id": {
           "$ref": "#/$defs/id"
         },
@@ -12140,7 +12150,8 @@ const GeneratedPayloadSchemaDocument = `{
         "artifact",
         "state",
         "actor_ref",
-        "asserted_at"
+        "asserted_at",
+        "effective_artifact"
       ],
       "type": "object"
     },
@@ -12151,10 +12162,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "artifact": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "pattern": "^https://",
-          "type": "string"
+          "$ref": "#/$defs/merge_evidence"
         },
         "corrected_at": {
           "format": "date-time",

@@ -1373,7 +1373,8 @@
         "artifact",
         "state",
         "actor_ref",
-        "asserted_at"
+        "asserted_at",
+        "effective_artifact"
       ],
       "properties": {
         "event_id": {
@@ -1403,9 +1404,22 @@
           "type": "string",
           "format": "date-time"
         },
+        "effective_artifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
         "correction": {
           "$ref": "#/$defs/workflow_delivery_correction"
         }
+      }
+    },
+    "merge_evidence": {
+      "type": "string",
+      "$ref": "#/$defs/reference",
+      "pattern": "^https://",
+      "not": {
+        "pattern": "//[^/]*@"
       }
     },
     "workflow_delivery_correction": {
@@ -1427,10 +1441,7 @@
           "$ref": "#/$defs/short"
         },
         "artifact": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048,
-          "pattern": "^https://"
+          "$ref": "#/$defs/merge_evidence"
         },
         "evidence_source": {
           "type": "string",
@@ -4580,10 +4591,7 @@
           "$ref": "#/$defs/short"
         },
         "delivery_artifact": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048,
-          "pattern": "^https://"
+          "$ref": "#/$defs/merge_evidence"
         },
         "delivery_state": {
           "type": "string",

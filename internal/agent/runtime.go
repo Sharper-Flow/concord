@@ -1674,7 +1674,7 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		if kind == "spec" {
 			kind = "specification"
 		}
-		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.OutcomeTag), SuccessorID: v.SuccessorID})
+		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID})
 	}
 	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "watermark": q.IndexWatermark})
 	if err == nil {

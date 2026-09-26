@@ -292,6 +292,17 @@ const GeneratedPayloadSchemaDocument = `{
             "ambiguous"
           ],
           "type": "string"
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "superseded",
+            "published"
+          ],
+          "type": "string"
+        },
+        "successor_id": {
+          "$ref": "#/$defs/id"
         }
       },
       "required": [
@@ -2226,6 +2237,17 @@ const GeneratedPayloadSchemaDocument = `{
                 "maxLength": 2048,
                 "minLength": 1,
                 "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "accepted",
+                  "superseded",
+                  "published"
+                ],
+                "type": "string"
+              },
+              "successor_id": {
+                "$ref": "#/$defs/id"
               }
             },
             "required": [

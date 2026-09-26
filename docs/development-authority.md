@@ -83,6 +83,10 @@ For a Linear-enabled Product, an agent creates operator-directed future-work
 issues in Linear. A linked local work item can carry execution and coordination
 state. It is not a second independent authority for the same planning fact.
 A queued or failed creation request is not a confirmed Linear issue.
+The body of each pull request opened for managed work carries one non-closing
+`Related to <issue key>` line naming that work item's confirmed Linear issue
+(CD-0171 D8). The relation phrase links the pull request without a status
+change.
 
 Issue creation for managed work runs through Concord's capture, typed outbox,
 confirmed issue identity, and explicit adoption of a pre-existing issue.

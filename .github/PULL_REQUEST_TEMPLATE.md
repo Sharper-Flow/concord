@@ -2,6 +2,13 @@
 
 <!-- What changed, and why? -->
 
+Related to <issue key>
+
+<!-- One non-closing line naming this work item's confirmed Linear issue
+     (CD-0171 D8). Do not use a closing phrase such as Fixes: the Concord
+     outbox is the only writer of issue status. verify-pr-linear-link
+     refuses a work/work-* pull request without this line. -->
+
 ## Scope and authority impact
 
 - [ ] This change preserves accepted Product law and contracts.

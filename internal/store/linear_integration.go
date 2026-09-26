@@ -289,7 +289,7 @@ ORDER BY r.resource_id`, productID)
 			candidate.LabelIDs = make(map[string]string, len(labelIDs))
 			for key, value := range labelIDs {
 				if !linearLabelMappingKeyRecognized(key) {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label mapping key is not recognized", false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
+					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", fmt.Sprintf("Linear label mapping key %q is not recognized", key), false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
 				}
 				var labelID string
 				if err := json.Unmarshal(value, &labelID); err != nil {
@@ -506,12 +506,12 @@ func linearLabelMappingKeyRecognized(key string) bool {
 func validateLinearLabelMapping(ctx context.Context, q queryer, labelIDs map[string]string, operation string) error {
 	for key, labelID := range labelIDs {
 		if !linearLabelMappingKeyRecognized(key) {
-			return newFailure(KindInvalidPayload, operation, "label mapping key is not recognized", false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
+			return newFailure(KindInvalidPayload, operation, fmt.Sprintf("label mapping key %q is not recognized", key), false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
 		}
 		if projectID, ok := strings.CutPrefix(key, LinearLabelProjectPrefix); ok {
 			var registered int
 			if err := q.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id=?`, projectID).Scan(&registered); err == sql.ErrNoRows {
-				return newFailure(KindUnknownScope, operation, "label mapping names a Concord project that does not exist", false, "register the Concord project before mapping it to a Linear label")
+				return newFailure(KindUnknownScope, operation, fmt.Sprintf("label mapping key %q names a Concord project that does not exist", key), false, "register the Concord project before mapping it to a Linear label")
 			} else if err != nil {
 				return wrapFailure(KindUnavailable, operation, "cannot read the mapped Concord project", true, "retry once the database is readable", err)
 			}

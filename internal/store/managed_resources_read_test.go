@@ -109,7 +109,25 @@ func TestResourcesRefusesAnUnboundedOrUnscopedRead(t *testing.T) {
 	if _, err := s.Resources(ctx, ResourcesRequest{ProductID: "owner-product", Class: "cloud", Limit: 10}); err == nil {
 		t.Fatal("unknown class filter passed")
 	}
-	if _, err := s.Resources(ctx, ResourcesRequest{ProductID: "owner-product", Limit: 0}); err == nil {
-		t.Fatal("zero limit passed")
+	if _, err := s.Resources(ctx, ResourcesRequest{ProductID: "owner-product", Limit: -1}); err == nil {
+		t.Fatal("negative limit passed")
+	}
+	if _, err := s.Resources(ctx, ResourcesRequest{ProductID: "owner-product", Limit: 101}); err == nil {
+		t.Fatal("over-max limit passed")
+	}
+}
+
+// TS3 §3: a bare first call omits pagination and the read answers with the
+// server default (PM1: default 20, maximum 100), never a refusal.
+func TestResourcesZeroLimitTakesTheServerDefault(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedTwoResources(t, s)
+	result, err := s.Resources(context.Background(), ResourcesRequest{ProductID: "owner-product", Limit: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Resources) != 2 {
+		t.Fatalf("zero limit returned %d resources, want both rows under the default cap", len(result.Resources))
 	}
 }

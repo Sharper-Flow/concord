@@ -1,9 +1,13 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // TS3 §3 pagination input rule: every paginated read op accepts an optional
@@ -262,6 +266,49 @@ func TestTopLevelLimitCursorContinuation(t *testing.T) {
 	}
 	if secondPage.Items[0].ID == firstPage.Items[0].ID {
 		t.Fatalf("continuation repeated first-page row %q", firstPage.Items[0].ID)
+	}
+}
+
+// TestBareFirstCallResources dispatches the resources read with the bare
+// first-call shape — no page, no limit — and proves the server answers with
+// its default page instead of refusing (TS3 §3). TestPaginationInputContract
+// proves only that the input schema accepts the bare shape; this test covers
+// the dispatch path, where the zero effective limit must reach the store as
+// a server default, not an invalid filter.
+func TestBareFirstCallResources(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
+	ctx := context.Background()
+	if _, err := store.CreateManagedResource(ctx, s, store.ManagedResourceCreateRequest{
+		EventID: "bare-resources-created", ResourceID: "vendor-api", ProductID: "prod-alpha",
+		DisplayName: "Vendor API", Class: "saas", Kind: "service", Purpose: "hosted pricing feed",
+		StageMaturity: "production", StageAudienceCommitment: "limited", Environments: []string{"production"},
+		MetadataSchemaVersion: "1", Metadata: []byte(`{"documentation_locator":"/vendor/api-docs"}`),
+		OwnerPurpose: "operates the feed", OwnerEnvironments: []string{"production"},
+		ExpectedProductVersion: productVersionForTest(t, s, "prod-alpha"), Actor: "operator",
+		OccurredAt: time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("seed resource: %v", err)
+	}
+	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	resp := dispatchRead(t, s, service, InvokeRequest{
+		Tool:      "concord_product_view",
+		Operation: "resources",
+		Input:     json.RawMessage(`{}`),
+	}, readEnv)
+	if resp.Outcome != OutcomeOK {
+		t.Fatalf("bare first call outcome=%s error=%+v", resp.Outcome, resp.Error)
+	}
+	var page struct {
+		Resources []struct {
+			ResourceID string `json:"resource_id"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(resp.Result, &page); err != nil {
+		t.Fatalf("unmarshal resource page: %v", err)
+	}
+	if len(page.Resources) != 1 || page.Resources[0].ResourceID != "vendor-api" {
+		t.Fatalf("bare first call returned %+v, want the seeded vendor-api", page.Resources)
 	}
 }
 

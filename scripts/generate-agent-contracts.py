@@ -134,7 +134,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> list[dict]:
+def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -144,7 +144,7 @@ def load_workflow_action_contracts() -> list[dict]:
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions"} or projection["schema_version"] != "1.0":
+    if set(projection) != {"schema_version", "actions", "workflows"} or projection["schema_version"] != "1.0":
         fail("workflow action contract projection is invalid")
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
@@ -154,7 +154,7 @@ def load_workflow_action_contracts() -> list[dict]:
             fail("workflow action contract projection contains an open record")
         for payload_key in ("payload", "public_payload"):
             if set(action[payload_key]) - {"closed", "fields"}:
-                fail("workflow action contract projection contains an open payload")
+                fail(f"workflow action contract projection contains an open payload")
             if action[payload_key].get("closed") is not True:
                 fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
         if not isinstance(action["legacy_payloads"], list):
@@ -164,7 +164,47 @@ def load_workflow_action_contracts() -> list[dict]:
                 fail(f"legacy workflow action payload is an open record: {action.get('id')}")
             if legacy.get("closed") is not True or legacy.get("fields"):
                 fail(f"legacy workflow action payload is not an empty closed payload: {action.get('id')}")
-    return actions
+    workflows = projection["workflows"]
+    if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
+        fail("workflow outcome contract projection has no unique workflows")
+    for workflow in workflows:
+        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"}:
+            fail(f"workflow outcome contract projection contains an open record: {workflow.get('ref')}")
+        if not isinstance(workflow["allowed_kinds"], list) or not workflow["allowed_kinds"]:
+            fail(f"workflow outcome contract projection names no predicate kinds: {workflow.get('ref')}")
+        if not isinstance(workflow["allowed_outcome_tokens"], list):
+            fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
+    return actions, workflows
+
+
+def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
+    """Compose the allowed-token annotation from the store's pinned outcome schemas.
+
+    The store owns the map (internal/store/workflow_registry.go); this renders
+    the projection into a description so the annotated schema cannot drift
+    from what the store enforces at admission.
+    """
+    with_tokens = sorted((workflow for workflow in workflows if workflow["allowed_outcome_tokens"]), key=lambda workflow: workflow["ref"])
+    for workflow in with_tokens:
+        if "outcome" not in workflow["allowed_kinds"]:
+            fail(f"workflow {workflow['ref']} pins outcome tokens without the outcome predicate kind")
+    without = sorted(workflow["ref"] for workflow in workflows if not workflow["allowed_outcome_tokens"])
+    for ref in without:
+        kinds = next(workflow["allowed_kinds"] for workflow in workflows if workflow["ref"] == ref)
+        if "outcome" in kinds:
+            fail(f"workflow {ref} allows the outcome predicate kind without pinned outcome tokens")
+    clauses = []
+    for workflow in with_tokens:
+        clause = f"{workflow['ref']} admits " + ", ".join(workflow["allowed_outcome_tokens"])
+        if workflow["decision_record_required"]:
+            clause += " (decision_record required)"
+        clauses.append(clause)
+    if without:
+        clauses.append(", ".join(without) + " admit no outcome tokens (only exists, absent and check predicate kinds)")
+    return (
+        "The store pins which outcome tokens the contract of the work item being "
+        "approved may carry, per its workflow type: " + "; ".join(clauses) + "."
+    )
 
 
 def workflow_payload_field_schema(field: dict, defs: dict) -> dict:
@@ -284,7 +324,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict) -> dict:
     return result
 
 
-def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
+def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict]) -> dict:
     projected = copy.deepcopy(document)
     defs = projected["$defs"]
     install_workflow_self_repair_schema(defs)
@@ -312,10 +352,15 @@ def project_workflow_action_schema(document: dict, actions: list[dict]) -> dict:
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
         "items": {"type": "object", "additionalProperties": False, "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"], "properties": {
-            "predicate_id": {"$ref": "#/$defs/id"}, "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
+            "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
+            "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
             "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
         }},
     }
+    allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
+    if not isinstance(allowed_property, dict):
+        fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
+    allowed_property["description"] = workflow_allowed_tokens_description(workflows)
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
@@ -698,6 +743,43 @@ export function payloadFailurePath(name: string, value: unknown): string | null 
 export function envelopeFailurePath(value: unknown): string | null {{
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }}
+// advertisedAdmissionTeachingGaps reports every approve_contract admission
+// rule the published concord_work_transition schema fails to teach a calling
+// agent. An empty list means the advertised schema carries all four store
+// rules: the item-level required set with ordinal, the strict four-variant
+// outcome_payload oneOf, the predicate_id prefix, and the per-workflow pinned
+// outcome tokens. The store's ValidateOperationPayload stays the closed
+// admission boundary; this checks only what the advertised surface teaches.
+export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
+  const gaps: string[] = [];
+  const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
+  const required: string[] = Array.isArray(items?.required) ? items.required : [];
+  for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {{
+    if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${{field}}`);
+  }}
+  const payload = items?.properties?.outcome_payload;
+  const branches: any[] = Array.isArray(payload?.oneOf) ? payload.oneOf : [];
+  if (branches.length !== 4) {{
+    gaps.push(`outcome_payload carries ${{branches.length}} oneOf branches, expected the 4 strict variants`);
+  }} else {{
+    const kinds = new Set(branches.map((branch) => branch?.properties?.kind?.const ?? branch?.properties?.kind?.enum?.[0]));
+    for (const kind of ["exists", "absent", "outcome", "check"]) {{
+      if (!kinds.has(kind)) gaps.push(`outcome_payload oneOf lacks the ${{kind}} variant`);
+    }}
+    for (const branch of branches) {{
+      if (branch?.additionalProperties !== false) gaps.push("outcome_payload oneOf branch is not closed");
+      if (!Array.isArray(branch?.required) || !branch.required.includes("kind")) gaps.push("outcome_payload oneOf branch does not require kind");
+    }}
+  }}
+  const prefix: unknown = items?.properties?.predicate_id?.description;
+  if (typeof prefix !== "string" || !prefix.includes("predicate:")) gaps.push("predicate_id description does not name the predicate: prefix");
+  const allowedBranch = branches.find((branch) => branch?.properties?.allowed);
+  const tokens: unknown = allowedBranch?.properties?.allowed?.description;
+  if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
+    gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  }}
+  return gaps;
+}}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}
 function fail(at: string): Validation {{ return {{ valid: false, evaluated: new Set(), path: at }}; }}
 function joinPath(path: string, key: string): string {{ return path ? path + "." + key : key; }}
@@ -799,7 +881,8 @@ def main() -> int:
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        projected_payload = project_workflow_action_schema(payload, load_workflow_action_contracts())
+        actions, workflows = load_workflow_action_contracts()
+        projected_payload = project_workflow_action_schema(payload, actions, workflows)
         if payload != projected_payload:
             if check:
                 fail("generated workflow action payload contract drift: contracts/agent-tool-surface-payloads.schema.json")

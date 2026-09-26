@@ -96,12 +96,19 @@ test("published tool arguments expose a host-safe request shape", () => {
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
     expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
-    expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
+    if (toolName === "concord_work_transition") {
+      // The outcome_payload variant union is the one bounded oneOf the host
+      // is published; every other tool stays union-free.
+      expect(JSON.stringify(published), toolName).toContain('"oneOf"')
+    } else {
+      expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
+    }
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
   expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  expect(transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind.type).toBe("string")
+  const payloadVariants = transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "work_id"].sort())
@@ -666,7 +673,8 @@ test("host publication round-trips check predicate payloads unchanged", async ()
     },
   }
   const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  expect(published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.properties.kind).toEqual({ type: "string" })
+  const payloadVariants = published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
   adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string) => {

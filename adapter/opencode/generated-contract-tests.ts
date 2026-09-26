@@ -14,6 +14,43 @@ export function payloadFailurePath(name: string, value: unknown): string | null 
 export function envelopeFailurePath(value: unknown): string | null {
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }
+// advertisedAdmissionTeachingGaps reports every approve_contract admission
+// rule the published concord_work_transition schema fails to teach a calling
+// agent. An empty list means the advertised schema carries all four store
+// rules: the item-level required set with ordinal, the strict four-variant
+// outcome_payload oneOf, the predicate_id prefix, and the per-workflow pinned
+// outcome tokens. The store's ValidateOperationPayload stays the closed
+// admission boundary; this checks only what the advertised surface teaches.
+export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
+  const gaps: string[] = [];
+  const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
+  const required: string[] = Array.isArray(items?.required) ? items.required : [];
+  for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {
+    if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${field}`);
+  }
+  const payload = items?.properties?.outcome_payload;
+  const branches: any[] = Array.isArray(payload?.oneOf) ? payload.oneOf : [];
+  if (branches.length !== 4) {
+    gaps.push(`outcome_payload carries ${branches.length} oneOf branches, expected the 4 strict variants`);
+  } else {
+    const kinds = new Set(branches.map((branch) => branch?.properties?.kind?.const ?? branch?.properties?.kind?.enum?.[0]));
+    for (const kind of ["exists", "absent", "outcome", "check"]) {
+      if (!kinds.has(kind)) gaps.push(`outcome_payload oneOf lacks the ${kind} variant`);
+    }
+    for (const branch of branches) {
+      if (branch?.additionalProperties !== false) gaps.push("outcome_payload oneOf branch is not closed");
+      if (!Array.isArray(branch?.required) || !branch.required.includes("kind")) gaps.push("outcome_payload oneOf branch does not require kind");
+    }
+  }
+  const prefix: unknown = items?.properties?.predicate_id?.description;
+  if (typeof prefix !== "string" || !prefix.includes("predicate:")) gaps.push("predicate_id description does not name the predicate: prefix");
+  const allowedBranch = branches.find((branch) => branch?.properties?.allowed);
+  const tokens: unknown = allowedBranch?.properties?.allowed?.description;
+  if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
+    gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  }
+  return gaps;
+}
 function pass(evaluated: Iterable<string> = []): Validation { return { valid: true, evaluated: new Set(evaluated), path: null }; }
 function fail(at: string): Validation { return { valid: false, evaluated: new Set(), path: at }; }
 function joinPath(path: string, key: string): string { return path ? path + "." + key : key; }

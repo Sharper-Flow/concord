@@ -58,7 +58,17 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>()): void {
   }
   for (const [key, item] of Object.entries(value)) {
     if (key === "~standard" || key === "def") fail(`published schema contains Zod implementation key ${path}.${key}`)
-    if (key === "$ref" || key === "oneOf" || key === "anyOf" || key === "allOf" || key === "definitions") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    if (key === "$ref" || key === "anyOf" || key === "allOf" || key === "definitions") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    if (key === "oneOf") {
+      // A oneOf is host-safe exactly when every branch is a self-contained
+      // closed object the host renders directly: the bounded outcome_payload
+      // variant union. Open, nested, or non-object unions stay merged.
+      if (!Array.isArray(item)) fail(`published schema contains a non-list oneOf at ${path}`)
+      for (const [index, branch] of item.entries()) {
+        if (typeof branch !== "object" || branch === null || Array.isArray(branch)) fail(`published schema oneOf branch ${path}[${index}] is not an object`)
+        if ((branch as Record<string, unknown>).additionalProperties !== false) fail(`published schema oneOf branch ${path}[${index}] is not closed`)
+      }
+    }
     inspect(item, `${path}.${key}`, seen)
   }
 }

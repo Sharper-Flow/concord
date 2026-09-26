@@ -221,4 +221,44 @@ func TestDeliveryCorrectionAgentContract(t *testing.T) {
 	if err := ValidatePayloadSchema("workflow_read", withoutVersion); err == nil || !strings.Contains(err.Error(), "target_payload_version") {
 		t.Fatalf("dropped target_payload_version validated as %v, want a required-field refusal naming it", err)
 	}
+
+	// The public history read carries the same effective assertion beside the
+	// unchanged original: the page's workflow projection names the asserted
+	// artifact, the correction's merge evidence under coordinator provenance,
+	// and the target_payload_version a correction admission consumes. The
+	// closed work_event_page contract refuses the projection's internal
+	// fields, so an ok outcome proves the published subset shape.
+	history := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","page":{"cursor":null,"limit":20}}`)}, env)
+	if history.Outcome != OutcomeOK || history.Error != nil {
+		t.Fatalf("history read outcome=%+v error=%+v", history.Outcome, history.Error)
+	}
+	var page struct {
+		Workflow *struct {
+			DeliveryAssertion *struct {
+				EventID              string `json:"event_id"`
+				Artifact             string `json:"artifact"`
+				TargetPayloadVersion int    `json:"target_payload_version"`
+				Correction           *struct {
+					Artifact       string `json:"artifact"`
+					EvidenceSource string `json:"evidence_source"`
+				} `json:"correction"`
+			} `json:"delivery_assertion"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(history.Result, &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Workflow == nil || page.Workflow.DeliveryAssertion == nil || page.Workflow.DeliveryAssertion.Correction == nil {
+		t.Fatalf("history page carries no corrected delivery assertion: %s", history.Result)
+	}
+	historyAssertion := page.Workflow.DeliveryAssertion
+	if historyAssertion.EventID != targetEventID || historyAssertion.Artifact != "file:internal/adapter/opencode/run.ts" {
+		t.Fatalf("history page changed the original assertion: %+v", historyAssertion)
+	}
+	if historyAssertion.TargetPayloadVersion != targetPayloadVersion {
+		t.Fatalf("history target_payload_version=%d, want %d", historyAssertion.TargetPayloadVersion, targetPayloadVersion)
+	}
+	if historyAssertion.Correction.Artifact != deliveryCorrectionAgentMergeRef || historyAssertion.Correction.EvidenceSource != store.DeliveryEvidenceSourceCoordinatorAsserted {
+		t.Fatalf("history correction = %+v, want the merge evidence under coordinator provenance", historyAssertion.Correction)
+	}
 }

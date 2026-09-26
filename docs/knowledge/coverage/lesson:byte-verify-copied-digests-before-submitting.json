@@ -1,0 +1,5 @@
+{
+  "id": "lesson:byte-verify-copied-digests-before-submitting",
+  "reason": "This lesson records an agent-input rule from a completed incident. It does not define required Product behavior.",
+  "state": "out_of_scope"
+}

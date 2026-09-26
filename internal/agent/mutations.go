@@ -68,12 +68,13 @@ type initiativeCreateMutationInput struct {
 	IdempotencyKey string   `json:"idempotency_key"`
 }
 type initiativeEntryMutationInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-	ChildWorkID      string `json:"child_work_id"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	Position         int64  `json:"position"`
-	Required         *bool  `json:"required"`
-	IdempotencyKey   string `json:"idempotency_key"`
+	InitiativeWorkID string         `json:"initiative_work_id"`
+	ChildWorkID      string         `json:"child_work_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
+	Position         int64          `json:"position"`
+	Required         *bool          `json:"required"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	Approval         *approvalInput `json:"approval"`
 }
 
 // initiativeReorderEntryInput and initiativeRequirednessInput decode exactly
@@ -82,32 +83,36 @@ type initiativeEntryMutationInput struct {
 // requiredness change carries no position, so a shared decoder would accept
 // input the contract refuses.
 type initiativeReorderEntryInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-	ChildWorkID      string `json:"child_work_id"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	Position         int64  `json:"position"`
-	IdempotencyKey   string `json:"idempotency_key"`
+	InitiativeWorkID string         `json:"initiative_work_id"`
+	ChildWorkID      string         `json:"child_work_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
+	Position         int64          `json:"position"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	Approval         *approvalInput `json:"approval"`
 }
 
 type initiativeRequirednessInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-	ChildWorkID      string `json:"child_work_id"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	Required         *bool  `json:"required"`
-	IdempotencyKey   string `json:"idempotency_key"`
+	InitiativeWorkID string         `json:"initiative_work_id"`
+	ChildWorkID      string         `json:"child_work_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
+	Required         *bool          `json:"required"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	Approval         *approvalInput `json:"approval"`
 }
 type initiativeRemoveEntryMutationInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-	ChildWorkID      string `json:"child_work_id"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	IdempotencyKey   string `json:"idempotency_key"`
+	InitiativeWorkID string         `json:"initiative_work_id"`
+	ChildWorkID      string         `json:"child_work_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	Approval         *approvalInput `json:"approval"`
 }
 type initiativeNarrativeMutationInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	Narrative        string `json:"narrative"`
-	Reason           string `json:"reason"`
-	IdempotencyKey   string `json:"idempotency_key"`
+	InitiativeWorkID string         `json:"initiative_work_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
+	Narrative        string         `json:"narrative"`
+	Reason           string         `json:"reason"`
+	IdempotencyKey   string         `json:"idempotency_key"`
+	Approval         *approvalInput `json:"approval"`
 }
 type lifecycleMutationInput struct {
 	WorkID          string         `json:"work_id"`
@@ -1547,17 +1552,20 @@ func (r runtime) planInitiativeEntry(ctx context.Context, base Envelope, raw []b
 		if err := decodeOperationInput(raw, &reorder); err != nil {
 			return base, err, true
 		}
-		in = initiativeEntryMutationInput{InitiativeWorkID: reorder.InitiativeWorkID, ChildWorkID: reorder.ChildWorkID, ExpectedVersion: reorder.ExpectedVersion, Position: reorder.Position, IdempotencyKey: reorder.IdempotencyKey}
+		in = initiativeEntryMutationInput{InitiativeWorkID: reorder.InitiativeWorkID, ChildWorkID: reorder.ChildWorkID, ExpectedVersion: reorder.ExpectedVersion, Position: reorder.Position, IdempotencyKey: reorder.IdempotencyKey, Approval: reorder.Approval}
 	case "concord_work_initiative.change_requiredness":
 		var requiredness initiativeRequirednessInput
 		if err := decodeOperationInput(raw, &requiredness); err != nil {
 			return base, err, true
 		}
-		in = initiativeEntryMutationInput{InitiativeWorkID: requiredness.InitiativeWorkID, ChildWorkID: requiredness.ChildWorkID, ExpectedVersion: requiredness.ExpectedVersion, Required: requiredness.Required, IdempotencyKey: requiredness.IdempotencyKey}
+		in = initiativeEntryMutationInput{InitiativeWorkID: requiredness.InitiativeWorkID, ChildWorkID: requiredness.ChildWorkID, ExpectedVersion: requiredness.ExpectedVersion, Required: requiredness.Required, IdempotencyKey: requiredness.IdempotencyKey, Approval: requiredness.Approval}
 	default:
 		if err := decodeOperationInput(raw, &in); err != nil {
 			return base, err, true
 		}
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.versions["initiative"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
@@ -1596,6 +1604,9 @@ func (r runtime) planInitiativeRemoveEntry(ctx context.Context, base Envelope, r
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.versions["initiative"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
@@ -1619,6 +1630,9 @@ func (r runtime) planInitiativeNarrative(ctx context.Context, base Envelope, raw
 	var in initiativeNarrativeMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.versions["initiative"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.InitiativeWorkID}

@@ -108,7 +108,8 @@
         "concord_work_transition.worktree_reclaim",
         "concord_work_transition.worktree_audit_reclaim",
         "concord_work_transition.worktree_verify",
-        "concord_work_transition.worktree_destroy"
+        "concord_work_transition.worktree_destroy",
+        "concord_work_transition.correct_delivery"
       ]
     },
     {
@@ -1583,6 +1584,27 @@
       "supported_budget_seconds": 300
     },
     {
+      "id": "concord_work_transition.correct_delivery",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_correct_delivery_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "recovery",
+      "approval": "required",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
       "id": "concord_work_relate.product_project_add",
       "tool": "concord_work_relate",
       "kind": "mutation",
@@ -1630,372 +1652,20 @@
       "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
       "closed": true
     },
-    "mutation_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
-      "closed": true
-    },
-    "worktree_claim_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_claim_result",
-      "closed": true
-    },
-    "product_view_resolve_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
-      "closed": true
-    },
-    "product_view_snapshot_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
-      "closed": true
-    },
-    "product_row_portfolio_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_portfolio_input",
-      "closed": true
-    },
-    "work_browse_list_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
-      "closed": true
-    },
-    "work_browse_blocked_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_blocked_input",
-      "closed": true
-    },
-    "work_browse_ready_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
-      "closed": true
-    },
-    "work_browse_scope_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
-      "closed": true
-    },
-    "work_trace_history_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_history_input",
-      "closed": true
-    },
-    "work_observation_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_input",
-      "closed": true
-    },
-    "external_observation_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_input",
-      "closed": true
-    },
-    "work_trace_continuity_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_continuity_input",
-      "closed": true
-    },
-    "work_trace_relations_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_relations_input",
-      "closed": true
-    },
-    "knowledge_search_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_search_input",
-      "closed": true
-    },
-    "knowledge_resolve_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_resolve_input",
-      "closed": true
-    },
-    "knowledge_unprocessed_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_unprocessed_input",
-      "closed": true
-    },
-    "product_context": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_context",
-      "closed": true
-    },
-    "product_snapshot": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_snapshot",
-      "closed": true
-    },
-    "product_row_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_page",
-      "closed": true
-    },
-    "work_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_page",
+    "blocked_sessions_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_sessions_page",
       "closed": true
     },
     "blocked_work_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_work_page",
       "closed": true
     },
-    "work_scope": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_scope",
-      "closed": true
-    },
-    "work_event_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
-      "closed": true
-    },
-    "work_observation_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_page",
-      "closed": true
-    },
-    "external_observation_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
-      "closed": true
-    },
-    "continuity_snapshot": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
-      "closed": true
-    },
-    "session_boot_packet": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_boot_packet",
-      "closed": true
-    },
-    "work_relation_graph": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
-      "closed": true
-    },
-    "knowledge_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
-      "closed": true
-    },
     "canonical_note_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/canonical_note_result",
       "closed": true
     },
-    "unprocessed_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/unprocessed_page",
-      "closed": true
-    },
-    "work_define_capture_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_capture_input",
-      "closed": true
-    },
-    "work_define_revise_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_revise_input",
-      "closed": true
-    },
-    "initiative_create_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_create_input",
-      "closed": true
-    },
-    "initiative_add_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_add_entry_input",
-      "closed": true
-    },
-    "initiative_remove_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_remove_entry_input",
-      "closed": true
-    },
-    "initiative_reorder_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_reorder_entry_input",
-      "closed": true
-    },
-    "initiative_change_requiredness_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_change_requiredness_input",
-      "closed": true
-    },
-    "initiative_revise_narrative_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_revise_narrative_input",
-      "closed": true
-    },
-    "initiative_entries_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_input",
-      "closed": true
-    },
-    "initiative_entries_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_result",
-      "closed": true
-    },
-    "work_transition_lifecycle_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
-      "closed": true
-    },
-    "work_transition_remove_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_remove_input",
-      "closed": true
-    },
-    "work_transition_action_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_action_input",
-      "closed": true
-    },
-    "work_transition_worker_abandon_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_abandon_input",
-      "closed": true
-    },
-    "work_relate_memberships_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_memberships_input",
-      "closed": true
-    },
-    "work_relate_link_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_link_input",
-      "closed": true
-    },
-    "work_relate_unlink_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_unlink_input",
-      "closed": true
-    },
-    "work_relate_supersede_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_supersede_input",
-      "closed": true
-    },
-    "work_relate_restore_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_restore_input",
-      "closed": true
-    },
-    "work_relate_resolve_overlap_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resolve_overlap_input",
-      "closed": true
-    },
-    "work_compact_publish_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_publish_input",
-      "closed": true
-    },
-    "work_compact_reconcile_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_reconcile_input",
-      "closed": true
-    },
-    "work_transition_worktree_claim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_claim_input",
-      "closed": true
-    },
-    "work_transition_session_vacate_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_session_vacate_input",
-      "closed": true
-    },
-    "session_vacate_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_vacate_result",
-      "closed": true
-    },
-    "work_transition_worktree_reclaim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
-      "closed": true
-    },
-    "work_transition_worktree_audit_reclaim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_audit_reclaim_input",
-      "closed": true
-    },
-    "work_transition_worktree_verify_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_verify_input",
-      "closed": true
-    },
-    "work_define_research_pack_create_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_pack_create_input",
-      "closed": true
-    },
-    "work_define_research_revision_append_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_revision_append_input",
-      "closed": true
-    },
-    "work_define_research_finding_record_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_finding_record_input",
-      "closed": true
-    },
-    "work_define_research_source_record_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_source_record_input",
-      "closed": true
-    },
-    "work_define_research_freshness_set_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_freshness_set_input",
-      "closed": true
-    },
-    "work_trace_research_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_research_input",
-      "closed": true
-    },
-    "research_pack": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_pack",
-      "closed": true
-    },
-    "work_compact_lesson_publish_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_lesson_publish_input",
-      "closed": true
-    },
-    "product_view_blocked_sessions_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_blocked_sessions_input",
-      "closed": true
-    },
-    "blocked_sessions_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_sessions_page",
-      "closed": true
-    },
-    "work_relate_resource_claim_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_claim_input",
-      "closed": true
-    },
-    "work_relate_resource_release_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_release_input",
-      "closed": true
-    },
-    "work_browse_resource_claims_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_resource_claims_input",
-      "closed": true
-    },
-    "resource_claims_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
-      "closed": true
-    },
-    "work_relate_message_send_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_send_input",
-      "closed": true
-    },
-    "work_relate_message_withdraw_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_withdraw_input",
-      "closed": true
-    },
-    "work_browse_messages_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_messages_input",
-      "closed": true
-    },
-    "work_messages_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
-      "closed": true
-    },
-    "work_browse_worktree_audit_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_audit_input",
-      "closed": true
-    },
-    "work_browse_worktree_inspect_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_inspect_input",
-      "closed": true
-    },
-    "worktree_audit_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
-      "closed": true
-    },
-    "worktree_audit_reclaim_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_reclaim_result",
-      "closed": true
-    },
-    "worktree_inspect_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_inspect_result",
-      "closed": true
-    },
-    "worktree_verify_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_verify_result",
-      "closed": true
-    },
-    "work_define_observation_record_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
-      "closed": true
-    },
-    "work_define_issue_adopt_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_adopt_input",
-      "closed": true
-    },
-    "domain_list_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_input",
-      "closed": true
-    },
-    "domain_list_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
-      "closed": true
-    },
-    "domain_detail_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_input",
-      "closed": true
-    },
-    "domain_detail_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_result",
-      "closed": true
-    },
-    "domain_observation_record_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_record_input",
-      "closed": true
-    },
-    "domain_observation_dismiss_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_dismiss_input",
+    "continuity_snapshot": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
     },
     "domain_active_work_input": {
@@ -2014,6 +1684,30 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_attachments_result",
       "closed": true
     },
+    "domain_detail_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_input",
+      "closed": true
+    },
+    "domain_detail_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_detail_result",
+      "closed": true
+    },
+    "domain_list_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_input",
+      "closed": true
+    },
+    "domain_list_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_list_result",
+      "closed": true
+    },
+    "domain_observation_dismiss_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_dismiss_input",
+      "closed": true
+    },
+    "domain_observation_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_observation_record_input",
+      "closed": true
+    },
     "domain_overlaps_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_input",
       "closed": true
@@ -2022,16 +1716,244 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/domain_overlaps_result",
       "closed": true
     },
-    "work_transition_worktree_destroy_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_destroy_input",
+    "external_observation_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_input",
+      "closed": true
+    },
+    "external_observation_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
+      "closed": true
+    },
+    "initiative_add_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_add_entry_input",
+      "closed": true
+    },
+    "initiative_change_requiredness_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_change_requiredness_input",
+      "closed": true
+    },
+    "initiative_create_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_create_input",
+      "closed": true
+    },
+    "initiative_entries_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_input",
+      "closed": true
+    },
+    "initiative_entries_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_result",
+      "closed": true
+    },
+    "initiative_remove_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_remove_entry_input",
+      "closed": true
+    },
+    "initiative_reorder_entry_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_reorder_entry_input",
+      "closed": true
+    },
+    "initiative_revise_narrative_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_revise_narrative_input",
+      "closed": true
+    },
+    "knowledge_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
+      "closed": true
+    },
+    "knowledge_resolve_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_resolve_input",
+      "closed": true
+    },
+    "knowledge_search_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_search_input",
+      "closed": true
+    },
+    "knowledge_unprocessed_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_unprocessed_input",
+      "closed": true
+    },
+    "mutation_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/mutation_result",
+      "closed": true
+    },
+    "product_context": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_context",
+      "closed": true
+    },
+    "product_row_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_page",
+      "closed": true
+    },
+    "product_row_portfolio_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_row_portfolio_input",
+      "closed": true
+    },
+    "product_snapshot": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_snapshot",
+      "closed": true
+    },
+    "product_view_blocked_sessions_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_blocked_sessions_input",
+      "closed": true
+    },
+    "product_view_resolve_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resolve_input",
       "closed": true
     },
     "product_view_resources_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_resources_input",
       "closed": true
     },
+    "product_view_snapshot_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/product_view_snapshot_input",
+      "closed": true
+    },
+    "research_pack": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_pack",
+      "closed": true
+    },
+    "resource_claims_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
+      "closed": true
+    },
     "resource_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_page",
+      "closed": true
+    },
+    "session_boot_packet": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_boot_packet",
+      "closed": true
+    },
+    "session_vacate_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_vacate_result",
+      "closed": true
+    },
+    "unprocessed_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/unprocessed_page",
+      "closed": true
+    },
+    "work_browse_blocked_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_blocked_input",
+      "closed": true
+    },
+    "work_browse_list_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
+      "closed": true
+    },
+    "work_browse_messages_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_messages_input",
+      "closed": true
+    },
+    "work_browse_ready_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
+      "closed": true
+    },
+    "work_browse_resource_claims_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_resource_claims_input",
+      "closed": true
+    },
+    "work_browse_scope_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
+      "closed": true
+    },
+    "work_browse_worktree_audit_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_audit_input",
+      "closed": true
+    },
+    "work_browse_worktree_inspect_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_worktree_inspect_input",
+      "closed": true
+    },
+    "work_compact_lesson_publish_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_lesson_publish_input",
+      "closed": true
+    },
+    "work_compact_publish_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_publish_input",
+      "closed": true
+    },
+    "work_compact_reconcile_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_compact_reconcile_input",
+      "closed": true
+    },
+    "work_define_capture_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_capture_input",
+      "closed": true
+    },
+    "work_define_issue_adopt_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_adopt_input",
+      "closed": true
+    },
+    "work_define_observation_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_observation_record_input",
+      "closed": true
+    },
+    "work_define_research_finding_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_finding_record_input",
+      "closed": true
+    },
+    "work_define_research_freshness_set_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_freshness_set_input",
+      "closed": true
+    },
+    "work_define_research_pack_create_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_pack_create_input",
+      "closed": true
+    },
+    "work_define_research_revision_append_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_revision_append_input",
+      "closed": true
+    },
+    "work_define_research_source_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_research_source_record_input",
+      "closed": true
+    },
+    "work_define_revise_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_revise_input",
+      "closed": true
+    },
+    "work_event_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_event_page",
+      "closed": true
+    },
+    "work_messages_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_messages_page",
+      "closed": true
+    },
+    "work_observation_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_input",
+      "closed": true
+    },
+    "work_observation_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_observation_page",
+      "closed": true
+    },
+    "work_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_page",
+      "closed": true
+    },
+    "work_relate_client_policy_grant_request_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_input",
+      "closed": true
+    },
+    "work_relate_client_policy_grant_request_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_result",
+      "closed": true
+    },
+    "work_relate_link_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_link_input",
+      "closed": true
+    },
+    "work_relate_memberships_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_memberships_input",
+      "closed": true
+    },
+    "work_relate_message_send_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_send_input",
+      "closed": true
+    },
+    "work_relate_message_withdraw_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_message_withdraw_input",
       "closed": true
     },
     "work_relate_product_project_add_input": {
@@ -2042,12 +1964,116 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_product_project_add_result",
       "closed": true
     },
-    "work_relate_client_policy_grant_request_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_input",
+    "work_relate_resolve_overlap_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resolve_overlap_input",
       "closed": true
     },
-    "work_relate_client_policy_grant_request_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_client_policy_grant_request_result",
+    "work_relate_resource_claim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_claim_input",
+      "closed": true
+    },
+    "work_relate_resource_release_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_resource_release_input",
+      "closed": true
+    },
+    "work_relate_restore_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_restore_input",
+      "closed": true
+    },
+    "work_relate_supersede_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_supersede_input",
+      "closed": true
+    },
+    "work_relate_unlink_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relate_unlink_input",
+      "closed": true
+    },
+    "work_relation_graph": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
+      "closed": true
+    },
+    "work_scope": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_scope",
+      "closed": true
+    },
+    "work_trace_continuity_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_continuity_input",
+      "closed": true
+    },
+    "work_trace_history_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_history_input",
+      "closed": true
+    },
+    "work_trace_relations_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_relations_input",
+      "closed": true
+    },
+    "work_trace_research_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_research_input",
+      "closed": true
+    },
+    "work_transition_action_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_action_input",
+      "closed": true
+    },
+    "work_transition_correct_delivery_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_correct_delivery_input",
+      "closed": true
+    },
+    "work_transition_lifecycle_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_lifecycle_input",
+      "closed": true
+    },
+    "work_transition_remove_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_remove_input",
+      "closed": true
+    },
+    "work_transition_session_vacate_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_session_vacate_input",
+      "closed": true
+    },
+    "work_transition_worker_abandon_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_abandon_input",
+      "closed": true
+    },
+    "work_transition_worktree_audit_reclaim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_audit_reclaim_input",
+      "closed": true
+    },
+    "work_transition_worktree_claim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_claim_input",
+      "closed": true
+    },
+    "work_transition_worktree_destroy_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_destroy_input",
+      "closed": true
+    },
+    "work_transition_worktree_reclaim_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_reclaim_input",
+      "closed": true
+    },
+    "work_transition_worktree_verify_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_verify_input",
+      "closed": true
+    },
+    "worktree_audit_page": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_page",
+      "closed": true
+    },
+    "worktree_audit_reclaim_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_audit_reclaim_result",
+      "closed": true
+    },
+    "worktree_claim_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_claim_result",
+      "closed": true
+    },
+    "worktree_inspect_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_inspect_result",
+      "closed": true
+    },
+    "worktree_verify_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_verify_result",
       "closed": true
     }
   },
@@ -2099,6 +2125,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:483eaddddb9da4405d3dac823a549aaec505debf811bd2a365084774ffe651aa",
-  "digest": "sha256:377bbf36f554e251cd0732c54c8c06bcde20b87cdabe25c0e5e4e653936b9f4a"
+  "payload_digest": "sha256:3a70d8bd4581c56122cc6e5c4e148686e28ccde514e87d05e78eb397969b6bf5",
+  "digest": "sha256:1dc2635d02b0b86fc60affff8a4ebb2eb00775e72ffb52796eb24350f64d6ceb"
 }

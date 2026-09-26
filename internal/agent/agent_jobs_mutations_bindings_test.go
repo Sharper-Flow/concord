@@ -1282,6 +1282,12 @@ func TestCaptureRefusesUnknownGoverningRequirement(t *testing.T) {
 	if !strings.Contains(resp.Error.Message, "fabricated_requirement") {
 		t.Fatalf("refusal message %q does not name unknown id", resp.Error.Message)
 	}
+	if !strings.Contains(resp.Error.Message, "declare the requirement on the Project or name an accepted law ID") {
+		t.Fatalf("refusal message %q does not carry the one-line recovery", resp.Error.Message)
+	}
+	if resp.Error.RecoveryAction.Kind != "reread_entities" {
+		t.Fatalf("recovery action %q, want reread_entities so the caller can act on the refusal", resp.Error.RecoveryAction.Kind)
+	}
 }
 
 // TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct proves the
@@ -1305,16 +1311,14 @@ func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
 
 // TestCaptureAcceptsAcceptedLawID proves the second legitimate referencing
 // surface: an accepted law_subjects id visible for the Product's Projects
-// resolves without being registered as a Project requirement.
+// resolves without being registered as a Project requirement. The law row is
+// seeded without a law_domain_homes row, so the pass-through does not depend
+// on the Domain-home projection existing for the law.
 func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "prod-alpha", "proj-web"); err != nil {
-		t.Fatalf("seed Product Domain: %v", err)
-	}
 	hash := "sha256:" + strings.Repeat("a", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','prod-alpha','root',?,'test'); DELETE FROM fold_guard`, hash, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
 		t.Fatalf("seed accepted law: %v", err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")

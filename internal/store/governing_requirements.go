@@ -119,7 +119,9 @@ func knownGoverningRequirementRefsForProducts(ctx context.Context, q queryer, pr
 	}
 	query := `SELECT requirement_ref FROM project_governing_requirements WHERE project_id IN (
 		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
-	) UNION SELECT s.law_id FROM law_subjects s JOIN law_domain_homes h ON h.home_project_id=s.home_project_id AND h.home_locator_id=s.home_locator_id AND h.law_id=s.law_id WHERE h.product_id IN (` + strings.Join(placeholders, ",") + `) AND s.status='accepted' ORDER BY 1`
+	) UNION SELECT law_id FROM law_subjects WHERE home_project_id IN (
+		SELECT project_id FROM product_projects WHERE product_id IN (` + strings.Join(placeholders, ",") + `)
+	) AND status='accepted' ORDER BY 1`
 	queryArgs := append(append([]any{}, args...), args...)
 	rows, err := q.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
@@ -156,7 +158,7 @@ func (s *Store) ValidateCaptureGoverningRequirements(ctx context.Context, produc
 	}
 	for _, ref := range declared {
 		if _, ok := resolved[ref]; !ok {
-			return newFailure(KindProjectionNotFound, "capture", fmt.Sprintf("governing requirement %q is not registered or accepted", ref), false, "declare the requirement on the Project or name an accepted law ID")
+			return newFailure(KindProjectionNotFound, "capture", fmt.Sprintf("governing requirement %q is not registered or accepted; declare the requirement on the Project or name an accepted law ID", ref), false, "reread_entities")
 		}
 	}
 	return nil

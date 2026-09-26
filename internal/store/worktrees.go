@@ -1760,7 +1760,10 @@ func worktreeOccupancyRowsTx(ctx context.Context, tx *sql.Tx, setID, projectID, 
 			occ.HostPID = &v
 		}
 		if hostPIDStart.Valid {
-			v := uint64(hostPIDStart.Int64)
+			v, err := occupancyPIDStart(hostPIDStart.Int64)
+			if err != nil {
+				return nil, err
+			}
 			occ.HostPIDStart = &v
 		}
 		occ.HasProcessIdentity = hasIdentity == 1
@@ -3164,4 +3167,15 @@ func retitleFailure(err error, op string) error {
 		return &branded
 	}
 	return err
+}
+
+// occupancyPIDStart converts a stored host_pid_start to the kernel's unsigned
+// start time. The store writes only values read from /proc, so a negative
+// value is a corrupt row, and the read refuses it rather than wrapping it into
+// a start time that could match a live process.
+func occupancyPIDStart(stored int64) (uint64, error) {
+	if stored < 0 {
+		return 0, fmt.Errorf("worktree_occupancy host_pid_start %d is negative", stored)
+	}
+	return uint64(stored), nil
 }

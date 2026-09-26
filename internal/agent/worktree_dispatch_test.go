@@ -788,10 +788,6 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
 	// project-1x joins the work item inside product-1, but its canonical
 	// locator resolves to a different git repository than the calling
 	// session's directory.
@@ -809,7 +805,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1x", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-repo-claim"})
-	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}

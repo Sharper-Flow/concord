@@ -829,7 +829,10 @@ func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) 
 			p.hostPID = &v
 		}
 		if hostPIDStart.Valid {
-			v := uint64(hostPIDStart.Int64)
+			v, err := occupancyPIDStart(hostPIDStart.Int64)
+			if err != nil {
+				return err
+			}
 			p.hostPIDStart = &v
 		}
 		actives = append(actives, p)

@@ -374,45 +374,28 @@ func TestFullLauncherSessionAppendsNothingToTheEventLog(t *testing.T) {
 		t.Fatalf("seeded S1 rendered no Products, so the session reads nothing: %#v", got)
 	}
 
-	m.UpdateKey("r")     // S1 explicit refresh
-	m.UpdateKey("enter") // S1 -> S2, which also reads the focused knowledge section
+	m.UpdateKey("r") // S1 explicit refresh
+	m.UpdateKey("/") // S1 local filter
+	m.UpdateKey("a")
+	m.UpdateKey("ctrl+l") // clear the filter input
+	m.UpdateKey("enter")  // submit the empty filter, leaving filter mode
+	m.UpdateKey("?")      // help toggle, twice
+	m.UpdateKey("?")
+	m.UpdateKey("enter") // S1 -> the Product work list, the composed Product read
 	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.AmbientProduct == "" {
-		t.Fatalf("S2 entry = %#v", got)
+		t.Fatalf("product entry = %#v", got)
 	}
-	m.UpdateKey("tab") // domain -> blocked
-	m.UpdateKey("tab") // blocked -> next, the ranked work mode
-	m.UpdateKey("r")   // S2 explicit refresh
-	m.UpdateKey("s")   // S2 semantic query
+	m.UpdateKey("r") // product explicit refresh
+	m.UpdateKey("s") // semantic query
 	m.UpdateKey("b")
 	m.UpdateKey("enter")
 	m.UpdateKey("esc") // leave the query result
-
-	// The seeded work item is addressed directly so S3 is reached even when the
-	// ranked mode renders nothing. A failure here would leave the read-coverage
-	// assertion below satisfied by an attempted read, so it fails the test.
-	if err := core.SelectWork(ctx, "import-advance-work-synth-change-alpha-1"); err != nil {
-		t.Fatalf("S3 entry: %v", err)
-	}
-	if got := core.Snapshot(); got.Screen != launcher.ScreenWork {
-		t.Fatalf("S3 entry left the session on %v, so the work screen is unexercised", got.Screen)
-	}
-	m.Sync()
-	m.UpdateKey("tab") // S3 sections, ending on knowledge
-	m.UpdateKey("tab")
-	m.UpdateKey("tab")
-	m.UpdateKey("r") // S3 explicit refresh
-	m.UpdateKey("s") // S3 semantic query
-	m.UpdateKey("b")
-	m.UpdateKey("enter")
-	m.UpdateKey("esc") // leave the query result
-	m.UpdateKey("esc") // S3 -> S2
-	m.UpdateKey("esc") // S2 -> S1
+	m.UpdateKey("esc") // product -> S1
 	m.UpdateKey("r")   // S1 explicit refresh
 	m.Render()
 
 	for _, kind := range []launcher.ReadKind{
-		launcher.ReadPortfolio, launcher.ReadDomains, launcher.ReadProduct,
-		launcher.ReadWork, launcher.ReadKnowledge, launcher.ReadSearch,
+		launcher.ReadPortfolio, launcher.ReadDomains, launcher.ReadSearch,
 	} {
 		if port.kinds[kind] == 0 {
 			t.Fatalf("session never issued a %s read: kinds=%v", kind, port.kinds)

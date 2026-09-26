@@ -24,6 +24,9 @@ type LauncherBlocker struct {
 	Age         string
 	External    bool
 	ConditionID string
+	// IssueKey is the blocker's confirmed Linear key when the blocker itself
+	// is linked, so the launcher row can carry the blocking ticket reference.
+	IssueKey string
 }
 
 type LauncherWork struct {
@@ -31,6 +34,7 @@ type LauncherWork struct {
 	Kind           string
 	Title          string
 	LinearIssueKey string
+	LinearIssueURL string
 	Lifecycle      string
 	Priority       int64
 	Urgency        string
@@ -48,33 +52,18 @@ type LauncherWork struct {
 
 type LauncherProductResult struct {
 	ResultMeta
-	// Works is the active drill-down segment, ordered by the accepted
-	// launcher keys (urgency, priority, created_at DESC, id). TerminalWorks
-	// is the completed-history segment ordered by terminal_time DESC, id, so
-	// the drill-down renders active work first (C18 R5) and reaches terminal
-	// history by scrolling.
+	// Works is the active work segment ordered most-recently-updated first
+	// (updated_at DESC, id), the default ordering the launcher work list
+	// renders. TerminalWorks is the completed-history segment ordered by
+	// terminal_time DESC, id, so the list renders active work first and
+	// reaches terminal history by scrolling.
 	Works         []LauncherWork
 	TerminalWorks []LauncherWork
 	Edges         []RelationEdge
 }
 
-type LauncherWorkRequest struct {
-	Product string
-	Work    string
-	Limit   int
-}
-
-type LauncherWorkResult struct {
-	ResultMeta
-	Work     LauncherWork
-	Projects []ProjectMembership
-	Events   []TimelineEvent
-	Workflow *WorkflowReadProjection
-	Edges    []RelationEdge
-}
-
 // LauncherSearchRequest selects a private launcher projection, not a new PM query or
-// public tool. One operation owns the Product-scoped work and knowledge matches.
+// public tool. One operation owns the Product-scoped work matches.
 type LauncherSearchRequest struct {
 	Product string
 	Query   string
@@ -83,11 +72,7 @@ type LauncherSearchRequest struct {
 
 type LauncherSearchResult struct {
 	ResultMeta
-	Works              []LauncherWork
-	Knowledge          []KnowledgeItem
-	KnowledgeWatermark string
-	KnowledgeAuthority string
-	KnowledgeOmissions []string
+	Works []LauncherWork
 }
 
 // ResolveLauncherWorkProduct selects the stable Product scope for direct work
@@ -165,35 +150,6 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	if len(req.Query) > 256 {
 		return out, newFailure(KindInvalidFilter, "launcher.search", "bounded search text is too long", false, "limit text to 256 characters")
 	}
-	home, homeErr := resolveKnowledgeQueryHome(ctx, s.db, req.Product, "", KnowledgeHome{}, "launcher.search")
-	knowledgeWatermark, knowledgeAuthority := "unavailable", "unavailable"
-	knowledgeAvailable := homeErr == nil
-	if knowledgeAvailable {
-		// The launcher read is a demand too (CD-0082 D1). It runs with no
-		// transaction open, so a stale index rebuilds here; an unreachable
-		// home is left to the degraded verdict below.
-		if err := s.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
-			return out, err
-		}
-		knowledgeWatermark, knowledgeAuthority, err = validateKnowledgeHomeForQuery(ctx, s, home, true, "launcher.search")
-		if err != nil {
-			return out, err
-		}
-		if knowledgeWatermark == "" {
-			knowledgeWatermark = "unindexed"
-		}
-	} else {
-		out.KnowledgeOmissions = append(out.KnowledgeOmissions, "knowledge_home_unavailable")
-	}
-	kinds, err := knowledgeKinds(nil)
-	if err != nil {
-		return out, err
-	}
-	if knowledgeAvailable && knowledgeAuthority == "authoritative" {
-		if err := validateKnowledgeCoverage(ctx, s, home, knowledgeWatermark, kinds); err != nil {
-			return out, err
-		}
-	}
 	tx, err := beginRead(ctx, s, "launcher.search")
 	if err != nil {
 		return out, err
@@ -203,17 +159,17 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 		return out, err
 	}
 	needle := "%" + strings.ToLower(req.Query) + "%"
-	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
-		FROM work_items w WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
 		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`, req.Product, req.Product, needle, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.search", "cannot search Product work", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.LinearIssueURL, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -241,51 +197,10 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	for i := range out.Works {
 		out.Works[i].Blockers = blockers[out.Works[i].ID]
 	}
-	if knowledgeAvailable {
-		knowledgeReq := Q9Request{Product: req.Product, Text: req.Query, Limit: limit + 1, AllowDegraded: true, Home: home}
-		knowledgeQuery, args := buildKnowledgeQuery(knowledgeReq, kinds, nil, limit+1)
-		knowledgeRows, err := tx.QueryContext(ctx, knowledgeQuery, args...)
-		if err != nil {
-			return out, wrapFailure(KindUnavailable, "launcher.search", "cannot search Product knowledge", true, "retry once the database is readable", err)
-		}
-		for knowledgeRows.Next() {
-			item, err := scanKnowledgeItem(knowledgeRows)
-			if err != nil {
-				knowledgeRows.Close()
-				return out, err
-			}
-			out.Knowledge = append(out.Knowledge, item)
-		}
-		if err := knowledgeRows.Close(); err != nil {
-			return out, err
-		}
-		if err := knowledgeRows.Err(); err != nil {
-			return out, err
-		}
-	}
-	if len(out.Knowledge) > limit {
-		out.Knowledge = out.Knowledge[:limit]
-		out.KnowledgeOmissions = append(out.KnowledgeOmissions, "knowledge matches omitted by launcher limit")
-	}
-	if knowledgeAvailable && knowledgeAuthority == "authoritative" {
-		// Tx-scoped: this function holds the launcher search read
-		// transaction, and with one pooled connection a nested s.db query
-		// would park on the pool forever.
-		out.KnowledgeOmissions = append(out.KnowledgeOmissions, knowledgeCoverageOmissions(ctx, tx, home, knowledgeWatermark)...)
-	} else if knowledgeAvailable {
-		out.KnowledgeOmissions = append(out.KnowledgeOmissions, "knowledge_index_lagging_or_unreachable")
-	}
-	out.KnowledgeWatermark, out.KnowledgeAuthority = knowledgeWatermark, knowledgeAuthority
-	omissions := append([]string(nil), out.Omissions...)
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.search", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
-	out.Omissions = append(out.Omissions, omissions...)
-	out.Omissions = append(out.Omissions, out.KnowledgeOmissions...)
 	if out.Works == nil {
 		out.Works = []LauncherWork{}
 	}
-	if out.Knowledge == nil {
-		out.Knowledge = []KnowledgeItem{}
-	}
+	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.search", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
 	return out, err
 }
 
@@ -313,18 +228,18 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
-	q := `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
+	q := `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
-		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`
+		ORDER BY w.updated_at DESC,w.id LIMIT ?`
 	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product work", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var item LauncherWork
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.LinearIssueURL, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.ProjectCount, &item.Blocked); err != nil {
 			rows.Close()
 			return out, err
 		}
@@ -344,7 +259,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// The completed-history drill-down segment. It is one grouped read in the
 	// same transaction, not a per-work fan-out, and readiness is not computed
 	// for terminal items: their marker is the terminal state itself.
-	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
+	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
 		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)
@@ -353,7 +268,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	for trows.Next() {
 		var item LauncherWork
-		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
+		if err := trows.Scan(&item.ID, &item.Kind, &item.Title, &item.LinearIssueKey, &item.LinearIssueURL, &item.Lifecycle, &item.Priority, &item.Urgency, &item.CreatedAt, &item.UpdatedAt, &item.TerminalAt, &item.ProjectCount); err != nil {
 			trows.Close()
 			return out, err
 		}
@@ -436,14 +351,9 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		out.Edges = []RelationEdge{}
 	}
 	omissions := append([]string(nil), out.Omissions...)
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"updated_at", "id"})
 	out.Omissions = append(out.Omissions, omissions...)
 	return out, err
-}
-
-func launcherBlockers(ctx context.Context, tx *sql.Tx, workID string) ([]LauncherBlocker, error) {
-	result, err := launcherBlockersForWorks(ctx, tx, []string{workID})
-	return result[workID], err
 }
 
 func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string) (map[string][]LauncherBlocker, error) {
@@ -457,7 +367,7 @@ func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string)
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at,COALESCE((SELECT l.human_key FROM linear_issue_links l WHERE l.work_id=b.id AND l.link_state='confirmed' LIMIT 1),'') FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +375,7 @@ func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string)
 	for rows.Next() {
 		var blockedWork string
 		var b LauncherBlocker
-		if err := rows.Scan(&blockedWork, &b.ID, &b.Title, &b.Authority, &b.ConditionID, &b.Age); err != nil {
+		if err := rows.Scan(&blockedWork, &b.ID, &b.Title, &b.Authority, &b.ConditionID, &b.Age, &b.IssueKey); err != nil {
 			return nil, err
 		}
 		b.External = b.ConditionID != ""
@@ -475,117 +385,6 @@ func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string)
 		return nil, err
 	}
 	return out, nil
-}
-
-func (s *Store) QueryLauncherWork(ctx context.Context, req LauncherWorkRequest) (LauncherWorkResult, error) {
-	var out LauncherWorkResult
-	tx, err := beginRead(ctx, s, "launcher.work")
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback()
-	if req.Product == "" || req.Work == "" {
-		return out, unknownScope("launcher.work", "work detail requires ambient Product and work")
-	}
-	if _, err := readProduct(ctx, tx, req.Product); err != nil {
-		return out, err
-	}
-	base, err := readOneWork(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	var inScope bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND pp.product_id=?)`, req.Work, req.Product).Scan(&inScope); err != nil {
-		return out, err
-	}
-	if !inScope {
-		return out, unknownScope("launcher.work", "work is not in ambient Product")
-	}
-	w := LauncherWork{ID: base.ID, Kind: base.Kind, Title: base.Title, Lifecycle: base.Lifecycle, Priority: base.Priority, Urgency: base.Urgency, CreatedAt: base.CreatedAt, UpdatedAt: base.UpdatedAt, Blocked: base.Blocked, Ready: base.Ready}
-	w.ProjectCount, err = projectCount(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	w.Blockers, err = launcherBlockers(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	w.Blocked = len(w.Blockers) > 0
-	w.Ready = w.Lifecycle == "needed" && !w.Blocked
-	out.Work = w
-	out.Projects, err = readWorkProjects(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	limit, err := queryLimit(req.Limit)
-	if err != nil {
-		return out, err
-	}
-	erows, err := tx.QueryContext(ctx, `SELECT event_id,seq,kind,actor,occurred_at,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? ORDER BY seq DESC LIMIT ?`, req.Work, limit)
-	if err != nil {
-		return out, err
-	}
-	for erows.Next() {
-		var id, kind, actor, occurred, payload string
-		var seq int64
-		if err := erows.Scan(&id, &seq, &kind, &actor, &occurred, &payload); err != nil {
-			erows.Close()
-			return out, err
-		}
-		e, err := decodeTimelineEvent(id, seq, kind, actor, occurred, []byte(payload))
-		if err != nil {
-			erows.Close()
-			return out, err
-		}
-		out.Events = append(out.Events, e)
-	}
-	if err := erows.Err(); err != nil {
-		erows.Close()
-		return out, err
-	}
-	if err := erows.Close(); err != nil {
-		return out, err
-	}
-	if out.Events == nil {
-		out.Events = []TimelineEvent{}
-	}
-	out.Workflow, err = readWorkflowSummaryTx(ctx, tx, req.Work)
-	if err != nil {
-		return out, err
-	}
-	// The work detail relation read is bounded and stays in this transaction.
-	rrows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE (r.work_id_from=? OR r.work_id_to=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 100`, req.Work, req.Work)
-	if err != nil {
-		return out, err
-	}
-	for rrows.Next() {
-		var e RelationEdge
-		var relationID int64
-		if err := rrows.Scan(&relationID, &e.Kind, &e.Source, &e.Target); err != nil {
-			rrows.Close()
-			return out, err
-		}
-		e.RelationID = strconv.FormatInt(relationID, 10)
-		out.Edges = append(out.Edges, e)
-	}
-	if err := rrows.Err(); err != nil {
-		rrows.Close()
-		return out, err
-	}
-	if err := rrows.Close(); err != nil {
-		return out, err
-	}
-	if out.Edges == nil {
-		out.Edges = []RelationEdge{}
-	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.work", ResolvedScope{ProductID: req.Product, WorkID: req.Work}, []string{"seq"})
-	return out, err
-}
-
-func projectCount(ctx context.Context, tx *sql.Tx, workID string) (int, error) {
-	var count int
-	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT project_id) FROM work_projects WHERE work_id=?`, workID).Scan(&count)
-	return count, err
 }
 
 // LauncherDomainRow is one current Domain in the launcher's S2 Domain section.

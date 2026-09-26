@@ -126,22 +126,10 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(search.Works) != 1 || search.Works[0].ID != "blocked" {
-		t.Fatalf("work matches were lost with unavailable knowledge: %#v", search.Works)
+		t.Fatalf("work matches were lost: %#v", search.Works)
 	}
-	if search.KnowledgeAuthority != "unavailable" || !containsString(search.KnowledgeOmissions, "knowledge_home_unavailable") {
-		t.Fatalf("knowledge availability was not typed: %#v", search)
-	}
-	home := KnowledgeHome{HomeProjectID: "knowledge-home", HomeLocatorID: "knowledge-locator", RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "prod", home, "proj")
-	search, err = s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if search.QueryID != "launcher.search" || search.ResolvedScope.ProductID != "prod" || len(search.Works) != 1 || search.Works[0].ID != "blocked" {
+	if search.QueryID != "launcher.search" || search.ResolvedScope.ProductID != "prod" || len(search.Works) != 1 || search.Works[0].ID != "blocked" || search.SourceVersionWatermark == 0 {
 		t.Fatalf("Product-scoped search=%#v", search)
-	}
-	if search.SourceVersionWatermark == 0 || search.KnowledgeWatermark == "" || search.KnowledgeAuthority == "" {
-		t.Fatalf("search watermarks missing: %#v", search)
 	}
 }
 
@@ -721,32 +709,91 @@ func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
 	}
 }
 
-// The authoritative knowledge branch runs coverage omissions while the
-// launcher search transaction is open. With one pooled connection
-// (store.go SetMaxOpenConns(1)) a nested s.db query there parks on the pool
-// forever — this test would hang, not fail, without tx scoping.
-func TestLauncherSearchAuthoritativeKnowledgeDoesNotDeadlock(t *testing.T) {
+// TestLauncherProductWorkSegmentIsRecencyOrdered proves the default MRU
+// ordering: the active work segment sorts by updated_at descending with id
+// breaking ties, so the bounded page cut and the displayed order agree.
+func TestLauncherProductWorkSegmentIsRecencyOrdered(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	defer s.Close()
+	ctx := context.Background()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
+		INSERT INTO fold_guard(active) VALUES (1);
+		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('rec','Recency','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('rec-project','Recency project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES ('rec','rec-project','primary');
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
+		('rec-old','task','Oldest','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z'),
+		('rec-new','bug','Newest','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-09T00:00:00Z'),
+		('rec-mid','task','Middle','needed',1,1,'2026-08-01T00:00:00Z','2026-08-05T00:00:00Z'),
+		('rec-tie','task','Tied','needed',1,1,'2026-08-01T00:00:00Z','2026-08-05T00:00:00Z');
+		INSERT INTO work_projects(work_id,project_id,role) VALUES
+		('rec-old','rec-project','primary'),('rec-new','rec-project','primary'),
+		('rec-mid','rec-project','primary'),('rec-tie','rec-project','primary');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+	result, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "rec", Limit: 20, Depth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantOrder := []string{"rec-new", "rec-mid", "rec-tie", "rec-old"}
+	if len(result.Works) != len(wantOrder) {
+		t.Fatalf("works=%#v", result.Works)
+	}
+	for i, id := range wantOrder {
+		if result.Works[i].ID != id {
+			t.Fatalf("work %d = %s, want %s (most recently updated first)", i, result.Works[i].ID, id)
+		}
+	}
+	for _, key := range result.OrderingKeys {
+		if key != "updated_at" && key != "id" {
+			t.Fatalf("ordering keys = %v, want the recency ordering", result.OrderingKeys)
+		}
+	}
+}
+
+// TestLauncherBlockersCarryTheBlockingTicketReference proves the blocker join:
+// each blocked row's blockers carry the blocker's confirmed Linear key, so
+// the launcher row can name the blocking ticket without a second read.
+func TestLauncherBlockersCarryTheBlockingTicketReference(t *testing.T) {
 	t.Parallel()
 	s := seedQueryFixture(t)
 	defer s.Close()
 	ctx := context.Background()
-
-	repo := initKnowledgeRepo(t)
-	path := "docs/lessons/durable.md"
-	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("durable-lesson", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
-	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "durable-lesson", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
-	commitKnowledgeRepo(t, repo, "durable lesson")
-	home := KnowledgeHome{HomeProjectID: "knowledge-home", HomeLocatorID: "knowledge-locator", RepoPath: repo, HeadRef: "HEAD"}
-	authorizeKnowledgeProductHome(t, s, "prod", home, "proj")
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
 	}
-
-	search, err := s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
+		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES
+		('blocker','uuid-blocker-key','BLK-9','https://linear.app/example/issue/BLK-9','confirmed','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod", Limit: 20, Depth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if search.KnowledgeAuthority != "authoritative" {
-		t.Fatalf("authority=%q omissions=%v", search.KnowledgeAuthority, search.KnowledgeOmissions)
+	var blocked LauncherWork
+	for _, item := range result.Works {
+		if item.ID == "blocked" {
+			blocked = item
+		}
+	}
+	if len(blocked.Blockers) != 1 {
+		t.Fatalf("blocked=%#v", blocked)
+	}
+	if blocked.Blockers[0].IssueKey != "BLK-9" {
+		t.Fatalf("blocker issue key = %q, want BLK-9", blocked.Blockers[0].IssueKey)
 	}
 }

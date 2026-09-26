@@ -15,14 +15,13 @@ import (
 
 // TestLauncherWorkRowRendersLongStoreIdentityInFull proves
 // check:launcher.work_row_issue_key_and_occupancy across the real store read
-// and the rendered Product work list: a store whose work item ID and
-// confirmed Linear link carry the long real-store shapes (a 37-character
-// work ID and a 42-character issue key) reads through the store port into
-// the Product work list and renders the full linked key on the row line at
-// 80, 120, and 200 columns, with the compacted work identity at the narrow
-// widths and the full identity at the wide one. No session launches: the
-// only read is the port's, the occupancy probe is a stub, and the model
-// renders from the snapshot.
+// and the rendered Product work list: a store whose work item's confirmed
+// Linear link carries the long real-store shape (a 42-character issue key)
+// reads through the store port into the Product work list and renders the
+// full linked key on the row line at 80, 120, and 200 columns, beside the
+// readiness marker, the title, and the host-attested occupancy. No session
+// launches: the only read is the port's, the occupancy probe is a stub, and
+// the model renders from the snapshot.
 func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 	const (
 		longKey = "LONG-LINKED-ISSUE-KEY-405-PLATFORM-FIXTURE"
@@ -41,7 +40,7 @@ func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 
 	port := storeport.New(s)
 	port.SessionProbe = func(context.Context, store.WorktreeEntry) bool { return true }
-	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-long", Limit: 100, Section: launcher.SectionRanked})
+	snapshot, err := port.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadProduct, Product: "scope-long", Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +48,7 @@ func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 		t.Fatalf("Product read ranked %#v, want the one long-identity row", snapshot.Ranked)
 	}
 	read := snapshot.Ranked[0]
-	if read.ID != longID || read.LinearIssueKey != longKey || read.Live != 1 {
+	if read.ID != longID || read.LinearIssueKey != longKey || read.LinearIssueURL == "" || read.Live != 1 {
 		t.Fatalf("store row lost the long identity: %#v", read)
 	}
 
@@ -59,8 +58,7 @@ func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 	for _, width := range []int{80, 120, 200} {
 		ui.Update(tea.WindowSizeMsg{Width: width, Height: 40})
 		frame := ui.Render()
-		// The row line is the only frame line that carries the full key: the
-		// detail pane wraps it and the summary header carries the identity.
+		// The row line is the only frame line that carries the full key.
 		var rowLines []string
 		for _, line := range strings.Split(frame, "\n") {
 			if strings.Contains(line, longKey) {
@@ -71,13 +69,19 @@ func TestLauncherWorkRowRendersLongStoreIdentityInFull(t *testing.T) {
 			t.Fatalf("width %d: the linked key renders on %d lines, want the one work row: %q", width, len(rowLines), frame)
 		}
 		rowLine := rowLines[0]
-		for _, want := range []string{"in_progress", "yes", longID[len(longID)-4:]} {
+		for _, want := range []string{"~ACTIVE", "yes"} {
 			if !strings.Contains(rowLine, want) {
 				t.Fatalf("width %d: store row line lost %q: %q", width, want, rowLine)
 			}
 		}
-		if width == 200 && !strings.Contains(rowLine, longID) {
-			t.Fatalf("width %d: store row line lost the full work ID: %q", width, rowLine)
+		// The mandated cells lead: at 80 the title yields to the full key,
+		// and at the wider widths the full title seats beside it.
+		if width == 80 {
+			if !strings.Contains(rowLine, "…") || strings.Contains(rowLine, "Long identity work") {
+				t.Fatalf("width %d: the title did not yield to the full linked key: %q", width, rowLine)
+			}
+		} else if !strings.Contains(rowLine, "Long identity work") {
+			t.Fatalf("width %d: store row line lost its title: %q", width, rowLine)
 		}
 	}
 }

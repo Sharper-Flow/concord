@@ -1,11 +1,12 @@
 # CD-0108: the launcher is the ZLauncher replacement
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-26)
 - **Date:** 2026-09-03
 - **Scope:** terminal launcher remake, ZLauncher retirement, and the launcher
   mutation boundary
 - **Approval:** The operator approved the remake scope on 2026-09-03 after
-  shaping in Concord work-4e5261bca6acdd5298f5b4a3.
+  shaping in Concord work-4e5261bca6acdd5298f5b4a3. The operator approved the
+  single-surface amendment on 2026-09-26 (D2 and D3 below carry it).
 - **Related:** CD-0014, CD-0041, CD-0048, R1, C14, C17, C18, and issue #803
 - **Replaces:** the status-only launcher scope of C18
   ([`terminal-launcher-contract.md`](../terminal-launcher-contract.md)). The
@@ -54,24 +55,38 @@ that work's directive.
 ZLauncher is retired when the core loop and the accepted daily extras work
 on the operator's real store. Retirement is the acceptance test.
 
-### D2. The user interface is dense panes on standard keys
+### D2. The interface is single-surface lists on standard keys
 
-The interface carries lazygit-class density: panes, everything visible at
-once. Navigation uses arrow keys, Enter, and Tab. No vim chords.
+Amended 2026-09-26: single-surface lists replace the simultaneous dense
+panes. Every screen renders one bordered table with no permanent header
+lines; diagnostics, probe lines, and summary panels render only when
+something is abnormal, and quiet means healthy. The frame carries no title
+line and no detail pane: the Product name folds into the one-line status
+bar, which keeps the focus identifier on the left and the coverage state on
+the right, with a failed or degraded read replacing the coverage value with
+its status message. Launch is the primary action: Enter launches the session
+bootstrap from the work row (the occupied-work confirmation stays), and `o`
+opens the linked Linear issue in the browser. Navigation uses arrow keys,
+Enter, and standard keys. No vim chords.
 
 Rendering stays Bubble Tea v2 per CD-0014. The remake replaces the screen
 model, not the dependency.
 
-### D3. The feature set is fixed by the 2026-09-03 selection
+### D3. The feature set is fixed by the 2026-09-03 selection, as amended 2026-09-26
 
 In, first build: scan roots for projects Concord does not know yet, pins
-with pin and unpin keys, most-recently-used ordering, fuzzy filter, preview
-pane, two-stage pick, resume-last, `zl` command forwarding, Vision live
-status, lgrep status, tab identity badges, abbreviations, an icon option,
-time-ago stamps, ANSI color control, work columns for lifecycle, priority,
-and urgency, blocked-work indicators, session inventory with reattach,
-Domain context per Product, an in-place refresh key, and a `--list` JSON
-verb.
+with pin and unpin keys, most-recently-used ordering, fuzzy filter, two-stage
+pick, resume-last, `zl` command forwarding, Vision live status, lgrep status,
+tab identity badges, abbreviations, an icon option, time-ago stamps, ANSI
+color control, blocked-work indicators, session inventory with reattach, an
+in-place refresh key, and a `--list` JSON verb.
+
+Amended 2026-09-26: the preview pane, the work columns for lifecycle,
+priority, and urgency, and the always-on Domain context drop from the
+feature set. Time-ago stamps stay and extend to the default ordering: the
+work list sorts by updated time descending with relative times, rows carry
+number, readiness marker, the linked Linear key when linked, title, and the
+blocking ticket reference, and the Actions column keeps live counts.
 
 Removed: the launch registry, because the store already owns worktree claims
 and session records; in-launcher work capture; and the knowledge peek.
@@ -91,6 +106,9 @@ does not.
 
 ## Consequences
 
+- The 2026-09-26 amendment supersedes the 2026-09-03 pane-density selection
+  and the related pane-density work item, after the operator answered the
+  single-surface survey screen by screen. D2 and D3 carry the amended law.
 - `clarifications.md` R1 records the supersession: the launcher replaces
   ZLauncher and absorbs the bootstrap role.
 - `vertical-integration.md` cites this record for the launcher and interface

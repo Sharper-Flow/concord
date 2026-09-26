@@ -205,14 +205,14 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		p.decorateProduct(ctx, &result)
-		return snapshotFromProduct(result, request.Product, request.Section), nil
+		return snapshotFromProduct(result, request.Product), nil
 	case launcher.ReadDomains:
 		// The Domain read composes the Product work read: the work list is
 		// carried on every outcome, so a Domain failure can never withhold
 		// it or restate the screen coverage the work read produced.
 		product, err := p.Store.QueryLauncherProduct(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
 		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Section: launcher.SectionDomains, Coverage: "unreachable", StatusMessage: err.Error()}, err
+			return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 		}
 		p.decorateProduct(ctx, &product)
 		domains, err := p.Store.QueryLauncherDomains(ctx, store.LauncherProductRequest{Product: request.Product, Limit: request.Limit, Depth: 3})
@@ -220,19 +220,11 @@ func (p *Port) Read(ctx context.Context, request launcher.ReadRequest) (launcher
 			// An absent registry or a failed Domain query is a typed
 			// unavailable Domain section over the intact Product work list,
 			// never an empty Domain list and never an unavailable screen.
-			s := snapshotFromProduct(product, request.Product, launcher.SectionDomains)
+			s := snapshotFromProduct(product, request.Product)
 			s.Domains = launcher.DomainSection{Read: true, State: "unavailable", Reason: failureReason(err)}
 			return s, nil
 		}
 		return snapshotFromDomains(domains, product, request.Product), nil
-	case launcher.ReadWork:
-		result, err := p.Store.QueryLauncherWork(ctx, store.LauncherWorkRequest{Product: request.Product, Work: request.Work, Limit: request.Limit})
-		if err != nil {
-			return launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
-		}
-		return snapshotFromWork(result, request.Product, request.Work, request.Section), nil
-	case launcher.ReadKnowledge:
-		return p.readKnowledge(ctx, request)
 	case launcher.ReadSearch:
 		return p.readSearch(ctx, request)
 	case launcher.ReadCandidates:
@@ -295,8 +287,8 @@ func (p *Port) decorateProduct(ctx context.Context, result *store.LauncherProduc
 	}
 }
 
-func snapshotFromProduct(result store.LauncherProductResult, product string, section launcher.Section) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
+func snapshotFromProduct(result store.LauncherProductResult, product string) launcher.Snapshot {
+	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...)}
 	s.Ranked = make([]launcher.RankedWork, 0, len(result.Works)+len(result.TerminalWorks))
 	for _, item := range result.Works {
 		s.Ranked = append(s.Ranked, mapWork(item))
@@ -319,7 +311,7 @@ func snapshotFromProduct(result store.LauncherProductResult, product string, sec
 }
 
 func snapshotFromDomains(result store.LauncherDomainsResult, product store.LauncherProductResult, productID string) launcher.Snapshot {
-	s := snapshotFromProduct(product, productID, launcher.SectionDomains)
+	s := snapshotFromProduct(product, productID)
 	s.QueryID, s.ContractVersion = result.QueryID, result.ContractVersion
 	s.Domains = launcher.DomainSection{Read: true, State: "authoritative"}
 	if result.Registry != nil {
@@ -350,24 +342,10 @@ func snapshotFromDomains(result store.LauncherDomainsResult, product store.Launc
 	return s
 }
 
-func snapshotFromWork(result store.LauncherWorkResult, product, work string, section launcher.Section) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: launcher.ScreenWork, AmbientProduct: product, SelectedWorkID: work, Section: section, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority}
-	s.Detail.Item = mapWork(result.Work)
-	for _, project := range result.Projects {
-		s.Detail.Projects = append(s.Detail.Projects, project.ID+" ("+project.Role+")")
-	}
-	for _, event := range result.Events {
-		s.Detail.History = append(s.Detail.History, event.OccurredAt+" "+event.Kind+" "+event.Reason)
-	}
-	s.Detail.Workflow = workflowText(result.Workflow)
-	s.Detail.Edges = mapEdges(result.Edges)
-	return s
-}
-
 func mapWork(item store.LauncherWork) launcher.RankedWork {
-	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, LinearIssueKey: item.LinearIssueKey, Worktree: item.Worktree, Live: item.Live, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
+	out := launcher.RankedWork{ID: item.ID, Kind: item.Kind, Title: item.Title, Lifecycle: item.Lifecycle, LinearIssueKey: item.LinearIssueKey, LinearIssueURL: item.LinearIssueURL, Worktree: item.Worktree, Live: item.Live, Priority: item.Priority, Urgency: item.Urgency, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, TerminalAt: item.TerminalAt, ProjectCount: item.ProjectCount, Blocked: item.Blocked, Ready: item.Ready, Terminal: item.Terminal}
 	for _, blocker := range item.Blockers {
-		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, External: blocker.External, ConditionID: blocker.ConditionID})
+		out.Blockers = append(out.Blockers, launcher.Blocker{ID: blocker.ID, Title: blocker.Title, Authority: blocker.Authority, Age: blocker.Age, IssueKey: blocker.IssueKey, External: blocker.External, ConditionID: blocker.ConditionID})
 	}
 	return out
 }
@@ -551,50 +529,6 @@ func joinOmissions(existing string, omissions []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func workflowText(workflow *store.WorkflowReadProjection) string {
-	if workflow == nil {
-		return "unavailable"
-	}
-	return workflow.CurrentStep
-}
-
-func (p *Port) readKnowledge(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
-	// The knowledge read answers one section. The screen's work list,
-	// coverage, reliance, watermark, and status belong to the screen's own
-	// read, so this snapshot carries none of them. A failed or degraded
-	// knowledge read is a typed unavailable section with the store's reason,
-	// never an unreachable screen.
-	return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Section: launcher.SectionKnowledge, Knowledge: p.knowledgeSection(ctx, request)}, nil
-}
-
-func (p *Port) knowledgeSection(ctx context.Context, request launcher.ReadRequest) launcher.KnowledgeSection {
-	if request.Work != "" && request.Query == "" {
-		result, err := p.Store.QueryQ10(ctx, store.Q10Request{Product: request.Product, Work: request.Work, AllowDegraded: true})
-		if err != nil {
-			return unavailableKnowledgeSection(err)
-		}
-		section := launcher.KnowledgeSection{Read: true, Watermark: "q10"}
-		if result.Status == "canonical" && result.Note != nil {
-			section.State = "authoritative"
-			section.Items = []launcher.KnowledgeItem{{ID: request.Work, Kind: "work_note", Title: "canonical work note", Reference: result.Note.NotePath, Watermark: result.Note.CommitOID}}
-		} else if result.Authority != "authoritative" {
-			section.State, section.Reason = "unavailable", "canonical_note_unavailable"
-		} else {
-			section.State = "authoritative-empty"
-		}
-		return section
-	}
-	result, err := p.Store.QueryQ9(ctx, store.Q9Request{Product: request.Product, Text: request.Query, Limit: request.Limit, AllowDegraded: true})
-	if err != nil {
-		return unavailableKnowledgeSection(err)
-	}
-	return mapKnowledge(result)
-}
-
-func unavailableKnowledgeSection(err error) launcher.KnowledgeSection {
-	return launcher.KnowledgeSection{Read: true, State: "unavailable", Reason: failureReason(err)}
-}
-
 // failureReason names an unavailable section by the store's typed failure
 // kind, or by the error text when the failure is untyped.
 func failureReason(err error) string {
@@ -608,54 +542,21 @@ func failureReason(err error) string {
 func (p *Port) readSearch(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
 	result, err := p.Store.QueryLauncherSearch(ctx, store.LauncherSearchRequest{Product: request.Product, Query: request.Query, Limit: request.Limit})
 	if err != nil {
-		return launcher.Snapshot{Screen: screenForWork(request.Work), AmbientProduct: request.Product, SelectedWorkID: request.Work, Coverage: "unreachable", StatusMessage: err.Error()}, err
+		return launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: request.Product, Coverage: "unreachable", StatusMessage: err.Error()}, err
 	}
-	return snapshotFromSearch(result, request.Product, request.Work, request.Query), nil
+	return snapshotFromSearch(result, request.Product, request.Query), nil
 }
 
-func snapshotFromSearch(result store.LauncherSearchResult, product, work, query string) launcher.Snapshot {
-	s := launcher.Snapshot{Screen: screenForWork(work), AmbientProduct: product, SelectedWorkID: work, Section: launcher.SectionRanked, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...), QueryResult: true, QuerySubmitted: query}
+func snapshotFromSearch(result store.LauncherSearchResult, product, query string) launcher.Snapshot {
+	s := launcher.Snapshot{Screen: launcher.ScreenProduct, AmbientProduct: product, QueryID: result.QueryID, ContractVersion: result.ContractVersion, SourceVersionWatermark: result.SourceVersionWatermark, Watermark: strconv.FormatInt(result.SourceVersionWatermark, 10), ObservedAt: result.Freshness.ObservedAt, Reliance: result.Authority, Coverage: result.Authority, OrderingKeys: append([]string(nil), result.OrderingKeys...), QueryResult: true, QuerySubmitted: query}
 	for _, item := range result.Works {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
-	s.Knowledge = mapLauncherKnowledge(result)
 	if len(result.Omissions) > 0 {
 		s.Coverage = "unavailable"
 		s.StatusMessage = "unavailable: " + strings.Join(result.Omissions, ", ")
 	}
 	return s
-}
-
-func mapLauncherKnowledge(result store.LauncherSearchResult) launcher.KnowledgeSection {
-	section := launcher.KnowledgeSection{Read: true, State: "authoritative-empty", Watermark: result.KnowledgeWatermark}
-	for _, item := range result.Knowledge {
-		section.State = "authoritative"
-		section.Items = append(section.Items, launcher.KnowledgeItem{ID: item.ID, Kind: item.Kind, Title: item.Title, Summary: item.Summary, Reference: item.NotePath, Watermark: result.KnowledgeWatermark})
-	}
-	if result.KnowledgeAuthority != "authoritative" || len(result.KnowledgeOmissions) > 0 {
-		section.State = "unavailable"
-		section.Reason = strings.Join(result.KnowledgeOmissions, ", ")
-	}
-	return section
-}
-
-func mapKnowledge(result store.Q9Result) launcher.KnowledgeSection {
-	section := launcher.KnowledgeSection{Read: true, State: "authoritative-empty", Watermark: result.IndexWatermark}
-	for _, item := range result.Items {
-		section.State = "authoritative"
-		section.Items = append(section.Items, launcher.KnowledgeItem{ID: item.ID, Kind: item.Kind, Title: item.Title, Summary: item.Summary, Reference: item.NotePath, Watermark: result.IndexWatermark})
-	}
-	if result.Authority != "authoritative" {
-		section.State, section.Reason = "unavailable", "knowledge_index_lagging_or_unreachable"
-	}
-	return section
-}
-
-func screenForWork(work string) launcher.Screen {
-	if work != "" {
-		return launcher.ScreenWork
-	}
-	return launcher.ScreenProduct
 }
 
 func FromProductRows(result store.ProductRowResult) launcher.Snapshot {

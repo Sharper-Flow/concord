@@ -5244,6 +5244,24 @@ CREATE TRIGGER worktree_occupancy_guard_update BEFORE UPDATE ON worktree_occupan
 CREATE TRIGGER worktree_occupancy_guard_delete BEFORE DELETE ON worktree_occupancy FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_occupancy is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		// The law context resolves a spec's criteria bound to a work item's
+		// predicates at continuity read time (CD-0180), so the manifest's
+		// predicate bindings have to reach the Git-derived projection. The
+		// fold already holds every record's criterion bindings when it
+		// writes law_subjects; without a column they stopped there. Existing
+		// rows default to the empty array, which keeps the current behavior
+		// — no criteria listed — until the demand-driven rebuild writes the
+		// authored bindings, the same fill-on-rebuild rule migration 98
+		// applied to authority_tier.
+		Version:  106,
+		Name:     "law_subjects_carry_criterion_bindings",
+		Breaking: false,
+		SQL: `
+ALTER TABLE law_subjects ADD COLUMN criterion_bindings TEXT NOT NULL DEFAULT '[]'
+    CHECK(json_valid(criterion_bindings) AND json_type(criterion_bindings)='array');
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

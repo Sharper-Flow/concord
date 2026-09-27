@@ -743,7 +743,19 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 }
 
 func insertLawSubject(ctx context.Context, tx *sql.Tx, home KnowledgeHome, record KnowledgeRecord, commit string) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES(?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, record.ID, record.Kind, record.Status, record.Path, record.Title, record.SHA256, commit, record.Authority.Tier); err != nil {
+	// The authored criterion bindings ride the projection (CD-0180) so the
+	// law context can resolve a criterion bound to a work item's predicate.
+	// A nil slice marshals to null, which breaks the column's array CHECK,
+	// so empty stays the literal empty array. Marshal over this field's
+	// ints and strings cannot fail; the fallback keeps the contract
+	// regardless.
+	bindings := []byte("[]")
+	if len(record.CriterionBindings) > 0 {
+		if encoded, err := json.Marshal(record.CriterionBindings); err == nil {
+			bindings = encoded
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier,criterion_bindings) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, record.ID, record.Kind, record.Status, record.Path, record.Title, record.SHA256, commit, record.Authority.Tier, string(bindings)); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived law subject", true, "retry once the database is writable", err)
 	}
 	return nil

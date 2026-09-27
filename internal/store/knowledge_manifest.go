@@ -254,11 +254,28 @@ type KnowledgeAuthority struct {
 	ContractVersion int64  `json:"contract_version,omitempty"`
 }
 
+// KnowledgeCriterionBinding resolves one spec acceptance criterion through
+// exactly one of three forms: a scenario id, a recorded exemption reason, or
+// a work-item predicate reference (CD-0180) that names the outcome predicate
+// of one Concord work item which discharges the criterion.
 type KnowledgeCriterionBinding struct {
-	Criterion int    `json:"criterion"`
-	Scenario  string `json:"scenario,omitempty"`
-	Exemption string `json:"exemption,omitempty"`
+	Criterion   int    `json:"criterion"`
+	Scenario    string `json:"scenario,omitempty"`
+	Exemption   string `json:"exemption,omitempty"`
+	WorkID      string `json:"work_id,omitempty"`
+	PredicateID string `json:"predicate_id,omitempty"`
 }
+
+var (
+	// criterionWorkIDPattern and criterionPredicateIDPattern bound the
+	// predicate-reference form authoritatively, mirroring
+	// contracts/concord-knowledge-index.v1.schema.json ($defs.criterionBinding).
+	// The checker cannot reach the store and the store cannot reach the
+	// workflow table from a Git manifest parse, so both sides validate shape
+	// only; verdict-level discharge lives on the work-item side.
+	criterionWorkIDPattern      = regexp.MustCompile(`^work-[0-9a-f]{8,64}$`)
+	criterionPredicateIDPattern = regexp.MustCompile(`^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$`)
+)
 
 // KnowledgeDisposition records source material the operator has decided not to
 // formalize. It is the opposite of a record: a record makes a document
@@ -1003,14 +1020,31 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding index is invalid or duplicated", false, "use one positive index for each criterion")
 		}
 		seenCriteria[binding.Criterion] = true
-		if (binding.Scenario == "") == (binding.Exemption == "") {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding must carry exactly one scenario or exemption", false, "bind the criterion to a scenario or record an exemption")
+		forms := 0
+		if binding.Scenario != "" {
+			forms++
+		}
+		if binding.Exemption != "" {
+			forms++
+		}
+		if binding.WorkID != "" || binding.PredicateID != "" {
+			forms++
+		}
+		halfPredicate := (binding.WorkID == "") != (binding.PredicateID == "")
+		if forms != 1 || halfPredicate {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding must carry exactly one scenario, exemption, or work predicate", false, "bind the criterion to a scenario, record an exemption, or reference one work-item predicate")
 		}
 		if binding.Scenario != "" && !validManifestID(binding.Scenario) {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion scenario is empty, oversized, or not clean", false, "use a bounded scenario ID")
 		}
 		if binding.Exemption != "" && (utf8.RuneCountInString(binding.Exemption) < minCriterionExemption || utf8.RuneCountInString(binding.Exemption) > maxCriterionExemption || strings.TrimSpace(binding.Exemption) != binding.Exemption) {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion exemption is not a bounded reason", false, "use a trimmed exemption reason of twelve to five hundred twelve characters")
+		}
+		if binding.WorkID != "" && (len(binding.WorkID) > maxManifestID || !criterionWorkIDPattern.MatchString(binding.WorkID)) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding work id is not a bounded work- id", false, "reference a Concord work item with the work- id form")
+		}
+		if binding.PredicateID != "" && (len(binding.PredicateID) > maxManifestID || !criterionPredicateIDPattern.MatchString(binding.PredicateID)) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding predicate id is not a predicate- prefixed id", false, "reference one outcome predicate with the predicate: prefix")
 		}
 	}
 	if len(record.Evidence) > 32 {

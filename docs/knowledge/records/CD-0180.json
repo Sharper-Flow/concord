@@ -1,0 +1,41 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-439bd3dfda3079826824710f",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "contracts/concord-knowledge-index.v1.schema.json",
+    "scripts/check-doc-contract.py",
+    "internal/store/workflow_law_revision.go",
+    "adapter/opencode/packet.ts"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0180",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0114"
+    }
+  ],
+  "path": "docs/decisions/CD-0180-spec-criteria-bind-to-work-item-predicates.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6a7686eb7436d7875628e60a64af129a00b32737c410bc4e5c7270757c9f69da",
+  "status": "accepted",
+  "summary": "Spec acceptance criteria resolve through a third binding form, a work-item predicate reference of work_id plus predicate_id that the closed schema and the Go manifest model declare additively, the doc-contract checker resolves as bound while discharge stays the work-item side's per-predicate verdict, and the law context resolves the dispatching work item's bindings so the packet lists which criterion each of its predicates discharges.",
+  "tags": [
+    "knowledge-index",
+    "knowledge-manifest",
+    "workflow"
+  ],
+  "title": "Spec criteria bind to work-item predicates"
+}

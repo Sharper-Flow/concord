@@ -186,6 +186,42 @@ def test_non_spec_record_cannot_carry_criterion_bindings() -> None:
     assert any("criterion_bindings are only allowed on spec records" in finding for finding in findings), findings
 
 
+def spec_fixture_with_bindings(bindings: list[dict]) -> dict:
+    value = v12_fixture()
+    value["records"][0]["criterion_bindings"] = bindings
+    return value
+
+
+def test_spec_criterion_predicate_binding_is_valid() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / "docs").mkdir()
+        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        value = spec_fixture_with_bindings([{"criterion": 1, "work_id": "work-" + "a" * 24, "predicate_id": "predicate:criterion-bindings-predicate-form"}])
+        with mock.patch.object(checker, "ROOT", root):
+            assert checker.validate(value, check_hashes=False) == []
+
+
+def test_spec_criterion_predicate_binding_rejects_bad_shapes() -> None:
+    work_id = "work-" + "a" * 24
+    predicate_id = "predicate:criterion-bindings-predicate-form"
+    for name, binding in {
+        "bad predicate prefix": {"criterion": 1, "work_id": work_id, "predicate_id": "pred:criterion-bindings-predicate-form"},
+        "bad work id": {"criterion": 1, "work_id": "job-1234", "predicate_id": predicate_id},
+        "half predicate reference": {"criterion": 1, "work_id": work_id},
+        "mixed with scenario": {"criterion": 1, "scenario": "WF01-capture-late-outcome", "work_id": work_id, "predicate_id": predicate_id},
+    }.items():
+        with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+            root = Path(directory)
+            (root / "docs").mkdir()
+            (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+            value = spec_fixture_with_bindings([binding])
+            with mock.patch.object(checker, "ROOT", root):
+                findings = checker.validate(value, check_hashes=False)
+        assert findings, name
+        assert any("binding" in finding for finding in findings), (name, findings)
+
+
 def test_records_may_not_share_a_title_or_summary() -> None:
     # A record copied from a sibling keeps its sha256 honest - the hash still
     # binds the bytes of its own target document - while the unhashed prose

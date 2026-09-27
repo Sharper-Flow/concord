@@ -373,6 +373,28 @@ test("a contract with no bound law dispatches without a law block", async () => 
   expect(built.packet!.inputs.context).not.toContain("Recorded proposal:")
 })
 
+// The core resolves the mandated spec's criteria bound to this work item's
+// predicates (CD-0180) into the law entry's criteria field; the packet lists
+// the chaining on the law line so the worker sees which criterion each of
+// this item's predicates discharges.
+test("the law block lists the mandated criteria bound to this work item's predicates", async () => {
+  const lawContext = {
+    laws: [
+      { roles: ["mandated"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md", criteria: [{ criterion: 2, predicate_id: "predicate:criterion-bindings-predicate-form" }, { criterion: 1, predicate_id: "predicate:packet-mandated-criteria" }] },
+      { roles: ["mandated"], law_id: "spec:plain", kind: "spec", status: "accepted", title: "Unbound spec", path: "docs/plain.md" },
+    ],
+    domains: [],
+  }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, lawContext) })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  const context = built.packet!.inputs.context!
+  expect(context).toContain("law spec:one")
+  expect(context).toContain("(criteria bound to this work item: criterion 2 discharges predicate:criterion-bindings-predicate-form; criterion 1 discharges predicate:packet-mandated-criteria)")
+  expect(context).toContain("law spec:plain")
+  expect(context).not.toContain("criteria bound to this work item: criterion 1 discharges predicate:criterion-bindings-predicate-form")
+})
+
 test("an oversized law block is a typed context overflow, not a truncated packet", async () => {
   // Every entry stays inside the generated law-context bounds; only their
   // number pushes the combined context past the bound.

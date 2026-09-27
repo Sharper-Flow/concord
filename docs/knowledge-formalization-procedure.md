@@ -266,14 +266,16 @@ also owns the criterion grammar.
 
 ### Graduation to executable scenarios
 
-Every acceptance criterion in a `spec` must resolve either to an executable
-scenario identifier or to a typed exemption carrying a reason. A criterion
-that resolves to neither is a claim with no way to fail.
+Every acceptance criterion in a `spec` must resolve to an executable scenario
+identifier, to a typed exemption carrying a reason, or to a work-item
+predicate reference naming the Concord work item and outcome predicate that
+discharge it (CD-0180). A criterion that resolves to none of these is a claim
+with no way to fail.
 
 The manifest record carries `criterion_bindings`. The document body does not
 carry binding syntax. The doc-contract checker resolves scenario names and
-rejects unbound or invalid criteria. An exemption is a recorded reason, not
-silence.
+predicate references and rejects unbound or invalid criteria. An exemption is
+a recorded reason, not silence.
 
 ## Atomicity of the edit and its record
 

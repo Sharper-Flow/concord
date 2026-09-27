@@ -897,6 +897,7 @@
       }
     },
     "criterionBinding": {
+      "description": "CD-0180: one acceptance criterion resolves through exactly one of three forms — a scenario id, a recorded exemption reason, or a work-item predicate reference (work_id plus predicate_id) that ties the criterion to the outcome predicate of one Concord work item.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -915,6 +916,16 @@
           "minLength": 12,
           "maxLength": 512,
           "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+        },
+        "work_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^work-[0-9a-f]{8,64}$"
+        },
+        "predicate_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
         }
       },
       "oneOf": [
@@ -923,8 +934,22 @@
             "scenario"
           ],
           "not": {
-            "required": [
-              "exemption"
+            "anyOf": [
+              {
+                "required": [
+                  "exemption"
+                ]
+              },
+              {
+                "required": [
+                  "work_id"
+                ]
+              },
+              {
+                "required": [
+                  "predicate_id"
+                ]
+              }
             ]
           }
         },
@@ -933,8 +958,42 @@
             "exemption"
           ],
           "not": {
-            "required": [
-              "scenario"
+            "anyOf": [
+              {
+                "required": [
+                  "scenario"
+                ]
+              },
+              {
+                "required": [
+                  "work_id"
+                ]
+              },
+              {
+                "required": [
+                  "predicate_id"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "work_id",
+            "predicate_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "scenario"
+                ]
+              },
+              {
+                "required": [
+                  "exemption"
+                ]
+              }
             ]
           }
         }

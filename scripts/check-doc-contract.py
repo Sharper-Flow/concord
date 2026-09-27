@@ -100,7 +100,12 @@ CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._
 # so prose tokens never pay the corpus scan.
 GO_TEST_SYMBOL_RE = re.compile(r"^(?:[a-z0-9_][a-z0-9_./-]*\.)?Test[A-Za-z0-9_]+$")
 NAMED_CHECKER_RE = re.compile(r"^check-[A-Za-z0-9][A-Za-z0-9._-]*$")
-VALIDATOR_COMMAND_PREFIXES = ("python3 ", "go test", "bun test")
+# A validator or script command: a repository script run by python3, or a Go
+# or Bun test run. The runner word must stand alone, so `go tester` and
+# `python3 not-a-check` name no command.
+VALIDATOR_COMMAND_RE = re.compile(
+    r"^(?:python3 scripts/[A-Za-z0-9][A-Za-z0-9._-]*\.py|go test|bun test)(?: \S.*)?$"
+)
 SCENARIO_ID_SHAPE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 # The record kinds a doc contract may address, in taxonomy order. A kind absent
 # from the manifest's doc_contract is not checked at all; a kind present is
@@ -648,7 +653,7 @@ def verification_anchor(entry_text: str) -> str | None:
         token = span.strip("`").strip()
         if GO_TEST_SYMBOL_RE.match(token):
             return token
-        if token.startswith(VALIDATOR_COMMAND_PREFIXES):
+        if VALIDATOR_COMMAND_RE.match(token):
             return token
         if NAMED_CHECKER_RE.match(token):
             return token

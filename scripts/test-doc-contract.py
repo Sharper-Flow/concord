@@ -2361,6 +2361,23 @@ def test_verification_entry_names_a_command_or_a_named_checker() -> None:
         assert exit_code == 0, (anchor, exit_code, stdout, stderr)
 
 
+def test_command_shaped_token_that_names_no_check_stays_prose() -> None:
+    for index, token in enumerate((
+        "`python3 not-a-check`",
+        "`python3 scripts/`",
+        "`go tester`",
+        "`bun testing`",
+    )):
+        body = current_decision_with_verification(f"Proved by {token}.")
+        exit_code, stdout, _ = run_current_decision(
+            f"docs/decisions/not-a-command-{index}.md", body
+        )
+        assert exit_code == 1, (token, exit_code, stdout)
+        assert any(
+            "verification-entry-unanchored" in line for line in stdout.splitlines()
+        ), (token, stdout)
+
+
 def test_bare_prose_verification_entry_fails() -> None:
     body = current_decision_with_verification(
         "The verification names the operations and the behavior it trusts."

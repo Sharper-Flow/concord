@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "concord_work_start",
-      "description": "Use for implementation work requested from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or durably bootstrap the missing canonical worktree under the existing work identity, then move the calling session into the claimed worktree and verify child execution there.",
+      "description": "Use for implementation work requested from a default checkout, or to resume an existing item by work_id. Capture new work, reuse an active worktree, or durably bootstrap the missing canonical worktree under the existing work identity, then move the calling session into the claimed worktree. Resume accepts an optional project_id naming a member Project: another repository opens the second coordinator session through the registered session opener, or returns the exact launch command.",
       "args": {
         "type": "object",
         "oneOf": [
@@ -30,7 +30,8 @@
             "additionalProperties": false,
             "required": ["work_id"],
             "properties": {
-              "work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
+              "work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+              "project_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
             }
           }
         ]

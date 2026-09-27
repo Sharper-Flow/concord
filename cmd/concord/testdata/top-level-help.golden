@@ -4,6 +4,7 @@ Usage:
   concord launcher   # interactive TTY; does not read JSON stdin
   concord launcher --list   # bounded candidate JSON
   concord zl <work> -- <prompt>   # start or resume without the UI
+  concord zl <work> --project <project>   # land in that member Project of the work
   concord zl --resume-last   # resume the last workspace
   concord session    # internal TTY bootstrap; launcher identity env required
   concord continuity-block             # read-only continuity packet; launcher identity env required

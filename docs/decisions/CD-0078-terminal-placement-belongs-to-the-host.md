@@ -8,6 +8,9 @@
   the launcher serves one operator's setup against general use, and selected this
   record as the next launcher move. The pull request is the public record.
 - **Related:** C18 (§§5, 6, 7), CD-0014, CD-0021, CD-0031, CD-0008 (D1)
+- **Amended:** CD-0182 (2026-09-27) keeps D1 and D2 for every Concord binary
+  and adds the host-registered session opener as the host's own route to a
+  second coordinator session.
 - **Preserves:** C18 §6's exclusion of external-system execution, C18 §7's
   per-instance ambient Product, CD-0014's renderer isolation, CD-0031's
   core-derived session boot
@@ -45,6 +48,13 @@ The host keeps what the host already does well: filesystem discovery, pins,
 recency, tab titles, and placement. Concord keeps what only Concord can do:
 which Products exist, which work is blocked, and what the session must know.
 
+CD-0182 amends this rule at one point. The operator may register one
+session-opener argv template in the host OpenCode config, and the adapter
+executes that registration to open a second repository's coordinator
+session. The template is the operator's own data, so no Concord binary gains
+multiplexer knowledge, and this rule keeps binding the launcher and every
+command.
+
 ### D2. Launch suspends the launcher in the terminal it was given
 
 Launch releases the terminal, runs the `concord session` bootstrap in that same
@@ -59,6 +69,9 @@ different Products.
 
 Concord does not background the session, and it does not open a second terminal
 surface to hold it. Both would require the placement authority D1 declines.
+CD-0182 amends the second-surface clause at the host boundary: the adapter
+runs the operator's registered session opener to open a second coordinator
+session, and the launcher itself still opens no surface.
 
 ### D3. Launch is one action, and attach is a label
 
@@ -106,7 +119,9 @@ execution from every screen.
 
 **A pluggable terminal-placement strategy.** Rejected because it is an
 abstraction with one real implementation on one machine. The host boundary
-already separates the concerns with no Concord code at all.
+already separates the concerns with no Concord code at all. CD-0182 keeps
+this rejection for Concord code: the session opener is one operator
+registration in host configuration, not a strategy surface in Concord.
 
 **Forward an OpenCode session identifier through launch.** Rejected because
 CD-0031 derives continuity from the canonical projection at the moment of use. A

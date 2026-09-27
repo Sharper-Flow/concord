@@ -1207,6 +1207,52 @@ esac''',
         self.assertNotIn(self.plugin_entry_path(), config)
         self.assertIn('"keep": true', config)
 
+    def test_install_recognizes_a_tuple_entry_and_keeps_its_options(self) -> None:
+        """CD-0182: an operator tuple entry with a session opener survives an upgrade."""
+        opener = ["my-tabs", "new-tab", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"]
+        entry = self.plugin_entry_path()
+        self.config.write_text(
+            json.dumps({"keep": True, "plugin": [[entry, {"session_opener": opener}], "/operator/other"]}, indent=2),
+            encoding="utf-8",
+        )
+        self.make_release("v1.0.0")
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        plugin = installer.jsonc_data(config)["plugin"]
+        self.assertEqual(config.count(entry), 1, "the upgrade must not add a duplicate bare entry")
+        tuples = [item for item in plugin if isinstance(item, list)]
+        self.assertEqual(len(tuples), 1)
+        self.assertEqual(tuples[0][0], entry)
+        self.assertEqual(tuples[0][1]["session_opener"], opener)
+        self.assertIn("/operator/other", plugin)
+
+    def test_uninstall_removes_a_tuple_entry_whole(self) -> None:
+        """The tuple form deregisters with its options; no option fragment stays."""
+        entry = self.plugin_entry_path()
+        tuple_text = (
+            "    [\n"
+            + f"      {json.dumps(entry)},\n"
+            + '      {"session_opener": ["my-tabs", "new", "--x[]y", "{command}"]}\n'
+            + "    ]"
+        )
+        self.config.write_text(
+            '{\n  "keep": true,\n  "plugin": [\n' + tuple_text + ',\n    "/operator/other"\n  ]\n}\n',
+            encoding="utf-8",
+        )
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        # One registration, in tuple form: the path occurs once, inside the tuple.
+        self.assertEqual(self.config.read_text(encoding="utf-8").count(entry), 1)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        self.assertNotIn(entry, config)
+        self.assertNotIn("session_opener", config)
+        plugin = installer.jsonc_data(config)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
     def test_existing_skills_config_and_launcher_are_not_clobbered(self) -> None:
         self.config.write_text(
             '{\n  "keep": true,\n  "skills": {"paths": ["/operator-authored/skill"]}\n}\n',
@@ -2161,6 +2207,44 @@ esac''',
             "install", "--version", "v7.10.2", "--artifact-dir", str(self.artifacts), env=environment
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PluginEntryTupleUnitTest(unittest.TestCase):
+    """CD-0182: the installer recognizes the tuple form of the managed entry."""
+
+    ENTRY = "/tools/concord-plugin.ts"
+
+    def test_plan_keeps_a_tuple_entry_untouched(self) -> None:
+        text = '{\n  "plugin": [\n    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        self.assertEqual(installer.plan_plugin_entry(text, self.ENTRY), text)
+
+    def test_plan_still_adds_a_bare_entry_when_absent(self) -> None:
+        text = '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}]\n  ]\n}\n'
+        planned = installer.plan_plugin_entry(text, self.ENTRY)
+        self.assertIn(self.ENTRY, installer.jsonc_data(planned)["plugin"])
+
+    def test_remove_drops_the_whole_tuple_and_keeps_neighbours(self) -> None:
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}],\n'
+            '    ["%s", {"session_opener": ["x", "a]b", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        self.assertIn("/operator/plugin", result)
+        self.assertIn("/operator/other", result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, [["/operator/plugin", {"agents": {}}], "/operator/other"])
+
+    def test_remove_keeps_the_bare_form_behavior(self) -> None:
+        text = '{\n  "keep": true,\n  "plugin": [\n    "/operator/other",\n    "%s"\n  ]\n}\n' % self.ENTRY
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertEqual(installer.jsonc_data(result)["plugin"], ["/operator/other"])
+
+    def test_remove_is_a_noop_when_absent(self) -> None:
+        text = '{\n  "keep": true,\n  "plugin": ["/operator/other"]\n}\n'
+        self.assertEqual(installer.remove_plugin_entry(text, self.ENTRY), text)
 
 
 class DeriveAdapterFilesTest(unittest.TestCase):

@@ -682,8 +682,11 @@ type WorkStartCaptureArgs = {
 
 // WorkStartArgs is one of two shapes (issue #891): the capture shape above, or
 // the resume shape naming an existing work item by work identity. Resume
-// records nothing, so it carries no idempotency_key and no capture fields.
-type WorkStartArgs = WorkStartCaptureArgs | { work_id: string }
+// records nothing, so it carries no idempotency_key and no capture fields. An
+// optional project_id names a member Project of the work whose landing the
+// resume resolves against (CD-0182); the empty case keeps the calling
+// session's Project.
+type WorkStartArgs = WorkStartCaptureArgs | { work_id: string; project_id?: string }
 
 type WorkStartResume = {
   schema_version: "1.0"
@@ -706,9 +709,17 @@ type WorkStartBootstrap = {
 
 type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; title: string; prompt: string }
 
+// WorkStartLaunch is the exact second-session launch: the core launch argv
+// as separate elements, the target Project directory it lands in, and a
+// runnable rendering of the same command for the operator.
+type WorkStartLaunch = { argv: string[]; directory: string; runnable: string }
+
 // WorkStartEnvelope is the host-tool result. There is no partial outcome:
 // every step of work_start is idempotent on the derived key, so a failure
 // leaves nothing a replay cannot adopt, and the answer is ok or a refusal.
+// A second-coordinator-session route reports the launch and, when the
+// host-registered opener ran, its substituted argv and exit status; it never
+// claims the new session is running.
 type WorkStartEnvelope = {
   schema_version: "1.0"
   outcome: "ok" | "error"
@@ -719,6 +730,8 @@ type WorkStartEnvelope = {
   agent?: string
   session_id?: string | null
   output?: string
+  launch?: WorkStartLaunch
+  opener?: { argv: string[]; exit_code: number }
   error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none"; message: string }
 }
 
@@ -812,11 +825,12 @@ function samePath(left: string, right: string): boolean {
   return trim(left) === trim(right)
 }
 
-function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true): WorkStartEnvelope {
+function workStartError(kind: string, message: string, identity: Partial<WorkStartEnvelope> = {}, recovery = "retry_same_request", retrySafe = true, extra: Partial<WorkStartEnvelope> = {}): WorkStartEnvelope {
   return {
     schema_version: "1.0",
     outcome: "error",
     ...identity,
+    ...extra,
     error: {
       kind,
       retry_safe: retrySafe,
@@ -841,6 +855,129 @@ function workStartFailure(error: unknown, target: { product_id: string; project_
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
   try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
+}
+
+// The session opener is host placement (CD-0078 as amended by CD-0182): the
+// operator registers one argv template in the options of the Concord plugin
+// tuple entry in the OpenCode config, and the host hands it to the plugin
+// factory. Concord owns no multiplexer and ships none; the template is data
+// the operator chose. Registering it is the operator's standing consent for
+// coordinators to open sessions and spend model quota.
+let sessionOpener: unknown
+export function configureSessionOpener(value: unknown): void {
+  sessionOpener = value
+}
+function registeredSessionOpener(): unknown {
+  return sessionOpener
+}
+
+const openerPlaceholderNames = new Set(["directory", "title", "command"])
+
+// sessionOpenerTemplate validates the registered argv template structurally:
+// an array of strings, the {command} placeholder as exactly one whole
+// element, and no placeholder outside the closed set. Anything else refuses
+// naming the invalid field.
+function sessionOpenerTemplate(value: unknown): { ok: true; argv: string[] } | { ok: false; detail: string } {
+  if (!Array.isArray(value)) return { ok: false, detail: "session_opener is not an array" }
+  if (value.length === 0) return { ok: false, detail: "session_opener is empty" }
+  for (const [index, element] of value.entries()) {
+    if (typeof element !== "string") return { ok: false, detail: `session_opener[${index}] is not a string` }
+    if (element !== "{command}" && element.includes("{command}")) return { ok: false, detail: `session_opener[${index}] embeds {command} inside a larger element; {command} must be one whole element` }
+    for (const match of element.matchAll(/\{([^{}]*)\}/g)) {
+      if (!openerPlaceholderNames.has(match[1])) return { ok: false, detail: `session_opener[${index}] carries the unknown placeholder {${match[1]}}` }
+    }
+  }
+  const commandElements = value.filter((element) => element === "{command}")
+  if (commandElements.length !== 1) return { ok: false, detail: `session_opener must carry the {command} placeholder exactly once as a whole element, found ${commandElements.length}` }
+  return { ok: true, argv: value as string[] }
+}
+
+// spliceOpener substitutes the placeholders into the template. {directory}
+// and {title} are string substitutions; {command} is the core launch argv
+// spliced as separate elements, so no shell ever re-quotes a title or a
+// path.
+function spliceOpener(argv: string[], values: { directory: string; title: string; command: string[] }): string[] {
+  const substitute = (element: string) => element.replaceAll("{directory}", values.directory).replaceAll("{title}", values.title)
+  const index = argv.indexOf("{command}")
+  return [
+    ...argv.slice(0, index).map(substitute),
+    ...values.command,
+    ...argv.slice(index + 1).map(substitute),
+  ]
+}
+
+// shellQuote renders one argv element for the operator's shell. Elements the
+// safe pattern admits pass through; everything else gets single quotes with
+// the POSIX escape.
+function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+// secondSessionLaunch builds the core launch argv for the second coordinator
+// session: the zl verb with the explicit member-Project selector (CD-0182).
+// The command itself resolves the landing directory when the new session
+// starts; directory is the target Project's canonical path the opener and
+// the operator place the new terminal at.
+function secondSessionLaunch(workID: string, projectID: string, directory: string): WorkStartLaunch {
+  const argv = [concordBinaryPath(), "zl", workID, "--project", projectID]
+  return { argv, directory, runnable: argv.map(shellQuote).join(" ") }
+}
+
+// projectRepository resolves a Project's canonical repository through the
+// core's worktree-locate read. The canonical path is the comparison value
+// for the repository gate: two equal canonical paths are one repository, and
+// a differing path never reaches the host move that crosses repositories.
+async function projectRepository(workID: string, projectID: string, context: ToolContext): Promise<string> {
+  const result = await runWorkStartChild([concordBinaryPath(), "worktree-locate"], JSON.stringify({ project_id: projectID, work_id: workID }), context.abort, { cwd: context.directory })
+  if (result.exitCode !== 0) throw new AdapterFailure("invalid_input", "project_location_failed", result.stderr.slice(0, MAX_STDERR), "none", "correct_request")
+  let parsed: any
+  try { parsed = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
+  if (typeof parsed.repo !== "string" || !parsed.repo.startsWith("/") || typeof parsed.path !== "string" || !parsed.path.startsWith("/")) {
+    throw new AdapterFailure("malformed_response", "malformed_core_response", "worktree-locate response failed the location contract")
+  }
+  return parsed.repo
+}
+
+// openSecondCoordinatorSession routes a resume whose named Project lives in
+// another repository (CD-0178 D2, CD-0182). Concord never claims the new
+// session is running: with a registered opener it runs the substituted argv
+// without a shell and reports the exit status and argv; with none registered
+// it returns the exact launch command and directory for the operator. An
+// invalid opener refuses naming the invalid field and still returns the
+// command. Every answer leaves this session un-moved, so the refusal names
+// contact_operator: the operator or the new session owns the next step.
+async function openSecondCoordinatorSession(workID: string, projectID: string, directory: string, context: ToolContext): Promise<WorkStartEnvelope> {
+  const launch = secondSessionLaunch(workID, projectID, directory)
+  const identity = { work_id: workID, project_id: projectID }
+  const command = `Run the launch command yourself in ${directory}: ${launch.runnable}`
+  const registered = registeredSessionOpener()
+  if (registered === undefined) {
+    return workStartError("session_opener_unregistered", `No session opener is registered on this host, so Concord cannot open the second session itself. ${command}`, identity, "contact_operator", false, { launch })
+  }
+  const opener = sessionOpenerTemplate(registered)
+  if (!opener.ok) {
+    return workStartError("invalid_session_opener", `The host-registered session opener is invalid: ${opener.detail}. ${command}`, identity, "contact_operator", false, { launch })
+  }
+  const argv = spliceOpener(opener.argv, { directory, title: workID, command: launch.argv })
+  let result
+  try {
+    result = await runner.run(argv, "", context.abort, { cwd: context.directory })
+  } catch (error) {
+    const failure = runnerFailure(error, context.abort.aborted)
+    return workStartError("session_opener_failed", `The session opener could not run: ${failure.message}. Concord does not claim the second session is running. ${command}`, identity, "contact_operator", false, { launch })
+  }
+  const openerReport = { argv, exit_code: result.exitCode }
+  if (result.exitCode !== 0) {
+    return workStartError("session_opener_failed", `The session opener exited ${result.exitCode}: ${result.stderr.slice(0, MAX_STDERR) || "no diagnostic"}. Concord does not claim the second session is running. ${command}`, identity, "contact_operator", false, { launch, opener: openerReport })
+  }
+  return workStartError(
+    "second_session_opened",
+    `The session opener ran with exit ${result.exitCode}; Concord does not claim the new session is running. The new coordinator session starts in ${directory} and resumes this work by calling concord_work_start with work_id ${workID} and project_id ${projectID}. This session must not claim or drive the other repository.`,
+    identity,
+    "contact_operator",
+    false,
+    { launch, opener: openerReport },
+  )
 }
 
 // The core reports a deterministic session-prepare refusal — invalid input,
@@ -918,6 +1055,22 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
     if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context, context.directory)
+    // CD-0182: a resume that names a member Project branches before any
+    // Product derivation or host probe. A Project whose canonical path is
+    // the calling Project's never leaves the existing claim-and-move route;
+    // a Project whose canonical path differs from the calling one never
+    // reaches the host move that crossing repositories would refuse.
+    if (resume && typeof (args as { project_id?: string }).project_id === "string") {
+      const selectedProject = (args as { project_id: string }).project_id
+      if (selectedProject !== ambient.projectID) {
+        const workID = (args as { work_id: string }).work_id
+        const selectedRepo = await projectRepository(workID, selectedProject, context)
+        const ambientRepo = await projectRepository(workID, ambient.projectID, context)
+        if (selectedRepo !== ambientRepo) {
+          return await openSecondCoordinatorSession(workID, selectedProject, selectedRepo, context)
+        }
+      }
+    }
     const productID = deriveWorkStartProduct(ambient)
     // CD-0098 D2 makes the move the only route into the claimed worktree, so
     // a session that cannot reach its host cannot start work at all. Asking
@@ -946,11 +1099,14 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     let prepareTask: string
     if (resume) {
       const workID = (args as { work_id: string }).work_id
-      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: ambient.projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      // An explicit project_id names the Project the resume claims in; the
+      // empty case keeps the calling session's resolved Project (CD-0182).
+      const projectID = typeof (args as { project_id?: string }).project_id === "string" ? (args as { project_id: string }).project_id : ambient.projectID
+      const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
       if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== ambient.projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
+      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
       prepareTask = ""
     } else {

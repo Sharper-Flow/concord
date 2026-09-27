@@ -111,10 +111,11 @@ test("published tool arguments expose a host-safe request shape", () => {
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
-  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "work_id"].sort())
+  // project_id is the CD-0182 resume selector: resume-only, never capture.
+  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "work_id", "project_id"].sort())
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
-  expect((adapter.work_start as any).args.project_id).toBeUndefined()
+  expect((adapter.work_start as any).args.project_id).toBeObject()
 })
 
 test("published tool schemas type every enum node", () => {
@@ -1743,6 +1744,152 @@ test("work start resume succeeds with a warning when the core refuses the landin
   expect(envelopeLine(raw.output)).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE })
   expect(raw.output).toContain(`Concord did not record this session as the occupant of ${WORKTREE}`)
   expect(raw.output).toContain("replay work_start")
+})
+
+// CD-0182: a resume whose named member Project lives in another repository
+// never reaches the host move. The registered session opener runs the core
+// launch argv without a shell and the answer reports its exit status and
+// argv without claiming the new session is running; with no opener, or an
+// invalid one, the exact launch command and directory still return.
+const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: number; stdout: string; stderr: string } | null) => ({
+  async run(argv: string[], input: string, _signal: AbortSignal, _options?: any) {
+    calls.push({ argv, input })
+    if (argv[0] === "tab-opener") {
+      const outcome = opener()
+      if (outcome === null) throw new Error("the opener must not run")
+      return outcome
+    }
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (argv[1] === "worktree-locate") {
+      const parsed = JSON.parse(input) as { project_id: string; work_id: string }
+      return { exitCode: 0, stdout: JSON.stringify({ branch: `work/${parsed.work_id}`, base_sha: "a".repeat(40), path: `/data/worktrees/${parsed.project_id}/${parsed.work_id}`, repo: parsed.project_id === "project-2" ? "/other-repo" : "/repo-1", ref: "HEAD" }), stderr: "" }
+    }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  },
+})
+
+test("work start resume routes a second repository through the registered session opener", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
+  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" })) })
+  try {
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("second_session_opened")
+    expect(result.error.retry_safe).toBe(false)
+    expect(result.error.effect_state).toBe("none")
+    expect(result.work_id).toBe("work-1")
+    expect(result.project_id).toBe("project-2")
+    expect(result.launch.directory).toBe("/other-repo")
+    expect(result.launch.argv).toEqual(["concord", "zl", "work-1", "--project", "project-2"])
+    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
+    expect(result.opener.exit_code).toBe(0)
+    expect(result.opener.argv).toEqual(["tab-opener", "--cwd", "/other-repo", "--title", "work-1", "--", "concord", "zl", "work-1", "--project", "project-2"])
+    expect(result.error.message).toContain("does not claim the new session is running")
+    expect(result.error.message).toContain("concord_work_start with work_id work-1 and project_id project-2")
+    // The branch runs before the probe, the resume read, and the move, so a
+    // second-repository resume captures and moves nothing.
+    expect(calls.some(({ argv }) => argv[1] === "work-resume" || argv[1] === "session-prepare" || argv[1] === "work-bootstrap")).toBe(false)
+  } finally {
+    adapter.configureSessionOpener(undefined)
+  }
+})
+
+test("a resume into a second repository without an opener returns the exact launch command", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(undefined)
+  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => null) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+  expect(result.error.kind).toBe("session_opener_unregistered")
+  expect(result.launch.directory).toBe("/other-repo")
+  expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
+  expect(result.error.message).toContain("No session opener is registered")
+  expect(result.opener).toBeUndefined()
+})
+
+test("an invalid registered opener refuses naming the invalid field and still returns the command", async () => {
+  for (const [template, fragment] of [
+    [["tab-opener", "{command} {command}"], "session_opener[1] embeds {command}"],
+    [["tab-opener", "--cwd", "{path}", "{command}"], "unknown placeholder {path}"],
+    [["tab-opener", "--flag"], "exactly once as a whole element"],
+    ["not-an-array", "session_opener is not an array"],
+  ] as Array<[unknown, string]>) {
+    const calls: RetargetCall[] = []
+    adapter.configureSessionOpener(template)
+    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => null) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+    expect(result.error.kind).toBe("invalid_session_opener")
+    expect(result.error.message).toContain(fragment)
+    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
+    expect(result.opener).toBeUndefined()
+    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
+  }
+  adapter.configureSessionOpener(undefined)
+})
+
+test("a failed opener run reports the exit status and the launch command", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "{command}"])
+  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 1, stdout: "", stderr: "no display server" })) })
+  try {
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+    expect(result.error.kind).toBe("session_opener_failed")
+    expect(result.error.message).toContain("exited 1")
+    expect(result.error.message).toContain("no display server")
+    expect(result.opener.exit_code).toBe(1)
+    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
+  } finally {
+    adapter.configureSessionOpener(undefined)
+  }
+})
+
+test("a resume whose selected Project shares the calling repository keeps the claim-and-move route", async () => {
+  bindRetargetRoute({ landedDirectory: "/data/worktrees/project-2/work-1" })
+  const landedThere = contextFor(() => {}, new AbortController(), "/data/worktrees/project-2/work-1")
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(["tab-opener", "{command}"])
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], input: string, _signal: AbortSignal, _options?: any) {
+    calls.push({ argv, input })
+    if (argv[0] === "tab-opener") throw new Error("the opener must not run inside one repository")
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (argv[1] === "worktree-locate") {
+      const parsed = JSON.parse(input) as { project_id: string; work_id: string }
+      return { exitCode: 0, stdout: JSON.stringify({ branch: `work/${parsed.work_id}`, base_sha: "a".repeat(40), path: `/data/worktrees/${parsed.project_id}/${parsed.work_id}`, repo: "/repo-1", ref: "HEAD" }), stderr: "" }
+    }
+    if (argv[1] === "work-resume") return { exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_id: "project-2", worktree: { ...resumeSuccess().worktree, path: "/data/worktrees/project-2/work-1" } }), stderr: "" }
+    if (argv[1] === "session-prepare") return { exitCode: 0, stdout: JSON.stringify({ ...preparedContract(), directory: "/data/worktrees/project-2/work-1" }), stderr: "" }
+    if (argv[1] === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+    throw new Error(`unexpected command ${argv.join(" ")}`)
+  } } })
+  try {
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, landedThere))
+    expect(result.outcome).toBe("ok")
+    expect(result.project_id).toBe("project-2")
+    expect(result.worktree_path).toBe("/data/worktrees/project-2/work-1")
+    const resume = calls.find(({ argv }) => argv[1] === "work-resume")
+    expect(JSON.parse(resume!.input).project_id).toBe("project-2")
+  } finally {
+    adapter.configureSessionOpener(undefined)
+  }
+})
+
+test("a failed project location lookup refuses before the opener runs", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(["tab-opener", "{command}"])
+  adapter.configureConcordAdapter({ runner: { async run(argv: string[], _input: string, _signal: AbortSignal, _options?: any) {
+    calls.push({ argv, input: "" })
+    if (argv[0] === "tab-opener") throw new Error("the opener must not run")
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    return { exitCode: 1, stdout: "", stderr: "concord worktree-locate: unknown_scope: Project has no canonical_path locator" }
+  } } })
+  try {
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-unknown" }, contextFor()))
+    expect(result.error.kind).toBe("invalid_input")
+    expect(result.error.message).toContain("canonical_path locator")
+    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
+  } finally {
+    adapter.configureSessionOpener(undefined)
+  }
 })
 
 test("work start resume rejects mixed and malformed argument shapes", async () => {

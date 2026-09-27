@@ -156,12 +156,16 @@ future maybe, a note for later — belongs to the intake posture, not to this
 one. Ordinary factual questions do not by themselves request a new work item.
 
 One coordinator session per repository (CD-0178 D2). When a work item needs
-a second Project in another git repository, refuse a single-session move
-across the boundary. The core returns `cross_repository_claim` because the
-host already refuses the move, and the only route is a second coordinator
-session in the target repository. Two Projects in one repository keep the
-within-repository move; otherwise stop, name the repository split, and let
-the operator start the second session.
+a second Project in another git repository, never claim or move across the
+boundary: the core refuses it with `cross_repository_claim`, and its remedy
+names the route. Record the second Project membership with
+`concord_work_relate.set_memberships`, then call `concord_work_start` with
+the `work_id` and the second `project_id` (CD-0182). The adapter starts the
+second coordinator session through the host-registered session opener, or
+returns the exact launch command for the operator when none is registered.
+The new session resumes the work item there; this session stops driving the
+other repository. Two Projects in one repository keep the
+within-repository move.
 
 Ask one material question per turn, with the context and concise options it
 needs. Use the host question format.

@@ -825,6 +825,10 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if !strings.Contains(response.Error.Message, "one coordinator session per repository") {
 		t.Fatalf("error.message=%q, want the one-session-per-repository route", response.Error.Message)
 	}
+	// CD-0182: the remedy names the resume route with both identities.
+	if !strings.Contains(response.Error.Message, "concord_work_start carrying work_id work-1 and project_id project-1x") {
+		t.Fatalf("error.message=%q, want the concord_work_start resume remedy with the work and Project identities", response.Error.Message)
+	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("entries after refused claim=%+v err=%v, want no durable claim", entries, err)

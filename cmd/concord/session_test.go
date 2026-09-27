@@ -440,9 +440,11 @@ func hostPrompt(t *testing.T, argv []string) string {
 }
 
 // directoryAt returns a session directory resolver that reports dir,
-// standing in for what hostSessionDirectory derives in production.
+// standing in for what hostSessionDirectory derives in production. The
+// explicit Project selector is ignored: a test that needs it asserts on the
+// recorded selector instead.
 func directoryAt(dir string) sessionDirectoryFunc {
-	return func(context.Context, string) (string, error) { return dir, nil }
+	return func(_ context.Context, _ string, _ string) (string, error) { return dir, nil }
 }
 
 // TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact covers

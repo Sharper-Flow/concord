@@ -245,6 +245,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
 	_, _ = fmt.Fprintln(out, "  concord launcher --list   # bounded candidate JSON")
 	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume without the UI")
+	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
@@ -479,21 +480,53 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 				writeDiagnostic(errOut, "concord --resume-last: no workspace is recorded")
 				return 1
 			}
-			return launchForwardedSession(product, work, "", in, out, errOut)
+			return launchForwardedSession(product, work, "", "", in, out, errOut)
 		}
 	}
-	if len(args) < 1 || args[0] == "--" { // #nosec G602 -- args non-empty, checked by this branch.
+	// An explicit --project selector lands the session in that member
+	// Project of the work (CD-0182): the session runs in that Project's
+	// active worktree when one is usable, else its canonical path. The
+	// selector changes the landing only; the default primary landing stays
+	// as CD-0093 and CD-0176 decide it.
+	project := ""
+	forwarded := make([]string, 0, len(args))
+	for rest := args; len(rest) > 0; {
+		arg := rest[0]
+		rest = rest[1:]
+		switch {
+		case arg == "--project":
+			if len(rest) == 0 {
+				writeDiagnostic(errOut, "concord zl: --project requires a Project ID")
+				return 2
+			}
+			project = rest[0]
+			rest = rest[1:]
+		case strings.HasPrefix(arg, "--project="):
+			project = strings.TrimPrefix(arg, "--project=")
+		default:
+			forwarded = append(forwarded, arg)
+		}
+	}
+	if project != "" && len(forwarded) > 0 && forwarded[0] == "--resume-last" {
+		writeDiagnostic(errOut, "concord zl: --project does not combine with --resume-last")
+		return 2
+	}
+	if project != "" && !sessionIdentity.MatchString(project) {
+		writeDiagnostic(errOut, "concord zl: Project selection is missing or invalid")
+		return 2
+	}
+	if len(forwarded) < 1 || forwarded[0] == "--" { // #nosec G602 -- forwarded non-empty, checked by this branch.
 		writeDiagnostic(errOut, "concord zl: work ID is required")
 		return 2
 	}
-	work := args[0]
+	work := forwarded[0]
 	prompt := ""
-	if len(args) > 1 {
-		if args[1] != "--" {
+	if len(forwarded) > 1 {
+		if forwarded[1] != "--" {
 			writeDiagnostic(errOut, "concord zl: prompt must follow --")
 			return 2
 		}
-		prompt = strings.Join(args[2:], " ")
+		prompt = strings.Join(forwarded[2:], " ")
 	}
 	if issueKey, issueURL, ok := linearIssueReference(work); ok {
 		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL)
@@ -502,7 +535,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 			return 1
 		}
 		work, product := resolvedWork, resolvedProduct
-		return launchForwardedSession(product, work, prompt, in, out, errOut)
+		return launchForwardedSession(product, work, prompt, project, in, out, errOut)
 	}
 	product := os.Getenv(selectedProductEnv)
 	if product == "" {
@@ -516,7 +549,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		product = resolved
 	}
-	return launchForwardedSession(product, work, prompt, in, out, errOut)
+	return launchForwardedSession(product, work, prompt, project, in, out, errOut)
 }
 
 var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
@@ -607,8 +640,8 @@ func resolveForwardedProduct(work string) (string, error) {
 	return s.ResolveLauncherWorkProduct(context.Background(), work)
 }
 
-func launchForwardedSession(product, work, prompt string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, Agent: launcher.DefaultSessionAgent})
+func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
+	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: launcher.DefaultSessionAgent})
 	if err != nil {
 		writeDiagnostic(errOut, "concord zl: "+err.Error())
 		return 1

@@ -1,0 +1,54 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResolveSessionDirectoryForProjectSelectsAMemberProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionProjectSelectionResolvesTheMemberProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestZLProjectSelectorRefusals"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestSessionCommandPassesProjectSelectionThroughEnvironment"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start resume routes a second repository through the registered session opener"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a resume into a second repository without an opener returns the exact launch command"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#an invalid registered opener refuses naming the invalid field and still returns the command"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a failed opener run reports the exit status and the launch command"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a resume whose selected Project shares the calling repository keeps the claim-and-move route"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-primary-prompts.py"
+    }
+  ],
+  "id": "CD-0182",
+  "state": "satisfied"
+}

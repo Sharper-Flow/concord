@@ -729,13 +729,28 @@ def drop_empty_instructions_property(original: str) -> str:
     return original[:start] + original[end:]
 
 
+def is_plugin_entry(candidate: object, entry_path: str) -> bool:
+    """Report whether one parsed plugin-array entry registers entry_path.
+
+    The managed entry takes either form: the bare path string, or the tuple
+    form ``[entry_path, options]`` whose options carry operator-owned
+    configuration such as the session opener (CD-0182). The path as element
+    zero claims the slot either way, so an upgrade never adds a duplicate
+    bare entry beside a tuple that keeps its options.
+    """
+    if isinstance(candidate, str):
+        return candidate == entry_path
+    return isinstance(candidate, list) and len(candidate) >= 1 and candidate[0] == entry_path
+
+
 def plan_plugin_entry(text: str, entry_path: str) -> str:
     """Ensure the plugin entry module path is registered in the host plugin array.
 
     The plugin path is version-stable, so this is an idempotent ensure-present:
-    it adds the path when absent and leaves an existing registration untouched.
-    Raises InstallerError carrying the exact manual entry when the existing
-    plugin configuration cannot be edited safely.
+    it adds the path when absent and leaves an existing registration — bare or
+    tuple form, options included — untouched. Raises InstallerError carrying
+    the exact manual entry when the existing plugin configuration cannot be
+    edited safely.
     """
     parsed = jsonc_data(text)
     if not isinstance(parsed, dict):
@@ -754,7 +769,7 @@ def plan_plugin_entry(text: str, entry_path: str) -> str:
         raise InstallerError(
             f"OpenCode config plugin value is not an array; add {token} to it manually"
         )
-    if any(isinstance(entry, str) and entry == entry_path for entry in plugin):
+    if any(is_plugin_entry(entry, entry_path) for entry in plugin):
         return text
     matches = list(re.finditer(r'"plugin"\s*:\s*\[', text))
     if len(matches) != 1:
@@ -766,17 +781,85 @@ def plan_plugin_entry(text: str, entry_path: str) -> str:
     return text[:insert_at] + insertion + text[insert_at:]
 
 
+def span_without_adjacent_comma(original: str, start: int, end: int) -> tuple[int, int]:
+    """Grow one removal span by exactly one adjacent comma, either side."""
+    after = end
+    while after < len(original) and original[after].isspace():
+        after += 1
+    if after < len(original) and original[after] == ",":
+        return start, after + 1
+    before = start - 1
+    while before >= 0 and original[before].isspace():
+        before -= 1
+    if before >= 0 and original[before] == ",":
+        start = before
+    return start, end
+
+
+def drop_json_array_span(original: str, token: str) -> str:
+    """Remove the whole JSON array that contains token, plus one adjacent comma.
+
+    The tuple form of the plugin entry carries operator options beside the
+    managed path, so deregistration removes the enclosing bracket span —
+    string-aware, so brackets inside option strings never end the scan —
+    rather than the path token alone, which would strand an option fragment.
+    The caller guarantees the token occurs exactly once in the original text.
+    """
+    token_start = original.index(token)
+    open_index = -1
+    for index in range(token_start - 1, -1, -1):
+        if original[index] == "[":
+            open_index = index
+            break
+    if open_index < 0:
+        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
+    end = -1
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(open_index, len(original)):
+        character = original[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "[":
+            depth += 1
+        elif character == "]":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end < 0:
+        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
+    start, end = span_without_adjacent_comma(original, open_index, end + 1)
+    return original[:start] + original[end:]
+
+
 def remove_plugin_entry(text: str, entry_path: str) -> str:
-    """Remove the managed plugin entry registration. No-op when it is absent."""
+    """Remove the managed plugin entry registration. No-op when it is absent.
+
+    A tuple-form registration removes whole, options included; the bare form
+    removes as one string token.
+    """
     parsed = jsonc_data(text)
     if not isinstance(parsed, dict):
         return text
     plugin = parsed.get("plugin")
-    if not isinstance(plugin, list) or not any(isinstance(entry, str) and entry == entry_path for entry in plugin):
+    if not isinstance(plugin, list) or not any(is_plugin_entry(entry, entry_path) for entry in plugin):
         return text
     token = json.dumps(entry_path)
     if text.count(token) != 1:
         raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
+    tupled = any(isinstance(entry, list) and len(entry) >= 1 and entry[0] == entry_path for entry in plugin)
+    if tupled:
+        return drop_json_array_span(text, token)
     return drop_string_token(text, token)
 
 

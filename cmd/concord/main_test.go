@@ -2505,3 +2505,31 @@ func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
 		t.Fatalf("diagnostic = %q, want the command-prefixed refusal", errOut.String())
 	}
 }
+
+// TestZLProjectSelectorRefusals covers the CD-0182 selector grammar at the
+// zl boundary: a selector without a value, a selector that combines with
+// --resume-last, and an invalid Project ID each refuse with a diagnostic
+// before any session launch is prepared.
+func TestZLProjectSelectorRefusals(t *testing.T) {
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{"selector without a value", []string{"work-1", "--project"}, "--project requires a Project ID"},
+		{"selector with resume-last", []string{"--resume-last", "--project", "project-2"}, "--project does not combine with --resume-last"},
+		{"invalid Project ID", []string{"work-1", "--project=../escape"}, "Project selection is missing or invalid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			if code := runZLForwarding(tc.args, strings.NewReader(""), &out, &errOut); code != 2 {
+				t.Fatalf("exit=%d stderr=%q, want 2", code, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "concord zl: "+tc.wantErr) {
+				t.Fatalf("diagnostic=%q, want %q", errOut.String(), tc.wantErr)
+			}
+		})
+	}
+}

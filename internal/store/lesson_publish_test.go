@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1307,6 +1308,140 @@ func TestPublishLessonRecordRefusesSymlinkTargetsAndParents(t *testing.T) {
 		}
 		requireLessonZeroEffects(t, home.RepoPath, head, status)
 	})
+}
+
+// TestWriteConfinedLessonFileHoldsConfinementAtTheWriteBoundary is the
+// deterministic half of the swap defense: it calls the write helper with
+// hostile state already in place — a parent component that is a symlink to
+// a directory outside the root, and an occupied target — and holds that the
+// Root-bound write refuses both without creating or changing a byte outside
+// the worktree. The preflight checks are absent here by design: the write
+// boundary must confine on its own.
+func TestWriteConfinedLessonFileHoldsConfinementAtTheWriteBoundary(t *testing.T) {
+	t.Parallel()
+	rootDir := t.TempDir()
+	outside := t.TempDir()
+
+	t.Run("symlink parent at write time", func(t *testing.T) {
+		t.Parallel()
+		r, err := os.OpenRoot(rootDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		if err := os.MkdirAll(filepath.Join(rootDir, "docs", "lessons"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(rootDir, "docs", "lessons-swap")); err != nil {
+			t.Fatal(err)
+		}
+		err = writeConfinedLessonFile(r, "docs/lessons-swap/2026-09-27-note.md", []byte("swapped\n"), "dir failure", "file failure")
+		if err == nil {
+			t.Fatal("expected the write boundary to refuse the swapped symlink parent")
+		}
+		if strings.Contains(err.Error(), "already occupied") {
+			t.Fatalf("the swap refusal lost the confinement classification: %v", err)
+		}
+		if entries, readErr := os.ReadDir(outside); readErr != nil || len(entries) != 0 {
+			t.Fatalf("the outside directory received writes: %v err=%v", entries, readErr)
+		}
+	})
+
+	t.Run("occupied target at write time", func(t *testing.T) {
+		t.Parallel()
+		r, err := os.OpenRoot(rootDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		if err := os.MkdirAll(filepath.Join(rootDir, "docs", "shards"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		occupied := filepath.Join(rootDir, "docs", "shards", "occupied.json")
+		if err := os.WriteFile(occupied, []byte("{\"committed\": true}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err = writeConfinedLessonFile(r, "docs/shards/occupied.json", []byte("{\"overwritten\": true}\n"), "dir failure", "file failure")
+		if err == nil || !strings.Contains(err.Error(), "already occupied") {
+			t.Fatalf("expected the occupied-target refusal at the write boundary, got %v", err)
+		}
+		if content, readErr := os.ReadFile(occupied); readErr != nil || string(content) != "{\"committed\": true}\n" {
+			t.Fatalf("the occupied target changed: %q err=%v", content, readErr)
+		}
+	})
+
+	t.Run("free target writes inside the root", func(t *testing.T) {
+		t.Parallel()
+		r, err := os.OpenRoot(rootDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		if err := writeConfinedLessonFile(r, "docs/fresh/2026-09-27-free.md", []byte("fresh\n"), "dir failure", "file failure"); err != nil {
+			t.Fatalf("expected the confined write to succeed, got %v", err)
+		}
+		content, readErr := os.ReadFile(filepath.Join(rootDir, "docs", "fresh", "2026-09-27-free.md"))
+		if readErr != nil || string(content) != "fresh\n" {
+			t.Fatalf("the confined write did not land inside the root: %q err=%v", content, readErr)
+		}
+	})
+}
+
+// TestPublishLessonRecordProbeSymlinkSwapCannotEscapeTheWorktree is the
+// targeted concurrency probe for the swap window the preflight checks cannot
+// close: while publications run, one goroutine repeatedly replaces the note
+// target's parent directory with a symlink to a directory outside the
+// claimed worktree and restores it. Whatever the interleaving between the
+// preflight checks and a write, no byte may land outside the worktree; the
+// Root-bound writes refuse any name that resolves through the outside link.
+func TestPublishLessonRecordProbeSymlinkSwapCannotEscapeTheWorktree(t *testing.T) {
+	_, home := lessonWorktreeFixture(t)
+	outside := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	noteDir := filepath.Join(home.RepoPath, "docs", "lessons")
+	stop := make(chan struct{})
+	swapperDone := make(chan struct{})
+	go func() {
+		defer close(swapperDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// Each swap step is best-effort: a lost race to another swap
+			// step only skips one hostile or benign window.
+			_ = os.RemoveAll(noteDir)
+			_ = os.Symlink(outside, noteDir) // hostile window: the parent points outside
+			_ = os.Remove(noteDir)
+			_ = os.MkdirAll(noteDir, 0o755) // benign window: a real directory again
+		}
+	}()
+
+	for i := 0; i < 120; i++ {
+		if ctx.Err() != nil {
+			break
+		}
+		req := LessonPublication{
+			LessonID: fmt.Sprintf("probe-lesson-%d", i),
+			Title:    fmt.Sprintf("Probe lesson %d", i),
+			Summary:  "A confinement probe publication.",
+			Content:  fmt.Sprintf("# Probe lesson %d\n", i),
+			Scopes:   KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(),
+			Now:      time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC),
+		}
+		_, _ = PublishLessonRecord(ctx, home, req)
+	}
+	close(stop)
+	<-swapperDone
+
+	entries, err := os.ReadDir(outside)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("the outside directory received writes: %v err=%v", entries, err)
+	}
 }
 
 // TestPublishLessonRecordRefusesSamePathSameHashDuplicateIDWithZeroEffects

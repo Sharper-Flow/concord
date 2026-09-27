@@ -291,10 +291,12 @@ func validateLessonScopes(scopes KnowledgeRecordScopes) error {
 // coverage shard, and commits the three atomically on the claimed branch. It
 // is idempotent: when the manifest already carries the exact record, the
 // committed lesson verifies and is returned without a new commit. It performs
-// no SQLite writes. Every refusal — invalid input, an occupied write target,
-// a symlinked or escaping path, or a manifest rule the prospective record
-// breaks — happens before the first byte is written, so a refused publication
-// leaves the claimed worktree and everything outside it unchanged. The
+// no SQLite writes. Every validation refusal — invalid input, an occupied
+// write target, a symlinked or escaping path, or a manifest rule the
+// prospective record breaks — happens before the first byte is written and
+// leaves the worktree unchanged. A failure while writing, staging, or
+// committing can leave the files written so far in place; that failure is
+// typed and names the state the caller restores before retrying. The
 // returned branch and commit are prepared delivery evidence, not a
 // publication claim: a lesson is published when the coordinator's pull
 // request has merged and a knowledge read verifies it (CD-0026 D1, CD-0114 D3).
@@ -379,13 +381,15 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, err
 	}
 
-	// Every write target resolves inside the claimed worktree, is free of
-	// any existing entry, and reaches the target only through real
-	// directories, before anything is staged or written: a publication can
-	// neither overwrite an occupied file nor follow a link outside the tree.
+	// Every write target is validated before anything is staged or written:
+	// it resolves inside the claimed worktree, is free of any existing
+	// entry, and reaches the target only through real directories. These
+	// pre-write checks refuse the static cases typed and leave the worktree
+	// unchanged; confinement at the write itself belongs to the Root-bound
+	// writes below, which hold even when a component is swapped for a
+	// symlink after these checks run.
 	targets := []string{notePath, recordShardPath, coverageShardPath}
-	fulls := make([]string, len(targets))
-	for i, target := range targets {
+	for _, target := range targets {
 		full, err := confineLessonTarget(home.RepoPath, target)
 		if err != nil {
 			return out, err
@@ -396,29 +400,29 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		if err := refuseUnsafeLessonParents(home.RepoPath, full); err != nil {
 			return out, err
 		}
-		fulls[i] = full
 	}
 
 	// The note, the record shard, and the coverage shard land as one commit
 	// on the claimed branch, so CI's law-coverage plane never sees a record
-	// whose coverage declaration is missing (CD-0047 D1, CD-0114 D3).
-	if err := os.MkdirAll(path.Dir(fulls[0]), 0o755); err != nil { //nolint:gosec // lessons are public repository content and require normal Git directory permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson directory", true, "restore write access to the git home", err)
+	// whose coverage declaration is missing (CD-0047 D1, CD-0114 D3). The
+	// writes resolve through one Root bound to the claimed worktree, so a
+	// directory component replaced by a link between the checks above and a
+	// write cannot move a file outside the tree, and O_CREATE|O_EXCL
+	// refuses an occupied target at the write boundary. An I/O failure
+	// after the first write leaves the files written so far in place, and
+	// a staging or commit failure leaves all three written but uncommitted.
+	payloads := [][]byte{[]byte(req.Content), shard, coverageShard}
+	dirMsgs := []string{"cannot create the lesson directory", "cannot create the lesson record directory", "cannot create the lesson coverage directory"}
+	fileMsgs := []string{"cannot write the lesson draft", "cannot write the lesson record shard", "cannot write the lesson coverage shard"}
+	root, err := os.OpenRoot(home.RepoPath)
+	if err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot open the claimed worktree", true, "restore the claimed worktree and retry", err)
 	}
-	if err := os.WriteFile(fulls[0], []byte(req.Content), 0o644); err != nil { //nolint:gosec // lessons are public repository content and require normal Git file permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson draft", true, "restore write access to the git home", err)
-	}
-	if err := os.MkdirAll(path.Dir(fulls[1]), 0o755); err != nil { //nolint:gosec // record shards are public repository content and require normal Git directory permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson record directory", true, "restore write access to the git home", err)
-	}
-	if err := os.WriteFile(fulls[1], shard, 0o644); err != nil { //nolint:gosec // record shards are public repository content and require normal Git file permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
-	}
-	if err := os.MkdirAll(path.Dir(fulls[2]), 0o755); err != nil { //nolint:gosec // coverage shards are public repository content and require normal Git directory permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson coverage directory", true, "restore write access to the git home", err)
-	}
-	if err := os.WriteFile(fulls[2], coverageShard, 0o644); err != nil { //nolint:gosec // coverage shards are public repository content and require normal Git file permissions.
-		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson coverage shard", true, "restore write access to the git home", err)
+	defer func() { _ = root.Close() }()
+	for i, target := range targets {
+		if err := writeConfinedLessonFile(root, target, payloads[i], dirMsgs[i], fileMsgs[i]); err != nil {
+			return out, err
+		}
 	}
 
 	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath, coverageShardPath); err != nil {
@@ -677,10 +681,11 @@ func confineLessonTarget(repoRoot, repoRelative string) (string, error) {
 }
 
 // refuseOccupiedLessonTarget refuses any existing entry at a write target —
-// regular file, directory, or symlink, including a dangling one — so a
-// publication never overwrites an occupied path and never writes through a
-// link. Lstat, not Stat: a symlink must refuse even when its destination is
-// missing.
+// regular file, directory, or symlink, including a dangling one — before any
+// byte moves. Lstat, not Stat: a symlink must refuse even when its
+// destination is missing. The check is validation only; O_CREATE|O_EXCL in
+// writeConfinedLessonFile repeats the refusal at the write boundary, where a
+// target created after this check runs is still refused.
 func refuseOccupiedLessonTarget(absPath string) error {
 	if _, err := os.Lstat(absPath); err == nil {
 		return newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson write target is already occupied", false, "choose a lesson id and title whose note, record shard, and coverage shard paths are free")
@@ -691,10 +696,12 @@ func refuseOccupiedLessonTarget(absPath string) error {
 }
 
 // refuseUnsafeLessonParents walks the target's parent directories from the
-// worktree root down and refuses a symlink or non-directory component, so a
-// write can never follow a link out of the claimed tree. Components below
-// the first missing one are created by the write itself as plain
-// directories under verified parents.
+// worktree root down and refuses a symlink or non-directory component, so
+// the static link cases refuse typed before any write. The check is
+// validation only: the Root-bound write refuses a component swapped for a
+// link after this walk, because no Root name may resolve through a link
+// outside the root. Components below the first missing one are created by
+// the write itself as plain directories.
 func refuseUnsafeLessonParents(repoRoot, absPath string) error {
 	rel, err := filepath.Rel(repoRoot, filepath.Dir(absPath))
 	if err != nil {
@@ -719,6 +726,35 @@ func refuseUnsafeLessonParents(repoRoot, absPath string) error {
 		if !info.IsDir() {
 			return newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson target parent is not a directory", false, "restore the claimed worktree's real directories")
 		}
+	}
+	return nil
+}
+
+// writeConfinedLessonFile creates one lesson file inside the Root bound to
+// the claimed worktree. The Root owns confinement at the write: every name
+// component resolves against the root's directory handle, so a component
+// replaced by a link after the preflight checks cannot move the file
+// outside the tree, and O_CREATE|O_EXCL refuses an occupied target at the
+// write itself. An occupied target keeps the preflight refusal's typed
+// shape; any other write failure reports the worktree state the caller
+// restores before retrying.
+func writeConfinedLessonFile(root *os.Root, repoRelative string, payload []byte, dirMsg, fileMsg string) error {
+	if err := root.MkdirAll(path.Dir(repoRelative), 0o755); err != nil { //nolint:gosec // lessons are public repository content and require normal Git directory permissions.
+		return wrapFailure(KindGitUnreachable, "publish_lesson", dirMsg, true, "restore the claimed worktree and retry", err)
+	}
+	f, err := root.OpenFile(repoRelative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) //nolint:gosec // lessons are public repository content and require normal Git file permissions.
+	if errors.Is(err, os.ErrExist) {
+		return newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson write target is already occupied", false, "choose a lesson id and title whose note, record shard, and coverage shard paths are free")
+	}
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, "publish_lesson", fileMsg, true, "restore the claimed worktree and retry", err)
+	}
+	if _, err := f.Write(payload); err != nil {
+		_ = f.Close()
+		return wrapFailure(KindGitUnreachable, "publish_lesson", fileMsg, true, "restore the claimed worktree and retry", err)
+	}
+	if err := f.Close(); err != nil {
+		return wrapFailure(KindGitUnreachable, "publish_lesson", fileMsg, true, "restore the claimed worktree and retry", err)
 	}
 	return nil
 }

@@ -243,6 +243,61 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	}
 }
 
+// TestPublishLessonRecordReplayComparesTheCompleteRecord holds the replay
+// join: an identical replay matches on the committed record's own date and
+// path, so a replay on a later day returns the lesson's original prepared
+// commit, while a metadata-only change is a different record that refuses
+// typed even when the body hash, the slug, and the path still collide.
+func TestPublishLessonRecordReplayComparesTheCompleteRecord(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "lesson-replay-record", Title: "Replay compares the record", Summary: "A replay reproduces the committed record exactly.",
+		Content: "# Replay compares the record\n", Tags: []string{"replay"},
+		Scopes:   KnowledgeRecordScopes{Mode: "explicit", ProjectIDs: []string{"project-1"}},
+		Evidence: []string{"internal/store/lesson_publish_test.go"},
+		Coverage: lessonSatisfiedCoverage(),
+		Now:      time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
+	}
+	first, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := commitCount(t, home.RepoPath)
+
+	// An identical replay on a later day still matches: the date and the
+	// path come from the committed record, not from the replay's clock.
+	later := base
+	later.Now = time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	replay, err := PublishLessonRecord(ctx, home, later)
+	if err != nil {
+		t.Fatalf("identical replay on a later day: %v", err)
+	}
+	if replay.CommitOID != first.CommitOID || replay.Record.Date != first.Record.Date || replay.Record.Path != first.Record.Path {
+		t.Fatalf("replay record %+v lost the original delivery %+v", replay.Record, first.Record)
+	}
+
+	// A metadata-only change is a different record: each refuses even though
+	// the body hash, the slugified path, and the coverage bytes still match.
+	for name, change := range map[string]func(*LessonPublication){
+		"same-slug title": func(r *LessonPublication) { r.Title = "replay compares THE record" },
+		"summary":         func(r *LessonPublication) { r.Summary = "A changed summary is a different record." },
+		"tags":            func(r *LessonPublication) { r.Tags = []string{"replay", "extra"} },
+		"scopes":          func(r *LessonPublication) { r.Scopes = KnowledgeRecordScopes{Mode: "home"} },
+		"evidence":        func(r *LessonPublication) { r.Evidence = []string{"internal/store/git_knowledge.go"} },
+	} {
+		mutated := later
+		change(&mutated)
+		if _, err := PublishLessonRecord(ctx, home, mutated); err == nil || !strings.Contains(err.Error(), "already claimed") {
+			t.Fatalf("expected %s replay refusal, got %v", name, err)
+		}
+	}
+	if after := commitCount(t, home.RepoPath); after != commits {
+		t.Fatalf("replay verification created commits: before %d after %d", commits, after)
+	}
+}
+
 // TestPublishLessonRecordIsolatedThreeFileCommitOnTheClaimedBranch is the
 // isolated-commit check: the prepared delivery touches exactly the note, the
 // record shard, and the coverage shard, on the claimed branch, and the
@@ -345,6 +400,37 @@ func TestPublishLessonRecordRequiresExplicitCoverageDisposition(t *testing.T) {
 	}
 	if shard, err := os.ReadFile(filepath.Join(home.RepoPath, lessonCoverageDir, base.LessonID+".json")); err != nil || !strings.Contains(string(shard), `"issue": "CON-508"`) || strings.Contains(string(shard), "reason") {
 		t.Fatalf("coverage shard=%s err=%v", shard, err)
+	}
+
+	// The outstanding pointer is the law-coverage union: a positive integer
+	// issue number is as valid as a Linear issue identifier, and the shard
+	// commits the number as a bare JSON integer.
+	outstandingNumber := base
+	outstandingNumber.LessonID = "lesson-coverage-issue-number"
+	outstandingNumber.Title = "Explicit coverage number"
+	outstandingNumber.Coverage = &LessonCoverageDeclaration{State: "outstanding", IssueNumber: 508}
+	if _, err := PublishLessonRecord(ctx, home, outstandingNumber); err != nil {
+		t.Fatalf("an outstanding declaration with its issue number publishes: %v", err)
+	}
+	if shard, err := os.ReadFile(filepath.Join(home.RepoPath, lessonCoverageDir, outstandingNumber.LessonID+".json")); err != nil || !strings.Contains(string(shard), `"issue": 508`) {
+		t.Fatalf("coverage shard=%s err=%v", shard, err)
+	}
+	// Both pointers at once refuse: the union is exactly one pointer.
+	bothPointers := base
+	bothPointers.Coverage = &LessonCoverageDeclaration{State: "outstanding", Issue: "CON-508", IssueNumber: 508}
+	if _, err := PublishLessonRecord(ctx, home, bothPointers); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("expected both-pointers refusal, got %v", err)
+	}
+	// A zero or negative issue number is no pointer at all.
+	zeroNumber := base
+	zeroNumber.Coverage = &LessonCoverageDeclaration{State: "outstanding", IssueNumber: 0}
+	if _, err := PublishLessonRecord(ctx, home, zeroNumber); err == nil || !strings.Contains(err.Error(), "issue identifier") {
+		t.Fatalf("expected zero-issue-number refusal, got %v", err)
+	}
+	satisfiedWithNumber := base
+	satisfiedWithNumber.Coverage = &LessonCoverageDeclaration{State: "satisfied", Evidence: []LessonCoverageAnchor{{Kind: "go_test", Value: "internal/store.TestX"}}, IssueNumber: 508}
+	if _, err := PublishLessonRecord(ctx, home, satisfiedWithNumber); err == nil || !strings.Contains(err.Error(), "forbids issue") {
+		t.Fatalf("expected satisfied-with-issue-number refusal, got %v", err)
 	}
 }
 

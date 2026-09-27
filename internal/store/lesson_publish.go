@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -71,8 +72,13 @@ type LessonCoverageAnchor struct {
 type LessonCoverageDeclaration struct {
 	State    string
 	Evidence []LessonCoverageAnchor
-	Issue    string
-	Reason   string
+	// Issue is the outstanding pointer in the law-coverage union: exactly
+	// one of the Linear issue identifier (Issue) or the positive integer
+	// issue number (IssueNumber), as contracts/law-coverage.schema.json
+	// admits for an outstanding record.
+	Issue       string
+	IssueNumber int64
+	Reason      string
 }
 
 // PublishedLesson is the verified result of a lesson publication. Branch and
@@ -181,7 +187,7 @@ func validateLessonCoverage(coverage *LessonCoverageDeclaration) error {
 	if required != "evidence" && len(coverage.Evidence) > 0 {
 		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state "+coverage.State+" forbids evidence", false, "declare only the field the state requires")
 	}
-	if required != "issue" && coverage.Issue != "" {
+	if required != "issue" && (coverage.Issue != "" || coverage.IssueNumber != 0) {
 		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state "+coverage.State+" forbids issue", false, "declare only the field the state requires")
 	}
 	if required != "reason" && coverage.Reason != "" {
@@ -201,8 +207,15 @@ func validateLessonCoverage(coverage *LessonCoverageDeclaration) error {
 			}
 		}
 	case "issue":
-		if !lessonIssuePointer.MatchString(coverage.Issue) {
+		hasLinear := coverage.Issue != ""
+		hasNumber := coverage.IssueNumber >= 1
+		switch {
+		case hasLinear && hasNumber:
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage issue must be one pointer: an issue number or a Linear issue identifier, not both", false, "declare exactly one issue pointer")
+		case hasLinear && !lessonIssuePointer.MatchString(coverage.Issue):
 			return newFailure(KindInvalidNoteProof, "publish_lesson", "outstanding coverage requires a live issue identifier", false, "declare the Linear issue that tracks the lesson")
+		case !hasLinear && !hasNumber:
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "outstanding coverage requires a live issue identifier", false, "declare the issue number or the Linear issue identifier that tracks the lesson")
 		}
 	case "reason":
 		trimmed := strings.TrimSpace(coverage.Reason)
@@ -305,13 +318,26 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if parseErr != nil {
 		return out, parseErr
 	}
-	for _, existing := range manifest.Records {
-		if existing.ID == req.LessonID {
-			if existing.Kind == "lesson" && existing.Path == notePath && existing.SHA256 == contentSHA {
-				return replayLesson(ctx, home, req, existing, notePath, contentSHA, manifest.SchemaVersion)
-			}
-			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson id is already claimed by a different record", false, "choose a new lesson id or supersede the existing lesson")
+	// A lesson id already in the manifest is a replay or a conflict, decided
+	// by the complete record: the candidate rebuilt on the committed
+	// record's own publication date and path must equal it field for field.
+	// A changed title, summary, tag, scope, evidence list, or body is a
+	// different record even when the slug and the path still collide, and
+	// an identical replay on a later day still matches because the date and
+	// the path come from the committed record, not from Now.
+	for i := range manifest.Records {
+		if manifest.Records[i].ID != req.LessonID {
+			continue
 		}
+		existing := manifest.Records[i]
+		if !sameNormalizedRecord(req.record(contentSHA, existing.Date, existing.Path), existing) {
+			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson id is already claimed by a different record", false, "replay with the lesson's original record fields or supersede the existing lesson")
+		}
+		return replayLesson(ctx, home, req, existing, existing.Path, contentSHA, manifest.SchemaVersion)
+	}
+	// A fresh publication never takes a path a different record already
+	// carries with different content.
+	for _, existing := range manifest.Records {
 		if existing.Path == notePath && existing.SHA256 != contentSHA {
 			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson path is already claimed by different content", false, "retitle the lesson")
 		}
@@ -379,6 +405,25 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	return out, nil
 }
 
+// sameNormalizedRecord reports whether a replay candidate reproduces the
+// committed record field for field. Slices compare by length and element, so
+// an omitted list and an empty one read as the same record, exactly as the
+// shard round trip stores them.
+func sameNormalizedRecord(candidate, existing KnowledgeRecord) bool {
+	return candidate.Kind == existing.Kind && candidate.Status == existing.Status &&
+		candidate.Authority == existing.Authority &&
+		candidate.Date == existing.Date && candidate.Path == existing.Path &&
+		candidate.Title == existing.Title && candidate.Summary == existing.Summary &&
+		candidate.SHA256 == existing.SHA256 &&
+		slices.Equal(candidate.Tags, existing.Tags) &&
+		slices.Equal(candidate.Evidence, existing.Evidence) &&
+		candidate.Scopes.Mode == existing.Scopes.Mode &&
+		slices.Equal(candidate.Scopes.ProductIDs, existing.Scopes.ProductIDs) &&
+		slices.Equal(candidate.Scopes.ProjectIDs, existing.Scopes.ProjectIDs) &&
+		slices.Equal(candidate.Scopes.DomainIDs, existing.Scopes.DomainIDs) &&
+		slices.Equal(candidate.Scopes.TagIDs, existing.Scopes.TagIDs)
+}
+
 // replayLesson verifies an identical replay in full before returning it: the
 // record matched, so the committed note must still hash to the record's
 // content, and the caller's coverage declaration must still equal the
@@ -388,7 +433,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 // a replay never writes.
 func replayLesson(ctx context.Context, home KnowledgeHome, req LessonPublication, existing KnowledgeRecord, notePath, contentSHA, schemaVersion string) (PublishedLesson, error) {
 	out := PublishedLesson{}
-	//nolint:gosec // notePath is derived inside this package from the injected clock date and the slugified title, and is read inside the host-verified claimed worktree of public repository content.
+	//nolint:gosec // notePath is the committed record's own path, derived inside this package and read inside the host-verified claimed worktree of public repository content.
 	noteBytes, err := os.ReadFile(path.Join(home.RepoPath, notePath))
 	if err != nil {
 		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note is missing or unreadable", false, "replay with the lesson's committed content or supersede the lesson", err)
@@ -436,7 +481,11 @@ func marshalLessonCoverageShard(lessonID string, coverage LessonCoverageDeclarat
 		}
 		shard["evidence"] = anchors
 	case "issue":
-		shard["issue"] = coverage.Issue
+		if coverage.IssueNumber >= 1 {
+			shard["issue"] = coverage.IssueNumber
+		} else {
+			shard["issue"] = coverage.Issue
+		}
 	case "reason":
 		shard["reason"] = coverage.Reason
 	}

@@ -253,9 +253,39 @@ type lessonScopesInput struct {
 type lessonCoverageInput struct {
 	State    string                      `json:"state"`
 	Evidence []lessonCoverageAnchorInput `json:"evidence"`
-	Issue    string                      `json:"issue"`
+	Issue    *lessonIssueInput           `json:"issue"`
 	Reason   string                      `json:"reason"`
 }
+
+// lessonIssueInput is the law-coverage issue union: a positive integer issue
+// number or a Linear issue identifier, the two forms
+// contracts/law-coverage.schema.json admits for an outstanding record.
+type lessonIssueInput struct {
+	Number int64
+	Linear string
+}
+
+func (u *lessonIssueInput) UnmarshalJSON(data []byte) error {
+	refusal := "issue must be a positive integer or a Linear issue identifier"
+	if string(data) == "null" {
+		return fmt.Errorf("%s", refusal)
+	}
+	var number int64
+	if err := json.Unmarshal(data, &number); err == nil {
+		if number < 1 {
+			return fmt.Errorf("%s", refusal)
+		}
+		u.Number = number
+		return nil
+	}
+	var linear string
+	if err := json.Unmarshal(data, &linear); err != nil {
+		return fmt.Errorf("%s", refusal)
+	}
+	u.Linear = linear
+	return nil
+}
+
 type lessonCoverageAnchorInput struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
@@ -265,7 +295,14 @@ func (in *lessonCoverageInput) declaration() *store.LessonCoverageDeclaration {
 	if in == nil {
 		return nil
 	}
-	coverage := &store.LessonCoverageDeclaration{State: in.State, Issue: in.Issue, Reason: in.Reason}
+	coverage := &store.LessonCoverageDeclaration{State: in.State, Reason: in.Reason}
+	if in.Issue != nil {
+		if in.Issue.Number >= 1 {
+			coverage.IssueNumber = in.Issue.Number
+		} else {
+			coverage.Issue = in.Issue.Linear
+		}
+	}
 	for _, anchor := range in.Evidence {
 		coverage.Evidence = append(coverage.Evidence, store.LessonCoverageAnchor{Kind: anchor.Kind, Value: anchor.Value})
 	}

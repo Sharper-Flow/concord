@@ -2504,7 +2504,17 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "issue": {
-          "$ref": "#/$defs/id"
+          "description": "Tracking issue number or Linear issue identifier for an outstanding record, the union contracts/law-coverage.schema.json admits. Required when outstanding; forbidden otherwise.",
+          "oneOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$",
+              "type": "string"
+            }
+          ]
         },
         "reason": {
           "maxLength": 1024,

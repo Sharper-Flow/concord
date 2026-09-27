@@ -303,6 +303,42 @@ func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
 	}
 }
 
+// TestDispatchLessonPublishAcceptsAnIssueNumberCoverage carries the
+// law-coverage issue union through the boundary: an outstanding declaration
+// whose issue is a positive integer passes the published schema, decodes into
+// the union input, and commits the number as a bare JSON integer.
+func TestDispatchLessonPublishAcceptsAnIssueNumberCoverage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, privateKey, _, worktree := lessonDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	raw := `{"work_id":"work-lesson","lesson_id":"lesson-issue-number-probe","title":"Issue number coverage","summary":"An outstanding lesson can track a positive integer issue number.","content":"# Issue number coverage\n","tags":["coverage"],"coverage":{"state":"outstanding","issue":508},"publication_work_id":"work-pub","idempotency_key":"lesson-key-3"}`
+	request := InvokeRequest{Tool: "concord_work_compact", Operation: "lesson_publish", Input: json.RawMessage(raw)}
+	missing, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("missing approval response=%+v err=%v", missing, err)
+	}
+	challengeRef := missing.Error.Details["approval_ref"].(string)
+	approved := raw[:len(raw)-1] + `,"approval":{"approval_ref":"` + challengeRef + `"}}`
+	request.Input = json.RawMessage(approved)
+	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
+	scope := lessonApprovalScope(scopeVersion)
+	versions := map[string]any{"work": 3}
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", worktree, fixedTime(), "lesson-approval-0006")
+	response, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("issue-number response kind=%s msg=%s err=%v", response.Error.Kind, response.Error.Message, err)
+	}
+	coverageBytes, err := os.ReadFile(filepath.Join(worktree, "docs/knowledge/coverage/lesson-issue-number-probe.json"))
+	if err != nil || !strings.Contains(string(coverageBytes), `"issue": 508`) {
+		t.Fatalf("issue-number coverage shard missing or wrong (err=%v):\n%s", err, coverageBytes)
+	}
+}
+
 // lessonDelivery extracts the prepared delivery evidence a lesson_publish
 // response carries: the claimed branch and the immutable commit the
 // coordinator's pull request will carry.

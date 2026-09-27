@@ -138,6 +138,13 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"type={evidence_entry['properties']['detail']['type']}, "
         f"minLength={evidence_entry['properties']['detail']['minLength']}, "
         f"maxLength={evidence_entry['properties']['detail']['maxLength']}.",
+        "evidence_entry.predicate_ids: "
+        f"optional array; "
+        f"type={evidence_entry['properties']['predicate_ids']['type']}, "
+        f"minItems={evidence_entry['properties']['predicate_ids']['minItems']}, "
+        f"maxItems={evidence_entry['properties']['predicate_ids']['maxItems']}, "
+        f"items={json.dumps(evidence_entry['properties']['predicate_ids']['items'], ensure_ascii=False)}. "
+        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
         "base_comparison: "

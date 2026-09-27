@@ -11767,6 +11767,9 @@ const GeneratedPayloadSchemaDocument = `{
             "correction": {
               "$ref": "#/$defs/workflow_correction_context"
             },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
             "task": {
               "maxLength": 4096,
               "minLength": 1,
@@ -11810,6 +11813,122 @@ const GeneratedPayloadSchemaDocument = `{
         "inputs"
       ],
       "type": "object"
+    },
+    "worker_packet_outcome_predicates": {
+      "items": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "exists"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_exists"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "absent"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_absent"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "outcome"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_outcome"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "check"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_check"
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "ordinal": {
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outcome_kind": {
+            "enum": [
+              "exists",
+              "absent",
+              "outcome",
+              "check"
+            ],
+            "type": "string"
+          },
+          "outcome_payload": {
+            "$ref": "#/$defs/workflow_outcome_payload"
+          },
+          "predicate_id": {
+            "$ref": "#/$defs/id",
+            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+          }
+        },
+        "required": [
+          "predicate_id",
+          "ordinal",
+          "outcome_kind",
+          "outcome_payload"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
     },
     "workflow_action_outcome": {
       "oneOf": [

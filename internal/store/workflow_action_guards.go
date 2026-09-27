@@ -1147,6 +1147,18 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		sum := sha256.Sum256(canonical)
 		workerPacketDigest = "sha256:" + hex.EncodeToString(sum[:])
 		completionValues["worker_packet_digest"] = workerPacketDigest
+		// The typed outcome predicate ids are extracted from the same packet
+		// bytes this digest covers, so the durable record carries the
+		// discharge obligations the fold enforces on the completion. The
+		// payload schema preflight already admitted the packet shape; this
+		// read re-checks the identity rules the obligations rest on.
+		predicateIDs, predicateErr := workerPacketPredicateIDs(packetRaw)
+		if predicateErr != nil {
+			return events, "", predicateErr
+		}
+		if len(predicateIDs) > 0 {
+			completionValues["worker_packet_predicate_ids"] = predicateIDs
+		}
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}

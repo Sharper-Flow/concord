@@ -57,6 +57,10 @@ function renderAttempt(envelope: AgentResultEnvelope): string {
   // The optional base comparison is informational evidence: it reaches the
   // coordinator when the worker reported one, and no route reads it.
   if (envelope.base_comparison) summary.base_comparison = envelope.base_comparison
+  // The per-predicate tie: the sorted predicate ids the completed evidence
+  // names, so the coordinator reads which declared predicates the attempt
+  // discharged without re-deriving them from the worker output.
+  if (envelope.discharged_predicates) summary.discharged_predicates = envelope.discharged_predicates
   if (envelope.error) summary.error = envelope.error
   return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>`
 }

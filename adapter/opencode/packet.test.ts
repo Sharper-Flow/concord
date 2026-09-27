@@ -31,8 +31,11 @@ const { buildAgentLanePacket } = await import("./packet")
 const WORK_ID = "work-335"
 const PRODUCT_ID = "product-1"
 const NARRATIVE = "The dispatched worker goal is retyped prose today; project it from durable state instead."
-const OUTCOME_KIND = "capability_available"
-const OUTCOME_PAYLOAD = "A host-side builder projects work narrative, pinned contract, and lane obligations into agent-lane-packet.v1."
+const OUTCOME_KIND = "check"
+// The continuity read carries each outcome_payload as a JSON-encoded string;
+// the builder decodes it into the typed packet field.
+const OUTCOME_PAYLOAD_OBJECT = { kind: "check", check_ref: "check:projected-dispatch-inputs", immutable_subject_ref: "contracts/agent-lane-packet.schema.json", expected_result: "pass" }
+const OUTCOME_PAYLOAD = JSON.stringify(OUTCOME_PAYLOAD_OBJECT)
 const WORKFLOW_STEP = "implement"
 // The single string internal/store/workflow_continuity.go assigns to
 // RestartUnavailableReason. A fixture that invents its own value would let the
@@ -76,6 +79,20 @@ function pinnedContract(outcomePayload: string = OUTCOME_PAYLOAD, premise: strin
     spec_mandate: [],
     changes_product_truth: false,
   }
+}
+
+// The typed packet field the builder emits: the contract's predicates with
+// each serialized outcome_payload decoded into its validated object.
+const decodedContractPredicates = (contract = pinnedContract()) =>
+  contract.outcome_predicates.map((predicate: any) => ({ ...predicate, outcome_payload: JSON.parse(predicate.outcome_payload) }))
+
+function typedPredicates(packet: { inputs: { outcome_predicates?: unknown[] } }): unknown[] {
+  expect(Array.isArray(packet.inputs.outcome_predicates)).toBe(true)
+  return packet.inputs.outcome_predicates!
+}
+
+function assertNoMandateSplice(packet: { inputs: { constraints?: string[] } }): void {
+  expect(packet.inputs.constraints).toBeUndefined()
 }
 
 const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null, lawContext: unknown = null, proposalRecord: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
@@ -127,22 +144,13 @@ const build = (script: Record<string, unknown>, overrides: Record<string, unknow
     { context: contextFor(), invoke: scriptedInvoke(script) as any },
   )
 
-function mandateParts(packet: { inputs: { constraints?: string[] } }): string[] {
-  const entries = packet.inputs.constraints!.filter((entry) => entry.startsWith("Approved end-state mandate (join parts in order) "))
-  for (const [index, entry] of entries.entries()) {
-    expect(entry).toStartWith(`Approved end-state mandate (join parts in order) ${index + 1}/${entries.length}: `)
-    expect(entry.length).toBeLessThanOrEqual(512)
-  }
-  return entries.map((entry) => entry.slice(entry.indexOf(": ") + 2))
-}
-
 test("installed agents advertise only their lane's evidence vocabulary", async () => {
   for (const lane of agentLanes) {
     const built = await build(defaultScript(), { laneId: lane.id })
     expect(built.failure).toBeUndefined()
     const agent = await Bun.file(new URL(`../../.opencode/agents/concord-${lane.id}.md`, import.meta.url)).text()
     for (const obligation of lane.evidence_obligations) expect(agent).toContain("`" + obligation + "`")
-    expect(built.packet!.inputs.constraints!.some((entry) => entry.startsWith("evidence_entry.obligation: enum="))).toBe(false)
+    assertNoMandateSplice(built.packet!)
   }
 })
 
@@ -161,13 +169,13 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.inputs.task).toContain(WORKFLOW_STEP)
   expect(packet.inputs.task).not.toContain(OUTCOME_KIND)
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
-  expect(JSON.parse(mandateParts(packet).join(""))).toEqual(pinnedContract().outcome_predicates)
+  expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
   expect(packet.inputs.context).toBe(NARRATIVE)
   const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
   for (const obligation of agentLanes[1].evidence_obligations) {
     expect(agent).toContain(`"${obligation}"`)
   }
-  expect(packet.inputs.constraints).toHaveLength(1)
+  assertNoMandateSplice(packet)
 })
 
 // The worker-scope contract bounds each attempt to its lane's one assigned
@@ -291,7 +299,8 @@ test("a read-only lane uses the recorded question and narrative before contract 
   expect(packet.inputs.task).toContain(NARRATIVE)
   expect(packet.inputs.task).toContain(`at workflow step "${WORKFLOW_STEP}"`)
   expect(packet.inputs.task).not.toContain("Approved objective:")
-  expect(packet.inputs.constraints!.some((entry) => entry.startsWith("Approved end-state mandate"))).toBe(false)
+  expect(packet.inputs.outcome_predicates).toBeUndefined()
+  assertNoMandateSplice(packet)
 })
 
 test("a review lane keeps the pinned contract mandate after read-only classification", async () => {
@@ -306,7 +315,7 @@ test("a review lane keeps the pinned contract mandate after read-only classifica
   expect(packet.inputs.task).toContain("Approved objective:")
   expect(packet.inputs.task).toContain(contract.premise)
   expect(packet.inputs.task).toContain("(work v1, contract v1)")
-  expect(JSON.parse(mandateParts(packet).join(""))).toEqual(contract.outcome_predicates)
+  expect(typedPredicates(packet)).toEqual(decodedContractPredicates(contract))
 })
 
 test("the context carries the pinned design before the work narrative", async () => {
@@ -419,7 +428,7 @@ test("a non-Initiative work item with no narrative still carries the approved ob
   expect(packet.inputs.task).toContain("Approved objective:")
   expect(packet.inputs.task).toContain("Dispatch inputs are retyped rather than projected.")
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
-  expect(JSON.parse(mandateParts(packet).join(""))).toEqual(pinnedContract().outcome_predicates)
+  expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
 })
 
 // #903/#904 boundary: a pinned contract whose premise carries no objective
@@ -482,7 +491,8 @@ test("every registered lane packet projects only its serialized mandate", async 
     expect(packet.lane_id).toBe(lane.id)
     expect(packet.lane_version).toBe(lane.version)
     expect(packet.lane_digest).toBe(lane.digest)
-    expect(packet.inputs.constraints!.every((entry) => entry.startsWith("Approved end-state mandate "))).toBe(true)
+    expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
+    assertNoMandateSplice(packet)
   }
 })
 
@@ -517,7 +527,7 @@ test("an unregistered lane is a typed failure", async () => {
   expect(built.failure!.message).toContain("summarize")
 })
 
-test("a representable multi-subject predicate is not limited to one constraint entry", async () => {
+test("a representable multi-subject predicate rides the typed field verbatim", async () => {
   const contract = pinnedContract()
   contract.outcome_predicates = [{
     predicate_id: "predicate:files",
@@ -528,7 +538,7 @@ test("a representable multi-subject predicate is not limited to one constraint e
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
   expect(built.failure).toBeUndefined()
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  expect(JSON.parse(mandateParts(built.packet!).join(""))).toEqual(contract.outcome_predicates)
+  expect(typedPredicates(built.packet!)).toEqual(decodedContractPredicates(contract))
 })
 
 test("an oversized narrative is a typed context overflow, not a truncated packet", async () => {
@@ -551,43 +561,29 @@ test("an oversized pinned design and narrative are a typed context overflow", as
   expect(built.failure!.limit).toBe(16_384)
 })
 
-test("a predicate larger than one constraint remains lossless across parts", async () => {
-  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract("m".repeat(4_096))) })
-  expect(built.failure).toBeUndefined()
-  expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  expect(JSON.parse(mandateParts(built.packet!).join(""))).toEqual(pinnedContract("m".repeat(4_096)).outcome_predicates)
+test("an outcome_payload the core recorded but that cannot decode is a typed transport failure", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract("not json {")) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("transport_failure")
+  expect(built.failure!.message).toContain("outcome_payload")
 })
 
-test("a mandate that overflowed the task bound remains lossless in constraints", async () => {
-  const predicates = Array.from({ length: 8 }, (_, ordinal) => ({
-    predicate_id: `predicate:synthetic-${ordinal}`,
-    ordinal,
-    outcome_kind: "check",
-    outcome_payload: JSON.stringify({ kind: "check", check_ref: `check:synthetic/${ordinal}/${"r".repeat(100)}`, immutable_subject_ref: "contract:synthetic/v1", expected_result: "pass" }),
-  }))
-  const legacyTaskFor = (premise: string) => [
-    `Deliver the approved objective for work ${WORK_ID}, at workflow step "${WORKFLOW_STEP}" (work v1, contract v1).`,
-    "",
-    "Approved objective:",
-    premise,
-    "",
-    "Approved end-state mandate:",
-    JSON.stringify(predicates),
-  ].join("\n")
-  const premise = "o".repeat(4_584 - legacyTaskFor("").length)
-  const legacyTask = legacyTaskFor(premise)
-  expect(legacyTask.length).toBe(4_584)
-  expect(legacyTask.length).toBeGreaterThan(4_096)
-
-  const contract = pinnedContract(OUTCOME_PAYLOAD, premise)
-  contract.outcome_predicates = predicates
+test("an outcome_kind outside the closed set is a typed transport failure", async () => {
+  const contract = pinnedContract()
+  contract.outcome_predicates = [{ predicate_id: "predicate:legacy", ordinal: 0, outcome_kind: "capability_available", outcome_payload: "{}" }]
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
-  expect(built.failure).toBeUndefined()
-  const packet = built.packet!
-  expect(packet.inputs.task).not.toContain("predicate:synthetic-0")
-  expect(packet.inputs.task).toContain(premise)
-  expect(mandateParts(packet).join("")).toBe(JSON.stringify(predicates))
-  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("transport_failure")
+  expect(built.failure!.message).toContain("capability_available")
+})
+
+test("a premise that outgrows the task bound is a typed task overflow, not a constraint spill", async () => {
+  const premise = "o".repeat(4_500)
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(OUTCOME_PAYLOAD, premise)) })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("projection_overflow")
+  expect(built.failure!.field).toBe("task")
+  expect(built.failure!.limit).toBe(4_096)
 })
 
 test("the task bound rejects only the next character", async () => {
@@ -613,50 +609,80 @@ test("the task bound rejects only the next character", async () => {
 
 })
 
-test("the serialized mandate bound admits exactly 64 entries", async () => {
-  const contract = pinnedContract("")
-  const partLimit = 512 - "Approved end-state mandate (join parts in order) 64/64: ".length
-  const probe = await build(defaultScript())
-  expect(probe.failure).toBeUndefined()
-  expect(probe.packet!.inputs.constraints).toHaveLength(1)
-  const payloadLength = 64 * partLimit - JSON.stringify(contract.outcome_predicates).length
-  contract.outcome_predicates[0].outcome_payload = "p".repeat(payloadLength)
-  const exact = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
-  expect(exact.failure).toBeUndefined()
-  expect(exact.packet!.inputs.constraints).toHaveLength(64)
-  expect(validateAgentLanePacket(exact.packet!)).toBe(true)
-  expect(JSON.parse(mandateParts(exact.packet!).join(""))).toEqual(contract.outcome_predicates)
+test("the serialized typed predicate bound stays fail-closed at the capacity the splice carried", async () => {
+  const fatPredicates = (subjectPadding: number) =>
+    Array.from({ length: 8 }, (_, ordinal) => ({
+      predicate_id: `predicate:synthetic-${ordinal}`,
+      ordinal,
+      outcome_kind: "exists",
+      outcome_payload: JSON.stringify({ kind: "exists", surface: "repository", subjects: Array.from({ length: 100 }, (_, index) => `file/path-${index}-${"a".repeat(subjectPadding)}`) }),
+    }))
+  const contract = pinnedContract()
+  contract.outcome_predicates = fatPredicates(48)
+  const over = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
+  expect(over.packet).toBeUndefined()
+  expect(over.failure!.kind).toBe("projection_overflow")
+  expect(over.failure!.field).toBe("outcome_predicates")
+  expect(over.failure!.limit).toBe(64 * 512)
+  expect(over.failure!.actual).toBe(JSON.stringify(decodedContractPredicates(contract)).length)
+  expect(over.failure!.actual).toBeGreaterThan(64 * 512)
 
-  contract.outcome_predicates[0].outcome_payload += "p"
-  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract) })
-  expect(built.packet).toBeUndefined()
-  expect(built.failure!.kind).toBe("projection_overflow")
-  expect(built.failure!.field).toBe("constraints")
-  expect(built.failure!.limit).toBe(64)
-  expect(built.failure!.actual).toBe(65)
+  const slim = pinnedContract()
+  slim.outcome_predicates = fatPredicates(8)
+  const under = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(slim) })
+  expect(under.failure).toBeUndefined()
+  expect(validateAgentLanePacket(under.packet!)).toBe(true)
+  expect(typedPredicates(under.packet!)).toEqual(decodedContractPredicates(slim))
 })
 
-test("mandate chunking preserves Unicode and is deterministic across boundaries", async () => {
-  for (const padding of [0, 1, 127, 255, 450, 451, 452, 511, 512, 513, 1_024]) {
-    const payload = JSON.stringify({ text: `${"x".repeat(padding)}${"🚀e\u0301漢\n\"\\".repeat(80)}` })
-    const contract = pinnedContract(payload)
-    const script = { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(contract, DESIGN_RECORD) }
-    const first = await build(script)
-    const second = await build(script)
-    expect(first.failure).toBeUndefined()
-    expect(second).toEqual(first)
-    expect(validateAgentLanePacket(first.packet!)).toBe(true)
-    const parts = mandateParts(first.packet!)
-    expect(parts.length).toBeGreaterThan(1)
-    for (const part of parts) {
-      expect(/[\uD800-\uDBFF]$/.test(part)).toBe(false)
-      expect(/^[\uDC00-\uDFFF]/.test(part)).toBe(false)
-    }
-    expect(parts.join("")).toBe(JSON.stringify(contract.outcome_predicates))
-    expect(JSON.parse(parts.join(""))).toEqual(contract.outcome_predicates)
-    expect(first.packet!.inputs.context).toContain("The typed design record.")
-    expect(first.packet!.inputs.context).toEndWith(NARRATIVE)
-  }
+test("the closed packet schema enforces the strict per-kind outcome payload field sets", () => {
+  const packet = (predicate: Record<string, unknown>) => ({
+    schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
+    lane_digest: "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
+    work_id: WORK_ID, step_id: "step-1",
+    inputs: { task: "t", outcome_predicates: [predicate] },
+  })
+  const check = { predicate_id: "predicate:primary", ordinal: 0, outcome_kind: "check", outcome_payload: { kind: "check", check_ref: "check:one", immutable_subject_ref: "contracts/x.json", expected_result: "pass" } }
+  const failures: string[] = []
+  expect(validateAgentLanePacket(packet(check), failures)).toBe(true)
+
+  // A check payload missing its strict field set is refused by the if-then branch.
+  const incomplete = { ...check, outcome_payload: { kind: "check", check_ref: "check:one" } }
+  expect(validateAgentLanePacket(packet(incomplete), failures)).toBe(false)
+
+  // A payload carrying another kind's fields is refused: the branch schema is closed.
+  const mixed = { ...check, outcome_payload: { ...check.outcome_payload, allowed: ["resolved"] } }
+  expect(validateAgentLanePacket(packet(mixed), failures)).toBe(false)
+
+  // An exists-kind payload with a kind mismatching outcome_kind is refused.
+  const mismatched = { ...check, outcome_kind: "exists", outcome_payload: { kind: "check", check_ref: "check:one", immutable_subject_ref: "contracts/x.json", expected_result: "pass" } }
+  expect(validateAgentLanePacket(packet(mismatched), failures)).toBe(false)
+
+  // An exists payload missing distinguish_from's sibling rule stays valid, while
+  // an absent payload without distinguish_from is refused.
+  const absentIncomplete = { ...check, outcome_kind: "absent", outcome_payload: { kind: "absent", surface: "repository", subjects: ["file/one"] } }
+  expect(validateAgentLanePacket(packet(absentIncomplete), failures)).toBe(false)
+  const absentComplete = { ...check, outcome_kind: "absent", outcome_payload: { kind: "absent", surface: "repository", subjects: ["file/one"], distinguish_from: ["renamed"] } }
+  expect(validateAgentLanePacket(packet(absentComplete), failures)).toBe(true)
+
+  // An unknown field on the predicate object is refused, and a ninth predicate
+  // is refused.
+  const unknownField = { ...check, extra: true }
+  expect(validateAgentLanePacket(packet(unknownField), failures)).toBe(false)
+  const nine = Array.from({ length: 9 }, (_, ordinal) => ({ ...check, predicate_id: `predicate:nine-${ordinal}`, ordinal }))
+  expect(validateAgentLanePacket({ ...packet(check), inputs: { task: "t", outcome_predicates: nine } }, failures)).toBe(false)
+})
+
+test("a typed packet field is deterministic across builds and carries the design context", async () => {
+  const script = { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD) }
+  const first = await build(script)
+  const second = await build(script)
+  expect(first.failure).toBeUndefined()
+  expect(second).toEqual(first)
+  expect(validateAgentLanePacket(first.packet!)).toBe(true)
+  expect(typedPredicates(first.packet!)).toEqual(decodedContractPredicates())
+  expect(first.packet!.inputs.context).toContain("The typed design record.")
+  expect(first.packet!.inputs.context).toEndWith(NARRATIVE)
 })
 
 test("a narrative at the context bound still fits", async () => {

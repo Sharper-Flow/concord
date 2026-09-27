@@ -8355,6 +8355,9 @@
                 "minLength": 1,
                 "maxLength": 512
               }
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
           }
         }
@@ -13602,6 +13605,122 @@
             "$ref": "#/$defs/id"
           }
         }
+      }
+    },
+    "worker_packet_outcome_predicates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "predicate_id",
+          "ordinal",
+          "outcome_kind",
+          "outcome_payload"
+        ],
+        "properties": {
+          "predicate_id": {
+            "$ref": "#/$defs/id",
+            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "outcome_kind": {
+            "type": "string",
+            "enum": [
+              "exists",
+              "absent",
+              "outcome",
+              "check"
+            ]
+          },
+          "outcome_payload": {
+            "$ref": "#/$defs/workflow_outcome_payload"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "exists"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_exists"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "absent"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_absent"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "outcome"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_outcome"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome_kind": {
+                  "const": "check"
+                }
+              },
+              "required": [
+                "outcome_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "outcome_payload": {
+                  "$ref": "#/$defs/workflow_outcome_check"
+                }
+              }
+            }
+          }
+        ]
       }
     }
   }

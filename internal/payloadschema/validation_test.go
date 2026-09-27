@@ -29,3 +29,34 @@ func TestDateTimeFormatIsEnforced(t *testing.T) {
 		}
 	}
 }
+
+// The worker_packet mirror must refuse a typed outcome predicate whose
+// outcome_payload does not match its declared outcome_kind, so a packet the
+// lane contract admits cannot diverge from the strict per-kind field sets at
+// the dispatch_worker boundary.
+func TestWorkerPacketTypedPredicatesEnforcePerKindFieldSets(t *testing.T) {
+	packet := func(predicates string) []byte {
+		return []byte(`{
+			"schema_version": "1.0", "attempt_id": "attempt-1", "lane_id": "implement",
+			"lane_version": 1, "lane_digest": "sha256:` + string(make([]byte, 0)) + `0000000000000000000000000000000000000000000000000000000000000000",
+			"work_id": "work-1", "step_id": "execution",
+			"inputs": {"task": "t", "outcome_predicates": ` + predicates + `}
+		}`)
+	}
+	valid := packet(`[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:one","immutable_subject_ref":"contracts/x.json","expected_result":"pass"}}]`)
+	if err := Validate("worker_packet", valid); err != nil {
+		t.Fatalf("valid typed packet refused: %v", err)
+	}
+	kindMismatch := packet(`[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"check","check_ref":"check:one","immutable_subject_ref":"contracts/x.json","expected_result":"pass"}}]`)
+	if err := Validate("worker_packet", kindMismatch); err == nil {
+		t.Fatal("kind mismatch between outcome_kind and outcome_payload was admitted")
+	}
+	incompleteSet := packet(`[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:one"}}]`)
+	if err := Validate("worker_packet", incompleteSet); err == nil {
+		t.Fatal("check payload with an incomplete strict field set was admitted")
+	}
+	foreignField := packet(`[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:one","immutable_subject_ref":"contracts/x.json","expected_result":"pass","allowed":["resolved"]}}]`)
+	if err := Validate("worker_packet", foreignField); err == nil {
+		t.Fatal("payload carrying another kind's field was admitted")
+	}
+}

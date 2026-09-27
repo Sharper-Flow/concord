@@ -207,18 +207,25 @@ type workflowActionCompletedPayload struct {
 	// next action that opens or accepts against this step epoch. CD-0067
 	// D2 additionally binds the canonical digest of the lane packet so
 	// the durable record names what the window was opened for.
-	WorkerLaneID           string   `json:"worker_lane_id,omitempty"`
-	WorkerPacketDigest     string   `json:"worker_packet_digest,omitempty"`
-	WorkerWorktreeIdentity string   `json:"worker_worktree_identity,omitempty"`
-	CorrectionDiagnosis    string   `json:"correction_diagnosis,omitempty"`
-	CorrectionStrategy     string   `json:"correction_strategy,omitempty"`
-	CorrectionEvidenceRefs []string `json:"correction_evidence_refs,omitempty"`
-	CorrectionPredicateIDs []string `json:"correction_predicate_ids,omitempty"`
-	DeliveryArtifact       string   `json:"delivery_artifact,omitempty"`
-	DeliveryState          string   `json:"delivery_state,omitempty"`
-	ResultEvidenceRefs     []string `json:"result_evidence_refs"`
-	ChangedRefs            []string `json:"changed_refs"`
-	ActorRef               string   `json:"actor_ref"`
+	WorkerLaneID       string `json:"worker_lane_id,omitempty"`
+	WorkerPacketDigest string `json:"worker_packet_digest,omitempty"`
+	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
+	// dispatch_worker authorization extracted from the same packet bytes it
+	// digested. The worker completion fold reads them as the immutable
+	// discharge obligation set, so a report cannot narrow its own
+	// obligations; dispatches whose packet predates the typed field record
+	// none.
+	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids,omitempty"`
+	WorkerWorktreeIdentity   string   `json:"worker_worktree_identity,omitempty"`
+	CorrectionDiagnosis      string   `json:"correction_diagnosis,omitempty"`
+	CorrectionStrategy       string   `json:"correction_strategy,omitempty"`
+	CorrectionEvidenceRefs   []string `json:"correction_evidence_refs,omitempty"`
+	CorrectionPredicateIDs   []string `json:"correction_predicate_ids,omitempty"`
+	DeliveryArtifact         string   `json:"delivery_artifact,omitempty"`
+	DeliveryState            string   `json:"delivery_state,omitempty"`
+	ResultEvidenceRefs       []string `json:"result_evidence_refs"`
+	ChangedRefs              []string `json:"changed_refs"`
+	ActorRef                 string   `json:"actor_ref"`
 }
 
 type workflowActionFailedPayload struct {

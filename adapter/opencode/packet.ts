@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketFailure, type AgentLanePacketOutcomePredicate } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -22,7 +22,7 @@ export type AgentLanePacketFailureKind =
   | "projection_overflow"
   | "packet_refused"
 
-export type AgentLanePacketField = "task" | "context" | "constraints"
+export type AgentLanePacketField = "task" | "context" | "constraints" | "outcome_predicates"
 
 export interface AgentLanePacketFailure {
   kind: AgentLanePacketFailureKind
@@ -136,6 +136,46 @@ function renderProposalRecord(value: unknown): string {
   return lines.join("\n") + "\n\n"
 }
 
+// The closed outcome_kind set the packet schema admits. The continuity read
+// types outcome_kind only as a short string, so the builder refuses a kind
+// outside this set before the closed schema sees the packet.
+const OUTCOME_PREDICATE_KINDS: AgentLanePacketOutcomePredicate["outcome_kind"][] = ["exists", "absent", "outcome", "check"]
+
+// decodeOutcomePredicates projects the pinned contract's outcome_predicates
+// into the packet's typed field. The continuity read carries each
+// outcome_payload as a JSON-encoded string, so the builder decodes it into
+// the predicate object the closed schema validates; a payload the core
+// recorded but that cannot decode is a typed transport failure, never a
+// string to reassemble.
+function decodeOutcomePredicates(workId: string, predicates: unknown[]): { predicates: AgentLanePacketOutcomePredicate[]; failure?: undefined } | { predicates?: undefined; failure: AgentLanePacketFailure } {
+  const decoded: AgentLanePacketOutcomePredicate[] = []
+  for (const predicate of predicates) {
+    if (!isRecord(predicate)) return failure("transport_failure", `work ${workId} pinned contract carried a malformed outcome predicate`)
+    const predicateId = typeof predicate.predicate_id === "string" ? predicate.predicate_id : ""
+    const ordinal = typeof predicate.ordinal === "number" && Number.isInteger(predicate.ordinal) ? predicate.ordinal : null
+    const kind = typeof predicate.outcome_kind === "string" ? predicate.outcome_kind : ""
+    if (predicateId.length === 0 || ordinal === null) {
+      return failure("transport_failure", `work ${workId} pinned contract carried an outcome predicate without a typed predicate_id and ordinal`)
+    }
+    if (!OUTCOME_PREDICATE_KINDS.includes(kind as AgentLanePacketOutcomePredicate["outcome_kind"])) {
+      return failure("transport_failure", `work ${workId} outcome predicate ${predicateId} declares outcome_kind ${JSON.stringify(kind)}, outside the closed exists/absent/outcome/check set`)
+    }
+    let payload: unknown = predicate.outcome_payload
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload)
+      } catch {
+        return failure("transport_failure", `work ${workId} outcome predicate ${predicateId} carried an outcome_payload that is not valid JSON`)
+      }
+    }
+    if (!isRecord(payload)) {
+      return failure("transport_failure", `work ${workId} outcome predicate ${predicateId} carried an outcome_payload that is not a JSON object`)
+    }
+    decoded.push({ predicate_id: predicateId, ordinal, outcome_kind: kind as AgentLanePacketOutcomePredicate["outcome_kind"], outcome_payload: payload })
+  }
+  return { predicates: decoded }
+}
+
 function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | undefined {
   if (!isRecord(value)) return undefined
   const disposition = value.disposition === "failed" || value.disposition === "rejected" || value.disposition === "verification" ? value.disposition : null
@@ -204,12 +244,11 @@ async function readOperation(
 // be retyped prose.
 //
 // The pinned contract is the mandate's authority whenever one is present
-// (#903): its premise is the approved objective the worker must deliver, and
-// its version plus the work item version bind the packet to the exact recorded
-// state it projected. Read-only classes without a contract use the recorded
-// work question and narrative at a joined step instead. Numbered constraints
-// carry the complete serialized delivery mandate, with boundaries that preserve
-// Unicode characters.
+// (#903): its premise is the approved objective the worker must deliver, its
+// typed outcome predicates ride inputs.outcome_predicates, and its version
+// plus the work item version bind the packet to the exact recorded state it
+// projected. Read-only classes without a contract use the recorded work
+// question and narrative at a joined step instead.
 export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps: AgentLanePacketDeps): Promise<AgentLanePacketBuild> {
   const lane: AgentLane | undefined = agentLanes.find((candidate) => candidate.id === request.laneId)
   if (!lane) {
@@ -322,30 +361,22 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     return failure("projection_overflow", `the pinned design, law context, proposal, and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
 
-  // CD-0056: the fold refuses a report that leaves a declared obligation
-  // undischarged. The lane definition carries the report contract and
-  // obligations because a malformed first message has no packet constraints.
-  const mandateLabel = "Approved end-state mandate (join parts in order) "
-  const partLimit = CONSTRAINT_MAX_LENGTH - `${mandateLabel}${CONSTRAINTS_MAX_ITEMS}/${CONSTRAINTS_MAX_ITEMS}: `.length
-  const mandateParts: string[] = []
-  let part = ""
-  for (const character of outcomePredicates.length > 0 ? JSON.stringify(outcomePredicates) : "") {
-    if (part.length + character.length > partLimit) {
-      mandateParts.push(part)
-      part = ""
-    }
-    part += character
-  }
-  if (part.length > 0) mandateParts.push(part)
-  const predicateConstraints = mandateParts.map((text, index) => `${mandateLabel}${index + 1}/${mandateParts.length}: ${text}`)
-
-  const constraints = predicateConstraints
-  if (constraints.length > CONSTRAINTS_MAX_ITEMS) {
-    return failure("projection_overflow", `lane ${lane.id} projects ${constraints.length} constraints, above the inputs.constraints limit of ${CONSTRAINTS_MAX_ITEMS}`, { field: "constraints", limit: CONSTRAINTS_MAX_ITEMS, actual: constraints.length })
-  }
-  const oversized = constraints.find((entry) => entry.length > CONSTRAINT_MAX_LENGTH)
-  if (oversized !== undefined) {
-    return failure("projection_overflow", `a rendered packet constraint does not fit an inputs.constraints entry: ${oversized.length} characters against a limit of ${CONSTRAINT_MAX_LENGTH}`, { field: "constraints", limit: CONSTRAINT_MAX_LENGTH, actual: oversized.length })
+  // The typed outcome predicates ride inputs.outcome_predicates as validated
+  // predicate objects, decoded from the continuity read's serialized
+  // payloads. The spliced mandate strings are gone: the packet is produced
+  // and consumed within one release, so no cross-version reader needs the
+  // splice, and the validated structure the fold keys its discharge
+  // requirement on survives the boundary verbatim.
+  const decoded = decodeOutcomePredicates(request.workId, outcomePredicates)
+  if (decoded.failure) return { failure: decoded.failure }
+  // Fail-closed bound on the serialized typed field. The field inherits the
+  // capacity the spliced constraint entries carried, so a contract that
+  // outgrew the splice refuses here as a typed projection overflow rather
+  // than shipping an unbounded packet.
+  const serializedPredicates = JSON.stringify(decoded.predicates)
+  const predicatesBound = CONSTRAINTS_MAX_ITEMS * CONSTRAINT_MAX_LENGTH
+  if (serializedPredicates.length > predicatesBound) {
+    return failure("projection_overflow", `the pinned contract's typed outcome predicates do not fit the serialized packet bound: ${serializedPredicates.length} characters against a limit of ${predicatesBound}`, { field: "outcome_predicates", limit: predicatesBound, actual: serializedPredicates.length })
   }
 
   const packet = {
@@ -356,7 +387,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), constraints },
+    inputs: { task, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

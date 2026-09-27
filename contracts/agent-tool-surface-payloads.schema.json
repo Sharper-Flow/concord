@@ -1110,6 +1110,9 @@
           "minLength": 1,
           "maxLength": 8192
         },
+        "value_statement": {
+          "$ref": "#/$defs/short"
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
@@ -3926,6 +3929,11 @@
         },
         "value_statement": {
           "$ref": "#/$defs/short"
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
         },
         "kind": {
           "$ref": "#/$defs/work_kind"

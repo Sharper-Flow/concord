@@ -809,3 +809,70 @@ test("a read-only lane prefers the persisted work task as the recorded question"
   const packet = built.packet!
   expect(packet.inputs.task).toContain(PERSISTED_TASK)
 })
+
+// The why rides ahead of the how: the item's recorded value statement renders
+// as one line before the design record, and an item without a value statement
+// omits the line, so older items stay legal.
+const VALUE_STATEMENT = "A dispatched worker reads why the work matters before the how."
+
+const scopeWithValue = (valueStatement?: string, narrative: string = NARRATIVE) =>
+  coreEnvelope("concord_work_browse", "scope", "PM1.Q6", "ok", {
+    result: {
+      work: { id: WORK_ID, kind: "task", title: "Project dispatch inputs from durable state", lifecycle: "in_progress", version: 1, priority: 0, project_ids: [PRODUCT_ID], ready: true, narrative, ...(valueStatement === undefined ? {} : { value_statement: valueStatement }), terminal_at: null },
+      memberships: [{ project_id: PRODUCT_ID, role: "primary" }],
+      items: [],
+    },
+  })
+
+test("the context carries the value line ahead of the design record", async () => {
+  const built = await build({
+    "concord_work_browse.scope": scopeWithValue(VALUE_STATEMENT),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD),
+  })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const packet = built.packet!
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  const context = packet.inputs.context!
+  expect(context).toContain(`Value: ${VALUE_STATEMENT}`)
+  expect(context.indexOf(`Value: ${VALUE_STATEMENT}`)).toBe(0)
+  expect(context.indexOf("Approved design record:")).toBeGreaterThan(context.indexOf(`Value: ${VALUE_STATEMENT}`))
+  expect(context.indexOf("The dispatched worker goal")).toBeGreaterThan(context.indexOf("Approved design record:"))
+})
+
+test("a value statement carrying embedded newlines renders as one guaranteed line", async () => {
+  const multiLineValue = "why it matters\r\nsecond line of the why\nthird line"
+  const built = await build({
+    "concord_work_browse.scope": scopeWithValue(multiLineValue),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD),
+  })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  const context = built.packet!.inputs.context!
+  const rendered = `Value: why it matters second line of the why third line`
+  expect(context.indexOf(rendered)).toBe(0)
+  expect(context.slice(0, context.indexOf("\n\n"))).toBe(rendered)
+  expect(context.indexOf("Approved design record:")).toBeGreaterThan(context.indexOf(rendered))
+})
+
+test("a work item without a value statement omits the value line", async () => {
+  const withoutValue = await build({ ...defaultScript(), "concord_work_browse.scope": scopeWithValue() })
+  expect(withoutValue.failure).toBeUndefined()
+  expect(withoutValue.packet!.inputs.context).not.toContain("Value:")
+  expect(withoutValue.packet!.inputs.context).toBe(NARRATIVE)
+  const blankValue = await build({ ...defaultScript(), "concord_work_browse.scope": scopeWithValue("   ") })
+  expect(blankValue.failure).toBeUndefined()
+  expect(blankValue.packet!.inputs.context).toBe(NARRATIVE)
+})
+
+test("a value statement counts inside the unchanged context overflow bound", async () => {
+  const fatValue = "v".repeat(16_000)
+  const valueLine = `Value: ${fatValue}\n\n`
+  const narrative = "n".repeat(16_384 - valueLine.length + 1)
+  const built = await build({
+    "concord_work_browse.scope": scopeWithValue(fatValue, narrative),
+    "concord_work_trace.continuity": continuityEnvelope(),
+  })
+  expect(built.packet).toBeUndefined()
+  expect(built.failure!.kind).toBe("projection_overflow")
+  expect(built.failure!.field).toBe("context")
+  expect(built.failure!.limit).toBe(16_384)
+})

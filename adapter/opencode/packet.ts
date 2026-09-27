@@ -292,6 +292,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const narrative = typeof work.narrative === "string" ? work.narrative : ""
   const title = typeof work.title === "string" ? work.title : ""
   const recordedTask = typeof work.task === "string" ? work.task.trim() : ""
+  const valueStatement = typeof work.value_statement === "string" ? work.value_statement.trim() : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
   const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
@@ -364,6 +365,15 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
 
   const design = renderDesignRecord(pinned.design_record)
+  // The why rides ahead of the how: the item's recorded value statement
+  // renders as one line before the design record, the law context, the
+  // proposal, and the recorded task, so a dispatched worker reads why the work
+  // matters first. Older items without a value statement omit the line.
+  // A value statement may carry embedded newlines the schema permits; the
+  // packet renders one guaranteed line, so embedded line breaks collapse to
+  // single spaces and no value can place text ahead of the real design
+  // record or masquerade as another context block.
+  const valueLine = valueStatement.length > 0 ? `Value: ${valueStatement.replace(/[\r\n]+/g, " ")}\n\n` : ""
   // The resolved contract-bound law and Domains, then the recorded proposal,
   // ride after the design record so the worker reads binding state before the
   // work narrative. Overflow stays fail-closed on the combined context.
@@ -375,9 +385,9 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // worker. The premise stays the approved objective in inputs.task; the
   // recorded task rides context ahead of the narrative so a contract-mandated
   // worker receives the concrete instructions too, not only the premise.
-  const context = design + lawContext + proposal + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
+  const context = valueLine + design + lawContext + proposal + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
   if (context.length > CONTEXT_MAX_LENGTH) {
-    return failure("projection_overflow", `the pinned design, law context, proposal, and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
+    return failure("projection_overflow", `the value statement, pinned design, law context, proposal, and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
   }
 
   // The typed outcome predicates ride inputs.outcome_predicates as validated

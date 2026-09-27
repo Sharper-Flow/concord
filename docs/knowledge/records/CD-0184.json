@@ -1,0 +1,44 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8392894d5f50a158bf6910c1",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0184",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0012"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0013"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0018"
+    }
+  ],
+  "path": "docs/decisions/CD-0184-acceptance-is-decidable-at-delivery.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:1259d9eb87a1f973fb150a5fc9fc34f47aeb55caa4a7165f0e6ca6f04812efce",
+  "status": "accepted",
+  "summary": "An approved contract's outcome predicates name only end states verification can decide when the change is delivered. Post-delivery observation over a time window is a follow-up item linked raised_from the delivering item, and one-shot live checks decidable at delivery stay allowed.",
+  "tags": [
+    "contracts",
+    "outcome-predicates",
+    "approval",
+    "verdicts"
+  ],
+  "title": "Acceptance is decidable at delivery"
+}

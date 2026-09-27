@@ -1,0 +1,14 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-json.py"
+    },
+    {
+      "kind": "generated",
+      "value": "adapter/opencode/generated-contract-tests.ts#advertisedAdmissionTeachingGaps"
+    }
+  ],
+  "id": "CD-0184",
+  "state": "satisfied"
+}

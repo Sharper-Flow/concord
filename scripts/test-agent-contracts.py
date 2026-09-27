@@ -526,4 +526,58 @@ class AdapterHostDiagnosticTests(unittest.TestCase):
         self.assertEqual(self.reconcile("", [], 0), [])
 
 
+class DeliveryDecidableTeachingTests(unittest.TestCase):
+    """CD-0184: the authoring schema teaches that acceptance is decidable at
+    delivery. The outcome_predicates array shared by approve_contract and
+    supersede_contract and the add_condition expected_within_seconds field
+    carry the rule, and the generator refuses a projection that drops it.
+    """
+
+    def _add_condition_branches(self, defs):
+        for condition in defs["work_transition_action_shared_input"]["allOf"]:
+            trigger = condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const")
+            if trigger != "add_condition":
+                continue
+            then = condition["then"]
+            return then.get("anyOf") or [then]
+        return None
+
+    def test_shipped_predicate_array_teaches_the_rule(self):
+        items = payload_schema["$defs"]["workflow_action_outcome_predicates"]
+        text = items.get("description", "")
+        self.assertIn("decidable at delivery", text)
+        self.assertIn("raised_from", text)
+
+    def test_shipped_add_condition_wait_teaches_the_rule(self):
+        branches = self._add_condition_branches(payload_schema["$defs"])
+        self.assertIsNotNone(branches)
+        for branch in branches:
+            wait = branch["properties"]["fields"]["properties"]["expected_within_seconds"]
+            self.assertIn("raised_from", wait.get("description", ""))
+            self.assertIn("time window", wait.get("description", ""))
+
+    def test_generator_refuses_a_projection_that_drops_the_rule(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        del defs["workflow_action_outcome_predicates"]["description"]
+        with self.assertRaises(ValueError):
+            generator.require_delivery_rule_teaching(defs)
+
+    def test_generator_refuses_a_projection_that_drops_the_wait_rule(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        for branch in self._add_condition_branches(defs):
+            branch["properties"]["fields"]["properties"]["expected_within_seconds"].pop("description")
+        with self.assertRaises(ValueError):
+            generator.require_delivery_rule_teaching(defs)
+
+    def test_generator_refuses_a_projection_without_the_add_condition_condition(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        conditions = defs["work_transition_action_shared_input"]["allOf"]
+        defs["work_transition_action_shared_input"]["allOf"] = [
+            condition for condition in conditions
+            if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") != "add_condition"
+        ]
+        with self.assertRaises(ValueError):
+            generator.require_delivery_rule_teaching(defs)
+
+
 if __name__ == "__main__": unittest.main()

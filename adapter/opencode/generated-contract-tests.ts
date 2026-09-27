@@ -16,11 +16,12 @@ export function envelopeFailurePath(value: unknown): string | null {
 }
 // advertisedAdmissionTeachingGaps reports every approve_contract admission
 // rule the published concord_work_transition schema fails to teach a calling
-// agent. An empty list means the advertised schema carries all four store
+// agent. An empty list means the advertised schema carries all five store
 // rules: the item-level required set with ordinal, the strict four-variant
-// outcome_payload oneOf, the predicate_id prefix, and the per-workflow pinned
-// outcome tokens. The store's ValidateOperationPayload stays the closed
-// admission boundary; this checks only what the advertised surface teaches.
+// outcome_payload oneOf, the predicate_id prefix, the per-workflow pinned
+// outcome tokens, and the CD-0184 delivery-decidable rule. The store's
+// ValidateOperationPayload stays the closed admission boundary; this checks
+// only what the advertised surface teaches.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const gaps: string[] = [];
   const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
@@ -48,6 +49,14 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const tokens: unknown = allowedBranch?.properties?.allowed?.description;
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  }
+  const delivery: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.description;
+  if (typeof delivery !== "string" || !delivery.includes("decidable at delivery") || !delivery.includes("raised_from")) {
+    gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
+  }
+  const wait: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.expected_within_seconds?.description;
+  if (typeof wait !== "string" || !wait.includes("raised_from") || !wait.includes("time window")) {
+    gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
   }
   return gaps;
 }

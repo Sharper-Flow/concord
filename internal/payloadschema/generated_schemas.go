@@ -7921,6 +7921,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "minLength": 2
                   },
                   "expected_within_seconds": {
+                    "description": "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.",
                     "maximum": 31536000,
                     "minimum": 1,
                     "type": "integer"
@@ -12086,6 +12087,7 @@ const GeneratedPayloadSchemaDocument = `{
       ]
     },
     "workflow_action_outcome_predicates": {
+      "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
       "items": {
         "additionalProperties": false,
         "properties": {

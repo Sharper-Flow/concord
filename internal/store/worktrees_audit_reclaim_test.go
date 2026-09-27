@@ -506,11 +506,9 @@ func TestAuditReclaimLimitCountsReclaimAttemptsOnly(t *testing.T) {
 		git.dirty[path] = true
 		dirtyPaths = append(dirtyPaths, path)
 	}
-	cleanPaths := []string{}
 	for _, name := range []string{"work-done-a", "work-done-b", "work-done-c"} {
-		path := auditWork(t, s, git, name, true)
+		auditWork(t, s, git, name, true)
 		completeAuditWork(t, s, name, 3)
-		cleanPaths = append(cleanPaths, path)
 	}
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-limit-order", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 2})

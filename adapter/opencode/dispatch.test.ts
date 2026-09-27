@@ -1290,15 +1290,27 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
 
 // A refused completion is reported as an error and closed with worker-fail, so
 // the attempt never stays dispatched. An open attempt blocks every later
-// dispatch on that work item and pins the host session to its worktree.
+// dispatch on that work item and pins the host session to its worktree. The
+// close is invalid_report carrying the refusal text, not abandoned, so the
+// abandoned liveness gate (CD-0178 D3) cannot block a lane that ran inside the
+// live coordinator process.
 test("a completion that cannot be recorded is closed and not reported as a success", async () => {
   const verbs: string[] = []
+  let failureInput: Record<string, unknown> | undefined
   const result = await complete(workerBody(), {
-    evidenceRunner: { async run(argv) { verbs.push(argv[1]); return argv[1] === "worker-complete" ? { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" } : { exitCode: 0, stdout: "", stderr: "" } } },
+    evidenceRunner: { async run(argv, input) {
+      verbs.push(argv[1])
+      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" }
+      if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
   })
   expect(verbs.filter((verb) => verb.startsWith("worker-"))).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
   expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
   expect(result.error?.message).toBe("worker-complete refused: worker attempt belongs to a different work item")
+  expect(failureInput?.failure_kind).toBe("invalid_report")
+  expect(failureInput?.detail).toBe("worker-complete refused: worker attempt belongs to a different work item")
 })
 
 test("generic host agents are not dispatchable and never spawn or record", async () => {

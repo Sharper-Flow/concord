@@ -359,6 +359,58 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 	}
 }
 
+// A refused completion closes as invalid_report while the coordinator's own
+// occupancy row is live. The abandoned kind alone carries the CD-0178 D3
+// liveness gate, so a lane that ran inside the live coordinator process ends
+// as failed and the coordinator can record_worker_failure and request an
+// operator-approved retry.
+func TestInvalidReportWorkerFailureClosesUnderLiveOccupancy(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	claim := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), claim); err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "invalid-report-attempt"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-w", attemptID, lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The test process is alive: its recorded pid and pid_start match what
+	// /proc returns, so the occupancy row proves live for the whole test.
+	pid := os.Getpid()
+	pidStart, err := hostlease.ProcessStart(pid)
+	if err != nil {
+		t.Fatalf("cannot read test pid start: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		VALUES (?, ?, ?, ?, ?, 1);
+		DELETE FROM fold_guard`,
+		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-live", "1970-01-01T00:00:00Z", pid, pidStart); err != nil {
+		t.Fatal(err)
+	}
+
+	closeEvent := Event{
+		EventID: "invalid-report-close", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerFailedPayload{
+			AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureInvalidReport,
+			Detail: "worker-complete refused: worker report names evidence obligations the dispatching lane does not declare"}),
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{closeEvent}}); err != nil {
+		t.Fatalf("invalid_report close under a live occupancy row: %v", err)
+	}
+	var state, failure string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failure); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || failure != WorkerFailureInvalidReport {
+		t.Fatalf("invalid_report close projection = %q/%q, want failed/%s", state, failure, WorkerFailureInvalidReport)
+	}
+}
+
 func failAbandonedWorkerAttempt(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	fail := Event{EventID: "abandoned-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureAbandoned, Detail: "the host observed that the lane never reported"})}

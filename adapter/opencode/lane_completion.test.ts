@@ -254,7 +254,10 @@ describe("completeDispatchedWorker", () => {
   })
 
   // An attempt the core refused to complete must not stay dispatched: an open
-  // attempt blocks every later dispatch on that work item.
+  // attempt blocks every later dispatch on that work item. The close is
+  // invalid_report carrying the refusal text, not abandoned, so the abandoned
+  // liveness gate (CD-0178 D3) cannot block a lane that ran inside the live
+  // coordinator process.
   test("a refused completion is closed with worker-fail", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
@@ -280,11 +283,13 @@ describe("completeDispatchedWorker", () => {
       concordBinary: "concord",
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
-    expect(failureInput?.failure_kind).toBe("abandoned")
+    expect(failureInput?.failure_kind).toBe("invalid_report")
+    expect(failureInput?.detail).toBe("worker-complete refused: store: worker_dispatch: unauthorized_dispatch: refused")
     // worker-fail carries no host session observation; the close names no
     // observed sessions (CD-0178 D3).
     expect(failureInput?.observed_session_directories).toBeUndefined()
     expect(output.output).toContain("worker-complete refused")
+    expect(output.output).toContain('"kind":"invalid_report"')
   })
 
   // CD-0178 D3: completion never reads host liveness, so a refused

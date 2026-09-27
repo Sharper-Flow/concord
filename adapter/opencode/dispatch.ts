@@ -1882,9 +1882,12 @@ async function completeWorkerSession(
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {
-    // A refused completion leaves the attempt dispatched. The core reads
-    // process liveness from worktree_occupancy, so a refusal carries the
-    // live-session detail itself.
+    // A refused completion closes the attempt as invalid_report with the
+    // refusal text as its detail. abandoned stays reserved for attempts that
+    // returned no report, so its liveness gate (CD-0178 D3) cannot block this
+    // close while the lane runs inside the live coordinator process. The
+    // failed attempt lets the coordinator record_worker_failure and request
+    // an operator-approved retry.
     const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
     let closeAssertion: Record<string, unknown>
     try {
@@ -1896,7 +1899,7 @@ async function completeWorkerSession(
         lane_version: lane.version,
         lane_digest: lane.digest,
         readback_model: readback.readback_model,
-        failure_kind: "abandoned",
+        failure_kind: "invalid_report",
       })
     } catch (error) {
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because its failure could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
@@ -1906,12 +1909,12 @@ async function completeWorkerSession(
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       readback_model: readback.readback_model,
-      failure_kind: "abandoned",
+      failure_kind: "invalid_report",
       detail,
       assertion: closeAssertion,
     }, signal)
     const message = closeFailure ? `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}` : detail
-    return errorEnvelope(lane, packet, "error", "error", message.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+    return errorEnvelope(lane, packet, "error", "invalid_report", message.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   }
 
   return envelope

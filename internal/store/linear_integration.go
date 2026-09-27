@@ -191,7 +191,23 @@ func (s *Store) ResolveLinearPlanningTarget(ctx context.Context, productID strin
 
 func resolveLinearPlanningTargetCore(ctx context.Context, q queryer, productID string) (ProductPlanningMode, error) {
 	if productID == "" {
-		return ProductPlanningMode{}, newFailure(KindAmbiguousScope, "planning_mode_resolve", "planning resolution requires exactly one Product", false, "name the Product explicitly; mode is never inferred from repository path or installation")
+		rows, err := q.QueryContext(ctx, `SELECT id FROM products ORDER BY id`)
+		if err != nil {
+			return ProductPlanningMode{}, wrapFailure(KindUnavailable, "planning_mode_resolve", "cannot read the Product candidates", true, "retry once the Product projection is readable", err)
+		}
+		defer rows.Close()
+		var candidates []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return ProductPlanningMode{}, wrapFailure(KindUnavailable, "planning_mode_resolve", "cannot decode a Product candidate", true, "retry once the Product projection is readable", err)
+			}
+			candidates = append(candidates, id)
+		}
+		if err := rows.Err(); err != nil {
+			return ProductPlanningMode{}, wrapFailure(KindUnavailable, "planning_mode_resolve", "cannot finish reading the Product candidates", true, "retry once the Product projection is readable", err)
+		}
+		return ProductPlanningMode{}, newAmbiguousScopeFailure("planning_mode_resolve", "planning resolution requires exactly one Product", "name the Product explicitly; mode is never inferred from repository path or installation", candidates)
 	}
 	mode, err := readProductPlanningModeCore(ctx, q, productID)
 	if err != nil {
@@ -1144,7 +1160,7 @@ func resolveLinearProductCore(ctx context.Context, q queryer, workID string) (st
 	case 0:
 		return "", newFailure(KindUnknownScope, "linear_product_resolve", "shared work item has no primary project in any Product", false, "give the work item one primary project in the Product that owns its Linear issue")
 	default:
-		return "", newFailure(KindAmbiguousScope, "linear_product_resolve", "shared work item's primary projects span more than one Product", false, "give the work item one primary project in exactly one Product")
+		return "", newAmbiguousScopeFailure("linear_product_resolve", "shared work item's primary projects span more than one Product", "give the work item one primary project in exactly one Product", primary)
 	}
 }
 
@@ -3148,7 +3164,10 @@ func (s *Store) EnsureLinearIssueWork(ctx context.Context, productID, remoteUUID
 	var projectID string
 	err = s.db.QueryRowContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? AND role='primary'`, productID).Scan(&projectID)
 	if err == sql.ErrNoRows {
-		return "", newFailure(KindAmbiguousScope, "linear_issue_adopt", "Product has no primary Project", false, "give the Product a primary Project before adopting Linear issues")
+		// An absent primary Project is an absence, not an ambiguity: no
+		// candidates exist, and an ambiguous refusal without candidates can
+		// never cross the agent envelope.
+		return "", newFailure(KindUnknownScope, "linear_issue_adopt", "Product has no primary Project", false, "give the Product a primary Project before adopting Linear issues")
 	}
 	if err != nil {
 		return "", wrapFailure(KindUnavailable, "linear_issue_adopt", "cannot read the primary Project", true, "retry once the database is readable", err)
@@ -3224,7 +3243,10 @@ func (s *Store) ImportLinearInitiative(ctx context.Context, productID, remoteUUI
 	var projectID string
 	err = s.db.QueryRowContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? AND role='primary'`, productID).Scan(&projectID)
 	if err == sql.ErrNoRows {
-		return ImportedLinearInitiative{}, newFailure(KindAmbiguousScope, "linear_initiative_import", "Product has no primary Project", false, "give the Product a primary Project before importing")
+		// An absent primary Project is an absence, not an ambiguity: no
+		// candidates exist, and an ambiguous refusal without candidates can
+		// never cross the agent envelope.
+		return ImportedLinearInitiative{}, newFailure(KindUnknownScope, "linear_initiative_import", "Product has no primary Project", false, "give the Product a primary Project before importing")
 	} else if err != nil {
 		return ImportedLinearInitiative{}, wrapFailure(KindUnavailable, "linear_initiative_import", "cannot read the primary Project", true, "retry once the database is readable", err)
 	}

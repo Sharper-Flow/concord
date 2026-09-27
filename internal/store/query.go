@@ -436,9 +436,7 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		}
 		if len(ids) > 1 {
 			out.CandidateIDs = ids
-			failure := newFailure(KindAmbiguousScope, "PM1.Q1", "Project belongs to multiple Products", false, "supply an explicit Product scope")
-			failure.CandidateIDs = ids
-			return out, failure
+			return out, newAmbiguousScopeFailure("PM1.Q1", "Project belongs to multiple Products", "supply an explicit Product scope", ids)
 		}
 		p, err := readProduct(ctx, tx, ids[0])
 		if err != nil {

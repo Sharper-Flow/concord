@@ -788,9 +788,7 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	var f *runtimeFailure
 	if errors.As(err, &f) {
 		action := RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
-		out := coreErrorAction(base, f.kind, f.message, action, f.retry)
-		out.Error.Candidates = f.Candidates
-		return out
+		return coreErrorAction(base, f.kind, f.message, action, f.retry, f.Candidates)
 	}
 	var sf *store.Failure
 	if errors.As(err, &sf) {
@@ -807,7 +805,11 @@ func failureEnvelope(base Envelope, err error) Envelope {
 			recovery = publicRecovery(kind, "")
 			refs = nil
 		}
-		out := coreErrorAction(base, kind, sf.Detail, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe)
+		// Candidate identities ride the error at construction, before the
+		// envelope's first validation: an ambiguous_scope refusal the caller
+		// cannot act on is one that never marshals. The store carries them on
+		// every ambiguous-scope refusal it mints.
+		out := coreErrorAction(base, kind, sf.Detail, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 		// Carry typed current-version carriers into the agent envelope so
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for
@@ -868,12 +870,14 @@ func nonNilStrings(values []string) []string {
 }
 
 func coreError(base Envelope, kind, message, recovery string, retry bool) Envelope {
-	return coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery}, retry)
+	return coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery}, retry, nil)
 }
 
 // coreErrorAction is coreError with a fully built recovery action, for the
-// refusals whose remedy is a declared route of workflow actions.
-func coreErrorAction(base Envelope, kind, message string, action RecoveryAction, retry bool) Envelope {
+// refusals whose remedy is a declared route of workflow actions. candidates
+// are the typed identities a refusal carries so the caller can act on it; the
+// envelope validation holds an ambiguous_scope error to a non-empty list.
+func coreErrorAction(base Envelope, kind, message string, action RecoveryAction, retry bool, candidates []string) Envelope {
 	message = boundedErrorMessage(message)
 	// An unreachable refusal says the core could not answer, so the envelope
 	// carries no authoritative claim, freshness, or watermark; the contract
@@ -886,7 +890,7 @@ func coreErrorAction(base Envelope, kind, message string, action RecoveryAction,
 	}
 	base.Authority = authority
 	base.Outcome = OutcomeError
-	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message}
+	base.Error = &TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: EffectNone, Message: message, Candidates: candidates}
 	if _, err := base.Encode(); err == nil {
 		return base
 	}

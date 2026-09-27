@@ -393,7 +393,11 @@ func (s *Store) validateRemovalDestination(ctx context.Context, req WorkRemovalR
 func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemovalRequest) error {
 	if req.ProductID == "" {
 		if req.Linear != nil {
-			return newFailure(KindAmbiguousScope, "work_removal_prepare", "Linear confirmation has no Product destination", false, "supply the authorized Product")
+			products, productErr := productsForWorkIDs(ctx, q, []string{req.WorkID})
+			if productErr != nil {
+				return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the work item's Product destinations", true, "retry once the database is readable", productErr)
+			}
+			return newAmbiguousScopeFailure("work_removal_prepare", "Linear confirmation has no Product destination", "supply the authorized Product", products[req.WorkID])
 		}
 		return nil
 	}

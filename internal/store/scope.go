@@ -164,27 +164,43 @@ func resolveCompactionHome(ctx context.Context, q queryer, workID string) (Knowl
 		return KnowledgeHome{HomeProjectID: c.project, HomeLocatorID: c.locator, RepoPath: c.value, HeadRef: "HEAD"}, nil
 	}
 	if len(productHomes) > 1 {
-		return KnowledgeHome{}, newFailure(KindAmbiguousScope, "compaction_home", "multiple Product knowledge homes are eligible", false, "designate one Product knowledge home")
+		candidates := make([]string, 0, len(productHomes))
+		for _, c := range productHomes {
+			candidates = append(candidates, c.project+"/"+c.locator)
+		}
+		return KnowledgeHome{}, newAmbiguousScopeFailure("compaction_home", "multiple Product knowledge homes are eligible", "designate one Product knowledge home", candidates)
 	}
-	var primary candidate
-	var count int
-	err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&count)
+	rows, err = q.QueryContext(ctx, `SELECT wp.project_id,pl.locator_id,pl.locator_value FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary' ORDER BY wp.project_id,pl.locator_id`, workID)
 	if err != nil {
+		return KnowledgeHome{}, wrapFailure(KindUnavailable, "compaction_home", "cannot resolve the primary Project locators", true, "retry once the database is readable", err)
+	}
+	var primaryLocators []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.project, &c.locator, &c.value); err != nil {
+			rows.Close()
+			return KnowledgeHome{}, err
+		}
+		primaryLocators = append(primaryLocators, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
 		return KnowledgeHome{}, err
 	}
-	if count == 0 {
+	if err := rows.Close(); err != nil {
+		return KnowledgeHome{}, err
+	}
+	if len(primaryLocators) == 0 {
 		return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "terminal work has no eligible canonical home", false, "designate a Product home or primary Project locator")
 	}
-	if count > 1 {
-		return KnowledgeHome{}, newFailure(KindAmbiguousScope, "compaction_home", "primary work membership has multiple canonical locators", false, "leave exactly one eligible primary Project locator")
+	if len(primaryLocators) > 1 {
+		candidates := make([]string, 0, len(primaryLocators))
+		for _, c := range primaryLocators {
+			candidates = append(candidates, c.project+"/"+c.locator)
+		}
+		return KnowledgeHome{}, newAmbiguousScopeFailure("compaction_home", "primary work membership has multiple canonical locators", "leave exactly one eligible primary Project locator", candidates)
 	}
-	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id,pl.locator_value FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&primary.project, &primary.locator, &primary.value)
-	if err == sql.ErrNoRows {
-		return KnowledgeHome{}, newFailure(KindUnknownScope, "compaction_home", "primary Project locator disappeared", false, "restore the canonical Project locator")
-	}
-	if err != nil {
-		return KnowledgeHome{}, err
-	}
+	primary := primaryLocators[0]
 	return KnowledgeHome{HomeProjectID: primary.project, HomeLocatorID: primary.locator, RepoPath: primary.value, HeadRef: "HEAD"}, nil
 }
 
@@ -305,7 +321,7 @@ func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projec
 			return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Product has no unique canonical knowledge home", false, "designate exactly one Product knowledge home")
 		}
 		if len(candidates) > 1 {
-			return KnowledgeHome{}, newFailure(KindAmbiguousScope, op, "Product has multiple canonical knowledge homes", false, "designate exactly one Product knowledge home")
+			return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Product has multiple canonical knowledge homes", "designate exactly one Product knowledge home", knowledgeHomeCandidateIDs(candidates))
 		}
 		resolved = candidates[0]
 		if projectID != "" {
@@ -326,7 +342,7 @@ func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projec
 			return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Project has no canonical-path knowledge locator", false, "designate exactly one canonical Project locator")
 		}
 		if len(candidates) > 1 {
-			return KnowledgeHome{}, newFailure(KindAmbiguousScope, op, "Project has multiple canonical-path knowledge locators", false, "leave exactly one canonical Project locator")
+			return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Project has multiple canonical-path knowledge locators", "leave exactly one canonical Project locator", knowledgeHomeCandidateIDs(candidates))
 		}
 		resolved = candidates[0]
 	} else {
@@ -353,6 +369,16 @@ func knowledgeHomeResolutionFailure(err error, op string) error {
 		return &copy
 	}
 	return wrapFailure(KindUnavailable, op, "cannot verify the canonical knowledge locator", true, "retry once the database is readable", err)
+}
+
+// knowledgeHomeCandidateIDs renders the enumerated home identities an
+// ambiguous-scope refusal names, in the order the resolution query produced.
+func knowledgeHomeCandidateIDs(homes []KnowledgeHome) []string {
+	candidates := make([]string, 0, len(homes))
+	for _, home := range homes {
+		candidates = append(candidates, home.HomeProjectID+"/"+home.HomeLocatorID)
+	}
+	return candidates
 }
 
 func productKnowledgeHomeCandidates(ctx context.Context, q queryer, productID string) ([]KnowledgeHome, error) {

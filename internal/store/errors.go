@@ -319,6 +319,30 @@ func newFailure(kind FailureKind, op, detail string, retrySafe bool, recovery st
 	}
 }
 
+// MaxFailureCandidates is the candidate capacity of one typed refusal. The
+// agent envelope bounds an error's candidate list at the same value, so a
+// longer list could never cross the boundary whole.
+const MaxFailureCandidates = 20
+
+// newAmbiguousScopeFailure builds the one ambiguous-scope refusal shape. The
+// agent envelope refuses an ambiguous_scope error without candidates, so a
+// refusal that did not name its candidates would die at the envelope boundary
+// as an undeliverable marshal error instead of reaching the agent typed. Every
+// site therefore names the enumerated identities the caller chooses among,
+// capped at the envelope's candidate bound. A resolution that enumerates no
+// candidates found nothing to choose among, so it is an unknown scope.
+func newAmbiguousScopeFailure(op, detail, recovery string, candidates []string) *Failure {
+	if len(candidates) == 0 {
+		return newFailure(KindUnknownScope, op, detail, false, recovery)
+	}
+	if len(candidates) > MaxFailureCandidates {
+		candidates = candidates[:MaxFailureCandidates]
+	}
+	f := newFailure(KindAmbiguousScope, op, detail, false, recovery)
+	f.CandidateIDs = append(make([]string, 0, len(candidates)), candidates...)
+	return f
+}
+
 // RecoveryUseDeclaredRoute is the RecoveryAction value a failure carries when
 // its remedy is a declared route of workflow actions. RecoveryRefs holds the
 // route in execution order; the agent envelope validates the pair.

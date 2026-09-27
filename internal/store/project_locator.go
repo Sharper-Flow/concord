@@ -549,9 +549,7 @@ func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktre
 			candidates = append(candidates, id)
 		}
 		sort.Strings(candidates)
-		f := newFailure(KindAmbiguousScope, "resolve_project", "git repository matches multiple Projects", false, "remove the conflicting locator or select one stable Project")
-		f.CandidateIDs = candidates
-		return ProjectResolution{Repository: host, Locators: locators, MainWorktree: mainWorktree}, f
+		return ProjectResolution{Repository: host, Locators: locators, MainWorktree: mainWorktree}, newAmbiguousScopeFailure("resolve_project", "git repository matches multiple Projects", "remove the conflicting locator or select one stable Project", candidates)
 	}
 	var id string
 	for candidate := range ids {

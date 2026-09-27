@@ -272,9 +272,12 @@ func validateLawModificationSubset(mandated, modified []string) error {
 }
 
 // workflowLawHome resolves the workflow's canonical Git law home over whichever
-// read handle the caller already holds, per the store's queryer contract.
+// read handle the caller already holds, per the store's queryer contract. The
+// law home follows the work item's primary Project membership: the primary
+// Project's Product owns the contract, so a secondary membership in another
+// Product must never widen the home choice or make the workflow unrecordable.
 func workflowLawHome(ctx context.Context, q queryer, workID string) (string, string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? ORDER BY ph.project_id,ph.locator_id`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id FROM product_knowledge_homes ph JOIN product_projects pp ON pp.product_id=ph.product_id JOIN work_projects wp ON wp.project_id=pp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY ph.project_id,ph.locator_id`, workID)
 	if err != nil {
 		return "", "", wrapFailure(KindUnavailable, "check_mandated_laws", "cannot resolve the workflow Git knowledge home", true, "retry once the workflow scope is readable", err)
 	}
@@ -296,7 +299,11 @@ func workflowLawHome(ctx context.Context, q queryer, workID string) (string, str
 		return homes[0][0], homes[0][1], nil
 	}
 	if len(homes) > 1 {
-		return "", "", newFailure(KindAmbiguousScope, "check_mandated_laws", "workflow resolves to multiple canonical Git law homes", false, "resolve one Product knowledge home")
+		candidates := make([]string, 0, len(homes))
+		for _, home := range homes {
+			candidates = append(candidates, home[0]+"/"+home[1])
+		}
+		return "", "", newAmbiguousScopeFailure("check_mandated_laws", "workflow resolves to multiple canonical Git law homes", "resolve one Product knowledge home", candidates)
 	}
 	var project, locator string
 	err = q.QueryRowContext(ctx, `SELECT wp.project_id,pl.locator_id FROM work_projects wp JOIN project_locators pl ON pl.project_id=wp.project_id AND pl.kind='canonical_path' WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&project, &locator)

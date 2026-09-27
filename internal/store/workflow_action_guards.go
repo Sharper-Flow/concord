@@ -1156,9 +1156,16 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		if predicateErr != nil {
 			return events, "", predicateErr
 		}
-		if len(predicateIDs) > 0 {
-			completionValues["worker_packet_predicate_ids"] = predicateIDs
+		// The list is recorded unconditionally, empty when the packet
+		// declared no typed predicates, so the fold can refuse a dispatch
+		// record that carries no list instead of skipping the discharge
+		// requirement: absence is a malformed record, never an empty one.
+		// A nil extraction marshals as null, which the fold reads as
+		// absence, so it normalizes to the empty list here.
+		if predicateIDs == nil {
+			predicateIDs = []string{}
 		}
+		completionValues["worker_packet_predicate_ids"] = predicateIDs
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}

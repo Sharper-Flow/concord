@@ -213,9 +213,10 @@ type workflowActionCompletedPayload struct {
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
 	// discharge obligation set, so a report cannot narrow its own
-	// obligations; dispatches whose packet predates the typed field record
-	// none.
-	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids,omitempty"`
+	// obligations. The list marshals unconditionally, empty when the packet
+	// declared no typed predicates, so the fold can refuse a dispatch record
+	// that carries no list instead of reading its absence as none.
+	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids"`
 	WorkerWorktreeIdentity   string   `json:"worker_worktree_identity,omitempty"`
 	CorrectionDiagnosis      string   `json:"correction_diagnosis,omitempty"`
 	CorrectionStrategy       string   `json:"correction_strategy,omitempty"`

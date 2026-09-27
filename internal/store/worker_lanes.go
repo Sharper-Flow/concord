@@ -1044,19 +1044,25 @@ func sortedObligationList(values map[string]struct{}) string {
 // dispatch authorization recorded for one worker attempt, in contract
 // ordinal order. The dispatch_worker completion event is the immutable
 // source: the core extracted the ids from the same packet bytes it digested
-// at authorization, so a report cannot narrow its own obligations by
-// under-naming. An attempt whose dispatch predates the typed packet field
-// carries no recorded ids, and the fold skips the discharge requirement.
+// at authorization and recorded them unconditionally, empty when the packet
+// declared no typed predicates. A recorded dispatch without the list is
+// malformed and refuses fail-closed, so a missing projection can never
+// silently narrow the obligations the fold enforces. An attempt with no
+// dispatch authorization at all carries no recorded packet to discharge
+// against, so the fold holds it to none.
 func dispatchedPacketPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
-	var raw string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_packet_predicate_ids'),'[]') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+	var raw *string
+	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_packet_predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, wrapFailure(KindUnavailable, "worker_predicate_discharge", "cannot read the dispatched packet predicates", true, "retry once the database is readable", err)
 	}
+	if raw == nil {
+		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "dispatch_worker completion recorded no worker_packet_predicate_ids", false, "verify the store that recorded the dispatch authorization")
+	}
 	var ids []string
-	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+	if err := json.Unmarshal([]byte(*raw), &ids); err != nil {
 		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "dispatch_worker completion recorded malformed worker_packet_predicate_ids", false, "verify the store that recorded the dispatch authorization")
 	}
 	return ids, nil

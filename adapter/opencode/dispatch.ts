@@ -245,9 +245,11 @@ export interface AgentResultEnvelope {
   // results of its verification commands. It rides the attempt readback when
   // present and drives nothing (CD-0043 D1).
   base_comparison?: AgentLaneReportBaseComparison
-  // The sorted predicate ids the completed report's evidence names, read
-  // back so the coordinator sees the per-predicate tie the fold enforces.
-  discharged_predicates?: string[]
+  // The entry-level predicate tie from the completed report's admitted
+  // evidence: which obligation discharged which declared predicate ids, read
+  // back so the coordinator sees the tie the fold enforces without
+  // re-deriving it from the worker output.
+  predicate_discharge?: Array<{ predicate_ids: string[]; obligation: string }>
   // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
@@ -1724,13 +1726,15 @@ async function completeWorkerSession(
   // beside that output would count its bytes twice and refuse a report the
   // schema admits. The attempt readback then holds it when present.
   if (!("detail" in resolution) && resolution.report.base_comparison) envelope.base_comparison = resolution.report.base_comparison
-  // The per-predicate tie is part of the admitted evidence: the sorted union
-  // of predicate ids the completed report names rides the attempt readback
-  // the coordinator receives. Like the base comparison it attaches after the
-  // output bound, so its bytes are not counted twice against the host limit.
+  // The per-predicate tie is part of the admitted evidence: the entry-level
+  // mapping of which obligation discharged which declared predicate ids
+  // rides the attempt readback the coordinator receives. Like the base
+  // comparison it attaches after the output bound, so its bytes are not
+  // counted twice against the host limit.
   if (!("detail" in resolution) && resolution.report.status === "completed") {
-    const discharged = [...new Set(resolution.report.evidence.flatMap((entry) => entry.predicate_ids ?? []))].sort()
-    if (discharged.length > 0) envelope.discharged_predicates = discharged
+    const discharge = resolution.report.evidence
+      .flatMap((entry) => (entry.predicate_ids ?? []).length > 0 ? [{ predicate_ids: entry.predicate_ids as string[], obligation: entry.obligation }] : [])
+    if (discharge.length > 0) envelope.predicate_discharge = discharge
   }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.

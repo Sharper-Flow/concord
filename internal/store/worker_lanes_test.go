@@ -708,12 +708,35 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 	t.Run("a completion whose dispatch declared no predicates needs no tie", func(t *testing.T) {
 		s := openTemp(t)
 		attemptID := "discharge-legacy-attempt"
-		seedDispatchPredicateAuthorization(t, s, "work-discharge-legacy", attemptID, nil)
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-legacy", attemptID, []string{})
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-legacy", attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-legacy", "discharge-legacy-complete", attemptID, model, fullEvidence())}}); err != nil {
 			t.Fatalf("legacy-shaped completion refused: %v", err)
+		}
+	})
+
+	t.Run("a recorded dispatch with no predicate list refuses the completion fail-closed", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-malformed-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-malformed", attemptID, nil)
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-malformed", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-malformed", "discharge-malformed-complete", attemptID, model, fullEvidence())}})
+		if !hasFailureKind(err, KindInvariantViolation) {
+			t.Fatalf("missing-list completion error = %v, want %s", err, KindInvariantViolation)
+		}
+		if err == nil || !strings.Contains(err.Error(), "worker_packet_predicate_ids") {
+			t.Fatalf("refusal %v does not name the missing worker_packet_predicate_ids record", err)
+		}
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "dispatched" {
+			t.Fatalf("refused completion state = %q, want dispatched", state)
 		}
 	})
 }

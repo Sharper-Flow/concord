@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -55,7 +56,17 @@ type GitRunner interface {
 	Run(context.Context, string, ...string) ([]byte, error)
 }
 
+// StdinGitRunner extends GitRunner with plumbing commands that read standard
+// input, such as git patch-id. A runner without it keeps every behavior that
+// only the stdin commands support.
+type StdinGitRunner interface {
+	GitRunner
+	RunStdin(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error)
+}
+
 type ExecGitRunner struct{}
+
+var _ StdinGitRunner = ExecGitRunner{}
 
 func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
@@ -63,6 +74,16 @@ func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byt
 	}
 	command := append([]string{"-C", dir}, args...)
 	return exec.CommandContext(ctx, "git", command...).Output() //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+}
+
+func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("empty git directory")
+	}
+	command := append([]string{"-C", dir}, args...)
+	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	cmd.Stdin = bytes.NewReader(stdin)
+	return cmd.Output()
 }
 
 type ProjectResolution struct {

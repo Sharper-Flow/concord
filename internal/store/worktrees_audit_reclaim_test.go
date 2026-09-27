@@ -387,6 +387,55 @@ func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
 	}
 }
 
+// TestWorktreeAuditReclaimsSquashContainedTerminalWork pins the CD-0181
+// classifier containment. The remote head branch was deleted after the squash
+// merge, so the branch's commits are unreachable from local remote-tracking
+// refs, but the default ref holds the branch's net diff as one commit. The
+// read classifies the worktree terminal-present with no unpushed row, and the
+// pass reclaims it through the same containment the direct gate applies.
+func TestWorktreeAuditReclaimsSquashContainedTerminalWork(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	auditWork(t, s, git, "work-live", true)
+	git.ahead["work/work-live"] = 1
+	squashedPath := auditWork(t, s, git, "work-squashed", true)
+	completeAuditWork(t, s, "work-squashed", 3)
+	git.unpushed["work/work-squashed"] = 2
+	git.squashMergeIntoDefault("work/work-squashed")
+
+	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byClass := auditRowsByClass(audit.Drift)
+	if rows := byClass[WorktreeDriftUnpushedContent]; len(rows) != 0 {
+		t.Fatalf("squash-contained branch must carry no unpushed row: %+v", rows)
+	}
+	terminal := byClass[WorktreeDriftTerminalPresent]
+	if len(terminal) != 1 || terminal[0].WorkID != "work-squashed" || terminal[0].Path != squashedPath || terminal[0].RecoveryAction != WorktreeRecoveryReclaim {
+		t.Fatalf("terminal-present rows=%+v", terminal)
+	}
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "squash-contained-pass", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcomes := map[string]WorktreeAuditReclaimRow{}
+	for _, row := range result.Rows {
+		outcomes[row.WorkID] = row
+	}
+	if got := outcomes["work-squashed"]; got.Outcome != WorktreeAuditReclaimed {
+		t.Fatalf("squash-contained terminal worktree: %+v", got)
+	}
+	if _, present := outcomes["work-live"]; present {
+		t.Fatalf("live work must not appear in a reclaim pass: %+v", outcomes["work-live"])
+	}
+	if _, still := git.worktrees[squashedPath]; still {
+		t.Fatal("native worktree was not removed")
+	}
+}
+
 // The unstarted tier's git gate is a commit count, not tree identity: a
 // branch whose tree equals the default ref's while holding commits still
 // refuses, because the commits exist and are not Concord's to discard.

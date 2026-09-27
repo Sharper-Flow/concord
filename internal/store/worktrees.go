@@ -1105,18 +1105,25 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 	}
+	squashMerged := false
 	if req.RequireUnstarted {
 		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
 			return out, err
 		}
-	} else if err := branchIsDurable(ctx, runner, repoRoot, entry.Branch, op); err != nil {
-		return out, err
+	} else {
+		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, req.DefaultRef, op)
+		if durableErr != nil {
+			return out, durableErr
+		}
+		squashMerged = contained
 	}
 
 	reclaimFacts := map[string]any{"clean_tree": true}
 	if req.RequireUnstarted {
 		reclaimFacts["default_ref"] = defaultRef
 		reclaimFacts["commits_beyond"] = 0
+	} else if squashMerged {
+		reclaimFacts["squash_merged"] = true
 	} else {
 		reclaimFacts["remote_reachable"] = true
 	}
@@ -1633,22 +1640,97 @@ func probeWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch
 	return true, worktreeFacts{branch: branch, headSHA: head, repositoryID: canonicalRoot}, nil
 }
 
-// branchIsDurable reports whether every commit reachable from branch is also
-// reachable from at least one local remote-tracking ref. It protects the sole
-// copy of a commit without requiring the branch to merge cleanly into main.
-func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, branch, op string) error {
+// branchIsDurable reports whether the branch's content survives the reclaim.
+// The remote-ref count stays the first way to pass: every commit reachable
+// from branch is also reachable from a local remote-tracking ref. The second
+// way is squash containment (CD-0181): the default ref holds a commit whose
+// git patch-id --stable equals the branch's net diff from its merge base, the
+// shape a squash merge leaves behind after the remote head branch is deleted.
+// It protects the sole copy of a commit without requiring the branch to merge
+// cleanly into main.
+func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) (bool, error) {
 	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", branch, "--not", "--remotes")
 	if err != nil {
-		return wrapFailure(KindGitUnreachable, op, "cannot count commits not reachable from remote refs for "+branch, true, "retry once the repository is reachable", err)
+		return false, wrapFailure(KindGitUnreachable, op, "cannot count commits not reachable from remote refs for "+branch, true, "retry once the repository is reachable", err)
 	}
 	count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOut)))
 	if parseErr != nil || count < 0 {
-		return newFailure(KindGitUnreachable, op, "local Git returned an invalid durable commit count for "+branch, false, "repair the repository refs before reclaiming")
+		return false, newFailure(KindGitUnreachable, op, "local Git returned an invalid durable commit count for "+branch, false, "repair the repository refs before reclaiming")
 	}
-	if count > 0 {
-		return newFailure(KindInvalidOperation, op, "worktree branch holds "+strconv.Itoa(count)+" commit(s) not reachable from remote refs", false, "push or otherwise preserve the commits before reclaiming")
+	if count == 0 {
+		return false, nil
 	}
-	return nil
+	if defaultRef == "" {
+		// The squash containment needs the merge target. Resolution is
+		// best-effort here: without it the count alone decides, which is
+		// the refusal the pre-CD-0181 gate produced.
+		if refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD"); refErr == nil && strings.TrimSpace(string(refOut)) != "" {
+			defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
+		}
+	}
+	if branchSquashContained(ctx, runner, repoRoot, branch, defaultRef) {
+		return true, nil
+	}
+	return false, newFailure(KindInvalidOperation, op, "worktree branch holds "+strconv.Itoa(count)+" commit(s) not reachable from remote refs", false, "push or otherwise preserve the commits before reclaiming")
+}
+
+// branchSquashContained reports whether the default ref holds a commit whose
+// git patch-id --stable equals the branch's net diff from its merge base
+// (CD-0181). Both sides of the comparison are fixed commits, so the answer
+// cannot decay. Every probe that cannot run, and an empty net diff, refuses:
+// the check can only relax the durable count, never replace it.
+func branchSquashContained(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef string) bool {
+	stdinRunner, ok := runner.(StdinGitRunner)
+	if !ok || defaultRef == "" {
+		return false
+	}
+	baseOut, err := runner.Run(ctx, repoRoot, "merge-base", defaultRef, branch)
+	if err != nil {
+		return false
+	}
+	mergeBase := strings.TrimSpace(string(baseOut))
+	diffOut, err := runner.Run(ctx, repoRoot, "diff", mergeBase, branch)
+	if err != nil || len(diffOut) == 0 {
+		return false
+	}
+	pidOut, err := stdinRunner.RunStdin(ctx, repoRoot, diffOut, "patch-id", "--stable")
+	if err != nil {
+		return false
+	}
+	pid := firstDiffField(pidOut)
+	if pid == "" {
+		return false
+	}
+	revOut, err := runner.Run(ctx, repoRoot, "rev-list", "--no-merges", mergeBase+".."+defaultRef)
+	if err != nil {
+		return false
+	}
+	patchOut, err := stdinRunner.RunStdin(ctx, repoRoot, revOut, "diff-tree", "--patch", "--stdin")
+	if err != nil {
+		return false
+	}
+	idsOut, err := stdinRunner.RunStdin(ctx, repoRoot, patchOut, "patch-id", "--stable")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(idsOut), "\n") {
+		if field := firstDiffField([]byte(line)); field == pid {
+			return true
+		}
+	}
+	return false
+}
+
+// firstDiffField returns the first whitespace-separated field of a git
+// patch-id output line: the patch-id itself, with the commit-id the
+// diff-tree input carries as the second field.
+func firstDiffField(out []byte) string {
+	line := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 // branchHasNoCommitsBeyond reports whether the branch holds no commit the
@@ -2231,7 +2313,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 			drift = append(drift, row)
 		}
 	}
-	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, q, runner, entries, lifecycleByWorkID)
+	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, q, runner, defaultRefOverride, entries, lifecycleByWorkID)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -2351,8 +2433,9 @@ type WorktreeAuditReclaimResult struct {
 
 // WorktreeAuditReclaim performs the one safe action the audit names. It runs
 // the audit, then reclaims each terminal-present worktree through the same
-// gates a direct reclaim runs (clean tree, head merged by tree identity, no
-// recorded occupant) and each unstarted-present worktree through the CD-0118
+// gates a direct reclaim runs (clean tree, branch durable by remote-ref count
+// or squash containment (CD-0181), no recorded occupant) and each
+// unstarted-present worktree through the CD-0118
 // gate (clean tree, no commit beyond the default ref, no recorded occupant).
 // Every other class is returned as report-only, because its
 // named action is not a store decision.
@@ -2521,8 +2604,12 @@ func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner
 
 // classifyWorktreeContent derives content risk from local Git state. Remote
 // tracking refs are local observations and do not require network access.
-func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
+// Branch commits the default ref already holds as one squash merge (CD-0181)
+// carry no content risk: the class names content a reclaim could lose, and a
+// squash-contained branch loses none.
+func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
 	repoRoots := map[string]string{}
+	defaultRefs := map[string]string{}
 	rows := []WorktreeDrift{}
 	riskPaths := map[string]bool{}
 	for _, entry := range entries {
@@ -2559,8 +2646,20 @@ func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, e
 			return nil, nil, newFailure(KindGitUnreachable, "worktree_audit", "local Git returned an invalid unpushed commit count for "+entry.branch, false, "repair the repository refs before auditing worktrees")
 		}
 		if unpushed > 0 {
-			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUnpushedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "unpushed commits", UnpushedCommits: unpushed})
-			riskPaths[entry.path] = true
+			defaultRef, resolved := defaultRefs[entry.projectID]
+			if !resolved {
+				defaultRef = ""
+				if resolvedRef, resErr := worktreeAuditDefaultRef(ctx, runner, repoRoot, defaultRefOverride); resErr == nil {
+					defaultRef = resolvedRef
+				}
+				// An unresolvable default ref keeps the count alone
+				// authoritative, which reports the row fail-closed.
+				defaultRefs[entry.projectID] = defaultRef
+			}
+			if !branchSquashContained(ctx, runner, repoRoot, entry.branch, defaultRef) {
+				rows = append(rows, WorktreeDrift{Class: WorktreeDriftUnpushedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "unpushed commits", UnpushedCommits: unpushed})
+				riskPaths[entry.path] = true
+			}
 		}
 	}
 	return rows, riskPaths, nil

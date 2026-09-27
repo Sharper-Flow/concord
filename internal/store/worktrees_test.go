@@ -29,8 +29,15 @@ type fakeWorktreeGit struct {
 	headBranch    string         // the ref HEAD resolves to; the fixture default is main
 	ahead         map[string]int // branch -> commit count beyond the default ref
 	unpushed      map[string]int // branch -> commits unreachable from local remotes
-	mergeConflict bool
-	failAdd       bool
+	mergeBaseFail bool           // merge-base fails: the histories share no base
+	// defaultCommits are the non-merge commit shas the default ref holds
+	// since its merge base with the audited branch, and commitPatchIDs maps
+	// each to the patch text diff-tree would emit for it. Together they
+	// model the commit a squash merge left on the default ref (CD-0181).
+	defaultCommits []string
+	commitPatchIDs map[string]string
+	mergeConflict  bool
+	failAdd        bool
 	// partialAdd models git leaving the tree directory and the requested new
 	// branch behind before it reports a failed `worktree add`.
 	partialAdd bool
@@ -58,17 +65,18 @@ func (g *fakeWorktreeGit) treeOf(ref string) string {
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 	return &fakeWorktreeGit{
-		repoRoot:      repoRoot,
-		extraRoots:    map[string]bool{},
-		worktreeRepos: map[string]string{},
-		branches:      map[string]string{"main": strings.Repeat("a", 40)},
-		worktrees:     map[string]string{},
-		dirty:         map[string]bool{},
-		content:       map[string]string{},
-		ahead:         map[string]int{},
-		unpushed:      map[string]int{},
-		headBranch:    "main",
-		defaultRef:    "origin/main",
+		repoRoot:       repoRoot,
+		extraRoots:     map[string]bool{},
+		worktreeRepos:  map[string]string{},
+		branches:       map[string]string{"main": strings.Repeat("a", 40)},
+		worktrees:      map[string]string{},
+		dirty:          map[string]bool{},
+		content:        map[string]string{},
+		ahead:          map[string]int{},
+		unpushed:       map[string]int{},
+		commitPatchIDs: map[string]string{},
+		headBranch:     "main",
+		defaultRef:     "origin/main",
 	}
 }
 
@@ -130,6 +138,29 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, nil
 		}
 		return nil, fmt.Errorf("not an ancestor")
+	case strings.HasPrefix(join, "merge-base "):
+		if g.mergeBaseFail {
+			return nil, fmt.Errorf("unrelated histories")
+		}
+		parts := strings.Fields(join)
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("malformed merge-base")
+		}
+		for _, ref := range parts[1:3] {
+			if _, ok := g.branches[strings.TrimPrefix(ref, "origin/")]; !ok {
+				return nil, errors.New("unknown ref " + ref)
+			}
+		}
+		return []byte("merge-base\n"), nil
+	case strings.HasPrefix(join, "rev-list --no-merges "):
+		parts := strings.Fields(join)
+		if len(parts) != 3 || !strings.Contains(parts[2], "..") {
+			return nil, fmt.Errorf("malformed revision range")
+		}
+		if len(g.defaultCommits) == 0 {
+			return nil, nil
+		}
+		return []byte(strings.Join(g.defaultCommits, "\n") + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count ") && strings.HasSuffix(join, " --not --remotes"):
 		branch := strings.TrimSuffix(strings.TrimPrefix(join, "rev-list --count "), " --not --remotes")
 		return []byte(strconv.Itoa(g.unpushed[branch]) + "\n"), nil
@@ -196,6 +227,19 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte("M file\n"), nil
 		}
 		return nil, nil
+	case strings.HasPrefix(join, "diff "):
+		// diff <from> <to>: the fake's patch text encodes the pair of trees,
+		// and its patch-id is that text, so equal diffs carry equal ids. An
+		// empty tree pair produces an empty diff, as git does.
+		parts := strings.Fields(join)
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("malformed diff")
+		}
+		from, to := parts[1], parts[2]
+		if g.treeOf(from) == g.treeOf(to) {
+			return nil, nil
+		}
+		return []byte(g.netDiffPatchID(from, to) + "\n"), nil
 	case join == "symbolic-ref refs/remotes/origin/HEAD" || join == "symbolic-ref --quiet refs/remotes/origin/HEAD":
 		if g.defaultRef == "" {
 			return nil, fmt.Errorf("no origin HEAD")
@@ -232,6 +276,43 @@ func (g *fakeWorktreeGit) resolveRef(ref string) string {
 		}
 	}
 	return ref
+}
+
+// RunStdin answers the stdin plumbing the squash containment probes: patch-id
+// over a diff or a diff-tree stream. The fake's patch text is its own
+// patch-id, so patch-id echoes its input.
+func (g *fakeWorktreeGit) RunStdin(_ context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
+	g.calls = append(g.calls, append([]string{dir}, args...))
+	join := strings.Join(args, " ")
+	switch join {
+	case "patch-id --stable":
+		return stdin, nil
+	case "diff-tree --patch --stdin":
+		var out []byte
+		for _, sha := range strings.Fields(string(stdin)) {
+			pid, ok := g.commitPatchIDs[sha]
+			if !ok {
+				return nil, errors.New("unmodelled commit " + sha)
+			}
+			out = append(out, []byte(pid+"\n")...)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("unexpected stdin git invocation: %s", join)
+}
+
+// netDiffPatchID models the patch text diff(from, to) produces.
+func (g *fakeWorktreeGit) netDiffPatchID(from, to string) string {
+	return "pid:" + g.treeOf(from) + ".." + g.treeOf(to)
+}
+
+// squashMergeIntoDefault records the commit the default ref holds whose patch
+// carries branch's net diff from its merge base: the shape a squash merge
+// leaves behind once the remote head branch is deleted (CD-0181).
+func (g *fakeWorktreeGit) squashMergeIntoDefault(branch string) {
+	sha := strings.Repeat("d", 39) + strconv.Itoa(len(g.defaultCommits))
+	g.defaultCommits = append(g.defaultCommits, sha)
+	g.commitPatchIDs[sha] = g.netDiffPatchID("merge-base", branch)
 }
 
 func (g *fakeWorktreeGit) countCalls(prefix string) int {
@@ -907,6 +988,108 @@ func TestReclaimWorktreeAcceptsSquashMergedBranch(t *testing.T) {
 	}
 	if _, still := git.worktrees[claimPath(s)]; still {
 		t.Fatal("native worktree was not removed")
+	}
+}
+
+// TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote pins the
+// CD-0181 containment. The remote head branch was deleted after the squash
+// merge, so every branch commit is unreachable from local remote-tracking
+// refs, and the default ref holds the branch's net diff as one commit. The
+// branch is durable and reclaims without a push that can never happen.
+func TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	git.unpushed[claimBranch()] = 2
+	git.squashMergeIntoDefault(claimBranch())
+
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-squash", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	entry, err := s.ReclaimWorktree(context.Background(), reclaim)
+	if err != nil {
+		t.Fatalf("a squash-contained branch must reclaim, got %v", err)
+	}
+	if entry.State != worktreeEntryReclaimed {
+		t.Fatalf("entry=%+v", entry)
+	}
+	if _, still := git.worktrees[claimPath(s)]; still {
+		t.Fatal("native worktree was not removed")
+	}
+}
+
+// TestReclaimWorktreeResolvesDefaultRefForSquashContainment pins the gate's
+// default-ref resolution: a caller that names no default ref still gets the
+// squash containment, resolved from origin/HEAD.
+func TestReclaimWorktreeResolvesDefaultRefForSquashContainment(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	git.unpushed[claimBranch()] = 2
+	git.squashMergeIntoDefault(claimBranch())
+
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "req-squash-implicit", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err != nil {
+		t.Fatalf("containment must resolve the default ref from origin/HEAD, got %v", err)
+	}
+}
+
+// TestReclaimWorktreeRefusesEmptyNetDiff pins the refused edge: a branch
+// whose tree equals its merge base has no net diff, so no patch-id can
+// establish containment, and the count refusal stands.
+func TestReclaimWorktreeRefusesEmptyNetDiff(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	git.unpushed[claimBranch()] = 2
+	git.content["merge-base"] = "shared-tree"
+	git.content[claimBranch()] = "shared-tree"
+
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-empty-diff", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	_, err := s.ReclaimWorktree(context.Background(), reclaim)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+		t.Fatalf("empty net diff must refuse typed, got %v", err)
+	}
+	if !strings.Contains(failure.Detail, "not reachable from remote refs") {
+		t.Fatalf("refusal detail=%q", failure.Detail)
+	}
+	if _, kept := git.worktrees[claimPath(s)]; !kept {
+		t.Fatal("refused worktree must remain")
+	}
+}
+
+// TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch pins the refused
+// edge: the default ref holds the patch the branch once squash-merged, but
+// the branch has advanced past it, so its net diff no longer matches and the
+// later commits stay protected.
+func TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	git.unpushed[claimBranch()] = 2
+	git.content[claimBranch()] = "squash-tree"
+	git.squashMergeIntoDefault(claimBranch())
+	git.content[claimBranch()] = "later-tree"
+
+	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-beyond", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
+	_, err := s.ReclaimWorktree(context.Background(), reclaim)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+		t.Fatalf("commits beyond the merged patch must refuse typed, got %v", err)
+	}
+	if _, kept := git.worktrees[claimPath(s)]; !kept {
+		t.Fatal("refused worktree must remain")
 	}
 }
 

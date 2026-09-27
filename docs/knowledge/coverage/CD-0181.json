@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeResolvesDefaultRefForSquashContainment"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeRefusesEmptyNetDiff"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimsSquashContainedTerminalWork"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    }
+  ],
+  "id": "CD-0181",
+  "state": "satisfied"
+}

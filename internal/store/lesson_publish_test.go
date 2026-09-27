@@ -1099,3 +1099,251 @@ func TestResolveLessonPublicationHomeUsesTheClaimedWorktree(t *testing.T) {
 		t.Fatalf("expected terminal-owner refusal, got %v", err)
 	}
 }
+
+// requireLessonZeroEffects asserts a refusing publication left the claimed
+// worktree byte-neutral: the same branch head and the same status output as
+// before the refused call.
+func requireLessonZeroEffects(t *testing.T, repo, headBefore, statusBefore string) {
+	t.Helper()
+	if head := strings.TrimSpace(gitInWorktree(t, repo, "rev-parse", "HEAD")); head != headBefore {
+		t.Fatalf("the claimed branch head moved to %s, want %s", head, headBefore)
+	}
+	if status := gitInWorktree(t, repo, "status", "--porcelain"); status != statusBefore {
+		t.Fatalf("the claimed worktree changed: before=%q after=%q", statusBefore, status)
+	}
+}
+
+// TestPublishLessonRecordRefusesTraversalLessonIDsWithZeroEffects is the
+// failing-first regression for the shard-path escape: the lesson id becomes
+// the record and coverage shard file names, so the bounded path-safe
+// vocabulary the public lesson_publish input schema declares is enforced
+// before any path is derived, and a refused traversal writes nothing.
+func TestPublishLessonRecordRefusesTraversalLessonIDsWithZeroEffects(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "../escape", Title: "Traversal refused", Summary: "A lesson id names shard files and is never a path.",
+		Content: "# Traversal refused\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Coverage: lessonSatisfiedCoverage(), Now: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC),
+	}
+	head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+	status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+	for _, id := range []string{"../escape", "a/../../escape", "..", "sub/dir/lesson"} {
+		req := base
+		req.LessonID = id
+		if _, err := PublishLessonRecord(ctx, home, req); err == nil || !strings.Contains(err.Error(), "path-safe") {
+			t.Fatalf("lesson id %q: expected path-safe refusal, got %v", id, err)
+		}
+	}
+	requireLessonZeroEffects(t, home.RepoPath, head, status)
+	if _, statErr := os.Stat(filepath.Join(home.RepoPath, "docs/knowledge/escape.json")); statErr == nil {
+		t.Fatal("an escaped shard was written outside the shard trees")
+	}
+}
+
+// TestPublishLessonRecordRefusesOccupiedLessonTargets holds the overwrite
+// failure the repair closes: every write target — the note, the record
+// shard, and the coverage shard — must be free before any byte moves, so a
+// publication can never replace an occupied file.
+func TestPublishLessonRecordRefusesOccupiedLessonTargets(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+
+	t.Run("note target", func(t *testing.T) {
+		t.Parallel()
+		_, home := lessonWorktreeFixture(t)
+		occupiedPath := "docs/lessons/2026-09-05-occupied-note-target.md"
+		occupied := filepath.Join(home.RepoPath, occupiedPath)
+		if err := os.WriteFile(occupied, []byte("occupied\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitInWorktree(t, home.RepoPath, "add", "--", occupiedPath)
+		gitInWorktree(t, home.RepoPath, "commit", "--quiet", "-m", "occupied note")
+		head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+		status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+		_, err := PublishLessonRecord(ctx, home, LessonPublication{
+			LessonID: "lesson-occupied-note", Title: "Occupied note target", Summary: "A publication refuses an occupied note path.",
+			Content: "# Occupied note target\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(), Now: now,
+		})
+		if err == nil || !strings.Contains(err.Error(), "occupied") {
+			t.Fatalf("expected occupied-target refusal, got %v", err)
+		}
+		if content, readErr := os.ReadFile(occupied); readErr != nil || string(content) != "occupied\n" {
+			t.Fatalf("the occupied note changed: %q err=%v", content, readErr)
+		}
+		requireLessonZeroEffects(t, home.RepoPath, head, status)
+	})
+
+	t.Run("record shard target", func(t *testing.T) {
+		t.Parallel()
+		_, home := lessonWorktreeFixture(t)
+		victimPath := lessonRecordDir + "/lesson-occupied-record.json"
+		victim := filepath.Join(home.RepoPath, victimPath)
+		victimShard := `{
+  "id": "victim-record",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-08-01-victim.md",
+  "status": "published",
+  "date": "2026-08-01T00:00:00Z",
+  "title": "Victim record",
+  "summary": "A committed record the publication must not overwrite.",
+  "tags": [],
+  "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+  "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+}
+`
+		if err := os.WriteFile(victim, []byte(victimShard), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitInWorktree(t, home.RepoPath, "add", "--", victimPath)
+		gitInWorktree(t, home.RepoPath, "commit", "--quiet", "-m", "victim record shard")
+		head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+		status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+		_, err := PublishLessonRecord(ctx, home, LessonPublication{
+			LessonID: "lesson-occupied-record", Title: "Occupied record shard", Summary: "A publication refuses an occupied record shard path.",
+			Content: "# Occupied record shard\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(), Now: now,
+		})
+		if err == nil || !strings.Contains(err.Error(), "occupied") {
+			t.Fatalf("expected occupied-target refusal, got %v", err)
+		}
+		if content, readErr := os.ReadFile(victim); readErr != nil || string(content) != victimShard {
+			t.Fatalf("the occupied record shard changed: %q err=%v", content, readErr)
+		}
+		requireLessonZeroEffects(t, home.RepoPath, head, status)
+	})
+
+	t.Run("coverage shard target", func(t *testing.T) {
+		t.Parallel()
+		_, home := lessonWorktreeFixture(t)
+		occupiedPath := lessonCoverageDir + "/lesson-occupied-coverage.json"
+		occupied := filepath.Join(home.RepoPath, occupiedPath)
+		if err := os.MkdirAll(filepath.Dir(occupied), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(occupied, []byte("{\"occupied\": true}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitInWorktree(t, home.RepoPath, "add", "--", occupiedPath)
+		gitInWorktree(t, home.RepoPath, "commit", "--quiet", "-m", "occupied coverage shard")
+		head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+		status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+		_, err := PublishLessonRecord(ctx, home, LessonPublication{
+			LessonID: "lesson-occupied-coverage", Title: "Occupied coverage shard", Summary: "A publication refuses an occupied coverage shard path.",
+			Content: "# Occupied coverage shard\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(), Now: now,
+		})
+		if err == nil || !strings.Contains(err.Error(), "occupied") {
+			t.Fatalf("expected occupied-target refusal, got %v", err)
+		}
+		if content, readErr := os.ReadFile(occupied); readErr != nil || string(content) != "{\"occupied\": true}\n" {
+			t.Fatalf("the occupied coverage shard changed: %q err=%v", content, readErr)
+		}
+		requireLessonZeroEffects(t, home.RepoPath, head, status)
+	})
+}
+
+// TestPublishLessonRecordRefusesSymlinkTargetsAndParents holds the link
+// failure the repair closes: a publication never writes through a symlink,
+// at a write target or in a target's parent directories, so no write can
+// follow a link outside the claimed worktree.
+func TestPublishLessonRecordRefusesSymlinkTargetsAndParents(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("symlink note target", func(t *testing.T) {
+		t.Parallel()
+		_, home := lessonWorktreeFixture(t)
+		outside := filepath.Join(t.TempDir(), "outside-note.md")
+		if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		notePath := "docs/lessons/2026-09-06-symlink-note-target.md"
+		if err := os.Symlink(outside, filepath.Join(home.RepoPath, notePath)); err != nil {
+			t.Fatal(err)
+		}
+		head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+		status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+		_, err := PublishLessonRecord(ctx, home, LessonPublication{
+			LessonID: "lesson-symlink-note", Title: "Symlink note target", Summary: "A publication refuses a symlinked note path.",
+			Content: "# Symlink note target\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(), Now: time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC),
+		})
+		if err == nil || !strings.Contains(err.Error(), "occupied") {
+			t.Fatalf("expected occupied-target refusal, got %v", err)
+		}
+		if content, readErr := os.ReadFile(outside); readErr != nil || string(content) != "outside\n" {
+			t.Fatalf("the symlink destination changed: %q err=%v", content, readErr)
+		}
+		requireLessonZeroEffects(t, home.RepoPath, head, status)
+	})
+
+	t.Run("symlink coverage parent", func(t *testing.T) {
+		t.Parallel()
+		_, home := lessonWorktreeFixture(t)
+		outsideDir := filepath.Join(t.TempDir(), "outside-coverage")
+		if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsideDir, filepath.Join(home.RepoPath, lessonCoverageDir)); err != nil {
+			t.Fatal(err)
+		}
+		head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD"))
+		status := gitInWorktree(t, home.RepoPath, "status", "--porcelain")
+		_, err := PublishLessonRecord(ctx, home, LessonPublication{
+			LessonID: "lesson-symlink-parent", Title: "Symlink coverage parent", Summary: "A publication refuses a symlinked target parent.",
+			Content: "# Symlink coverage parent\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+			Coverage: lessonSatisfiedCoverage(), Now: time.Date(2026, 9, 6, 0, 0, 0, 0, time.UTC),
+		})
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("expected symlinked-parent refusal, got %v", err)
+		}
+		if entries, readErr := os.ReadDir(outsideDir); readErr != nil || len(entries) != 0 {
+			t.Fatalf("the symlinked parent received writes: %v err=%v", entries, readErr)
+		}
+		if _, statErr := os.Stat(filepath.Join(home.RepoPath, "docs/lessons/2026-09-06-symlink-coverage-parent.md")); statErr == nil {
+			t.Fatal("the lesson note was written before the refusal")
+		}
+		requireLessonZeroEffects(t, home.RepoPath, head, status)
+	})
+}
+
+// TestPublishLessonRecordRefusesSamePathSameHashDuplicateIDWithZeroEffects
+// holds the partial-effect failure the repair closes: a different lesson id
+// that claims one existing note path with identical content passes the
+// path-conflict scan but breaks the manifest's canonical-path rule, so the
+// prospective manifest must refuse before any file is written.
+func TestPublishLessonRecordRefusesSamePathSameHashDuplicateIDWithZeroEffects(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "lesson-alpha-dup", Title: "Same path same hash", Summary: "Two ids claiming one note path with one content hash refuse before any write.",
+		Content: "# Same path same hash\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Coverage: lessonSatisfiedCoverage(), Now: time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC),
+	}
+	first, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dup := base
+	dup.LessonID = "lesson-beta-dup"
+	if _, err := PublishLessonRecord(ctx, home, dup); err == nil || !strings.Contains(err.Error(), "duplicate canonical paths") {
+		t.Fatalf("expected duplicate-path refusal before any write, got %v", err)
+	}
+	if head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD")); head != first.CommitOID {
+		t.Fatalf("the claimed branch head moved to %s, want the first prepared commit %s", head, first.CommitOID)
+	}
+	if status := gitInWorktree(t, home.RepoPath, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		t.Fatalf("the refused duplicate wrote files: %q", status)
+	}
+	for _, leftover := range []string{
+		filepath.Join(home.RepoPath, lessonRecordDir, "lesson-beta-dup.json"),
+		filepath.Join(home.RepoPath, lessonCoverageDir, "lesson-beta-dup.json"),
+	} {
+		if _, statErr := os.Stat(leftover); statErr == nil {
+			t.Fatalf("the refused duplicate wrote %s", leftover)
+		}
+	}
+}

@@ -2829,6 +2829,8 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		intents = derivedIntents
 	}
 	base.ResolvedScope = scopeFromMap(scope)
+	payload, paged := compactAuditReclaimReport(base, payload, changed, intents)
+	base.Omissions = append(base.Omissions, paged...)
 	response := r.mutationResult(base, payload, changed, intents)
 	if response.Outcome == OutcomeError {
 		return auditReclaimPostCommitFailure(base, changed, response), nil
@@ -2913,6 +2915,121 @@ func auditReclaimChangedRefs(rows []store.WorktreeAuditReclaimRow) []ChangedRef 
 		}
 	}
 	return changed
+}
+
+// MaxAuditReclaimInlineRows is the result payload schema's report_only
+// capacity. A pass can classify more rows than it, because the pass limit
+// bounds attempts only (CD-0179 D5), so the overflow pages before any byte
+// pressure applies.
+const MaxAuditReclaimInlineRows = 100
+
+// compactAuditReclaimReport bounds one audit reclaim pass result so its
+// success envelope fits the result envelope cap before the pass reports
+// success (CD-0185). Each row commits ahead of the report, so the report
+// cannot refuse its way back to a no-effect answer; it compacts instead.
+// Every committed and refused attempt stays reported with its outcome,
+// version, and refusal kind. What pages is the report-only classification:
+// the prefix stays inline, the worktree_audit read — already the pass's named
+// next intent — delivers the complete classification over cursor pages, and
+// an omission notice carries the explicit count. The free-text row detail
+// drops only under byte pressure, after the fully recoverable report-only
+// rows, and under its own notice. The returned payload is the exact bytes the
+// idempotency record stores, so a replay under the same key returns the same
+// bounded result.
+func compactAuditReclaimReport(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) (json.RawMessage, []Notice) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &object); err != nil {
+		return payload, nil
+	}
+	rowsKey, hasRows := object["rows"]
+	reportKey, hasReport := object["report_only"]
+	if !hasRows || !hasReport {
+		return payload, nil
+	}
+	// The slices start non-nil: a payload whose array marshals empty decodes
+	// into a nil slice here, and re-marshaling nil would emit null where the
+	// result schema requires an array.
+	rows := []store.WorktreeAuditReclaimRow{}
+	reportOnly := []store.WorktreeDrift{}
+	if json.Unmarshal(rowsKey, &rows) != nil || json.Unmarshal(reportKey, &reportOnly) != nil {
+		return payload, nil
+	}
+	classified := len(reportOnly)
+	kept := classified
+	if kept > MaxAuditReclaimInlineRows {
+		kept = MaxAuditReclaimInlineRows
+	}
+	// The detail-drop order runs from the last row backward, so the earlier
+	// rows keep their refusal detail longest. A row already without detail
+	// contributes nothing and stays out of the order.
+	detailOrder := []int{}
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].Detail != "" {
+			detailOrder = append(detailOrder, i)
+		}
+	}
+	build := func(kept, detailDropped int) (json.RawMessage, []Notice, bool) {
+		notices := []Notice{}
+		if kept < classified {
+			notices = append(notices, Notice{Kind: "report_only_paged", Count: int64(classified - kept), Details: map[string]any{"classified": int64(classified), "reported": int64(kept)}})
+		}
+		if detailDropped > 0 {
+			notices = append(notices, Notice{Kind: "row_details_omitted", Count: int64(detailDropped), Details: map[string]any{"rows": int64(len(rows)), "with_detail": int64(len(rows) - detailDropped)}})
+		}
+		reported := rows
+		if detailDropped > 0 {
+			reported = make([]store.WorktreeAuditReclaimRow, len(rows))
+			copy(reported, rows)
+			for _, i := range detailOrder[:detailDropped] {
+				reported[i].Detail = ""
+			}
+		}
+		object["rows"], _ = json.Marshal(reported)
+		object["report_only"], _ = json.Marshal(reportOnly[:kept])
+		raw, err := json.Marshal(object)
+		if err != nil {
+			return nil, nil, false
+		}
+		return raw, notices, true
+	}
+	fits := func(raw json.RawMessage, notices []Notice) bool {
+		return auditReclaimEnvelopeBytes(base, raw, changed, intents, notices) <= MaxResultEnvelopeBytes
+	}
+	raw, notices, ok := build(kept, 0)
+	if !ok {
+		return payload, nil
+	}
+	for kept > 0 && !fits(raw, notices) {
+		kept--
+		raw, notices, ok = build(kept, 0)
+		if !ok {
+			return payload, nil
+		}
+	}
+	for detailDropped := 0; detailDropped < len(detailOrder) && !fits(raw, notices); detailDropped++ {
+		raw, notices, ok = build(kept, detailDropped+1)
+		if !ok {
+			return payload, nil
+		}
+	}
+	return raw, notices
+}
+
+// auditReclaimEnvelopeBytes measures the wire size of the success envelope the
+// planner is about to report, with the candidate payload and its notices. It
+// encodes the same wire form mutationResult's cap check encodes, so the
+// compaction targets exactly the bound the producer is held to (CD-0132: the
+// envelope law is the same at producer and adapter).
+func auditReclaimEnvelopeBytes(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent, notices []Notice) int {
+	candidate := base
+	candidate.Omissions = notices
+	response := NewOKMutation(candidate, payload, changed, intents)
+	type wire Envelope
+	encoded, err := json.Marshal(wire(response))
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return len(encoded)
 }
 
 // planWorktreeReclaim plans concord_work_transition.worktree_reclaim.

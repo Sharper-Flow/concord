@@ -1147,6 +1147,25 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		sum := sha256.Sum256(canonical)
 		workerPacketDigest = "sha256:" + hex.EncodeToString(sum[:])
 		completionValues["worker_packet_digest"] = workerPacketDigest
+		// The typed outcome predicate ids are extracted from the same packet
+		// bytes this digest covers, so the durable record carries the
+		// discharge obligations the fold enforces on the completion. The
+		// payload schema preflight already admitted the packet shape; this
+		// read re-checks the identity rules the obligations rest on.
+		predicateIDs, predicateErr := workerPacketPredicateIDs(packetRaw)
+		if predicateErr != nil {
+			return events, "", predicateErr
+		}
+		// The list is recorded unconditionally, empty when the packet
+		// declared no typed predicates, so the fold can refuse a dispatch
+		// record that carries no list instead of skipping the discharge
+		// requirement: absence is a malformed record, never an empty one.
+		// A nil extraction marshals as null, which the fold reads as
+		// absence, so it normalizes to the empty list here.
+		if predicateIDs == nil {
+			predicateIDs = []string{}
+		}
+		completionValues["worker_packet_predicate_ids"] = predicateIDs
 		if in.request.SessionWorktreeIdentity != "" {
 			completionValues["worker_worktree_identity"] = in.request.SessionWorktreeIdentity
 		}

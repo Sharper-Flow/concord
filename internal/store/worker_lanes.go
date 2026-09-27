@@ -97,10 +97,13 @@ type WorkerDispatchedPayload struct {
 // WorkerReportEvidence is one discharged lane evidence obligation as the
 // worker reported it (CD-0056 D1). Obligation is drawn from the closed
 // vocabulary in agent_lanes.go; Detail is recorded as reported and is never
-// summarized, scored, or rewritten.
+// summarized, scored, or rewritten. PredicateIDs is the optional per-predicate
+// tie: the predicate_id of each typed inputs.outcome_predicates entry this
+// entry's evidence discharges.
 type WorkerReportEvidence struct {
-	Obligation string `json:"obligation"`
-	Detail     string `json:"detail"`
+	Obligation   string   `json:"obligation"`
+	Detail       string   `json:"detail"`
+	PredicateIDs []string `json:"predicate_ids,omitempty"`
 }
 
 // WorkerBaseComparisonCheck is one verification command's result pair as the
@@ -260,8 +263,15 @@ func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence
 		return invalidWorkerPayload("worker.completed evidence_origin reported requires between 1 and 64 evidence entries")
 	}
 	// A lane may discharge one obligation with several distinct facts, so
-	// only an identical (obligation, detail) pair is a duplicate.
-	seen := make(map[WorkerReportEvidence]struct{}, len(evidence))
+	// only an identical (obligation, detail) pair is a duplicate. The
+	// predicate_ids tie is not part of the duplicate key: the same fact may
+	// legitimately name its predicates twice across differently-bounded
+	// entries.
+	type evidenceKey struct {
+		obligation string
+		detail     string
+	}
+	seen := make(map[evidenceKey]struct{}, len(evidence))
 	for _, entry := range evidence {
 		if !ValidLaneEvidenceObligation(entry.Obligation) {
 			return invalidWorkerPayload("worker.completed evidence names an obligation outside the closed lane evidence vocabulary")
@@ -269,12 +279,91 @@ func validateWorkerReportEvidence(origin string, evidence []WorkerReportEvidence
 		if len(entry.Detail) < 1 || len(entry.Detail) > 512 {
 			return invalidWorkerPayload("worker.completed evidence detail must be between 1 and 512 UTF-8 bytes")
 		}
-		if _, exists := seen[entry]; exists {
+		if len(entry.PredicateIDs) > 8 {
+			return invalidWorkerPayload("worker.completed evidence entry carries more than 8 predicate ids")
+		}
+		for _, id := range entry.PredicateIDs {
+			if !validWorkerPredicateID(id) {
+				return invalidWorkerPayload("worker.completed evidence names a predicate id outside the bounded predicate: prefixed shape")
+			}
+		}
+		key := evidenceKey{obligation: entry.Obligation, detail: entry.Detail}
+		if _, exists := seen[key]; exists {
 			return invalidWorkerPayload("worker.completed evidence repeats an identical obligation and detail pair")
 		}
-		seen[entry] = struct{}{}
+		seen[key] = struct{}{}
 	}
 	return nil
+}
+
+// validWorkerPredicateID mirrors the predicate id rule the approved contract
+// predicates follow (workflow.go): a bounded 11-128 character id with the
+// "predicate:" prefix.
+func validWorkerPredicateID(id string) bool {
+	return len(id) >= 11 && len(id) <= 128 && strings.HasPrefix(id, "predicate:")
+}
+
+// workerPacketPredicateIDs extracts the typed outcome predicate ids from the
+// dispatch packet the dispatch_worker action authorizes. The payload schema
+// preflight has already admitted the packet shape; this read re-checks the
+// identity rules the fold's discharge requirement rests on — bounded
+// predicate-prefixed ids, position ordinals, and a decodable strict payload —
+// so a malformed set refuses the action instead of recording obligations the
+// fold cannot bind. A packet without the typed field is a legacy shape and
+// records no predicate ids.
+func workerPacketPredicateIDs(packetRaw json.RawMessage) ([]string, error) {
+	var packet struct {
+		Inputs struct {
+			OutcomePredicates []struct {
+				PredicateID    string          `json:"predicate_id"`
+				Ordinal        int             `json:"ordinal"`
+				OutcomeKind    string          `json:"outcome_kind"`
+				OutcomePayload json.RawMessage `json:"outcome_payload"`
+			} `json:"outcome_predicates"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(packetRaw, &packet); err != nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+	}
+	predicates := packet.Inputs.OutcomePredicates
+	if len(predicates) == 0 {
+		return nil, nil
+	}
+	if len(predicates) > 8 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet carries more than 8 outcome predicates", false, "supply at most 8 outcome predicates")
+	}
+	ids := make([]string, 0, len(predicates))
+	seen := make(map[string]struct{}, len(predicates))
+	for index, predicate := range predicates {
+		id := predicate.PredicateID
+		switch {
+		case !validWorkerPredicateID(id):
+			return nil, newFailure(KindInvalidPayload, "workflow_action",
+				fmt.Sprintf("dispatch_worker worker_packet predicate_id %q is not a bounded predicate: prefixed id", id), false,
+				"prefix every predicate_id with \"predicate:\" at 11-128 characters")
+		case predicate.Ordinal != index:
+			return nil, newFailure(KindInvalidPayload, "workflow_action",
+				fmt.Sprintf("outcome predicate %q declares ordinal %d at position %d", id, predicate.Ordinal, index), false,
+				"set each predicate ordinal to its own position in the set")
+		case len(predicate.OutcomePayload) == 0:
+			return nil, newFailure(KindInvalidPayload, "workflow_action",
+				fmt.Sprintf("outcome predicate %q has no outcome_payload", id), false,
+				"supply the outcome_payload matching the declared outcome_kind")
+		}
+		if _, exists := seen[id]; exists {
+			return nil, newFailure(KindInvalidPayload, "workflow_action",
+				fmt.Sprintf("outcome predicate id %q appears more than once", id), false,
+				"give every outcome predicate a distinct predicate_id")
+		}
+		seen[id] = struct{}{}
+		if _, err := DecodeWorkflowPredicate(predicate.OutcomePayload); err != nil {
+			return nil, newFailure(KindInvalidPayload, "workflow_action",
+				fmt.Sprintf("dispatch_worker worker_packet outcome predicate %q carries a malformed outcome_payload: %s", id, err), false,
+				"supply one strict closed predicate payload per outcome_kind")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
@@ -749,6 +838,17 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence); err != nil {
 			return err
 		}
+		// The recorded dispatch owns the discharge obligations: the typed
+		// outcome predicate ids it carried are read from the dispatch
+		// authorization event, never re-derived from the report, so a
+		// completed report must name every declared predicate at least once.
+		declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
+		if err != nil {
+			return err
+		}
+		if err := verifyWorkerPredicateDischarge(declared, payload.Evidence); err != nil {
+			return err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, attempt.WorkID)
 	if err != nil {
@@ -938,6 +1038,63 @@ func sortedObligationList(values map[string]struct{}) string {
 	}
 	sort.Strings(names)
 	return strings.Join(names, ", ")
+}
+
+// dispatchedPacketPredicateIDsTx reads the typed outcome predicate ids the
+// dispatch authorization recorded for one worker attempt, in contract
+// ordinal order. The dispatch_worker completion event is the immutable
+// source: the core extracted the ids from the same packet bytes it digested
+// at authorization and recorded them unconditionally, empty when the packet
+// declared no typed predicates. A recorded dispatch without the list is
+// malformed and refuses fail-closed, so a missing projection can never
+// silently narrow the obligations the fold enforces. An attempt with no
+// dispatch authorization at all carries no recorded packet to discharge
+// against, so the fold holds it to none.
+func dispatchedPacketPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
+	var raw *string
+	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_packet_predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, wrapFailure(KindUnavailable, "worker_predicate_discharge", "cannot read the dispatched packet predicates", true, "retry once the database is readable", err)
+	}
+	if raw == nil {
+		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "dispatch_worker completion recorded no worker_packet_predicate_ids", false, "verify the store that recorded the dispatch authorization")
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(*raw), &ids); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_predicate_discharge", "dispatch_worker completion recorded malformed worker_packet_predicate_ids", false, "verify the store that recorded the dispatch authorization")
+	}
+	return ids, nil
+}
+
+// verifyWorkerPredicateDischarge extends the CD-0056 coverage shape to
+// predicates: when the recorded dispatch carried typed outcome predicates, a
+// completed report names every declared predicate id in at least one evidence
+// entry's predicate_ids. One entry may discharge several predicates; the
+// refusal names the un-discharged ids.
+func verifyWorkerPredicateDischarge(declared []string, evidence []WorkerReportEvidence) error {
+	if len(declared) == 0 {
+		return nil
+	}
+	named := make(map[string]struct{})
+	for _, entry := range evidence {
+		for _, id := range entry.PredicateIDs {
+			named[id] = struct{}{}
+		}
+	}
+	missing := make(map[string]struct{})
+	for _, id := range declared {
+		if _, ok := named[id]; !ok {
+			missing[id] = struct{}{}
+		}
+	}
+	if len(missing) > 0 {
+		return newFailure(KindInvalidPayload, "fold_event",
+			fmt.Sprintf("worker report leaves declared outcome predicates undischarged: %s", sortedObligationList(missing)),
+			false, "record worker.failed with the invalid_report failure kind")
+	}
+	return nil
 }
 
 func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDetail string) error {

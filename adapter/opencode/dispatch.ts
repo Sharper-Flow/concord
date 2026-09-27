@@ -63,7 +63,19 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[] }
+  inputs: { task: string; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+// AgentLanePacketOutcomePredicate is one typed outcome predicate the packet
+// carries from the approved contract. The closed packet schema enforces the
+// strict per-kind payload field sets through allOf/if-then entries; this type
+// mirrors the admitted shape the builder emits and the fold keys its
+// discharge requirement on.
+export interface AgentLanePacketOutcomePredicate {
+  predicate_id: string
+  ordinal: number
+  outcome_kind: "exists" | "absent" | "outcome" | "check"
+  outcome_payload: Record<string, unknown>
 }
 
 export interface AgentLanePacketCorrection {
@@ -86,6 +98,11 @@ export interface AgentLanePacketCorrection {
 export interface AgentLaneReportEvidence {
   obligation: string
   detail: string
+  // The optional per-predicate tie: the predicate_id of each typed
+  // inputs.outcome_predicates entry this entry's evidence discharges. The
+  // store fold requires every predicate the dispatched packet declared to be
+  // named at least once across the completed report's entries.
+  predicate_ids?: string[]
 }
 
 // AgentLaneReportBaseComparisonCheck is one verification command's result as
@@ -228,6 +245,11 @@ export interface AgentResultEnvelope {
   // results of its verification commands. It rides the attempt readback when
   // present and drives nothing (CD-0043 D1).
   base_comparison?: AgentLaneReportBaseComparison
+  // The entry-level predicate tie from the completed report's admitted
+  // evidence: which obligation discharged which declared predicate ids, read
+  // back so the coordinator sees the tie the fold enforces without
+  // re-deriving it from the worker output.
+  predicate_discharge?: Array<{ predicate_ids: string[]; obligation: string }>
   // CD-0102 D1. A dispatch returns before the worker runs, so an authorized
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
@@ -466,6 +488,26 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
       for (let index = 0; index < value.length; index++) {
         if (!validateSchema(schema.items, value[index], root, `${path}[${index}]`, failures)) return false
       }
+    }
+  }
+  // allOf requires every branch, mirroring the store's payload validator. The
+  // agent-lane-packet contract composes its per-kind outcome predicate field
+  // sets as allOf of if/then entries, so an unimplemented allOf would leave
+  // the typed field decorative.
+  if (Array.isArray(schema.allOf)) {
+    for (const branch of schema.allOf) {
+      if (!validateSchema(branch, value, root, path, failures)) return false
+    }
+  }
+  // if/then/else applies exactly one branch: then when the condition holds,
+  // else when it does not, nothing when the applied branch is absent. The
+  // condition validates with a throwaway failure collector so a failed
+  // condition reports the applied branch's mismatch, not the probe.
+  if (schema.if !== undefined) {
+    const condition = validateSchema(schema.if, value, root, path)
+    const branch = condition ? schema.then : schema.else
+    if (branch !== undefined && branch !== null) {
+      if (!validateSchema(branch, value, root, path, failures)) return false
     }
   }
   return true
@@ -1684,6 +1726,16 @@ async function completeWorkerSession(
   // beside that output would count its bytes twice and refuse a report the
   // schema admits. The attempt readback then holds it when present.
   if (!("detail" in resolution) && resolution.report.base_comparison) envelope.base_comparison = resolution.report.base_comparison
+  // The per-predicate tie is part of the admitted evidence: the entry-level
+  // mapping of which obligation discharged which declared predicate ids
+  // rides the attempt readback the coordinator receives. Like the base
+  // comparison it attaches after the output bound, so its bytes are not
+  // counted twice against the host limit.
+  if (!("detail" in resolution) && resolution.report.status === "completed") {
+    const discharge = resolution.report.evidence
+      .flatMap((entry) => (entry.predicate_ids ?? []).length > 0 ? [{ predicate_ids: entry.predicate_ids as string[], obligation: entry.obligation }] : [])
+    if (discharge.length > 0) envelope.predicate_discharge = discharge
+  }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event

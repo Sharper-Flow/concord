@@ -50,8 +50,8 @@ const WORK_ID = "work-dispatch"
 const PRODUCT_ID = "product-dispatch"
 const WORKFLOW_STEP = "execution"
 const NARRATIVE = "Project lane identity, step, narrative, and obligations into the closed agent-lane-packet.v1."
-const OUTCOME_KIND = "capability_available"
-const OUTCOME_PAYLOAD = "A host-side builder projects durable state into the agent lane packet."
+const OUTCOME_KIND = "check"
+const OUTCOME_PAYLOAD = JSON.stringify({ kind: "check", check_ref: "check:projected-dispatch-inputs", immutable_subject_ref: "contracts/agent-lane-packet.schema.json", expected_result: "pass" })
 
 function envelope<T>(body: T): T & { schema_version: "1.0"; origin: "core" } {
   return { schema_version: "1.0", origin: "core", ...body } as T & { schema_version: "1.0"; origin: "core" }
@@ -239,7 +239,8 @@ test("pre-contract research dispatch builds a question mandate before core autho
   expect(packet.lane_id).toBe(research.id)
   expect(packet.inputs.task).toContain(NARRATIVE)
   expect(packet.inputs.task).toContain("Step question:")
-  expect(packet.inputs.constraints!.some((entry) => entry.startsWith("Approved end-state mandate"))).toBe(false)
+  expect(packet.inputs.outcome_predicates).toBeUndefined()
+  expect(packet.inputs.constraints).toBeUndefined()
   expect(windows.has("session-1")).toBe(true)
 })
 

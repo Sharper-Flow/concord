@@ -983,8 +983,13 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		// digest the worker-evidence assertion claims, so the gate
 		// accepts the dispatched record rather than refusing it for
 		// the empty-digest cutover case.
-		"worker_packet_digest":     "sha256:" + strings.Repeat("c", 64),
-		"worker_worktree_identity": worktreeIdentity,
+		"worker_packet_digest": "sha256:" + strings.Repeat("c", 64),
+		// The authorization records the predicate list unconditionally,
+		// empty when the dispatched packet declared no typed
+		// predicates, so the completion fold reads the window as a
+		// well-formed record.
+		"worker_packet_predicate_ids": []string{},
+		"worker_worktree_identity":    worktreeIdentity,
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
 	// product_projects, work_projects, and the workflow event families are

@@ -411,27 +411,28 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
     // This non-Initiative fixture has no narrative. The task still carries
-    // the objective and version binding; numbered constraints carry the
-    // mandate. The context carries the contract's resolved home Domain.
+    // the objective and version binding; the typed outcome predicates ride
+    // inputs.outcome_predicates with each serialized payload decoded. The
+    // context carries the contract's resolved home Domain.
     expect(packet.inputs.context).toBe(`Approved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\n\n`)
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v12, contract v1)")
     expect(packet.inputs.task).not.toContain(WORKFLOW_PREDICATE.predicate_id)
-    const mandate = packet.inputs.constraints
-      .filter((entry: string) => entry.startsWith("Approved end-state mandate (join parts in order) "))
-      .map((entry: string) => entry.slice(entry.indexOf(": ") + 2)).join("")
-    const projectedPredicates = JSON.parse(mandate).map((predicate: { outcome_payload: string }) => ({
-      ...predicate,
-      outcome_payload: JSON.parse(predicate.outcome_payload),
-    }))
-    expect(projectedPredicates).toEqual([WORKFLOW_PREDICATE])
+    expect(packet.inputs.outcome_predicates).toEqual([WORKFLOW_PREDICATE])
+    expect(packet.inputs.constraints).toBeUndefined()
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
+    expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([WORKFLOW_PREDICATE.predicate_id])
     const report = {
       schema_version: "1.0",
       readback_model: READBACK_MODEL,
       status: "completed",
-      evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+      evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
+        obligation,
+        detail: `discharged ${obligation}`,
+        ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}),
+      })),
     }
     const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-task-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
@@ -569,7 +570,11 @@ routeDeclaration("records an oversized worker session through the real CLI and s
       schema_version: "1.0",
       readback_model: READBACK_MODEL,
       status: "completed",
-      evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
+      evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
+        obligation,
+        detail: `discharged ${obligation}`,
+        ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}),
+      })),
     }
     const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-oversized-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })

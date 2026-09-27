@@ -551,3 +551,192 @@ func TestWorkerDispatchV3CarriesProvenanceIntoDurableEvidence(t *testing.T) {
 		t.Fatalf("v3 without provenance should be accepted at fold level (CLI gates it): %v", err)
 	}
 }
+
+// seedDispatchPredicateAuthorization records the dispatch_worker
+// authorization completion the way the workflow engine writes it, so the
+// worker fold's predicate read has a recorded dispatch to read. The workflow
+// action machinery around that event is covered by the route end-to-end
+// tests; this seed keeps the discharge rules testable in isolation.
+func seedDispatchPredicateAuthorization(t *testing.T, s *Store, workID, attemptID string, predicateIDs []string) {
+	t.Helper()
+	payload := map[string]any{
+		"work_id": workID, "step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": int64(1),
+		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": "operator:test",
+		"worker_attempt_id":    attemptID,
+		"worker_packet_digest": "sha256:" + strings.Repeat("f", 64),
+	}
+	if predicateIDs != nil {
+		payload["worker_packet_predicate_ids"] = predicateIDs
+	}
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events (event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"dispatch-authorization-"+attemptID, WorkflowActionCompleted, string(SubjectWorkItem), workID, "operator:test", time.Unix(1, 0).UTC().Format(time.RFC3339Nano), 2, mustJSONValue(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workerCompleteEventWithEvidence(workID, eventID, attemptID, model string, evidence []WorkerReportEvidence) Event {
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(map[string]any{
+		"attempt_id": attemptID, "readback_model": model, "report_schema_version": WorkerReportSchemaVersion,
+		"evidence_origin": WorkerEvidenceReported, "evidence": evidence,
+	})}
+}
+
+func TestWorkerPacketPredicateIDsExtraction(t *testing.T) {
+	t.Parallel()
+	check := map[string]any{"kind": "check", "check_ref": "check:one", "immutable_subject_ref": "contracts/x.json", "expected_result": "pass"}
+	predicate := func(id string, ordinal int) map[string]any {
+		return map[string]any{"predicate_id": id, "ordinal": ordinal, "outcome_kind": "check", "outcome_payload": check}
+	}
+	ids, err := workerPacketPredicateIDs(mustJSONValue(map[string]any{"inputs": map[string]any{
+		"outcome_predicates": []map[string]any{predicate("predicate:one", 0), predicate("predicate:two", 1)},
+	}}))
+	if err != nil || len(ids) != 2 || ids[0] != "predicate:one" || ids[1] != "predicate:two" {
+		t.Fatalf("extraction = %v, %v, want [predicate:one predicate:two]", ids, err)
+	}
+	if ids, err := workerPacketPredicateIDs(mustJSONValue(map[string]any{"inputs": map[string]any{}})); err != nil || ids != nil {
+		t.Fatalf("legacy-shaped packet extraction = %v, %v, want nil, nil", ids, err)
+	}
+	refusals := []struct {
+		name   string
+		packet map[string]any
+	}{
+		{"unprefixed id", map[string]any{"inputs": map[string]any{"outcome_predicates": []map[string]any{predicate("not-a-predicate", 0)}}}},
+		{"foreign ordinal", map[string]any{"inputs": map[string]any{"outcome_predicates": []map[string]any{predicate("predicate:one", 3)}}}},
+		{"duplicate id", map[string]any{"inputs": map[string]any{"outcome_predicates": []map[string]any{predicate("predicate:one", 0), predicate("predicate:one", 1)}}}},
+		{"malformed payload", map[string]any{"inputs": map[string]any{"outcome_predicates": []map[string]any{
+			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{}},
+		}}}},
+		{"ninth predicate", map[string]any{"inputs": map[string]any{"outcome_predicates": []map[string]any{
+			predicate("predicate:p0", 0), predicate("predicate:p1", 1), predicate("predicate:p2", 2), predicate("predicate:p3", 3),
+			predicate("predicate:p4", 4), predicate("predicate:p5", 5), predicate("predicate:p6", 6), predicate("predicate:p7", 7),
+			predicate("predicate:p8", 8),
+		}}}},
+	}
+	for _, tc := range refusals {
+		if _, err := workerPacketPredicateIDs(mustJSONValue(tc.packet)); !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("%s extraction error = %v, want %s", tc.name, err, KindInvalidPayload)
+		}
+	}
+}
+
+func TestWorkerReportEvidencePredicateShape(t *testing.T) {
+	t.Parallel()
+	obligation := BuiltinLaneDefinitions()[1].EvidenceObligations[0]
+	valid := []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{"predicate:one", "predicate:two"}}}
+	if err := validateWorkerReportEvidence(WorkerEvidenceReported, valid); err != nil {
+		t.Fatalf("valid predicate tie refused: %v", err)
+	}
+	refusals := []struct {
+		name    string
+		entries []WorkerReportEvidence
+	}{
+		{"unprefixed id", []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{"predicate-one"}}}},
+		{"short id", []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{"predicate:"}}}},
+		{"oversized id", []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{"predicate:" + strings.Repeat("x", 200)}}}},
+		{"ninth id", []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{
+			"predicate:p0", "predicate:p1", "predicate:p2", "predicate:p3", "predicate:p4", "predicate:p5", "predicate:p6", "predicate:p7", "predicate:p8",
+		}}}},
+	}
+	for _, tc := range refusals {
+		if err := validateWorkerReportEvidence(WorkerEvidenceReported, tc.entries); !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("%s evidence error = %v, want %s", tc.name, err, KindInvalidPayload)
+		}
+	}
+}
+
+func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
+	t.Parallel()
+	lane := BuiltinLaneDefinitions()[1]
+	model := preferredModelForLane(lane)
+	// CD-0056 D4 coverage names every lane obligation; the predicate tie rides
+	// the first entry.
+	fullEvidence := func(tieIDs ...string) []WorkerReportEvidence {
+		evidence := make([]WorkerReportEvidence, 0, len(lane.EvidenceObligations))
+		for index, obligation := range lane.EvidenceObligations {
+			entry := WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation}
+			if index == 0 && len(tieIDs) > 0 {
+				entry.PredicateIDs = tieIDs
+			}
+			evidence = append(evidence, entry)
+		}
+		return evidence
+	}
+
+	t.Run("a completed report naming every declared predicate completes", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-admitted-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-admitted", attemptID, []string{"predicate:alpha", "predicate:beta"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-admitted", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-admitted", "discharge-admitted-complete", attemptID, model, fullEvidence("predicate:alpha", "predicate:beta"))}}); err != nil {
+			t.Fatalf("fully discharged completion refused: %v", err)
+		}
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "completed" {
+			t.Fatalf("discharged attempt state = %q, want completed", state)
+		}
+	})
+
+	t.Run("a completed report that under-names refuses with the un-discharged ids", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-refused-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-refused", attemptID, []string{"predicate:alpha", "predicate:beta"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-refused", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-refused", "discharge-refused-complete", attemptID, model, fullEvidence("predicate:alpha"))}})
+		if !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("under-named completion error = %v, want %s", err, KindInvalidPayload)
+		}
+		if err == nil || !strings.Contains(err.Error(), "predicate:beta") {
+			t.Fatalf("refusal %v does not name the un-discharged predicate:beta", err)
+		}
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "dispatched" {
+			t.Fatalf("refused completion state = %q, want dispatched", state)
+		}
+	})
+
+	t.Run("a completion whose dispatch declared no predicates needs no tie", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-legacy-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-legacy", attemptID, []string{})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-legacy", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-legacy", "discharge-legacy-complete", attemptID, model, fullEvidence())}}); err != nil {
+			t.Fatalf("legacy-shaped completion refused: %v", err)
+		}
+	})
+
+	t.Run("a recorded dispatch with no predicate list refuses the completion fail-closed", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-malformed-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-malformed", attemptID, nil)
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-malformed", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-malformed", "discharge-malformed-complete", attemptID, model, fullEvidence())}})
+		if !hasFailureKind(err, KindInvariantViolation) {
+			t.Fatalf("missing-list completion error = %v, want %s", err, KindInvariantViolation)
+		}
+		if err == nil || !strings.Contains(err.Error(), "worker_packet_predicate_ids") {
+			t.Fatalf("refusal %v does not name the missing worker_packet_predicate_ids record", err)
+		}
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "dispatched" {
+			t.Fatalf("refused completion state = %q, want dispatched", state)
+		}
+	})
+}

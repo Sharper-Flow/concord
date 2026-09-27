@@ -57,6 +57,10 @@ function renderAttempt(envelope: AgentResultEnvelope): string {
   // The optional base comparison is informational evidence: it reaches the
   // coordinator when the worker reported one, and no route reads it.
   if (envelope.base_comparison) summary.base_comparison = envelope.base_comparison
+  // The per-predicate tie: which obligation discharged which declared
+  // predicate ids, read back from the admitted evidence so the coordinator
+  // sees the tie without re-deriving it from the worker output.
+  if (envelope.predicate_discharge) summary.predicate_discharge = envelope.predicate_discharge
   if (envelope.error) summary.error = envelope.error
   return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>`
 }

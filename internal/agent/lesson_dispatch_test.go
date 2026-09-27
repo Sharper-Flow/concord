@@ -95,7 +95,7 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed2
 }
 
 func lessonInput() json.RawMessage {
-	return json.RawMessage(`{"work_id":"work-lesson","lesson_id":"lesson-dispatch-probe","title":"Dispatch publishes lessons","summary":"The archive surface carries separately accepted lessons into git with their manifest record.","content":"# Dispatch publishes lessons\n\nApproval first, then one commit.\n","tags":["testing"],"scopes":{"mode":"explicit","project_ids":["project-1"]},"evidence":["internal/agent/lesson_dispatch_test.go"],"coverage":{"state":"satisfied","evidence":[{"kind":"go_test","value":"internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"}]},"publication_work_id":"work-pub","idempotency_key":"lesson-key-1"}`)
+	return json.RawMessage(`{"work_id":"work-lesson","lesson_id":"lesson-dispatch-probe","title":"Dispatch publishes lessons","summary":"The archive surface carries separately accepted lessons into git with their manifest record.","content":"# Dispatch publishes lessons\n\nApproval first, then one commit.\n","tags":["testing"],"scopes":{"mode":"explicit","product_ids":["product-1"],"project_ids":["project-1"]},"evidence":["internal/agent/lesson_dispatch_test.go"],"coverage":{"state":"satisfied","evidence":[{"kind":"go_test","value":"internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"}]},"publication_work_id":"work-pub","idempotency_key":"lesson-key-1"}`)
 }
 
 func lessonApprovalScope(scopeVersion string) map[string]any {
@@ -130,7 +130,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 		"work_id": "work-lesson", "lesson_id": "lesson-dispatch-probe",
 		"title": "Dispatch publishes lessons", "summary": "The archive surface carries separately accepted lessons into git with their manifest record.",
 		"content": "# Dispatch publishes lessons\n\nApproval first, then one commit.\n",
-		"tags":    []string{"testing"}, "scopes": map[string]any{"mode": "explicit", "project_ids": []string{"project-1"}},
+		"tags":    []string{"testing"}, "scopes": map[string]any{"mode": "explicit", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}},
 		"evidence":            []string{"internal/agent/lesson_dispatch_test.go"},
 		"coverage":            map[string]any{"state": "satisfied", "evidence": []map[string]any{{"kind": "go_test", "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"}}},
 		"publication_work_id": "work-pub",
@@ -199,6 +199,25 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	if after := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD")); after != mainHead {
 		t.Fatal("the canonical checkout moved during publication")
 	}
+	// A prepared lesson must not appear in the Product's canonical knowledge
+	// read while the commit exists only on the claimed worktree branch.
+	before, err := s.QueryQ10(ctx, store.Q10Request{KnowledgeID: "lesson-dispatch-probe", Product: "product-1"})
+	if err != nil || before.Status != "missing" {
+		t.Fatalf("prepared lesson appeared before merge: Q10=%+v, err=%v", before, err)
+	}
+	// The prepared commit becomes authoritative only after the fixture branch
+	// merges into the canonical checkout and the knowledge index reads that commit.
+	if out, err := exec.Command("git", "-C", repo, "merge", "--ff-only", lessonFixtureBranch).CombinedOutput(); err != nil {
+		t.Fatalf("merge prepared lesson: %v\n%s", err, out)
+	}
+	home := store.KnowledgeHome{HomeProjectID: "project-1", HomeLocatorID: "locator-lesson", RepoPath: repo, HeadRef: "HEAD"}
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("rebuild merged knowledge index: %v", err)
+	}
+	resolved, err := s.QueryQ10(ctx, store.Q10Request{KnowledgeID: "lesson-dispatch-probe", Product: "product-1", Home: home})
+	if err != nil || resolved.Status != "canonical" || resolved.Note == nil || resolved.Note.CommitOID != commitOID {
+		t.Fatalf("merged lesson Q10=%+v, err=%v", resolved, err)
+	}
 }
 
 // TestDispatchLessonPublishRefusesWithoutAClaimedWorktree holds the first
@@ -250,7 +269,7 @@ func TestDispatchLessonPublishRefusesAWorktreeTheSessionDoesNotHold(t *testing.T
 		"work_id": "work-lesson", "lesson_id": "lesson-dispatch-probe",
 		"title": "Dispatch publishes lessons", "summary": "The archive surface carries separately accepted lessons into git with their manifest record.",
 		"content": "# Dispatch publishes lessons\n\nApproval first, then one commit.\n",
-		"tags":    []string{"testing"}, "scopes": map[string]any{"mode": "explicit", "project_ids": []string{"project-1"}},
+		"tags":    []string{"testing"}, "scopes": map[string]any{"mode": "explicit", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}},
 		"evidence":            []string{"internal/agent/lesson_dispatch_test.go"},
 		"coverage":            map[string]any{"state": "satisfied", "evidence": []map[string]any{{"kind": "go_test", "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"}}},
 		"publication_work_id": "work-pub",

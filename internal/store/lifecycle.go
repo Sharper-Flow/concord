@@ -256,6 +256,14 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	// A captured task validates under the same rule the revise fold
+	// enforces, so one call persists the instruction identically to a
+	// revise: oversized, NUL-carrying, or non-UTF-8 text refuses at the
+	// work.created fold rather than landing as a field a later revise
+	// would reject. An empty task is the absent field, not a refusal.
+	if payload.Task != "" && (len(payload.Task) > 8192 || strings.ContainsRune(payload.Task, '\x00') || !utf8.ValidString(payload.Task)) {
+		return newFailure(KindInvalidPayload, "fold_event", "work.created task is too long or contains NUL", false, "supply bounded UTF-8 task text")
+	}
 	intent, err := json.Marshal(workIntentProjection{
 		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,

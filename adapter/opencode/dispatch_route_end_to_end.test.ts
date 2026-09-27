@@ -413,8 +413,9 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // This non-Initiative fixture has no narrative. The task still carries
     // the objective and version binding; the typed outcome predicates ride
     // inputs.outcome_predicates with each serialized payload decoded. The
-    // context carries the contract's resolved home Domain.
-    expect(packet.inputs.context).toBe(`Approved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\n\n`)
+    // context leads with the item's value line, carries the contract's
+    // resolved home Domain, and the recorded task ahead of the narrative.
+    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\n\nRecorded task:\nExercise the dispatch route.\n\n`)
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v12, contract v1)")

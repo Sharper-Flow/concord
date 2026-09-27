@@ -26,6 +26,7 @@ type mutationMembership struct {
 type captureMutationInput struct {
 	Title            string   `json:"title"`
 	ValueStatement   string   `json:"value_statement"`
+	Task             *string  `json:"task"`
 	Kind             string   `json:"kind"`
 	ProjectIDs       []string `json:"project_ids"`
 	Priority         int64    `json:"priority"`
@@ -1495,7 +1496,14 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		if urgency == "" {
 			urgency = "standard"
 		}
-		payload, _ := json.Marshal(map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID})
+		// A captured task rides the work.created payload into the same
+		// intent_json.task projection a revise writes, so one call persists
+		// the operator's instruction identically to a later revise.
+		payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+		if in.Task != nil {
+			payloadFields["task"] = *in.Task
+		}
+		payload, _ := json.Marshal(payloadFields)
 		memberships := make([]storeMembership, len(in.ProjectIDs))
 		for i, project := range in.ProjectIDs {
 			role := "secondary"

@@ -155,27 +155,31 @@ type Q3Result struct {
 	Items []WorkItem `json:"items"`
 }
 
+// WorkItem is one projected work item. ValueStatement rides the
+// single-record read only, the way Task does: list queries keep their
+// eight-column shape, and an item without a recorded value omits the field.
 type WorkItem struct {
-	ID         string              `json:"id"`
-	Kind       string              `json:"kind"`
-	Title      string              `json:"title"`
-	Lifecycle  string              `json:"lifecycle"`
-	Version    int64               `json:"version"`
-	Priority   int64               `json:"priority"`
-	Urgency    string              `json:"urgency"`
-	CreatedAt  string              `json:"created_at"`
-	UpdatedAt  string              `json:"updated_at"`
-	TerminalAt string              `json:"terminal_at,omitempty"`
-	Task       string              `json:"task,omitempty"`
-	Narrative  string              `json:"narrative,omitempty"`
-	Projects   []ProjectMembership `json:"projects,omitempty"`
-	Blocked    bool                `json:"blocked"`
-	Ready      bool                `json:"ready"`
-	Active     bool                `json:"active"`
-	Terminal   bool                `json:"terminal"`
-	Liveness   *WorkLiveness       `json:"liveness,omitempty"`
-	Blockers   []WorkItem          `json:"blockers,omitempty"`
-	WorkPin    *WorkPin            `json:"work_pin,omitempty"`
+	ID             string              `json:"id"`
+	Kind           string              `json:"kind"`
+	Title          string              `json:"title"`
+	Lifecycle      string              `json:"lifecycle"`
+	Version        int64               `json:"version"`
+	Priority       int64               `json:"priority"`
+	Urgency        string              `json:"urgency"`
+	CreatedAt      string              `json:"created_at"`
+	UpdatedAt      string              `json:"updated_at"`
+	TerminalAt     string              `json:"terminal_at,omitempty"`
+	Task           string              `json:"task,omitempty"`
+	ValueStatement string              `json:"value_statement,omitempty"`
+	Narrative      string              `json:"narrative,omitempty"`
+	Projects       []ProjectMembership `json:"projects,omitempty"`
+	Blocked        bool                `json:"blocked"`
+	Ready          bool                `json:"ready"`
+	Active         bool                `json:"active"`
+	Terminal       bool                `json:"terminal"`
+	Liveness       *WorkLiveness       `json:"liveness,omitempty"`
+	Blockers       []WorkItem          `json:"blockers,omitempty"`
+	WorkPin        *WorkPin            `json:"work_pin,omitempty"`
 }
 
 type Q4Result struct {
@@ -1230,10 +1234,11 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	if len(items) == 0 {
 		return WorkItem{}, unknownScope("query", "work item does not exist")
 	}
-	// The bounded narrative and the persisted task ride the single-record read
-	// only; list queries keep their eight-column shape.
+	// The bounded narrative, the persisted task, and the recorded value
+	// statement ride the single-record read only; list queries keep their
+	// eight-column shape.
 	var task string
-	if err := tx.QueryRowContext(ctx, `SELECT narrative, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative, &task); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT narrative, coalesce(json_extract(intent_json, '$.task'), ''), coalesce(json_extract(intent_json, '$.value_statement'), '') FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative, &task, &items[0].ValueStatement); err != nil {
 		return WorkItem{}, wrapFailure(KindUnavailable, "query", "cannot read work narrative", true, "retry once the database is readable", err)
 	}
 	items[0].Task = task

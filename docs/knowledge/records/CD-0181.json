@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-77b5c1691911819c7d94abcd",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0181",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0144"
+    }
+  ],
+  "path": "docs/decisions/CD-0181-squash-merged-branch-is-durable-where-default-ref-holds-net-diff.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a7c2d3cb7477e9248adff0090a5a3b44ab1c2b32f273fb9ff4515b785f33aad7",
+  "status": "accepted",
+  "summary": "A terminal branch counts as merged and durable when the default ref holds a commit whose git patch-id --stable equals the branch's net diff from its merge base; the remote-ref count stays the first way to pass, and the audit classifier and the reclaim gate use this one check.",
+  "tags": [
+    "worktrees",
+    "worktree-audit",
+    "reclaim",
+    "git"
+  ],
+  "title": "A squash-merged branch is durable where the default ref holds its net diff"
+}

@@ -12,6 +12,8 @@
 - **Preserves:** Local Git and SQLite as audit authorities; the clean-tree,
   merged-branch, and observed-session reclaim gates; operator approval for
   destructive removal
+- **Amended by:** CD-0181 adds squash containment as the second way the
+  unpushed class and the durable gate pass.
 
 ## Context
 

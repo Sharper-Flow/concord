@@ -432,8 +432,7 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 		return nil
 	}
 	if err := checkWorkflowLawRevisionStalenessTx(g.ctx, g.tx, g.request.WorkID); err != nil {
-		var failure *Failure
-		if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
+		if !workflowContractRecoveryStaleness(err, g.request.WorkID) {
 			return err
 		}
 		g.staleRecovery = true

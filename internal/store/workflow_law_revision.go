@@ -372,6 +372,28 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 	return revisions, nil
 }
 
+// workflowContractRecoveryStaleness is the one predicate that decides whether
+// a staleness refusal admits operator-approved contract recovery for the named
+// subject: a stale law revision, an unresolved Domain overlap, or the
+// subject's own stale Domain registry pin. guardSupersedeContractRecovery and
+// both workflow_action preflights share it, so no surface can widen the
+// recovery admission on its own (CD-0041 D7). A marker naming another item, a
+// Product with no registry, and every other refusal stay refused.
+func workflowContractRecoveryStaleness(err error, workID string) bool {
+	var failure *Failure
+	if !failureAs(err, &failure) {
+		return false
+	}
+	switch failure.Kind {
+	case KindStaleLawRevision, KindDomainOverlap:
+		return true
+	case KindStaleRequiresReview:
+		return failure.StaleDomainRegistryPin != nil && failure.StaleDomainRegistryPin.WorkID == workID
+	default:
+		return false
+	}
+}
+
 func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var mandateJSON string
 	// This boundary reads the law revisions that one approved contract pins.

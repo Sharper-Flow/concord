@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestKnowledgeManifestAdmitsPredicateCriterionBindings"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContinuityLawContextCarriesThisWorkPredicateCriteria"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-knowledge-index.py"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/packet.test.ts#the law block lists the mandated criteria bound to this work item's predicates"
+    }
+  ],
+  "id": "CD-0180",
+  "state": "satisfied"
+}

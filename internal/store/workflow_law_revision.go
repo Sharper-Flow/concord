@@ -500,6 +500,21 @@ type WorkflowLawContextLaw struct {
 	Title         string   `json:"title,omitempty"`
 	Path          string   `json:"path,omitempty"`
 	ObligationIDs []string `json:"obligation_ids,omitempty"`
+	// Criteria lists the law's acceptance criteria bound to the reading
+	// work item's own outcome predicates (CD-0180). Bindings naming another
+	// work item, and scenario or exemption bindings, never surface here:
+	// the law context carries the chaining this work item owes, not the
+	// law's whole binding table.
+	Criteria []WorkflowLawContextCriterionBinding `json:"criteria,omitempty"`
+}
+
+// WorkflowLawContextCriterionBinding is one acceptance criterion of the law
+// that the reading work item's own outcome predicate discharges. The reading
+// work ID is implicit: every entry the law context carries binds the
+// dispatching work item, so the packet renders criterion and predicate only.
+type WorkflowLawContextCriterionBinding struct {
+	Criterion   int    `json:"criterion"`
+	PredicateID string `json:"predicate_id"`
 }
 
 type WorkflowLawContextDomain struct {
@@ -576,7 +591,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 		if err != nil {
 			return nil, err
 		}
-		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, lawContextLaws(roleSet, obligationSet, lawIDs))
+		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
 		if err != nil {
 			return nil, err
 		}
@@ -617,8 +632,10 @@ func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []
 
 // resolveLawContextSubjects reads the law_subjects row for each bound law in
 // one bounded batch. The 128-entry ceiling is the write-side sum of the
-// mandate (32), additions (32), and obligations (64) bounds.
-func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+// mandate (32), additions (32), and obligations (64) bounds. Each law's
+// authored criterion bindings ride the row; the ones naming the reading work
+// item's predicates become that law's Criteria (CD-0180).
+func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
 	if len(laws) > 128 {
 		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
 	}
@@ -628,24 +645,32 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 	for _, law := range laws {
 		args = append(args, law.LawID)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path,criterion_bindings FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the law subjects for the bound laws", true, "retry once the law projection is readable", err)
 	}
 	defer rows.Close()
-	subjects := map[string]WorkflowLawContextLaw{}
+	type subjectRow struct {
+		subject  WorkflowLawContextLaw
+		bindings []KnowledgeCriterionBinding
+	}
+	subjects := map[string]subjectRow{}
 	for rows.Next() {
-		var law WorkflowLawContextLaw
-		if err := rows.Scan(&law.LawID, &law.Kind, &law.Status, &law.Title, &law.Path); err != nil {
+		var row subjectRow
+		var bindingsJSON string
+		if err := rows.Scan(&row.subject.LawID, &row.subject.Kind, &row.subject.Status, &row.subject.Title, &row.subject.Path, &bindingsJSON); err != nil {
 			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot decode a bound law subject", true, "retry once the law projection is readable", err)
 		}
-		subjects[law.LawID] = law
+		if err := json.Unmarshal([]byte(bindingsJSON), &row.bindings); err != nil {
+			return nil, wrapFailure(KindInvariantViolation, "read_workflow_law_context", "a bound law carries criterion bindings the projection cannot decode", false, "rebuild the accepted Git law projection", err)
+		}
+		subjects[row.subject.LawID] = row
 	}
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
 	}
 	for index := range laws {
-		subject, exists := subjects[laws[index].LawID]
+		row, exists := subjects[laws[index].LawID]
 		if !exists {
 			if listedAsAddition(laws[index].Roles) {
 				continue
@@ -654,9 +679,25 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 			failure.CandidateIDs = []string{laws[index].LawID}
 			return nil, failure
 		}
-		laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = subject.Kind, subject.Status, subject.Title, subject.Path
+		laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = row.subject.Kind, row.subject.Status, row.subject.Title, row.subject.Path
+		laws[index].Criteria = lawContextCriteria(row.bindings, workID)
 	}
 	return laws, nil
+}
+
+// lawContextCriteria keeps the law's predicate bindings that name the reading
+// work item, in criterion order. A binding naming another work item, and a
+// scenario or exemption binding, never surface in the law context.
+func lawContextCriteria(bindings []KnowledgeCriterionBinding, workID string) []WorkflowLawContextCriterionBinding {
+	var criteria []WorkflowLawContextCriterionBinding
+	for _, binding := range bindings {
+		if binding.WorkID != workID || binding.PredicateID == "" {
+			continue
+		}
+		criteria = append(criteria, WorkflowLawContextCriterionBinding{Criterion: binding.Criterion, PredicateID: binding.PredicateID})
+	}
+	sort.Slice(criteria, func(left, right int) bool { return criteria[left].Criterion < criteria[right].Criterion })
+	return criteria
 }
 
 // listedAsAddition reports whether the contract lists the law in

@@ -1872,6 +1872,44 @@ def test_out_of_range_criterion_binding_fails() -> None:
     assert any("criterion binding index is out of range" in line for line in stdout.splitlines()), stdout
 
 
+PREDICATE_WORK_ID = "work-" + "a" * 24
+
+
+def test_criterion_predicate_binding_resolves_criterion() -> None:
+    root = sandbox()
+    path = "docs/predicate-bound.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": PREDICATE_WORK_ID, "predicate_id": "predicate:criterion-bindings-predicate-form"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_criterion_predicate_binding_with_bad_predicate_prefix_fails() -> None:
+    root = sandbox()
+    path = "docs/bad-predicate.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": PREDICATE_WORK_ID, "predicate_id": "pred:criterion-bindings-predicate-form"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding predicate id invalid" in line for line in stdout.splitlines()), stdout
+
+
+def test_criterion_predicate_binding_with_bad_work_id_fails() -> None:
+    root = sandbox()
+    path = "docs/bad-work-id.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": "job-1234", "predicate_id": "predicate:criterion-bindings-predicate-form"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding work id invalid" in line for line in stdout.splitlines()), stdout
+
+
+def test_criterion_predicate_binding_mixed_with_scenario_fails() -> None:
+    root = sandbox()
+    path = "docs/mixed-binding.md"
+    manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID, "work_id": PREDICATE_WORK_ID, "predicate_id": "predicate:criterion-bindings-predicate-form"})
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any("criterion binding invalid" in line for line in stdout.splitlines()), stdout
+
+
 def test_activation_criterion_must_be_all_zero_with_bounded_evidence() -> None:
     root = sandbox()
     path = "docs/spec-a.md"

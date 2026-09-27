@@ -92,6 +92,10 @@ LAW_RELATION_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with
 # $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # check-knowledge-vocabulary.py binds this restatement to that pattern text.
 RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+# CD-0180: the predicate-reference criterion binding form, closed against the
+# schema's $defs.criterionBinding patterns.
+CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
+CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$")
 SCOPE_FIELDS_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
 
 
@@ -161,8 +165,8 @@ def validate_criterion_bindings(record: dict[str, object], prefix: str, findings
     seen: set[int] = set()
     for number, binding in enumerate(bindings):
         binding_prefix = f"{prefix}.criterion_bindings[{number}]"
-        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}):
-            findings.append(f"{binding_prefix}: binding must carry criterion and exactly one scenario or exemption")
+        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}, {"criterion", "work_id", "predicate_id"}):
+            findings.append(f"{binding_prefix}: binding must carry criterion and exactly one scenario, exemption, or work predicate")
             continue
         criterion = binding.get("criterion")
         if not isinstance(criterion, int) or isinstance(criterion, bool) or criterion < 1:
@@ -171,6 +175,7 @@ def validate_criterion_bindings(record: dict[str, object], prefix: str, findings
             findings.append(f"{binding_prefix}: duplicate criterion index {criterion}")
         else:
             seen.add(criterion)
+
         if "scenario" in binding and not clean_text(binding.get("scenario"), 256):
             findings.append(f"{binding_prefix}: scenario must be a clean bounded ID")
         if "exemption" in binding and (
@@ -178,6 +183,13 @@ def validate_criterion_bindings(record: dict[str, object], prefix: str, findings
             or len(binding["exemption"]) < 12
         ):
             findings.append(f"{binding_prefix}: exemption must be a trimmed reason of 12-512 characters")
+        if "work_id" in binding:
+            # CD-0180: the predicate-reference form, shape-only and closed
+            # against the schema's $defs.criterionBinding patterns.
+            if not isinstance(binding.get("work_id"), str) or not CRITERION_WORK_ID_PATTERN.fullmatch(binding["work_id"]):
+                findings.append(f"{binding_prefix}: work_id must be a work- prefixed id of 8-64 hex characters")
+            if not isinstance(binding.get("predicate_id"), str) or not CRITERION_PREDICATE_ID_PATTERN.fullmatch(binding["predicate_id"]):
+                findings.append(f"{binding_prefix}: predicate_id must carry the predicate: prefix")
 
 
 def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False) -> None:

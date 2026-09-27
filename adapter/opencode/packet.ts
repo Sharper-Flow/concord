@@ -89,6 +89,10 @@ function renderDesignRecord(value: unknown): string {
 // references into a readable block. The core resolves every bound ID against
 // the law_subjects and domains projections; an added law with no subject yet,
 // or a Domain missing from the registry, renders with what the core recorded.
+// A law's criteria field (CD-0180) carries the law's acceptance criteria
+// bound to this work item's own outcome predicates, so the worker sees the
+// criterion-to-predicate chaining the item discharges without opening the
+// manifest.
 function renderLawContext(value: unknown): string {
   if (!isRecord(value)) return ""
   const laws = Array.isArray(value.laws) ? value.laws : []
@@ -103,7 +107,8 @@ function renderLawContext(value: unknown): string {
     const detail = [law.title, law.kind, law.status].filter((part): part is string => typeof part === "string" && part.length > 0).join(", ")
     const path = typeof law.path === "string" ? law.path : ""
     const obligationText = obligations.length > 0 ? ` (obligation ${obligations.join(", ")})` : ""
-    lines.push(`- ${roles.join(", ")} law ${lawId}${obligationText}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}`)
+    const criteriaText = renderLawCriteria(law.criteria)
+    lines.push(`- ${roles.join(", ")} law ${lawId}${obligationText}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}${criteriaText}`)
   }
   for (const domain of domains) {
     if (!isRecord(domain)) continue
@@ -113,6 +118,20 @@ function renderLawContext(value: unknown): string {
     lines.push(`- Domain ${domainId}: ${name}${purpose.length > 0 ? ` — ${purpose}` : ""}`)
   }
   return lines.join("\n") + "\n\n"
+}
+
+// renderLawCriteria renders the criteria the core already resolved against
+// this work item's predicates. A malformed entry renders with its surviving
+// parts rather than failing the packet: the law context is a readability
+// projection, and the typed field remains the contract's discharge record.
+function renderLawCriteria(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return ""
+  const bound = value
+    .filter(isRecord)
+    .map((entry) => ({ criterion: entry.criterion, predicateId: typeof entry.predicate_id === "string" ? entry.predicate_id : "" }))
+    .filter((entry): entry is { criterion: number; predicateId: string } => typeof entry.criterion === "number" && entry.predicateId.length > 0)
+  if (bound.length === 0) return ""
+  return ` (criteria bound to this work item: ${bound.map((entry) => `criterion ${entry.criterion} discharges ${entry.predicateId}`).join("; ")})`
 }
 
 // renderProposalRecord projects the recorded proposal's problem, user

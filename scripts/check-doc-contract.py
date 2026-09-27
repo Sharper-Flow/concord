@@ -79,6 +79,12 @@ MAX_FINDINGS = 1000
 MAX_SENTENCE_WORDS = 40
 MIN_CRITERION_EXEMPTION = 12
 MAX_CRITERION_EXEMPTION = 512
+# CD-0180: the predicate-reference binding form. Shape-only, mirroring
+# contracts/concord-knowledge-index.v1.schema.json ($defs.criterionBinding):
+# whether the named predicate actually passed is the work-item side's
+# per-predicate verdict, which this store-less checker cannot reach.
+CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
+CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$")
 # The record kinds a doc contract may address, in taxonomy order. A kind absent
 # from the manifest's doc_contract is not checked at all; a kind present is
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
@@ -633,8 +639,8 @@ def check_criterion_bindings(
     bound: set[int] = set()
     for number, binding in enumerate(bindings):
         prefix = f"{path.relative_to(ROOT)} criterion_bindings[{number}]"
-        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}):
-            findings.append(f"criterion binding invalid: {prefix} (criterion and exactly one scenario or exemption required)")
+        if not isinstance(binding, dict) or set(binding) not in ({"criterion", "scenario"}, {"criterion", "exemption"}, {"criterion", "work_id", "predicate_id"}):
+            findings.append(f"criterion binding invalid: {prefix} (criterion and exactly one scenario, exemption, or work predicate required)")
             continue
         criterion = binding.get("criterion")
         if not isinstance(criterion, int) or isinstance(criterion, bool) or criterion < 1:
@@ -653,7 +659,7 @@ def check_criterion_bindings(
                 findings.append(f"criterion binding scenario invalid: {prefix}")
             elif not resolved_scenario_exists(scenario):
                 findings.append(f"criterion binding names no scenario: {path.relative_to(ROOT)} [{criterion}] ({scenario})")
-        else:
+        elif "exemption" in binding:
             exemption = binding["exemption"]
             if (
                 not isinstance(exemption, str)
@@ -661,6 +667,18 @@ def check_criterion_bindings(
                 or exemption != exemption.strip()
             ):
                 findings.append(f"criterion exemption reason invalid: {path.relative_to(ROOT)} [{criterion}] (12-512 trimmed characters required)")
+        else:
+            # CD-0180: the predicate-reference form resolves the criterion as
+            # bound right here. Verdict-level discharge is deliberately not
+            # checkable: this checker cannot reach the store, so whether the
+            # named predicate actually passed is the work-item side's
+            # per-predicate verdict, never a finding of this check.
+            work_id = binding["work_id"]
+            predicate_id = binding["predicate_id"]
+            if not isinstance(work_id, str) or not CRITERION_WORK_ID_PATTERN.fullmatch(work_id):
+                findings.append(f"criterion binding work id invalid: {prefix}")
+            if not isinstance(predicate_id, str) or not CRITERION_PREDICATE_ID_PATTERN.fullmatch(predicate_id):
+                findings.append(f"criterion binding predicate id invalid: {prefix}")
     if record.get("kind") == "spec":
         for criterion in range(1, criteria_count + 1):
             if criterion not in bound:

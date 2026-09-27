@@ -217,6 +217,40 @@ func TestContinuityRefusesObligationLawMissingFromProjection(t *testing.T) {
 	}
 }
 
+// The law context carries the mandated spec's criteria bound to the reading
+// work item's own predicates (CD-0180), resolved out of the projection's
+// authored bindings. Bindings naming another work item, and scenario or
+// exemption bindings, stay off the packet's law context.
+func TestContinuityLawContextCarriesThisWorkPredicateCriteria(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-criteria"
+	seedLawContextFixture(t, s, workID)
+	otherWork := "work-other-work00000000000000"
+	bindings := `[` +
+		`{"criterion":2,"work_id":"` + workID + `","predicate_id":"predicate:alpha"},` +
+		`{"criterion":1,"work_id":"` + workID + `","predicate_id":"predicate:beta"},` +
+		`{"criterion":3,"work_id":"` + otherWork + `","predicate_id":"predicate:gamma"},` +
+		`{"criterion":4,"scenario":"scenario-one"}]`
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE law_subjects SET criterion_bindings=? WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'; DELETE FROM fold_guard`, bindings); err != nil {
+		t.Fatal(err)
+	}
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LawContext == nil || len(snapshot.LawContext.Laws) != 1 {
+		t.Fatalf("law context laws = %+v, want one mandated spec", snapshot.LawContext)
+	}
+	want := []WorkflowLawContextCriterionBinding{{Criterion: 1, PredicateID: "predicate:beta"}, {Criterion: 2, PredicateID: "predicate:alpha"}}
+	if got := snapshot.LawContext.Laws[0].Criteria; !reflect.DeepEqual(got, want) {
+		t.Fatalf("law context criteria = %+v, want %+v", got, want)
+	}
+}
+
 // A home or affected Domain that later disappears from the registry would
 // reach the packet with an empty name and purpose, so the continuity read
 // refuses fail-closed.

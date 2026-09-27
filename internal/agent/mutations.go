@@ -1902,11 +1902,21 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 	if homeErr != nil {
 		return failureEnvelope(base, homeErr), nil, true
 	}
-	// The delivery is prepared, not published: the intent names the read
-	// that verifies the prepared branch, and the coordinator's merged pull
-	// request plus a knowledge read own the publication claim.
-	plan.intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_prepared_lesson_delivery"}}
+	// The delivery is prepared, not published: the intent inspects the
+	// claimed worktree that carries the prepared commit. The coordinator's
+	// merged pull request plus a post-merge knowledge read own the
+	// publication claim; a knowledge read before the merge cannot see a
+	// lesson that exists only on the prepared branch.
+	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "verify_prepared_lesson_delivery", RequiredFields: []string{"work_id", "mode"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		// The effect boundary binds the write surface to the calling
+		// session's host-verified worktree: the resolved claim must be the
+		// worktree this grant was issued in, so a caller in one linked
+		// worktree can never aim a lesson commit at another work item's
+		// worktree (CD-0026 D1).
+		if !pathsEquivalent(lessonHome.RepoPath, grant.Worktree) {
+			return nil, nil, nil, store.NewLessonPublicationWorktreeRefusal()
+		}
 		scopes := store.KnowledgeRecordScopes{Mode: "home"}
 		if in.Scopes != nil {
 			scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}

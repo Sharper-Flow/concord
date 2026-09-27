@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -51,10 +52,13 @@ type LessonPublication struct {
 }
 
 // LessonCoverageAnchor is one typed evidence anchor (CD-0047 D3). The closed
-// kind set and value shapes mirror scripts/evidence_anchors.py; anchor
-// resolution — that the test, scenario, validator, or generated symbol
-// actually exists and is enforced — stays with scripts/check-law-coverage.py
-// in CI, which owns that proposition.
+// kind set and value shapes mirror contracts/law-coverage.schema.json exactly
+// — go_test, scenario, validator, generated — because the committed coverage
+// shard must pass check-json against that schema: an anchor kind the schema
+// refuses would fail CI after the prepared commit landed. Anchor resolution —
+// that the test, scenario, validator, or generated symbol actually exists and
+// is enforced — stays with scripts/check-law-coverage.py in CI, which owns
+// that proposition.
 type LessonCoverageAnchor struct {
 	Kind  string
 	Value string
@@ -153,11 +157,10 @@ var lessonCoverageStates = map[string]string{
 }
 
 var (
-	lessonGoTestAnchor      = regexp.MustCompile(`^[a-z0-9/_]+\.Test[A-Za-z0-9_]*$`)
-	lessonValidatorAnchor   = regexp.MustCompile(`^scripts/(check|test)-[a-z0-9-]+\.py$`)
-	lessonAdapterTestAnchor = regexp.MustCompile(`^adapter/opencode/[A-Za-z0-9._-]+\.test\.ts#.{3,256}$`)
-	lessonGeneratedAnchor   = regexp.MustCompile(`^[A-Za-z0-9./_-]+#[A-Za-z_][A-Za-z0-9_]*$`)
-	lessonIssuePointer      = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[1-9][0-9]*$`)
+	lessonGoTestAnchor    = regexp.MustCompile(`^[a-z0-9/_]+\.Test[A-Za-z0-9_]*$`)
+	lessonValidatorAnchor = regexp.MustCompile(`^scripts/check-[a-z0-9-]+\.py$`)
+	lessonGeneratedAnchor = regexp.MustCompile(`^[A-Za-z0-9./_-]+#[A-Za-z_][A-Za-z0-9_]*$`)
+	lessonIssuePointer    = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[1-9][0-9]*$`)
 )
 
 // validateLessonCoverage enforces the state-conditional obligations of the
@@ -216,15 +219,16 @@ func validateLessonCoverageAnchor(anchor LessonCoverageAnchor) error {
 	case "go_test":
 		valueOk = lessonGoTestAnchor.MatchString(anchor.Value)
 	case "validator":
+		// The law-coverage schema admits only the check scripts CI invokes,
+		// directly or nested through check-json.py; the wider harness set the
+		// floor validators accept is not part of this plane.
 		valueOk = lessonValidatorAnchor.MatchString(anchor.Value)
-	case "adapter_test":
-		valueOk = lessonAdapterTestAnchor.MatchString(anchor.Value)
 	case "generated":
 		valueOk = lessonGeneratedAnchor.MatchString(anchor.Value)
 	case "scenario":
 		valueOk = len(anchor.Value) >= 1 && len(anchor.Value) <= 512 && !strings.ContainsAny(anchor.Value, " \t\n")
 	default:
-		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage anchor kind must be one of go_test, scenario, validator, generated, adapter_test", false, "declare a typed anchor from the closed set")
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage anchor kind must be one of go_test, scenario, validator, generated", false, "declare a typed anchor from the closed set")
 	}
 	if !valueOk {
 		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage anchor value does not match its declared kind", false, "declare the anchor value in the kind's form")
@@ -304,15 +308,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	for _, existing := range manifest.Records {
 		if existing.ID == req.LessonID {
 			if existing.Kind == "lesson" && existing.Path == notePath && existing.SHA256 == contentSHA {
-				commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
-				if err != nil {
-					return out, err
-				}
-				out.Record = existing
-				out.Note = manifestRecordNote(existing, strings.TrimSpace(string(commit)), manifest.SchemaVersion)
-				out.Branch = home.HeadRef
-				out.CommitOID = strings.TrimSpace(string(commit))
-				return out, nil
+				return replayLesson(ctx, home, req, existing, notePath, contentSHA, manifest.SchemaVersion)
 			}
 			return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "lesson id is already claimed by a different record", false, "choose a new lesson id or supersede the existing lesson")
 		}
@@ -378,6 +374,50 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	oid := strings.TrimSpace(string(commit))
 	out.Record = record
 	out.Note = manifestRecordNote(record, oid, manifest.SchemaVersion)
+	out.Branch = home.HeadRef
+	out.CommitOID = oid
+	return out, nil
+}
+
+// replayLesson verifies an identical replay in full before returning it: the
+// record matched, so the committed note must still hash to the record's
+// content, and the caller's coverage declaration must still equal the
+// committed coverage shard byte for byte. The commit returned is the
+// immutable commit that added the record shard — the lesson's own prepared
+// commit — never whatever HEAD has since become. Any drift refuses typed;
+// a replay never writes.
+func replayLesson(ctx context.Context, home KnowledgeHome, req LessonPublication, existing KnowledgeRecord, notePath, contentSHA, schemaVersion string) (PublishedLesson, error) {
+	out := PublishedLesson{}
+	//nolint:gosec // notePath is derived inside this package from the injected clock date and the slugified title, and is read inside the host-verified claimed worktree of public repository content.
+	noteBytes, err := os.ReadFile(path.Join(home.RepoPath, notePath))
+	if err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note is missing or unreadable", false, "replay with the lesson's committed content or supersede the lesson", err)
+	}
+	sum := sha256.Sum256(noteBytes)
+	if "sha256:"+hex.EncodeToString(sum[:]) != contentSHA {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note no longer matches the manifest record", false, "replay with the lesson's committed content or supersede the lesson")
+	}
+	coverageShard, err := marshalLessonCoverageShard(req.LessonID, *req.Coverage)
+	if err != nil {
+		return out, err
+	}
+	committedCoverage, err := os.ReadFile(path.Join(home.RepoPath, lessonCoverageDir, req.LessonID+".json"))
+	if err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson coverage shard is missing or unreadable", false, "replay with the lesson's original coverage declaration or supersede the lesson", err)
+	}
+	if !bytes.Equal(committedCoverage, coverageShard) {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the coverage declaration does not match the committed coverage shard", false, "replay with the lesson's original coverage declaration or supersede the lesson")
+	}
+	adding, err := runGit(ctx, home.RepoPath, "log", "--format=%H", "--diff-filter=A", "-1", "--", path.Join(lessonRecordDir, req.LessonID+".json"))
+	if err != nil {
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the lesson's prepared commit", true, "restore the claimed worktree and retry", err)
+	}
+	oid := strings.TrimSpace(string(adding))
+	if len(oid) != 40 && len(oid) != 64 {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "no commit on the claimed branch carries the lesson record shard", false, "publish the lesson on the claimed branch")
+	}
+	out.Record = existing
+	out.Note = manifestRecordNote(existing, oid, schemaVersion)
 	out.Branch = home.HeadRef
 	out.CommitOID = oid
 	return out, nil

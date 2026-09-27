@@ -201,13 +201,33 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 		t.Fatal("manifest lacks the published record")
 	}
 
+	// Advance the claimed branch past the lesson commit: a replay must
+	// return the lesson's own prepared commit, not the branch's current
+	// HEAD.
+	gitInWorktree(t, home.RepoPath, "commit", "--quiet", "--allow-empty", "-m", "unrelated advance")
+
 	commitsBefore := commitCount(t, home.RepoPath)
+
+	// A changed coverage declaration is drift, never a silent acceptance:
+	// the replay must carry the lesson's original coverage exactly.
+	changedCoverage := req
+	changedCoverage.Coverage = &LessonCoverageDeclaration{State: "satisfied", Evidence: []LessonCoverageAnchor{{Kind: "go_test", Value: "internal/store.TestPublishLessonRecordRefusesAnchorKindsOutsideTheCoverageSchema"}}}
+	if _, err := PublishLessonRecord(ctx, home, changedCoverage); err == nil || !strings.Contains(err.Error(), "coverage declaration does not match") {
+		t.Fatalf("expected changed-coverage replay refusal, got %v", err)
+	}
+	if commitCount(t, home.RepoPath) != commitsBefore {
+		t.Fatal("a refused replay created a commit")
+	}
+
 	replay, err := PublishLessonRecord(ctx, home, req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if head := strings.TrimSpace(gitInWorktree(t, home.RepoPath, "rev-parse", "HEAD")); head == first.CommitOID {
+		t.Fatal("the unrelated advance failed to move the branch head")
+	}
 	if replay.CommitOID != first.CommitOID || replay.Branch != first.Branch || commitCount(t, home.RepoPath) != commitsBefore {
-		t.Fatal("idempotent replay must not create a new commit")
+		t.Fatal("idempotent replay must return the original lesson commit without a new commit")
 	}
 
 	conflict := req
@@ -216,7 +236,7 @@ func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	if _, err := PublishLessonRecord(ctx, home, conflict); err == nil || !strings.Contains(err.Error(), "already claimed") {
 		t.Fatalf("expected id-conflict refusal, got %v", err)
 	}
-	if mainHead := strings.TrimSpace(gitInWorktree(t, canonical, "rev-parse", "HEAD")); commitCount(t, home.RepoPath) != 2 {
+	if mainHead := strings.TrimSpace(gitInWorktree(t, canonical, "rev-parse", "HEAD")); commitCount(t, home.RepoPath) != 3 {
 		t.Fatalf("unexpected worktree commit count %d", commitCount(t, home.RepoPath))
 	} else if mainHead == first.CommitOID {
 		t.Fatal("the canonical checkout carries the lesson commit")
@@ -324,6 +344,38 @@ func TestPublishLessonRecordRequiresExplicitCoverageDisposition(t *testing.T) {
 		t.Fatalf("an outstanding declaration with its issue publishes: %v", err)
 	}
 	if shard, err := os.ReadFile(filepath.Join(home.RepoPath, lessonCoverageDir, base.LessonID+".json")); err != nil || !strings.Contains(string(shard), `"issue": "CON-508"`) || strings.Contains(string(shard), "reason") {
+		t.Fatalf("coverage shard=%s err=%v", shard, err)
+	}
+}
+
+// TestPublishLessonRecordRefusesAnchorKindsOutsideTheCoverageSchema aligns
+// the accepted anchor inputs with contracts/law-coverage.schema.json: the
+// closed kind set is go_test, scenario, validator, generated, and the
+// validator kind names a check script CI invokes — not a harness script and
+// not an adapter test, which the schema refuses and check-json would fail.
+func TestPublishLessonRecordRefusesAnchorKindsOutsideTheCoverageSchema(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	base := LessonPublication{
+		LessonID: "lesson-anchor-schema", Title: "Anchor schema alignment", Summary: "Anchor kinds and validator values stay inside the coverage schema.",
+		Content: "# Anchor schema alignment\n", Scopes: KnowledgeRecordScopes{Mode: "home"}, Now: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	}
+	adapterAnchor := base
+	adapterAnchor.Coverage = &LessonCoverageDeclaration{State: "satisfied", Evidence: []LessonCoverageAnchor{{Kind: "adapter_test", Value: "adapter/opencode/concord.test.ts#some registered test"}}}
+	if _, err := PublishLessonRecord(context.Background(), home, adapterAnchor); err == nil || !strings.Contains(err.Error(), "go_test, scenario, validator, generated") {
+		t.Fatalf("expected adapter_test kind refusal, got %v", err)
+	}
+	harnessValidator := base
+	harnessValidator.Coverage = &LessonCoverageDeclaration{State: "satisfied", Evidence: []LessonCoverageAnchor{{Kind: "validator", Value: "scripts/test-evidence-anchors.py"}}}
+	if _, err := PublishLessonRecord(context.Background(), home, harnessValidator); err == nil || !strings.Contains(err.Error(), "anchor value") {
+		t.Fatalf("expected harness validator refusal, got %v", err)
+	}
+	checkValidator := base
+	checkValidator.Coverage = &LessonCoverageDeclaration{State: "satisfied", Evidence: []LessonCoverageAnchor{{Kind: "validator", Value: "scripts/check-json.py"}}}
+	if _, err := PublishLessonRecord(context.Background(), home, checkValidator); err != nil {
+		t.Fatalf("a check-script validator anchor publishes: %v", err)
+	}
+	if shard, err := os.ReadFile(filepath.Join(home.RepoPath, lessonCoverageDir, base.LessonID+".json")); err != nil || !strings.Contains(string(shard), `"kind": "validator"`) {
 		t.Fatalf("coverage shard=%s err=%v", shard, err)
 	}
 }
@@ -706,15 +758,42 @@ func TestResolveLessonPublicationHomeUsesTheClaimedWorktree(t *testing.T) {
 		t.Fatalf("delegated=%+v", delegated)
 	}
 
-	// No claim on the home Project refuses typed, with the publication-item
-	// remedy.
-	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "missing-claim"); err == nil || !strings.Contains(err.Error(), "no claimed worktree") {
+	// A publication owner that does not exist refuses before any claim read.
+	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "missing-claim"); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("expected missing-owner refusal, got %v", err)
+	}
+
+	// A live publication work with no claim on the home Project refuses
+	// typed, with the publication-item remedy.
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			workCreatedEvent("pub-claimless", "q-create-pub-claimless"),
+			operationEvent("q-project-pub-claimless", "work_project.added", SubjectWorkItem, "pub-claimless", map[string]any{
+				"work_id": "pub-claimless", "project_id": "proj", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "pub-claimless"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "pub-claimless"); err == nil || !strings.Contains(err.Error(), "no claimed worktree") {
 		t.Fatalf("expected no-claim refusal, got %v", err)
 	}
 
 	// A claim on a foreign Project refuses separately from no claim at all.
-	insertWorktreeClaim(t, s, "wt-op-foreign", "missing-claim", "proj-foreign", "work/foreign", filepath.Join(t.TempDir(), "foreign-wt"))
-	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "missing-claim"); err == nil || !strings.Contains(err.Error(), "foreign Project") {
+	insertWorktreeClaim(t, s, "wt-op-foreign", "pub-claimless", "proj-foreign", "work/foreign", filepath.Join(t.TempDir(), "foreign-wt"))
+	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "pub-claimless"); err == nil || !strings.Contains(err.Error(), "foreign Project") {
 		t.Fatalf("expected foreign-Project refusal, got %v", err)
+	}
+
+	// A terminal publication owner refuses: a terminal work holds no active
+	// lane, so it cannot own the claimed worktree a publication writes
+	// through. A live publication work remains the route for a terminal
+	// source item.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workTransitionEvent("q-complete-blocker", "blocker", "needed", "completed", 3, 4)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResolveLessonPublicationHome(ctx, "blocked", "blocker"); err == nil || !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("expected terminal-owner refusal, got %v", err)
 	}
 }

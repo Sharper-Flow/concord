@@ -2466,12 +2466,12 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "kind": {
+          "description": "The closed anchor set contracts/law-coverage.schema.json admits for a committed coverage shard.",
           "enum": [
             "go_test",
             "scenario",
             "validator",
-            "generated",
-            "adapter_test"
+            "generated"
           ],
           "type": "string"
         },

@@ -86,6 +86,10 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed2
 	}
 
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []Capability{"work_compact"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	// The calling session runs inside the claimed knowledge-home worktree:
+	// the effect boundary binds the publication write surface to this
+	// host-verified worktree, so the grant carries its path.
+	grant.Worktree = worktree
 	privateKey := mustKey(t)
 	return s, service, grant, privateKey, repo, worktree
 }
@@ -120,7 +124,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := lessonApprovalScope(scopeVersion)
 	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", worktree, fixedTime(), "lesson-approval-0001")
 
 	approvedInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-lesson", "lesson_id": "lesson-dispatch-probe",
@@ -136,7 +140,7 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	request.Input = approvedInput
 	digest2 := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	versions2 := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0002")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", worktree, fixedTime(), "lesson-approval-0002")
 
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
@@ -219,6 +223,51 @@ func TestDispatchLessonPublishRefusesWithoutAClaimedWorktree(t *testing.T) {
 	}
 }
 
+// TestDispatchLessonPublishRefusesAWorktreeTheSessionDoesNotHold holds the
+// second observed failure: a caller in one linked worktree cannot aim the
+// lesson commit at another work item's claimed worktree. The effect boundary
+// binds the resolved claim to the calling session's host-verified worktree.
+func TestDispatchLessonPublishRefusesAWorktreeTheSessionDoesNotHold(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, privateKey, _, worktree := lessonDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The calling session's verified worktree is not the claimed
+	// knowledge-home worktree the publication resolves.
+	elsewhere := filepath.Join(t.TempDir(), "another-worktree")
+	grant.Worktree = elsewhere
+	env := mutationEnvelope(grant, scopeVersion)
+	request := InvokeRequest{Tool: "concord_work_compact", Operation: "lesson_publish", Input: lessonInput()}
+	missing, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("missing approval response=%+v err=%v", missing, err)
+	}
+	challengeRef := missing.Error.Details["approval_ref"].(string)
+	approvedInput, _ := json.Marshal(map[string]any{
+		"work_id": "work-lesson", "lesson_id": "lesson-dispatch-probe",
+		"title": "Dispatch publishes lessons", "summary": "The archive surface carries separately accepted lessons into git with their manifest record.",
+		"content": "# Dispatch publishes lessons\n\nApproval first, then one commit.\n",
+		"tags":    []string{"testing"}, "scopes": map[string]any{"mode": "explicit", "project_ids": []string{"project-1"}},
+		"evidence":            []string{"internal/agent/lesson_dispatch_test.go"},
+		"coverage":            map[string]any{"state": "satisfied", "evidence": []map[string]any{{"kind": "go_test", "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"}}},
+		"publication_work_id": "work-pub",
+		"idempotency_key":     "lesson-key-1", "approval": map[string]any{"approval_ref": challengeRef},
+	})
+	request.Input = approvedInput
+	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, lessonApprovalScope(scopeVersion), map[string]any{"work": 3}, "session-1", "agent-1", elsewhere, fixedTime(), "lesson-approval-0005")
+	response, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" || !strings.Contains(response.Error.Message, "not the calling session's verified worktree") {
+		t.Fatalf("expected typed foreign-worktree refusal, got response=%+v err=%v", response.Error, err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "docs/knowledge/records/lesson-dispatch-probe.json")); !os.IsNotExist(err) {
+		t.Fatalf("the foreign session wrote into the claimed worktree (stat err=%v)", err)
+	}
+}
+
 func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -238,12 +287,12 @@ func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	scope := lessonApprovalScope(scopeVersion)
 	versions := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0003")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", worktree, fixedTime(), "lesson-approval-0003")
 	approved := `{"work_id":"work-lesson","lesson_id":"lesson-reflection-probe","title":"How the work went","summary":"A reflection on execution friction, durable by riding the lesson path.","content":"# How the work went\n\nBoundary handoffs cost the most.\n","tags":["reflection"],"coverage":{"state":"outstanding","issue":"CON-508"},"publication_work_id":"work-pub","idempotency_key":"lesson-key-2","approval":{"approval_ref":"` + challengeRef + `"}}`
 	request.Input = json.RawMessage(approved)
 	digest2 := mutationDigest(request.Tool, request.Operation, env, request.Input)
 	versions2 := map[string]any{"work": 3}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", "/repo-wt", fixedTime(), "lesson-approval-0004")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest2, scope, versions2, "session-1", "agent-1", worktree, fixedTime(), "lesson-approval-0004")
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("reflection response kind=%s msg=%s err=%v", response.Error.Kind, response.Error.Message, err)

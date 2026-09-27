@@ -195,8 +195,10 @@ func resolveCompactionHome(ctx context.Context, q queryer, workID string) (Knowl
 // home. When that work is terminal and its original worktree is gone, the
 // caller names a distinct live publication work with publicationWorkID; its
 // claim on the same knowledge-home Project is used, and the lesson still
-// names the terminal source work. There is no fallback to the canonical
-// default checkout and no claim outside the home Project: both refuse typed.
+// names the terminal source work. The publication owner must be live — a
+// terminal work holds no active lane and cannot own a claimed worktree a
+// publication writes through. There is no fallback to the canonical default
+// checkout and no claim outside the home Project: both refuse typed.
 func (s *Store) ResolveLessonPublicationHome(ctx context.Context, sourceWorkID, publicationWorkID string) (KnowledgeHome, error) {
 	return resolveLessonPublicationHome(ctx, s.db, sourceWorkID, publicationWorkID)
 }
@@ -209,6 +211,15 @@ func resolveLessonPublicationHome(ctx context.Context, q queryer, sourceWorkID, 
 	owner := publicationWorkID
 	if owner == "" {
 		owner = sourceWorkID
+	}
+	var lifecycle string
+	switch err := q.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, owner).Scan(&lifecycle); {
+	case err == sql.ErrNoRows:
+		return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the publication owner work does not exist", false, "name a live publication work that claims the knowledge-home worktree")
+	case err != nil:
+		return KnowledgeHome{}, wrapFailure(KindUnavailable, "lesson_publish", "cannot read the publication owner work", true, "retry once the database is readable", err)
+	case lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded":
+		return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the publication owner work is terminal, so it cannot own the claimed worktree", false, "name a live publication work that claims the knowledge-home worktree")
 	}
 	rows, err := q.QueryContext(ctx, `SELECT project_id,pinned_path,pinned_branch FROM worktree_claims WHERE work_id=? AND state='verified' ORDER BY project_id`, owner)
 	if err != nil {
@@ -243,6 +254,15 @@ type worktreeClaimRow struct {
 	projectID string
 	path      string
 	branch    string
+}
+
+// NewLessonPublicationWorktreeRefusal is the typed refusal for a lesson
+// publication whose resolved claimed worktree is not the calling session's
+// host-verified worktree. The agent effect boundary raises it, so the refusal
+// stays a store Failure end to end while the grant comparison stays in the
+// agent plane, which owns grants (CD-0026 D1).
+func NewLessonPublicationWorktreeRefusal() *Failure {
+	return newFailure(KindUnknownScope, "lesson_publish", "the claimed knowledge-home worktree is not the calling session's verified worktree", false, "run lesson publication from the claimed knowledge-home worktree, or claim that worktree for a live publication work")
 }
 
 func (s *Store) KnowledgeHomeForLocator(ctx context.Context, projectID, locatorID, headRef string) (KnowledgeHome, error) {

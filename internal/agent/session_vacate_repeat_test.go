@@ -38,7 +38,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 
 	claim := func(workID, worktreePath, branch, key string) {
 		t.Helper()
-		input, _ := json.Marshal(map[string]any{
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1",
 			"base_sha":         baseSHA,
 			"expected_version": 2, "idempotency_key": key,
@@ -167,7 +167,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		return response
 	}
 	claimInput := func(projectID, baseSHA string, expectedVersion int64, key string) map[string]any {
-		return map[string]any{"work_id": "work-1", "project_id": projectID, "base_sha": baseSHA, "expected_version": expectedVersion, "idempotency_key": key}
+		return map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": projectID, "base_sha": baseSHA, "expected_version": expectedVersion, "idempotency_key": key}
 	}
 
 	worktree1 := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")

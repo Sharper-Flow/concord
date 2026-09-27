@@ -1,0 +1,38 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimRecordsHostProcessIdentity"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSessionVacateReleasesEveryWorkItemRow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimLandingReleasesEveryWorkItemRow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyRowReleasesOnEndedRecordingProcess"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyRowStaysOnUnreadableLeaseSet"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAuditReclaimLimitCountsReclaimAttemptsOnly"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/terminal-vacate.test.ts#a completed lifecycle with a vacate target vacates and moves to the main checkout"
+    }
+  ],
+  "id": "CD-0179",
+  "state": "satisfied"
+}

@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-4ff581eb0bec60ebdfeb0c74",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0179",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    }
+  ],
+  "path": "docs/decisions/CD-0179-a-worktree-occupancy-row-releases-when-no-live-process-predates-it.md",
+  "product_wide_rationale": "Governs when every worktree occupancy row releases, what a claim records at creation, where a session goes after terminal work, and what the audit reclaim limit bounds, across the agent surface, the durable authority, and the workflow engine, so no single runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2600e06c821dcc8be6d1c313ae70aed4524c5bfa0e39d6307b0c6b6b985fee8a",
+  "status": "accepted",
+  "summary": "A verified landing or a session_vacate releases every occupancy row of that session in any work item; a claim records the host process identity at creation; a row without identity releases when every live host lease started after its recorded_at and an unreadable lease set releases nothing; the adapter moves a session out of a terminal work item's worktree after complete, cancel, or supersede; and worktree_audit_reclaim classifies every drift row before its limit bounds reclaim attempts.",
+  "tags": [
+    "worktrees",
+    "occupancy",
+    "worktree-audit"
+  ],
+  "title": "A worktree occupancy row releases when no live process predates it, and the reclaim limit counts attempts"
+}

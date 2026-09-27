@@ -5113,6 +5113,10 @@
         },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
+        },
+        "vacate_target": {
+          "$ref": "#/$defs/vacate_target",
+          "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
         }
       }
     },
@@ -5534,6 +5538,11 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "host_pid": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The OpenCode process pid whose adapter records the claim. The adapter injects it; an agent never supplies it. The claimed worktree's occupancy row records the process identity from creation."
         }
       }
     },
@@ -13721,6 +13730,30 @@
             }
           }
         ]
+      }
+    },
+    "vacate_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "source_directory",
+        "destination_directory"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "destination_directory": {
+          "$ref": "#/$defs/absolute_path"
+        }
       }
     }
   }

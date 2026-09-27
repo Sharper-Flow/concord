@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -85,7 +86,7 @@ func TestAuditReclaimBeyondChangedRefBoundReportsCommittedEffect(t *testing.T) {
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
 	for i := 1; i <= total; i++ {
 		workID := fmt.Sprintf("work-%02d", i)
-		if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
+		if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "audit-bound-claim-" + workID,
 		}); response.Outcome != OutcomeOK {
 			t.Fatalf("claim %s response=%+v err=%+v", workID, response, response.Error)

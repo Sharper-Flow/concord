@@ -1379,7 +1379,7 @@ The consequence states the effect.
 
 ## Verification
 
-The verification states the proof.
+The verification states the proof with `internal/store.TestCurrentDecision`.
 """
 
 
@@ -2215,6 +2215,223 @@ Body.
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, stdout
     assert "ABBR=SPOF" in stdout, stdout
+
+
+# ---------------------------------------------------------------------------
+# Outline order and heading level on the current profile, and the
+# executable-anchor rule on Verification entries.
+# ---------------------------------------------------------------------------
+
+
+def ordered_decision_body(headings: list[tuple[int, str]]) -> str:
+    parts = ["# An ordered decision", ""]
+    for level, title in headings:
+        parts += ["#" * level + " " + title, "", "The section states its content.", ""]
+    return "\n".join(parts)
+
+
+def anchor_verification_section(body: str) -> str:
+    """Anchor the builder's Verification entry so an order or level finding
+    stands alone in the tests that target those rules."""
+    return body.replace(
+        "## Verification\n\nThe section states its content.",
+        "## Verification\n\nProved by `internal/store.TestOrderCheck`.",
+    )
+
+
+def run_current_decision(path: str, body: str) -> tuple[int, str, str]:
+    root = sandbox()
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
+    )
+    return run_checker(root, manifest)
+
+
+def test_current_decision_outline_out_of_order_fails() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (2, "Context"),
+        (2, "Verification"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (2, "Consequences"),
+    ]))
+    exit_code, stdout, _ = run_current_decision("docs/decisions/out-of-order.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-out-of-order: docs/decisions/out-of-order.md#" in line
+        and "(Decision follows Verification" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_current_decision_outline_in_order_passes_with_extra_sections() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (2, "Context"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (1, "An unrelated heading"),
+        (2, "Consequences"),
+        (3, "An unrelated subsection"),
+        (2, "Verification"),
+    ]))
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/in-order.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_decision_heading_level_three_fails() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (3, "Context"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (2, "Consequences"),
+        (2, "Verification"),
+    ]))
+    exit_code, stdout, _ = run_current_decision("docs/decisions/level-three.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-heading-level: docs/decisions/level-three.md#" in line
+        and "(Context is a level-3 heading" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_legacy_decision_order_level_and_prose_verification_stay_allowed() -> None:
+    body = ordered_decision_body([
+        (3, "Verification"),
+        (3, "Consequences"),
+        (2, "Alternatives considered"),
+        (3, "Decision"),
+        (2, "Context"),
+    ])
+    root = sandbox()
+    path = "docs/decisions/legacy-loose.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        [decision_record(path, "CD-0002", profile="legacy")],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def current_decision_with_verification(verification: str) -> str:
+    return FULL_DECISION_BODY.replace(
+        "The verification states the proof with `internal/store.TestCurrentDecision`.",
+        verification,
+    )
+
+
+def test_verification_entry_names_a_package_qualified_test_symbol() -> None:
+    body = current_decision_with_verification(
+        "Proved by `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`."
+    )
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/pkg-symbol.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_bare_test_symbol() -> None:
+    body = current_decision_with_verification(
+        "Proved by `TestClaimLandingTransfersOccupancyInOneTransaction`."
+    )
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/bare-symbol.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_scenario_id() -> None:
+    body = current_decision_with_verification("Proved by `WF01-capture-late-outcome`.")
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/scenario-id.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_command_or_a_named_checker() -> None:
+    for index, anchor in enumerate((
+        "`go test ./internal/store/`",
+        "`python3 scripts/check-doc-contract.py`",
+        "`bun test adapter/opencode/concord.test.ts`",
+        "`check-knowledge-closure.py`",
+    )):
+        body = current_decision_with_verification(f"Proved by {anchor}.")
+        exit_code, stdout, stderr = run_current_decision(
+            f"docs/decisions/command-{index}.md", body
+        )
+        assert exit_code == 0, (anchor, exit_code, stdout, stderr)
+
+
+def test_bare_prose_verification_entry_fails() -> None:
+    body = current_decision_with_verification(
+        "The verification names the operations and the behavior it trusts."
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/prose-verification.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored: docs/decisions/prose-verification.md#" in line
+        and "(entry 1 names no executable anchor" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_scenario_shaped_token_that_resolves_nothing_stays_prose() -> None:
+    body = current_decision_with_verification("Proved by `WF99-no-such-scenario`.")
+    exit_code, stdout, _ = run_current_decision(
+        "docs/decisions/unresolved-scenario.md", body
+    )
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    ), stdout
+
+
+def test_anchor_rule_names_the_unanchored_entry_index() -> None:
+    body = current_decision_with_verification(
+        "- Proved by `internal/store.TestFirstEntry`.\n"
+        "- The second entry names only an operation and a behavior."
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/two-entries.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored" in line and "(entry 2 " in line
+        for line in stdout.splitlines()
+    ), stdout
+    assert not any("(entry 1 " in line for line in stdout.splitlines()), stdout
+
+
+def test_spec_verification_stays_count_only() -> None:
+    """The anchor rule rides the decision profile: a spec keeps the count
+    comparison alone, so its prose Verification entries still satisfy it."""
+    root = sandbox()
+    path = "docs/spec-count-only.md"
+    write_spec(root, path, VALID_BODY)
+    manifest = manifest_with(root, [record(path, sha_digest="anchor1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+    assert not any(
+        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    ), stdout
+
+
+def test_anchor_rule_keeps_the_count_comparison() -> None:
+    root = sandbox()
+    path = "docs/count-unchanged.md"
+    body = _granularity_body(
+        "- When an action happens\n  Then an outcome follows.\n"
+        "- When a second action happens\n  Then a second outcome follows.",
+        "- Proved by `internal/store.TestBothOutcomes`.",
+    )
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="anchor2")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-underspecified" in line for line in stdout.splitlines()
+    ), stdout
+    assert not any(
+        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    ), stdout
 
 
 def main() -> int:

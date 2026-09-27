@@ -188,14 +188,34 @@ The linked open work takes these dispositions:
 
 - A `worktree_claim` for a Project in another repository refuses with
   `cross_repository_claim`, creates no worktree, and names D2 as the remedy.
+  `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
+  proves the refusal kind, the absent worktree, and the named remedy.
 - Two coordinator sessions in two repositories each dispatch a lane on one
   work item, and each lane writes only in its own repository's worktree.
+  `internal/store.TestStoreTwoProjectClaimsConcurrent` and
+  `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
+  prove one work item holds both repositories' worktrees and no session
+  claims across the boundary.
 - A second session that lands in an occupied worktree records its own row
   and receives no `worktree_ownership_conflict`.
+  `internal/store.TestClaimLandingTransfersOccupancyInOneTransaction` and
+  `internal/store.TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree`
+  prove the added row and the absent refusal.
 - A row whose host process ended is released. A row whose host process is
   alive is not released, also when that process runs in another repository,
   and its worktree is not removed by a reclaim or an audit pass.
+  `internal/store.TestLegacyRowReleasesOnEndedRecordingProcess` proves the
+  ended-process release. `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`,
+  `internal/agent.TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface`,
+  and `internal/store.TestWorktreeAuditReclaimRefusesResumedOccupiedUnstartedWorktree`
+  prove a live row keeps the worktree from a reclaim and an audit pass.
 - A row with no process identity is not released by liveness.
+  `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal` and
+  `internal/store.TestLegacyRowStaysOnUnreadableLeaseSet` prove the row
+  stays while a live lease predates it and when the release proof cannot
+  run.
 - The removal operations accept no `observed_session_directories` input.
+  `bun test adapter/opencode/concord.test.ts` proves no removal input
+  carries the field and no removal makes a host session-list round-trip.
 - The coordinator examples contain no text that tells a coordinator to move
   into another repository.

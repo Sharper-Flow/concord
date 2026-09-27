@@ -17,6 +17,9 @@ not package or install them. This check proves the example contract in CD-0154:
                      conduct corpus, not in the portable examples
   intake restriction the intake definition keeps its write and workflow
                      denials
+  repository         each coordinator states the cross-repository boundary
+                     (CD-0178 D2) and no coordinator example tells a
+                     coordinator to claim or move into another repository
 """
 from __future__ import annotations
 
@@ -62,6 +65,30 @@ DELEGATION_ANCHOR_MARKERS = (
     "`dispatch_worker` among the next valid intents",
     "Size is not an exemption",
     "steps the core does not admit for dispatch",
+)
+# CD-0178 D2 and its Verification entry 7: the coordinators that carry the
+# Projects guidance must state the cross-repository boundary, and no example
+# may tell a coordinator to claim a worktree in, or move the session into,
+# another repository. The required phrases bind only the examples that carry
+# the Projects guidance; concord-0.md carries none and holds no worktree or
+# session-move authority. The forbidden phrases bind every example.
+BOUNDARY_SCOPE_FILES = ("concord-1.md", "concord-2.md")
+REQUIRED_BOUNDARY_PHRASES = (
+    "One coordinator session per repository",
+    "a second Project in another git repository",
+    "refuse a single-session move",
+    "a second coordinator session in the target repository",
+)
+FORBIDDEN_MOVE_PHRASES = (
+    "claim a worktree in the other repository",
+    "claim the worktree in the target repository",
+    "claim the second Project's worktree",
+    "move the session to the other repository",
+    "move the session into the other repository",
+    "move this session into the target repository",
+    "keep this session for the second repository",
+    "one session serves both repositories",
+    "serve both repositories from this session",
 )
 
 
@@ -165,6 +192,17 @@ def check_primary_prompts(root: Path) -> list[str]:
                 for marker in DELEGATION_ANCHOR_MARKERS:
                     if marker not in flat:
                         findings.append(f"{name} lost the delegation anchor marker {marker!r}")
+            if name in BOUNDARY_SCOPE_FILES:
+                for phrase in REQUIRED_BOUNDARY_PHRASES:
+                    if phrase not in flat:
+                        findings.append(
+                            f"{name} lost the cross-repository boundary phrase {phrase!r}"
+                        )
+            for phrase in FORBIDDEN_MOVE_PHRASES:
+                if phrase in flat:
+                    findings.append(
+                        f"{name} tells a coordinator to move into another repository: {phrase!r}"
+                    )
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 

@@ -218,4 +218,7 @@ The linked open work takes these dispositions:
   `bun test adapter/opencode/concord.test.ts` proves no removal input
   carries the field and no removal makes a host session-list round-trip.
 - The coordinator examples contain no text that tells a coordinator to move
-  into another repository.
+  into another repository. `python3 scripts/check-primary-prompts.py` proves
+  each coordinator states the cross-repository boundary and carries no
+  instruction to claim a worktree in, or move the session into, another
+  repository.

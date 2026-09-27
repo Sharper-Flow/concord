@@ -5,7 +5,8 @@ Positive scenarios run the checker against the real repository examples.
 Negative scenarios copy the examples into a temporary tree, break one invariant
 on purpose, and prove the checker reports it: a host tool name in frontmatter, a
 missing advisory handoff, duplicated conduct text, a diverged shared section,
-and a lost intake boundary.
+a lost intake boundary, a missing cross-repository boundary phrase, and a
+forbidden move-into-another-repository instruction.
 """
 from __future__ import annotations
 
@@ -128,6 +129,41 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         findings = self.findings()
         self.assertTrue(any("task boundary" in finding for finding in findings))
+
+    def test_boundary_phrases_pass_on_real_examples(self) -> None:
+        self.assertEqual(self.findings(), [])
+
+    def test_missing_boundary_statement_reports(self) -> None:
+        self.rewrite(
+            "concord-1.md",
+            lambda text: text.replace(
+                "refuse a single-session move\nacross the boundary.",
+                "refuse nothing; the session may follow the work.",
+            ),
+        )
+        findings = self.findings()
+        self.assertTrue(any(
+            "concord-1.md" in finding
+            and "cross-repository boundary phrase 'refuse a single-session move'" in finding
+            for finding in findings
+        ))
+
+    def test_forbidden_move_instruction_reports(self) -> None:
+        self.rewrite(
+            "concord-2.md",
+            lambda text: text.replace(
+                "the operator start the second session.",
+                "the operator start the second session, or claim a worktree in "
+                "the other repository from this session.",
+            ),
+        )
+        findings = self.findings()
+        self.assertTrue(any(
+            "concord-2.md" in finding
+            and "move into another repository" in finding
+            and "claim a worktree in the other repository" in finding
+            for finding in findings
+        ))
 
 
 if __name__ == "__main__":

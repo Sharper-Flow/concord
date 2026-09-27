@@ -7,20 +7,25 @@ import (
 	"encoding/json"
 	"os"
 	"path"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
 
-// CD-0026: a lesson is captured per change and promoted by scope. Publishing
-// writes the lesson markdown, appends its manifest record, and commits both
-// through the repository's git authority in one commit. The manifest — not a
-// parallel event stream — remains the lesson's durable backing (CD-0020), so
-// no new event kind or projection table is introduced; resolve_note verifies
-// against the manifest immediately, and the next index rebuild picks the
-// record up for search.
+// CD-0026: a lesson is captured per change and promoted by scope. Preparing
+// a lesson writes the lesson markdown, its manifest record shard, and its
+// coverage shard, and commits the three on the claimed worktree branch of
+// the knowledge-home Project in one commit. The manifest — not a parallel
+// event stream — remains the lesson's durable backing (CD-0020), so no new
+// event kind or projection table is introduced; resolve_note verifies against
+// the manifest immediately, and the next index rebuild picks the record up
+// for search. The commit is prepared delivery: publication is the
+// coordinator's merged pull request plus a verified knowledge read.
 
 const (
 	lessonRecordDir   = knowledgeRecordTree
+	lessonCoverageDir = "docs/knowledge/coverage"
 	maxLessonContent  = 32768
 	maxLessonTags     = 8
 	maxLessonEvidence = 32
@@ -37,13 +42,43 @@ type LessonPublication struct {
 	// Evidence names implementation paths this lesson's guidance rests on;
 	// the offline validator fails when they rot (drift audit).
 	Evidence []string
+	// Coverage is the explicit CD-0047 declaration of how the lesson is
+	// proved. Publication never infers a state: a missing declaration is a
+	// refusal, and the state-conditional reason, issue, or evidence the
+	// caller supplies is what the coverage shard commits.
+	Coverage *LessonCoverageDeclaration
 	Now      time.Time
 }
 
-// PublishedLesson is the verified result of a lesson publication.
+// LessonCoverageAnchor is one typed evidence anchor (CD-0047 D3). The closed
+// kind set and value shapes mirror scripts/evidence_anchors.py; anchor
+// resolution — that the test, scenario, validator, or generated symbol
+// actually exists and is enforced — stays with scripts/check-law-coverage.py
+// in CI, which owns that proposition.
+type LessonCoverageAnchor struct {
+	Kind  string
+	Value string
+}
+
+// LessonCoverageDeclaration is the caller's explicit coverage state for the
+// lesson record, using the one shared state vocabulary: satisfied, outstanding,
+// unmeasured, out_of_scope. The state names the field that justifies it, and
+// forbids the others, exactly as scripts/coverage_state.py enforces.
+type LessonCoverageDeclaration struct {
+	State    string
+	Evidence []LessonCoverageAnchor
+	Issue    string
+	Reason   string
+}
+
+// PublishedLesson is the verified result of a lesson publication. Branch and
+// CommitOID are prepared delivery evidence on the claimed worktree branch:
+// the lesson is published only after the coordinator's pull request merges
+// and a knowledge read verifies it (CD-0026 D1).
 type PublishedLesson struct {
 	Record    KnowledgeRecord
 	Note      VerifiedNote
+	Branch    string
 	CommitOID string
 }
 
@@ -101,6 +136,99 @@ func validateLessonPublication(req LessonPublication) error {
 	if err := validateLessonScopes(req.Scopes); err != nil {
 		return err
 	}
+	if err := validateLessonCoverage(req.Coverage); err != nil {
+		return err
+	}
+	return nil
+}
+
+// lessonCoverageStates is the one shared coverage vocabulary (CD-0047 D2),
+// mirrored from scripts/coverage_state.py: the state names the field that
+// justifies it, and every other obligation field is forbidden.
+var lessonCoverageStates = map[string]string{
+	"satisfied":    "evidence",
+	"outstanding":  "issue",
+	"unmeasured":   "reason",
+	"out_of_scope": "reason",
+}
+
+var (
+	lessonGoTestAnchor      = regexp.MustCompile(`^[a-z0-9/_]+\.Test[A-Za-z0-9_]*$`)
+	lessonValidatorAnchor   = regexp.MustCompile(`^scripts/(check|test)-[a-z0-9-]+\.py$`)
+	lessonAdapterTestAnchor = regexp.MustCompile(`^adapter/opencode/[A-Za-z0-9._-]+\.test\.ts#.{3,256}$`)
+	lessonGeneratedAnchor   = regexp.MustCompile(`^[A-Za-z0-9./_-]+#[A-Za-z_][A-Za-z0-9_]*$`)
+	lessonIssuePointer      = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[1-9][0-9]*$`)
+)
+
+// validateLessonCoverage enforces the state-conditional obligations of the
+// shared vocabulary. A declaration the caller did not make is a refusal:
+// publication never infers out_of_scope, and no state silently substitutes
+// for the one declared.
+func validateLessonCoverage(coverage *LessonCoverageDeclaration) error {
+	if coverage == nil {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson publication requires an explicit coverage declaration", false, "declare the lesson's coverage state with its reason, issue, or evidence")
+	}
+	required, known := lessonCoverageStates[coverage.State]
+	if !known {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state must be one of satisfied, outstanding, unmeasured, out_of_scope", false, "declare one shared coverage state")
+	}
+	// Forbidding the unused obligation fields matters as much as requiring
+	// the used one: a record carrying both evidence and reason reads as
+	// though it were justified twice and is really justified by neither.
+	if required != "evidence" && len(coverage.Evidence) > 0 {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state "+coverage.State+" forbids evidence", false, "declare only the field the state requires")
+	}
+	if required != "issue" && coverage.Issue != "" {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state "+coverage.State+" forbids issue", false, "declare only the field the state requires")
+	}
+	if required != "reason" && coverage.Reason != "" {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage state "+coverage.State+" forbids reason", false, "declare only the field the state requires")
+	}
+	switch required {
+	case "evidence":
+		if len(coverage.Evidence) == 0 {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "satisfied coverage requires evidence anchors", false, "declare at least one typed anchor")
+		}
+		if len(coverage.Evidence) > maxLessonEvidence {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage carries too many evidence anchors", false, "declare at most thirty-two anchors")
+		}
+		for _, anchor := range coverage.Evidence {
+			if err := validateLessonCoverageAnchor(anchor); err != nil {
+				return err
+			}
+		}
+	case "issue":
+		if !lessonIssuePointer.MatchString(coverage.Issue) {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "outstanding coverage requires a live issue identifier", false, "declare the Linear issue that tracks the lesson")
+		}
+	case "reason":
+		trimmed := strings.TrimSpace(coverage.Reason)
+		if len(trimmed) < 12 || len(trimmed) > 1024 || trimmed != coverage.Reason {
+			return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage reason must be trimmed text of 12 to 1024 characters", false, "state why the lesson is unmeasured or out of scope")
+		}
+	}
+	return nil
+}
+
+func validateLessonCoverageAnchor(anchor LessonCoverageAnchor) error {
+	valueOk := false
+	switch anchor.Kind {
+	case "go_test":
+		valueOk = lessonGoTestAnchor.MatchString(anchor.Value)
+	case "validator":
+		valueOk = lessonValidatorAnchor.MatchString(anchor.Value)
+	case "adapter_test":
+		valueOk = lessonAdapterTestAnchor.MatchString(anchor.Value)
+	case "generated":
+		valueOk = lessonGeneratedAnchor.MatchString(anchor.Value)
+	case "scenario":
+		valueOk = len(anchor.Value) >= 1 && len(anchor.Value) <= 512 && !strings.ContainsAny(anchor.Value, " \t\n")
+	default:
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage anchor kind must be one of go_test, scenario, validator, generated, adapter_test", false, "declare a typed anchor from the closed set")
+	}
+	if !valueOk {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "coverage anchor value does not match its declared kind", false, "declare the anchor value in the kind's form")
+	}
 	return nil
 }
 
@@ -126,14 +254,26 @@ func validateLessonScopes(scopes KnowledgeRecordScopes) error {
 	return nil
 }
 
-// PublishLessonRecord publishes one accepted lesson through the git
-// knowledge authority. It is idempotent: when the manifest already carries
-// the exact record, the committed lesson verifies and is returned without a
-// new commit. It performs no SQLite writes.
+// PublishLessonRecord prepares one accepted lesson for publication on the
+// claimed worktree branch of the knowledge-home Project. The caller passes a
+// home whose RepoPath is the claimed worktree and whose HeadRef is the pinned
+// branch (ResolveLessonPublicationHome); this function refuses to write
+// anywhere else — never the repository's default checkout, never a foreign
+// Project's tree. It writes the lesson note, the record shard, and the
+// coverage shard, and commits the three atomically on the claimed branch. It
+// is idempotent: when the manifest already carries the exact record, the
+// committed lesson verifies and is returned without a new commit. It performs
+// no SQLite writes. The returned branch and commit are prepared delivery
+// evidence, not a publication claim: a lesson is published when the
+// coordinator's pull request has merged and a knowledge read verifies it
+// (CD-0026 D1, CD-0114 D3).
 func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPublication) (PublishedLesson, error) {
 	out := PublishedLesson{}
 	if home.RepoPath == "" {
 		return out, newFailure(KindInvalidNoteProof, "publish_lesson", "lesson publication requires the git home", false, "publish through a registered knowledge home")
+	}
+	if err := verifyClaimedKnowledgeWorktree(ctx, home); err != nil {
+		return out, err
 	}
 	if err := validateLessonPublication(req); err != nil {
 		return out, err
@@ -170,6 +310,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 				}
 				out.Record = existing
 				out.Note = manifestRecordNote(existing, strings.TrimSpace(string(commit)), manifest.SchemaVersion)
+				out.Branch = home.HeadRef
 				out.CommitOID = strings.TrimSpace(string(commit))
 				return out, nil
 			}
@@ -200,6 +341,18 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if err := os.WriteFile(recordShardFullPath, shard, 0o644); err != nil { //nolint:gosec // record shards are public repository content and require normal Git file permissions.
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson record shard", true, "restore write access to the git home", err)
 	}
+	coverageShardPath := path.Join(lessonCoverageDir, req.LessonID+".json")
+	coverageShardFullPath := path.Join(home.RepoPath, coverageShardPath)
+	coverageShard, err := marshalLessonCoverageShard(req.LessonID, *req.Coverage)
+	if err != nil {
+		return out, err
+	}
+	if err := os.MkdirAll(path.Dir(coverageShardFullPath), 0o755); err != nil { //nolint:gosec // coverage shards are public repository content and require normal Git directory permissions.
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot create the lesson coverage directory", true, "restore write access to the git home", err)
+	}
+	if err := os.WriteFile(coverageShardFullPath, coverageShard, 0o644); err != nil { //nolint:gosec // coverage shards are public repository content and require normal Git file permissions.
+		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot write the lesson coverage shard", true, "restore write access to the git home", err)
+	}
 
 	// The new shard joins the manifest the shards compose. The composed
 	// manifest is validated whole, so a record that collides or breaks a
@@ -209,10 +362,13 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		return out, err
 	}
 
-	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath); err != nil {
+	// The note, the record shard, and the coverage shard land as one commit
+	// on the claimed branch, so CI's law-coverage plane never sees a record
+	// whose coverage declaration is missing (CD-0047 D1, CD-0114 D3).
+	if _, err := runGit(ctx, home.RepoPath, "add", "--", notePath, recordShardPath, coverageShardPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot stage the lesson", true, "restore git write access and retry", err)
 	}
-	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, recordShardPath); err != nil {
+	if _, err := runGit(ctx, home.RepoPath, "commit", "--quiet", "-m", "docs: publish Concord lesson "+req.LessonID, "--", notePath, recordShardPath, coverageShardPath); err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot commit the lesson", true, "complete the native git commit and reconcile", err)
 	}
 	commit, err := runGit(ctx, home.RepoPath, "rev-parse", "HEAD")
@@ -222,8 +378,67 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	oid := strings.TrimSpace(string(commit))
 	out.Record = record
 	out.Note = manifestRecordNote(record, oid, manifest.SchemaVersion)
+	out.Branch = home.HeadRef
 	out.CommitOID = oid
 	return out, nil
+}
+
+// marshalLessonCoverageShard serialises the caller's declaration in the
+// canonical shard byte form: alphabetical keys, two-space indent, one
+// trailing newline (scripts/shard_format.py).
+func marshalLessonCoverageShard(lessonID string, coverage LessonCoverageDeclaration) ([]byte, error) {
+	shard := map[string]any{"id": lessonID, "state": coverage.State}
+	switch lessonCoverageStates[coverage.State] {
+	case "evidence":
+		anchors := make([]any, 0, len(coverage.Evidence))
+		for _, anchor := range coverage.Evidence {
+			anchors = append(anchors, map[string]any{"kind": anchor.Kind, "value": anchor.Value})
+		}
+		shard["evidence"] = anchors
+	case "issue":
+		shard["issue"] = coverage.Issue
+	case "reason":
+		shard["reason"] = coverage.Reason
+	}
+	out, err := json.MarshalIndent(shard, "", "  ")
+	if err != nil {
+		return nil, wrapFailure(KindInvalidNoteProof, "publish_lesson", "cannot encode the lesson coverage shard", false, "repair the coverage declaration", err)
+	}
+	return append(out, '\n'), nil
+}
+
+// verifyClaimedKnowledgeWorktree is the host check that keeps lesson
+// publication inside the claimed worktree: the path is a git work tree, it is
+// a linked worktree rather than the repository's default checkout, and its
+// HEAD is the claimed branch. Anything else refuses before a byte is written.
+func verifyClaimedKnowledgeWorktree(ctx context.Context, home KnowledgeHome) error {
+	inside, err := runGit(ctx, home.RepoPath, "rev-parse", "--is-inside-work-tree")
+	if err != nil || strings.TrimSpace(string(inside)) != "true" {
+		return newFailure(KindGitUnreachable, "publish_lesson", "the claimed knowledge-home path is not a git work tree", false, "claim the knowledge-home worktree and publish through it")
+	}
+	gitDir, err := runGit(ctx, home.RepoPath, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return newFailure(KindGitUnreachable, "publish_lesson", "cannot verify the claimed worktree's git directory", false, "restore the claimed worktree and retry")
+	}
+	commonDir, err := runGit(ctx, home.RepoPath, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return newFailure(KindGitUnreachable, "publish_lesson", "cannot verify the claimed worktree's repository directory", false, "restore the claimed worktree and retry")
+	}
+	common := strings.TrimSpace(string(commonDir))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(home.RepoPath, common)
+	}
+	if filepath.Clean(strings.TrimSpace(string(gitDir))) == filepath.Clean(common) {
+		return newFailure(KindGitUnreachable, "publish_lesson", "the claimed path is the repository's default checkout, not a claimed worktree", false, "claim a worktree for the knowledge-home Project and publish through it")
+	}
+	if home.HeadRef == "" {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson publication requires the claimed branch", false, "resolve the knowledge home through its claimed worktree")
+	}
+	branch, err := runGit(ctx, home.RepoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil || strings.TrimSpace(string(branch)) != home.HeadRef {
+		return newFailure(KindGitUnreachable, "publish_lesson", "the claimed worktree is not on the claimed branch", false, "restore the claimed branch before publishing")
+	}
+	return nil
 }
 
 func marshalKnowledgeRecord(record KnowledgeRecord) ([]byte, error) {

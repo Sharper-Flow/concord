@@ -231,16 +231,18 @@ type researchSourceInput struct {
 	AccessedAt        string `json:"accessed_at"`
 }
 type lessonPublishInput struct {
-	WorkID         string             `json:"work_id"`
-	LessonID       string             `json:"lesson_id"`
-	Title          string             `json:"title"`
-	Summary        string             `json:"summary"`
-	Content        string             `json:"content"`
-	Tags           []string           `json:"tags"`
-	Scopes         *lessonScopesInput `json:"scopes"`
-	Evidence       []string           `json:"evidence"`
-	IdempotencyKey string             `json:"idempotency_key"`
-	Approval       *approvalInput     `json:"approval"`
+	WorkID            string               `json:"work_id"`
+	LessonID          string               `json:"lesson_id"`
+	Title             string               `json:"title"`
+	Summary           string               `json:"summary"`
+	Content           string               `json:"content"`
+	Tags              []string             `json:"tags"`
+	Scopes            *lessonScopesInput   `json:"scopes"`
+	Evidence          []string             `json:"evidence"`
+	Coverage          *lessonCoverageInput `json:"coverage"`
+	PublicationWorkID string               `json:"publication_work_id"`
+	IdempotencyKey    string               `json:"idempotency_key"`
+	Approval          *approvalInput       `json:"approval"`
 }
 type lessonScopesInput struct {
 	Mode       string   `json:"mode"`
@@ -248,6 +250,28 @@ type lessonScopesInput struct {
 	ProjectIDs []string `json:"project_ids"`
 	TagIDs     []string `json:"tag_ids"`
 }
+type lessonCoverageInput struct {
+	State    string                      `json:"state"`
+	Evidence []lessonCoverageAnchorInput `json:"evidence"`
+	Issue    string                      `json:"issue"`
+	Reason   string                      `json:"reason"`
+}
+type lessonCoverageAnchorInput struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+func (in *lessonCoverageInput) declaration() *store.LessonCoverageDeclaration {
+	if in == nil {
+		return nil
+	}
+	coverage := &store.LessonCoverageDeclaration{State: in.State, Issue: in.Issue, Reason: in.Reason}
+	for _, anchor := range in.Evidence {
+		coverage.Evidence = append(coverage.Evidence, store.LessonCoverageAnchor{Kind: anchor.Kind, Value: anchor.Value})
+	}
+	return coverage
+}
+
 type resourceClaimInput struct {
 	WorkID          string `json:"work_id"`
 	ResourceKey     string `json:"resource_key"`
@@ -1861,20 +1885,27 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = true
-	plan.scope["work_ids"] = []string{in.WorkID}
+	workIDs := []string{in.WorkID}
+	if in.PublicationWorkID != "" {
+		workIDs = append(workIDs, in.PublicationWorkID)
+	}
+	plan.scope["work_ids"] = workIDs
 	workVersion, err := r.Store.WorkVersion(ctx, in.WorkID)
 	if err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	plan.versions["work"] = workVersion
-	// The knowledge home and work-version reads happen before the
-	// mutation transaction opens: the effect's transaction holds the
-	// write lock, and a second connection's read would deadlock.
-	lessonHome, homeErr := r.Store.ResolveCompactionHome(ctx, in.WorkID)
+	// The claimed knowledge-home worktree and the work-version read happen
+	// before the mutation transaction opens: the effect's transaction holds
+	// the write lock, and a second connection's read would deadlock.
+	lessonHome, homeErr := r.Store.ResolveLessonPublicationHome(ctx, in.WorkID, in.PublicationWorkID)
 	if homeErr != nil {
 		return failureEnvelope(base, homeErr), nil, true
 	}
-	plan.intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_published_lesson"}}
+	// The delivery is prepared, not published: the intent names the read
+	// that verifies the prepared branch, and the coordinator's merged pull
+	// request plus a knowledge read own the publication claim.
+	plan.intents = []NextIntent{{Tool: "concord_knowledge", Operation: "resolve_note", QueryID: "PM1.Q10", ReasonCode: "verify_prepared_lesson_delivery"}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		scopes := store.KnowledgeRecordScopes{Mode: "home"}
 		if in.Scopes != nil {
@@ -1882,13 +1913,17 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 		}
 		published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
 			LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,
-			Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Now: r.Authority.now(),
+			Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Coverage: in.Coverage.declaration(), Now: r.Authority.now(),
 		})
 		if pubErr != nil {
 			return nil, nil, nil, pubErr
 		}
 		changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
-		return mutationPayload(changed, plan.intents), []string{published.Record.ID}, changed, nil
+		// Prepared delivery evidence: the branch and the immutable commit the
+		// coordinator's pull request carries. This is not a publication claim.
+		delivery := map[string]any{"branch": published.Branch, "commit": published.CommitOID}
+		payloadBytes, _ := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs(changed), "next_valid_intents": mutationResultIntents(plan.intents), "delivery": delivery})
+		return payloadBytes, []string{published.Record.ID}, changed, nil
 	}
 	return Envelope{}, nil, false
 }

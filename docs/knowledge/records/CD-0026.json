@@ -26,7 +26,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:40d0f7f7eca5761348f116c6c51aeeaebaf97edff824174152074c9291431ad2",
+  "sha256": "sha256:c3872a4495d80b0af583d716d6753f0f92e7a61c9e740681a218fd1960faab42",
   "status": "accepted",
   "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
   "tags": [

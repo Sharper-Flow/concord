@@ -2462,11 +2462,69 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "law_coverage_anchor": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "go_test",
+            "scenario",
+            "validator",
+            "generated",
+            "adapter_test"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
     "law_id": {
       "maxLength": 256,
       "minLength": 2,
       "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
       "type": "string"
+    },
+    "lesson_coverage_input": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/law_coverage_anchor"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "issue": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "minLength": 12,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "satisfied",
+            "outstanding",
+            "unmeasured",
+            "out_of_scope"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
     },
     "lifecycle": {
       "description": "Observed work lifecycle state. Every value the store can persist is permitted here so read paths and the work_browse_list_input filter can return/select any current state, including 'superseded'. Use this def for outputs and read-side filters; do NOT use it for transition targets, where supersession must remain atomic with its relation and only four agent-requestable values are permitted.",
@@ -2549,6 +2607,27 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 32,
           "type": "array"
+        },
+        "delivery": {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "commit": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "commit"
+          ],
+          "type": "object"
         },
         "next_valid_intents": {
           "items": {
@@ -4892,6 +4971,9 @@ const GeneratedPayloadSchemaDocument = `{
           "minLength": 1,
           "type": "string"
         },
+        "coverage": {
+          "$ref": "#/$defs/lesson_coverage_input"
+        },
         "evidence": {
           "items": {
             "maxLength": 512,
@@ -4905,6 +4987,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "lesson_id": {
+          "$ref": "#/$defs/id"
+        },
+        "publication_work_id": {
           "$ref": "#/$defs/id"
         },
         "requested_budget_seconds": {

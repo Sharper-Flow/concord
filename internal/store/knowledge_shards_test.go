@@ -250,45 +250,46 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 }
 
 // TestPublishLessonAddsExactlyOneShard states the outcome CD-0114 exists for:
-// a publication commits the note and its record shard, and touches no other
-// file, so two publications never conflict.
+// a publication commits the note, its record shard, and its coverage shard,
+// and touches no other file, so two publications never conflict.
 func TestPublishLessonAddsExactlyOneShard(t *testing.T) {
 	t.Parallel()
-	repo := lessonRepoFixture(t)
-	headBefore, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath)))
+	_, home := lessonWorktreeFixture(t)
+	headBefore, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeHeadPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	published, err := PublishLessonRecord(context.Background(), KnowledgeHome{RepoPath: repo}, LessonPublication{
+	published, err := PublishLessonRecord(context.Background(), home, LessonPublication{
 		LessonID: "lesson-one-shard", Title: "A publication adds one shard",
-		Summary: "Publishing a lesson writes its record shard and nothing else.",
-		Content: "# A publication adds one shard\n\nThe diff is the shard.\n",
-		Tags:    []string{"knowledge"},
-		Scopes:  KnowledgeRecordScopes{Mode: "home"},
-		Now:     time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC),
+		Summary:  "Publishing a lesson writes its record shard and nothing else.",
+		Content:  "# A publication adds one shard\n\nThe diff is the shard.\n",
+		Tags:     []string{"knowledge"},
+		Scopes:   KnowledgeRecordScopes{Mode: "home"},
+		Coverage: &LessonCoverageDeclaration{State: "unmeasured", Reason: "The shard isolation fixture lesson proves no accepted law."},
+		Now:      time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-	out, err := exec.Command("git", "-C", repo, "diff", "--name-status", "HEAD~1", "HEAD").CombinedOutput()
+	out, err := exec.Command("git", "-C", home.RepoPath, "diff", "--name-status", "HEAD~1", "HEAD").CombinedOutput()
 	if err != nil {
 		t.Fatalf("git diff: %v\n%s", err, out)
 	}
 	changed := strings.Split(strings.TrimSpace(string(out)), "\n")
 	sort.Strings(changed)
-	want := []string{"A\t" + knowledgeRecordTree + "/lesson-one-shard.json", "A\t" + published.Record.Path}
+	want := []string{"A\t" + knowledgeRecordTree + "/lesson-one-shard.json", "A\t" + published.Record.Path, "A\t" + lessonCoverageDir + "/lesson-one-shard.json"}
 	sort.Strings(want)
 	if strings.Join(changed, "|") != strings.Join(want, "|") {
 		t.Fatalf("publication changed %v, want exactly %v", changed, want)
 	}
-	headAfter, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(knowledgeHeadPath)))
+	headAfter, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeHeadPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(headBefore) != string(headAfter) {
 		t.Fatal("publication rewrote the manifest head")
 	}
-	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(knowledgeManifestPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeManifestPath))); !os.IsNotExist(err) {
 		t.Fatal("publication wrote an aggregate file")
 	}
 }

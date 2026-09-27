@@ -5113,6 +5113,27 @@
         },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
+        },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "branch",
+            "commit"
+          ],
+          "properties": {
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "commit": {
+              "type": "string",
+              "minLength": 40,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+            }
+          }
         }
       }
     },
@@ -6513,6 +6534,12 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "publication_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "coverage": {
+          "$ref": "#/$defs/lesson_coverage_input"
         }
       }
     },
@@ -13721,6 +13748,64 @@
             }
           }
         ]
+      }
+    },
+    "lesson_coverage_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "satisfied",
+            "outstanding",
+            "unmeasured",
+            "out_of_scope"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/law_coverage_anchor"
+          }
+        },
+        "issue": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024
+        }
+      }
+    },
+    "law_coverage_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "go_test",
+            "scenario",
+            "validator",
+            "generated",
+            "adapter_test"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
       }
     }
   }

@@ -1063,54 +1063,8 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	if err != nil {
 		return out, err
 	}
-	if len(occupants) > 0 {
-		liveOccupants := []string{}
-		for _, occ := range occupants {
-			if occ.HasProcessIdentity {
-				start, err := hostlease.ProcessStart(int(*occ.HostPID))
-				if err == nil && start == *occ.HostPIDStart {
-					liveOccupants = append(liveOccupants, occ.SessionRef)
-					continue
-				}
-				// Process is no longer live as recorded. Release the row.
-				if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
-					return out, err
-				}
-				continue
-			}
-			// Legacy row without process identity (CD-0179): released when
-			// every live host lease started after the row's recorded_at,
-			// which proves its recording process ended. An unreadable lease
-			// set releases nothing, and so does any live lease that
-			// predates the row. Only session_vacate or an operator-approved
-			// removal releases such a row while that proof is missing.
-			if legacyOccupancyRowEnded(req.HostLeases, occ.RecordedAt) {
-				if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
-					return out, err
-				}
-				continue
-			}
-			liveOccupants = append(liveOccupants, occ.SessionRef)
-		}
-		if len(liveOccupants) > 0 {
-			if req.ReleaseOccupancy && req.OperatorApprovalRef != "" {
-				// CD-0096 D3 Destroy / CD-0178 D3: operator-approved
-				// removal releases every row the liveness pass left —
-				// rows whose host process ended and legacy rows without
-				// process identity. Each recorded release event names
-				// its session, so the removal record names every live
-				// occupant the approval consumed.
-				for _, sessionRef := range liveOccupants {
-					if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, sessionRef, incarnation, now); err != nil {
-						return out, err
-					}
-				}
-			} else {
-				return out, newRouteFailure(KindWorktreeOwnershipConflict, op,
-					fmt.Sprintf("sessions %s occupy worktree %s; removing it would strand those sessions", strings.Join(liveOccupants, ", "), entry.Path),
-					false, "session_vacate", "worktree_reclaim")
-			}
-		}
+	if err := reclaimOccupancyGateTx(ctx, tx, req, op, entry, setID, occupants, incarnation, now); err != nil {
+		return out, err
 	}
 
 	// A destructive removal runs under its consumed operator approval: the
@@ -1867,6 +1821,65 @@ func releaseWorktreeOccupancyRowTx(ctx context.Context, tx *sql.Tx, req Worktree
 		return err
 	}
 	return nil
+}
+
+// reclaimOccupancyGateTx applies the occupancy release rules one reclaim or
+// removal must satisfy before it may take the worktree (CD-0178 D3, CD-0179
+// D3). A row whose recorded process is live, and a legacy row the lease-set
+// proof has not ended, stay and block removal by naming the sessions that
+// would be stranded. Rows whose process ended release; a legacy row releases
+// when every live host lease started after the row was recorded, which
+// proves its recording process ended. An unreadable lease set releases
+// nothing. Operator-approved reclamation (ReleaseOccupancy with
+// OperatorApprovalRef) clears every row the liveness pass left, and each
+// recorded release event names its session, so the removal record names
+// every live occupant the approval consumed.
+func reclaimOccupancyGateTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, op string, entry WorktreeEntry, setID string, occupants []WorktreeOccupant, incarnation int, now time.Time) error {
+	if len(occupants) == 0 {
+		return nil
+	}
+	liveOccupants := []string{}
+	for _, occ := range occupants {
+		if occ.HasProcessIdentity {
+			start, err := hostlease.ProcessStart(int(*occ.HostPID))
+			if err == nil && start == *occ.HostPIDStart {
+				liveOccupants = append(liveOccupants, occ.SessionRef)
+				continue
+			}
+			// Process is no longer live as recorded. Release the row.
+			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
+				return err
+			}
+			continue
+		}
+		// Legacy row without process identity (CD-0179): released when
+		// every live host lease started after the row's recorded_at,
+		// which proves its recording process ended. An unreadable lease
+		// set releases nothing, and so does any live lease that
+		// predates the row. Only session_vacate or an operator-approved
+		// removal releases such a row while that proof is missing.
+		if legacyOccupancyRowEnded(req.HostLeases, occ.RecordedAt) {
+			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
+				return err
+			}
+			continue
+		}
+		liveOccupants = append(liveOccupants, occ.SessionRef)
+	}
+	if len(liveOccupants) == 0 {
+		return nil
+	}
+	if req.ReleaseOccupancy && req.OperatorApprovalRef != "" {
+		for _, sessionRef := range liveOccupants {
+			if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, sessionRef, incarnation, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return newRouteFailure(KindWorktreeOwnershipConflict, op,
+		fmt.Sprintf("sessions %s occupy worktree %s; removing it would strand those sessions", strings.Join(liveOccupants, ", "), entry.Path),
+		false, "session_vacate", "worktree_reclaim")
 }
 
 // worktreeOccupancyRowsTx reads every occupancy row the named worktree holds,

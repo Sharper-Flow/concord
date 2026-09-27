@@ -24,14 +24,28 @@ as an archive-time destination without implementing it.
 `concord_work_compact.lesson_publish` is a mutation on the compaction tool
 (surface 3.2.0), gated by the `work_compact` capability and a separately
 accepted operator approval — D7's "accepted durable reader" made structural.
-Publishing writes the lesson markdown under `docs/lessons/`, appends its
-manifest record, and commits both through the repository's git authority in
-one commit. The manifest — not a parallel event stream — remains the lesson's
-durable backing (CD-0020): no new event kind, no new projection table.
-`resolve_note` (PM1.Q10) verifies the record against the manifest immediately;
-search (PM1.Q9) picks the record up at the next index rebuild. Publication is
-idempotent: an identical existing record verifies and returns without a new
-commit; a conflicting id or path is refused.
+Preparing the lesson writes the lesson markdown under `docs/lessons/`, its
+manifest record shard, and its law-coverage shard, and commits the three in
+one commit on the claimed worktree branch of the knowledge-home Project
+(CD-0114 D3). The operation writes no other surface: never the Project's
+canonical default checkout, never a foreign Project's tree, and never an
+inferred coverage state — the caller declares the CD-0047 state-conditional
+reason, issue, or evidence, and that declaration commits beside the record. A
+prepared commit is not a published lesson: the operation returns the claimed
+branch and the immutable commit as prepared delivery, the coordinator opens a
+normal pull request and verifies required CI, and the lesson is published
+only after the pull request merges and a knowledge read verifies the record.
+The manifest — not a parallel event stream — remains the lesson's durable
+backing (CD-0020): no new event kind, no new projection table.
+The returned commit identifies the prepared three-file tree. Canonical
+knowledge reads make no publication claim before the merge. After the merge,
+`resolve_note` (PM1.Q10) verifies the record against the manifest, and search
+(PM1.Q9) picks it up at the next index rebuild. Preparation is idempotent: an identical
+existing record verifies and returns without a new commit; a conflicting id
+or path is refused. A terminal source work whose original worktree is gone
+publishes through a distinct live publication work that owns the claimed
+knowledge-home worktree, while the lesson still names the terminal source
+work.
 
 **D2. Promotion is scope, not a second artifact.** A lesson published with
 `home` scope applies to its owner's home broadly; a lesson published with
@@ -76,20 +90,23 @@ archive-time destination.
 
 - The knowledge manifest gains an optional `evidence` field; both the Go
   strict parser and the offline validator accept and bound it.
-- Lesson publication appends to a law-adjacent file
-  (`docs/concord-knowledge-index.v1.json`) under an accepted operator
-  approval, mirroring the authority the work-note publication already carries.
-- A git-committed lesson whose index rebuild has not run is visible through
-  `resolve_note` immediately and through `search` after the next rebuild; the
-  window is reconciliation, not loss.
+- Lesson preparation commits the record shard and the coverage shard under an
+  accepted operator approval, mirroring the authority the work-note
+  publication already carries.
+- After a lesson merges into the canonical knowledge home, `resolve_note`
+  verifies the record. Search picks it up after the next index rebuild; that
+  window is reconciliation, not loss. Before merge, neither canonical read
+  establishes publication.
 
 ## Verification
 
-- `internal/store/lesson_publish_test.go`: commit + manifest append,
-  idempotent replay without a second commit, id/path conflict refusal, scope
-  and evidence bound refusal.
-- `internal/agent/lesson_dispatch_test.go`: approval challenge round trip
-  through the real dispatcher, lesson committed with its manifest record,
-  replay without a second commit, and a reflection riding the same path.
+- `internal/store/lesson_publish_test.go`: the isolated three-file commit on
+  the claimed branch, the canonical checkout untouched, explicit coverage
+  disposition with its state-conditional refusals, replay without a second
+  commit, id/path conflict refusal, scope and evidence bound refusal, and the
+  claimed-worktree home resolution.
+- `internal/agent/lesson_dispatch_test.go`: prepared branch-and-commit
+  delivery through the real dispatcher, refusal without a claimed worktree,
+  the approval challenge round trip, and a reflection riding the same path.
 - Drift audit exercised both ways: a populated evidence path passes; removing
   the file fails the validator with `dangling evidence path`.

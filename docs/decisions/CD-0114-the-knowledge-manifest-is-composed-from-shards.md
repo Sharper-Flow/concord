@@ -50,12 +50,17 @@ the shard tree's object id. The scripts compose it through one loader,
 generators keep the shards canonical and prove they compose; they write no
 aggregate.
 
-### D3. Lesson publication writes one shard
+### D3. Lesson publication writes the record shard and the coverage shard
 
 `PublishLessonRecord` composes the working-tree manifest to check identity and
 path conflicts, validates the manifest with the new record present, and stages
-the note and the record shard alone. The head shard is never rewritten by the
-store.
+the note, the record shard, and the coverage shard whose explicit CD-0047
+declaration the caller supplies — never an inferred state. The three land as
+one commit on the claimed worktree branch of the knowledge-home Project,
+never on the canonical default checkout. The commit is prepared delivery, not
+a publication claim: the lesson is published when the coordinator's pull
+request merges and a knowledge read verifies it. The head shard is never
+rewritten by the store.
 
 ### D4. A commit that predates the shards is read in the shape it has
 
@@ -83,11 +88,32 @@ Scenario: A pre-shard commit still reads
   When the knowledge index reads that commit
   Then the manifest is read from the aggregate file
 
-Scenario: A publication adds exactly one shard
+Scenario: A publication adds one record shard and one coverage shard
   Given a knowledge home with the shard tree committed
   When a lesson is published
-  Then the commit adds the note and the record shard and changes nothing else
+  Then the commit adds the note and the record shard and the coverage shard
+  And no other file changes
+
+Scenario: A prepared commit is not a published lesson
+  Given a lesson committed on the claimed worktree branch of the knowledge-home Project
+  When the operation returns before the coordinator merges the pull request
+  Then the response names the branch and the immutable commit as prepared delivery
+  And the canonical Product knowledge read does not claim publication
 ```
+
+## Verification
+
+- `internal/store/lesson_publish_test.go`: the isolated three-file commit on
+  the claimed branch with the canonical checkout untouched.
+- `internal/store/lesson_publish_test.go`: the explicit coverage disposition
+  with its state-conditional refusals, and the typed replay and conflict
+  refusals.
+- `internal/store/lesson_publish_test.go`: the claimed-worktree home
+  resolution, with no-claim and foreign-Project refusals.
+- `internal/store/knowledge_shards_test.go`: a publication adds the record
+  shard and the coverage shard and no other file.
+- `internal/agent/lesson_dispatch_test.go`: the approval round trip returns
+  prepared branch-and-commit delivery and refuses without a claimed worktree.
 
 ## Consequences
 

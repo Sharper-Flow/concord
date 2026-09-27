@@ -5114,6 +5114,27 @@
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
         },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "branch",
+            "commit"
+          ],
+          "properties": {
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "commit": {
+              "type": "string",
+              "minLength": 40,
+              "maxLength": 64,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+            }
+          }
+        },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
           "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
@@ -6476,7 +6497,10 @@
           "$ref": "#/$defs/id"
         },
         "lesson_id": {
-          "$ref": "#/$defs/id"
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
         },
         "title": {
           "type": "string",
@@ -6522,6 +6546,12 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "publication_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "coverage": {
+          "$ref": "#/$defs/lesson_coverage_input"
         }
       }
     },
@@ -13730,6 +13760,74 @@
             }
           }
         ]
+      }
+    },
+    "lesson_coverage_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "satisfied",
+            "outstanding",
+            "unmeasured",
+            "out_of_scope"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/law_coverage_anchor"
+          }
+        },
+        "issue": {
+          "description": "Tracking issue number or Linear issue identifier for an outstanding record, the union contracts/law-coverage.schema.json admits. Required when outstanding; forbidden otherwise.",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1024
+        }
+      }
+    },
+    "law_coverage_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "value"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "The closed anchor set contracts/law-coverage.schema.json admits for a committed coverage shard.",
+          "enum": [
+            "go_test",
+            "scenario",
+            "validator",
+            "generated"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
       }
     },
     "vacate_target": {

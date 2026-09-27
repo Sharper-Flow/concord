@@ -76,8 +76,8 @@ BOUNDARY_SCOPE_FILES = ("concord-1.md", "concord-2.md")
 REQUIRED_BOUNDARY_PHRASES = (
     "One coordinator session per repository",
     "a second Project in another git repository",
-    "refuse a single-session move",
-    "a second coordinator session in the target repository",
+    "never claim or move across the boundary",
+    "this session stops driving the other repository",
 )
 FORBIDDEN_MOVE_PHRASES = (
     "claim a worktree in the other repository",

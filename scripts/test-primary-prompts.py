@@ -11,6 +11,7 @@ forbidden move-into-another-repository instruction.
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import sys
 import tempfile
@@ -134,34 +135,46 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertEqual(self.findings(), [])
 
     def test_missing_boundary_statement_reports(self) -> None:
-        self.rewrite(
-            "concord-1.md",
-            lambda text: text.replace(
-                "refuse a single-session move\nacross the boundary.",
-                "refuse nothing; the session may follow the work.",
-            ),
-        )
+        def drop_boundary(text: str) -> str:
+            rewritten, count = re.subn(
+                r"never claim or move across the\s+boundary",
+                "follow the work into the other repository",
+                text,
+            )
+            self.assertEqual(count, 1, "fixture no longer carries the boundary statement")
+            return rewritten
+
+        self.rewrite("concord-1.md", drop_boundary)
         findings = self.findings()
         self.assertTrue(any(
             "concord-1.md" in finding
-            and "cross-repository boundary phrase 'refuse a single-session move'" in finding
+            and "cross-repository boundary phrase 'never claim or move across the boundary'" in finding
             for finding in findings
         ))
 
     def test_forbidden_move_instruction_reports(self) -> None:
         self.rewrite(
             "concord-2.md",
-            lambda text: text.replace(
-                "the operator start the second session.",
-                "the operator start the second session, or claim a worktree in "
-                "the other repository from this session.",
-            ),
+            lambda text: text
+            + "\nWhen the work reaches a second repository, claim a worktree in "
+            "the other repository from this session.\n",
         )
         findings = self.findings()
         self.assertTrue(any(
             "concord-2.md" in finding
             and "move into another repository" in finding
             and "claim a worktree in the other repository" in finding
+            for finding in findings
+        ))
+
+    def test_forbidden_move_instruction_reports_in_intake_example(self) -> None:
+        self.rewrite(
+            "concord-0.md",
+            lambda text: text + "\nFor a second repository, move the session into the other repository.\n",
+        )
+        findings = self.findings()
+        self.assertTrue(any(
+            "concord-0.md" in finding and "move into another repository" in finding
             for finding in findings
         ))
 

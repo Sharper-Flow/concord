@@ -763,6 +763,36 @@ func TestSessionCommandPassesPromptThroughEnvironment(t *testing.T) {
 	t.Fatalf("prompt was not passed through session environment: %v", cmd.Env)
 }
 
+// TestSessionCommandPassesProjectSelectionThroughEnvironment covers the
+// CD-0182 selector: an explicit member Project reaches the session bootstrap
+// through CONCORD_SELECTED_PROJECT_ID, and an inherited value is replaced
+// rather than doubled.
+func TestSessionCommandPassesProjectSelectionThroughEnvironment(t *testing.T) {
+	t.Setenv("CONCORD_SELECTED_PROJECT_ID", "stale-project")
+	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", ProjectID: "project-two", Agent: launcher.DefaultSessionAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, value := range cmd.Env {
+		if value == "CONCORD_SELECTED_PROJECT_ID=project-two" {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("Project selection reached the session env %d time(s), want exactly the fresh value: %v", seen, cmd.Env)
+	}
+	if cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-1", Agent: launcher.DefaultSessionAgent}); err != nil {
+		t.Fatal(err)
+	} else {
+		for _, value := range cmd.Env {
+			if strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_ID=") {
+				t.Fatalf("empty selection leaked into the session env: %q", value)
+			}
+		}
+	}
+}
+
 func TestSessionCommandPreservesInheritedAgentOverride(t *testing.T) {
 	t.Setenv("CONCORD_SELECTED_AGENT", "operator-agent")
 	cmd, err := sessionProcess(launcher.SessionHandoff{ProductID: "product-1", Agent: launcher.DefaultSessionAgent})

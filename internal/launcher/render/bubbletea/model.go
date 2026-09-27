@@ -1094,7 +1094,7 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 			env = append(env, value)
 			continue
 		}
-		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") {
+		if strings.HasPrefix(value, "CONCORD_SELECTED_PRODUCT_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_WORK_ID=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROMPT=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_PATH=") || strings.HasPrefix(value, "CONCORD_SELECTED_PROJECT_ID=") {
 			continue
 		}
 		env = append(env, value)
@@ -1106,6 +1106,9 @@ func handoffEnv(handoff launcher.SessionHandoff) []string {
 		env = append(env, "CONCORD_SELECTED_PROJECT_PATH="+handoff.ProjectPath)
 	} else {
 		env = append(env, "CONCORD_SELECTED_PRODUCT_ID="+handoff.ProductID)
+	}
+	if handoff.ProjectID != "" {
+		env = append(env, "CONCORD_SELECTED_PROJECT_ID="+handoff.ProjectID)
 	}
 	if handoff.WorkID != "" {
 		env = append(env, "CONCORD_SELECTED_WORK_ID="+handoff.WorkID)

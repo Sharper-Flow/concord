@@ -7,6 +7,9 @@
 - **Approval:** The operator approved the launcher objective that surfaced
   the conflict and this correcting record.
 - **Related:** CD-0108, CD-0078, CD-0014, C18
+- **Amended:** CD-0182 (2026-09-27) opens a second coordinator session
+  through the host-registered session opener; the launcher's placement
+  boundary of D1 is unchanged.
 - **Preserves:** The CD-0108 remake of the launcher, the CD-0078 D1
   placement boundary, and the store-write-free launcher of CD-0108 D4
 - **Supersedes:** The zellij-tab clause of CD-0108 D1: "launch opens a
@@ -58,6 +61,10 @@ store boundary under CD-0108 D4.
   stays the structural proof of D1.
 - A future launcher that reattaches a live session still places nothing.
   Reattachment targets a session the host already placed.
+- CD-0182 adds one host-side route: the adapter runs the operator's
+  registered session opener to start a second repository's coordinator
+  session. The launcher still creates, names, splits, focuses, and destroys
+  nothing.
 
 ## Verification
 

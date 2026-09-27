@@ -6,6 +6,8 @@
   work holds an active worktree in its primary Project; the session landing
   directory and everything that directory governs
 - **Amends:** CD-0093
+- **Amended:** CD-0182 (2026-09-27) adds the explicit member-Project
+  selector to the landing; this record's primary-Project rule is unchanged.
 - **Related:** CD-0008, CD-0088, CD-0103
 - **Approval:** The operator approved the objective in the Concord (CON)
   work contract CON-448 (v1). The pull request is the public record.
@@ -61,6 +63,11 @@ then lands in the Project canonical path exactly as CD-0093 D1 decides.
 The fallback is not a failure and carries no diagnostic. The canonical path
 is the landing CD-0093 already admits. A worktree the store records but the
 machine does not hold is a worktree without a landing.
+
+CD-0182 adds one exception to the primary-Project limit. With the explicit
+`--project` selector, the session lands in the named member Project's
+active worktree when it is usable, else in that Project's canonical path.
+Without the selector, this clause binds as recorded.
 
 ### D3. One directory, fixed host, and fail-closed canonical path stand
 

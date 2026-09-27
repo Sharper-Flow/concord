@@ -267,7 +267,7 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 	var argv []string
 	var ranIn string
 	code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
-		func(context.Context, string) (string, error) { directoryCalls++; return "", nil },
+		func(_ context.Context, _ string, _ string) (string, error) { directoryCalls++; return "", nil },
 		func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil },
 		func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 			ranIn = dir
@@ -397,4 +397,95 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 	if host := hostRecord(t, recordDir, "host-cwd"); host != projectDir {
 		t.Fatalf("host started in %q, want the Project directory %q", host, projectDir)
 	}
+}
+
+// TestSessionProjectSelectionResolvesTheMemberProject covers the explicit
+// Project selection (CD-0182): the selection reaches the directory resolver
+// with the selected work, the fixed prompt tells the new coordinator to
+// resume the work item through concord_work_start with both identities, and
+// an unusable selection refuses before identity verification or any host
+// starts.
+func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
+	t.Run("selection reaches the resolver and the fixed prompt names the resume route", func(t *testing.T) {
+		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+		t.Setenv(selectedProjectIDEnv, "project-two")
+		t.Setenv(selectedAgentEnv, "concord-1")
+		resolvedWork, resolvedProject := "", ""
+		var ranIn string
+		var argv []string
+		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
+			func(_ context.Context, workID, projectID string) (string, error) {
+				resolvedWork, resolvedProject = workID, projectID
+				return "/selected/landing", nil
+			},
+			func(context.Context, string, string, string) ([]byte, error) { return []byte("packet"), nil },
+			func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+				ranIn = dir
+				argv = append([]string(nil), got...)
+				return nil
+			},
+			func(string) error { return nil },
+			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+		if code != 0 {
+			t.Fatalf("exit=%d", code)
+		}
+		if resolvedWork != "work-1" || resolvedProject != "project-two" {
+			t.Fatalf("resolver read work=%q project=%q, want work-1 and project-two", resolvedWork, resolvedProject)
+		}
+		if ranIn != "/selected/landing" {
+			t.Fatalf("host started in %q, want the resolved landing", ranIn)
+		}
+		prompt := hostPrompt(t, argv)
+		if !strings.Contains(prompt, "concord_work_start with work_id work-1 and project_id project-two") {
+			t.Fatalf("prompt=%q, want the fixed resume route", prompt)
+		}
+		if !strings.Contains(prompt, "packet") {
+			t.Fatalf("prompt=%q, want the continuity packet after the fixed route", prompt)
+		}
+	})
+	t.Run("selection without a selected work refuses", func(t *testing.T) {
+		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+		t.Setenv("CONCORD_SELECTED_WORK_ID", "")
+		t.Setenv(selectedProjectIDEnv, "project-two")
+		identityCalls, runs := 0, 0
+		var errOut bytes.Buffer
+		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
+			func(context.Context, string, string) (string, error) { return "/unused", nil },
+			nil,
+			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+				runs++
+				return nil
+			},
+			func(string) error { identityCalls++; return nil },
+			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+		if code != 2 || identityCalls != 0 || runs != 0 {
+			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "requires a selected work") {
+			t.Fatalf("diagnostic=%q", errOut.String())
+		}
+	})
+	t.Run("invalid selection refuses", func(t *testing.T) {
+		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+		t.Setenv(selectedProjectIDEnv, "../escape")
+		identityCalls, runs := 0, 0
+		var errOut bytes.Buffer
+		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
+			func(context.Context, string, string) (string, error) { return "/unused", nil },
+			nil,
+			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+				runs++
+				return nil
+			},
+			func(string) error { identityCalls++; return nil },
+			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+		if code != 2 || identityCalls != 0 || runs != 0 {
+			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "Project selection is missing or invalid") {
+			t.Fatalf("diagnostic=%q", errOut.String())
+		}
+	})
 }

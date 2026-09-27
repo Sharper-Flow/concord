@@ -1,0 +1,49 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-a28fbf185b855ff098c1f020",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0182",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0078"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0163"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0178"
+    }
+  ],
+  "path": "docs/decisions/CD-0182-session-opener.md",
+  "product_wide_rationale": "Governs how one work item reaches a second repository's coordinator session across the launcher, the agent adapter, the installer, and the coordinator instructions, so no single runtime Domain owns host placement.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4b9abad3d2d6729718955b441e56f3eab95ab19c0449279eb4c45e1b2b6b81f8",
+  "status": "accepted",
+  "summary": "The operator may register one session-opener argv template in the options of the Concord plugin tuple entry in the OpenCode config, and registering it is standing consent for coordinators to open sessions and spend model quota; concord zl gains --project for a member Project of the work whose active worktree or canonical path lands the session with the fixed resume prompt, the cross_repository_claim remedy names concord_work_start with the work and Project identities, the adapter resume accepts the optional project_id and routes another repository through the registered opener or returns the exact launch command, and the installer recognizes the tuple entry so upgrades keep its options.",
+  "tags": [
+    "launcher",
+    "sessions",
+    "adapter",
+    "installer"
+  ],
+  "title": "The session opener is host placement"
+}

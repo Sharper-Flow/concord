@@ -203,6 +203,48 @@ cannot persist or read scope, the affected operation refuses instead of
 starting unmanaged work. The host must support session metadata through its
 documented session API.
 
+### The second coordinator session
+
+A work item that spans two repositories gets one coordinator session per
+repository (CD-0178 D2). `concord_work_start` resume accepts an optional
+`project_id` naming a member Project of the work. A Project in the calling
+session's own repository keeps the claim-and-move route. A Project in
+another repository routes through the host-registered session opener
+(CD-0182):
+
+- With an opener registered, the adapter substitutes `{directory}` (the
+  target Project's canonical path), `{title}` (the work ID), and `{command}`
+  (the core launch argv, spliced as separate elements) and runs it without a
+  shell. The result reports the opener's exit status and argv and never
+  claims the new session is running.
+- With no opener registered, the result carries the exact launch command and
+  directory for the operator.
+- An invalid opener refuses naming the invalid field and still carries the
+  command. No route runs a shell, so titles and paths cannot inject into the
+  opener argv.
+
+The opener is host placement, and Concord ships none. The operator registers
+one argv template in the options of the Concord plugin tuple entry in the
+OpenCode config:
+
+```jsonc
+{
+  "plugin": [
+    ["/path/to/concord-plugin.ts", {
+      "session_opener": ["my-tab-command", "new-tab", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"]
+    }]
+  ]
+}
+```
+
+`{command}` must be one whole element and appear once. Unknown placeholders
+refuse. Registering the opener is the operator's standing consent for
+coordinators to open sessions and spend model quota. `concord zl <work>
+--project <project>` is the launch the opener carries: the named Project
+must be a member of the work, and the session lands in that Project's active
+worktree when one is usable, else its canonical path (CD-0093 D3 fail-closed
+stands).
+
 ### Operator work-state tab
 
 The adapter renames the zellij tab and pane frame for every successful mutation

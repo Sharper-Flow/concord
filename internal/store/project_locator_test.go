@@ -405,6 +405,108 @@ func TestResolveSessionDirectoryCarriesTheActiveWorktree(t *testing.T) {
 	}
 }
 
+// TestResolveSessionDirectoryForProjectSelectsAMemberProject covers the
+// explicit-Project form of the landing read (CD-0182): the named Project
+// must be a member of the work, and the read carries that Project's
+// canonical path and the work's active worktree in it. A non-member Project
+// is a typed refusal, never a fallback directory.
+func TestResolveSessionDirectoryForProjectSelectsAMemberProject(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	createProductProject(t, s, "product-sel", "project-sel")
+	// The selected Project joins the same Product as a secondary member.
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		{EventID: "project-sel-created", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-two", Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Selected Two"}`)},
+		{EventID: "project-sel-added", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-sel", Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-sel","project_id":"project-two","role":"secondary","reason":"test","expected_version":2,"resulting_version":3}`)},
+		workCreatedEvent("work-sel", "create-work-sel"),
+		membershipEvent("membership-work-sel", "work_project.added", SubjectWorkItem, "work-sel", map[string]any{
+			"work_id": "work-sel", "project_id": "project-sel", "role": "primary", "reason": "test",
+			"expected_version": 1, "resulting_version": 2,
+		}),
+		membershipEvent("membership-work-sel-two", "work_project.added", SubjectWorkItem, "work-sel", map[string]any{
+			"work_id": "work-sel", "project_id": "project-two", "role": "secondary", "reason": "test",
+			"expected_version": 2, "resulting_version": 3,
+		}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-sel"): 2, VersionRef(SubjectProject, "project-two"): 0, VersionRef(SubjectWorkItem, "work-sel"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	primaryRepo, selectedRepo := t.TempDir(), t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-sel", ProjectLocator{ID: "path-sel", Kind: LocatorCanonicalPath, Value: primaryRepo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddProjectLocator(ctx, "project-two", ProjectLocator{ID: "path-two", Kind: LocatorCanonicalPath, Value: selectedRepo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	seedSelectedClaim := func(t *testing.T, opID, projectID, path, state string) {
+		t.Helper()
+		base := strings.Repeat("b", 40)
+		branch := "work/" + projectID
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,'operator','req-sel','now','now')`,
+			opID, "work-sel", projectID, WorktreeSetID("work-sel"), "repo-"+projectID, branch, base, path, "verified"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,?,?,?,?,?,?,?,?,'{}')`,
+			WorktreeSetID("work-sel"), projectID, opID, branch, base, path, "repo-"+projectID, state, "now"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.ResolveSessionDirectoryForProject(ctx, "", "project-two"); err == nil {
+		t.Fatal("empty work ID resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindInvalidOperation)
+	}
+	if _, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", ""); err == nil {
+		t.Fatal("empty Project ID resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindInvalidOperation)
+	}
+	// A Project the work does not hold refuses with the membership remedy.
+	if _, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-unknown"); err == nil {
+		t.Fatal("non-member Project resolved a session directory")
+	} else {
+		assertFailureKind(t, err, KindUnknownScope)
+		if !strings.Contains(err.Error(), "not a member of the work") {
+			t.Fatalf("non-member diagnostic=%q", err.Error())
+		}
+	}
+
+	// The member Project's canonical path and its own active worktree are
+	// the landing candidates.
+	selected := filepath.Join(t.TempDir(), "wt-selected")
+	seedSelectedClaim(t, "wt-op-selected", "project-two", selected, "active")
+	resolved, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-two")
+	if err != nil {
+		t.Fatalf("member Project did not resolve: %v", err)
+	}
+	if resolved.CanonicalPath != selectedRepo || resolved.WorktreePath != filepath.Clean(selected) {
+		t.Fatalf("resolution=%+v want canonical %q worktree %q", resolved, selectedRepo, filepath.Clean(selected))
+	}
+
+	// The primary form is unchanged: it still reads the primary Project and
+	// ignores the selected Project's worktree.
+	primary, err := s.ResolveSessionDirectory(ctx, "work-sel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primary.CanonicalPath != primaryRepo || primary.WorktreePath != "" {
+		t.Fatalf("primary resolution=%+v, want the primary canonical path only", primary)
+	}
+
+	// A reclaimed entry in the selected Project carries no worktree
+	// candidate, matching the CD-0176 fallback.
+	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed' WHERE set_id=? AND project_id='project-two'`, WorktreeSetID("work-sel")); err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := s.ResolveSessionDirectoryForProject(ctx, "work-sel", "project-two")
+	if err != nil {
+		t.Fatalf("reclaimed worktree refused instead of falling back: %v", err)
+	}
+	if fallback.WorktreePath != "" || fallback.CanonicalPath != selectedRepo {
+		t.Fatalf("fallback resolution=%+v, want the selected canonical path only", fallback)
+	}
+}
+
 func TestLocateWorktreeDefaultUsesRemoteTrackingRefWithoutNetwork(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

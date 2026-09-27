@@ -605,7 +605,8 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
         fail("host tool manifest must declare concord_work_start once")
     args = tools[0].get("args", {})
     capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref"]
-    resume = ["work_id"]
+    resume_required = ["work_id"]
+    resume_properties = ["work_id", "project_id"]
     branches = args.get("oneOf")
     if args.get("type") != "object" or not isinstance(branches, list) or len(branches) != 2:
         fail("concord_work_start host schema must be a oneOf of the capture and resume shapes")
@@ -613,14 +614,18 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
         fail("concord_work_start capture branch has an unexpected argument surface")
     if branches[0].get("additionalProperties") is not False or branches[1].get("additionalProperties") is not False:
         fail("concord_work_start branches must close their argument surface")
-    if branches[1].get("required") != resume or list(branches[1].get("properties", {})) != resume:
-        fail("concord_work_start resume branch must carry only work_id")
+    if branches[1].get("required") != resume_required or list(branches[1].get("properties", {})) != resume_properties:
+        fail("concord_work_start resume branch must carry work_id and the optional project_id selector")
+    if branches[1].get("properties", {}).get("project_id") != branches[1].get("properties", {}).get("work_id"):
+        fail("concord_work_start project_id must share the work_id bounds")
     for name, maximum in (("title", 256), ("value_statement", 256), ("external_ref", 256), ("task", 8192)):
         if branches[0]["properties"].get(name, {}).get("x-maxBytes") != maximum:
             fail(f"concord_work_start {name} must pin x-maxBytes={maximum}")
     for branch in branches:
-        if "product_id" in branch.get("properties", {}) or "project_id" in branch.get("properties", {}):
-            fail("concord_work_start must derive Product and Project identity")
+        if "product_id" in branch.get("properties", {}):
+            fail("concord_work_start must derive Product identity")
+    if "project_id" in branches[0].get("properties", {}):
+        fail("concord_work_start capture must derive Project identity")
     return "sha256:" + hashlib.sha256(canonical(manifest)).hexdigest()
 
 

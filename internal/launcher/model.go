@@ -164,9 +164,13 @@ type DomainSection struct {
 }
 
 type SessionHandoff struct {
-	ProductID   string
-	WorkID      string
-	Prompt      string
+	ProductID string
+	WorkID    string
+	Prompt    string
+	// ProjectID names an explicit member Project of the work whose landing
+	// the session resolves against (CD-0182). The empty value keeps the
+	// primary Project landing of CD-0093 and CD-0176.
+	ProjectID   string
 	ProjectPath string
 	Agent       string
 }

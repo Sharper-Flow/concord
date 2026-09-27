@@ -269,6 +269,44 @@ func (s *Store) ResolveSessionDirectory(ctx context.Context, workID string) (Ses
 	return out, nil
 }
 
+// ResolveSessionDirectoryForProject is the explicit-Project form of
+// ResolveSessionDirectory (CD-0182). The named Project must be a member of
+// the work; a non-member refuses with a typed failure instead of yielding a
+// directory. The landing candidates are that Project's canonical path and
+// the work's active worktree in the same Project; the same usability and
+// fail-closed rules apply to the caller.
+func (s *Store) ResolveSessionDirectoryForProject(ctx context.Context, workID, projectID string) (SessionDirectoryResolution, error) {
+	if s == nil || s.db == nil {
+		return SessionDirectoryResolution{}, newFailure(KindUnavailable, "session_directory", "store is not open", false, "open the authority database")
+	}
+	if workID == "" || projectID == "" {
+		return SessionDirectoryResolution{}, newFailure(KindInvalidOperation, "session_directory", "work and Project IDs are required", false, "select one work item and one member Project before starting a session")
+	}
+	var member int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?`, workID, projectID).Scan(&member)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return SessionDirectoryResolution{}, newFailure(KindUnknownScope, "session_directory", "selected Project is not a member of the work", false, "record the Project membership with concord_work_relate.set_memberships before launching into it")
+		}
+		return SessionDirectoryResolution{}, wrapFailure(KindUnavailable, "session_directory", "cannot read the work's Project memberships", true, "retry once the database is readable", err)
+	}
+	canonical, err := s.ProjectCanonicalPath(ctx, projectID)
+	if err != nil {
+		return SessionDirectoryResolution{}, err
+	}
+	out := SessionDirectoryResolution{CanonicalPath: canonical}
+	// The same verified-claim-plus-active-entry read as the primary form:
+	// worktree_claims_one_active admits at most one verified claim per
+	// (work, Project), so the read pins at most one row (CD-0008 D1).
+	err = s.db.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		WHERE c.work_id=? AND c.project_id=? AND c.state='verified' AND e.state='active'`, workID, projectID).Scan(&out.WorktreePath)
+	if err != nil && err != sql.ErrNoRows {
+		return SessionDirectoryResolution{}, wrapFailure(KindUnavailable, "session_directory", "cannot read the work's active worktree", true, "retry once the database is readable", err)
+	}
+	return out, nil
+}
+
 // LocateWorktree owns the branch, base, and path derivation used by native
 // worktree operations.
 func (s *Store) LocateWorktree(ctx context.Context, projectID, workID, ref string) (WorktreeLocation, error) {

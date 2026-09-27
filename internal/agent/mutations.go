@@ -2323,11 +2323,12 @@ func (r runtime) planDomainObservationDismiss(ctx context.Context, base Envelope
 // the calling session's directory belongs to a different git repository
 // than the target Project's canonical locator (CD-0178 D2). It is
 // non-retryable: the host refuses a move that crosses repositories, so the
-// only route is a second coordinator session in the target repository. An
-// empty target repository (no canonical locator yet) admits the claim
-// because the store has nothing to compare against; the within-repository
-// gate then runs.
-func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base Envelope, callingDir, projectID string) *Envelope {
+// only route is a second coordinator session in the target repository,
+// which resumes the work there through concord_work_start with the work and
+// Project identities (CD-0182). An empty target repository (no canonical
+// locator yet) admits the claim because the store has nothing to compare
+// against; the within-repository gate then runs.
+func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base Envelope, callingDir, workID, projectID string) *Envelope {
 	if callingDir == "" {
 		return nil
 	}
@@ -2354,8 +2355,8 @@ func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base E
 		return nil
 	}
 	refused := coreError(base, string(store.KindCrossRepositoryClaim),
-		fmt.Sprintf("worktree_claim target Project %s lives in %s, but the calling session runs in %s; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository",
-			projectID, targetRepo, callingRepo),
+		fmt.Sprintf("worktree_claim target Project %s lives in %s, but the calling session runs in %s; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository. Start a coordinator session in %s and resume this work there with concord_work_start carrying work_id %s and project_id %s",
+			projectID, targetRepo, callingRepo, targetRepo, workID, projectID),
 		"refresh_context", false)
 	return &refused
 }
@@ -2424,7 +2425,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	// otherwise the host refuses the move and the planner refuses here. The
 	// calling directory is the call envelope's directory, the same value
 	// every other runtime path reads.
-	if refused := r.refuseWhenCallingRepositoryDiffers(ctx, base, r.Envelope.Directory, in.ProjectID); refused != nil {
+	if refused := r.refuseWhenCallingRepositoryDiffers(ctx, base, r.Envelope.Directory, in.WorkID, in.ProjectID); refused != nil {
 		return *refused, nil, true
 	}
 	// The claimed worktree's occupancy row records the recording host's

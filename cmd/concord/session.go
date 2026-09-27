@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	selectedProductEnv = "CONCORD_SELECTED_PRODUCT_ID"
-	selectedWorkEnv    = "CONCORD_SELECTED_WORK_ID"
-	selectedPromptEnv  = "CONCORD_SELECTED_PROMPT"
-	selectedProjectEnv = "CONCORD_SELECTED_PROJECT_PATH"
-	selectedAgentEnv   = "CONCORD_SELECTED_AGENT"
+	selectedProductEnv   = "CONCORD_SELECTED_PRODUCT_ID"
+	selectedWorkEnv      = "CONCORD_SELECTED_WORK_ID"
+	selectedPromptEnv    = "CONCORD_SELECTED_PROMPT"
+	selectedProjectEnv   = "CONCORD_SELECTED_PROJECT_PATH"
+	selectedProjectIDEnv = "CONCORD_SELECTED_PROJECT_ID"
+	selectedAgentEnv     = "CONCORD_SELECTED_AGENT"
 )
 
 var sessionIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
@@ -29,10 +30,12 @@ type sessionBootstrapFunc func(context.Context, string, string, string) ([]byte,
 
 // sessionDirectoryFunc resolves the directory the session runs in from the
 // selected work: the work's active worktree when one is usable on this
-// machine, else its Project's canonical path (CD-0093 D1 as amended by
-// CD-0176). It is a parameter so tests can inject an isolated resolution;
+// machine, else the Project's canonical path (CD-0093 D1 as amended by
+// CD-0176). An explicit projectID names a member Project whose landing
+// resolves the same way (CD-0182); the empty value keeps the primary
+// Project. It is a parameter so tests can inject an isolated resolution;
 // production wiring is hostSessionDirectory below.
-type sessionDirectoryFunc func(ctx context.Context, workID string) (string, error)
+type sessionDirectoryFunc func(ctx context.Context, workID, projectID string) (string, error)
 
 // sessionRunnerFunc starts the host in dir. The directory is a parameter so
 // the executor it stands in for observes the same resolved directory the
@@ -105,11 +108,13 @@ func sessionDirectoryOnDisk(path string) (string, error) {
 // hostSessionDirectory is the production wiring for the session's directory
 // resolution. It opens the authority store and resolves the landing
 // candidates for the selected work. When the work holds an active worktree
-// in its primary Project and that worktree is a usable directory on this
-// machine, the session lands there (CD-0176); otherwise the primary
-// Project's canonical path stands under CD-0093 D1, and a canonical path
-// that does not resolve refuses the launch (CD-0093 D3).
-func hostSessionDirectory(ctx context.Context, workID string) (dirResult string, errResult error) {
+// in its Project and that worktree is a usable directory on this machine,
+// the session lands there (CD-0176); otherwise the Project's canonical path
+// stands under CD-0093 D1, and a canonical path that does not resolve
+// refuses the launch (CD-0093 D3). An explicit projectID resolves against
+// that member Project of the work instead of the primary one (CD-0182);
+// the member gate refuses before any directory is yielded.
+func hostSessionDirectory(ctx context.Context, workID, projectID string) (dirResult string, errResult error) {
 	path, err := databasePath()
 	if err != nil {
 		return "", err
@@ -124,7 +129,12 @@ func hostSessionDirectory(ctx context.Context, workID string) (dirResult string,
 			errResult = closeErr
 		}
 	}()
-	resolved, err := s.ResolveSessionDirectory(ctx, workID)
+	var resolved store.SessionDirectoryResolution
+	if projectID != "" {
+		resolved, err = s.ResolveSessionDirectoryForProject(ctx, workID, projectID)
+	} else {
+		resolved, err = s.ResolveSessionDirectory(ctx, workID)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -138,14 +148,15 @@ func hostSessionDirectory(ctx context.Context, workID string) (dirResult string,
 
 // sessionDirectory resolves the one directory the session uses. Work-selected
 // sessions land in the work's active worktree when it is usable on this
-// machine, else the owning Project's canonical path (CD-0176). A
-// Product-only session has no work-derived Project, so it keeps the
-// launcher's directory; the value is still resolved once here, which is what
-// CD-0093 D2 requires of the identity, registry, and execution steps that
-// follow.
-func sessionDirectory(ctx context.Context, resolve sessionDirectoryFunc, workID string) (string, error) {
+// machine, else the owning Project's canonical path (CD-0176). An explicit
+// projectID resolves against that member Project of the work (CD-0182); the
+// empty value keeps the primary Project. A Product-only session has no
+// work-derived Project, so it keeps the launcher's directory; the value is
+// still resolved once here, which is what CD-0093 D2 requires of the
+// identity, registry, and execution steps that follow.
+func sessionDirectory(ctx context.Context, resolve sessionDirectoryFunc, workID, projectID string) (string, error) {
 	if workID != "" {
-		return resolve(ctx, workID)
+		return resolve(ctx, workID, projectID)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -317,8 +328,9 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	}
 	productID, workID := os.Getenv(selectedProductEnv), os.Getenv(selectedWorkEnv)
 	projectPath := os.Getenv(selectedProjectEnv)
+	projectID := os.Getenv(selectedProjectIDEnv)
 	if projectPath != "" {
-		if productID != "" || workID != "" {
+		if productID != "" || workID != "" || projectID != "" {
 			writeDiagnostic(errOut, "concord session: project launch cannot carry Concord identity")
 			return 2
 		}
@@ -348,19 +360,34 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: launcher identity is missing or invalid")
 		return 2
 	}
+	// An explicit Project selection lands a work-selected session in that
+	// member Project of the work (CD-0182). It needs the work, and it must
+	// carry a valid identity: the member gate in the store read refuses a
+	// Project the work does not hold.
+	if projectID != "" {
+		if workID == "" {
+			writeDiagnostic(errOut, "concord session: a Project selection requires a selected work")
+			return 2
+		}
+		if !sessionIdentity.MatchString(projectID) {
+			writeDiagnostic(errOut, "concord session: Project selection is missing or invalid")
+			return 2
+		}
+	}
 	// CD-0093 D2: the session directory resolves once, before identity
 	// verification, because a verification that runs first constrains the
 	// wrong registry. Every later step takes this one value.
 	//
 	// With work selected, the session lands in that work's active worktree
 	// when one is usable on this machine, else the canonical path of the
-	// Project that owns the work (CD-0176). A Product-only session selects
-	// no work, and a Product spans Projects, so no work-derived Project
-	// exists to resolve; the session keeps the directory the launcher was
-	// given. D2 binds the three steps to one directory and is satisfied
-	// either way, because the value is resolved once here rather than read
-	// separately by each step.
-	dir, err := sessionDirectory(context.Background(), directory, workID)
+	// Project that owns the work (CD-0176). An explicit Project selection
+	// resolves the same candidates against that member Project (CD-0182).
+	// A Product-only session selects no work, and a Product spans Projects,
+	// so no work-derived Project exists to resolve; the session keeps the
+	// directory the launcher was given. D2 binds the three steps to one
+	// directory and is satisfied either way, because the value is resolved
+	// once here rather than read separately by each step.
+	dir, err := sessionDirectory(context.Background(), directory, workID, projectID)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
@@ -398,6 +425,13 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	prompt := os.Getenv(selectedPromptEnv)
 	if prompt == "" {
 		prompt = "Concord identity: product_id=" + productID
+	}
+	// A Project-selected session is the second coordinator session
+	// (CD-0178 D2, CD-0182): the fixed prompt tells the new coordinator to
+	// resume the work item where this session landed. An operator prompt
+	// keeps its place ahead of the packet.
+	if projectID != "" {
+		prompt = fmt.Sprintf("You are the coordinator session for work %s in this repository. Resume the work item now: call concord_work_start with work_id %s and project_id %s.", workID, workID, projectID)
 	}
 	if workID != "" {
 		path, err := databasePath()

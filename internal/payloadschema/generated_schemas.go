@@ -4997,7 +4997,10 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/id"
         },
         "lesson_id": {
-          "$ref": "#/$defs/id"
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
         },
         "publication_work_id": {
           "$ref": "#/$defs/id"

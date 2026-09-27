@@ -6488,7 +6488,10 @@
           "$ref": "#/$defs/id"
         },
         "lesson_id": {
-          "$ref": "#/$defs/id"
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
         },
         "title": {
           "type": "string",

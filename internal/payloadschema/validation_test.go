@@ -16,6 +16,25 @@ func TestReferenceKeepsSiblingConstraints(t *testing.T) {
 	}
 }
 
+func TestLessonPublishIDMeetsCoverageMinimum(t *testing.T) {
+	input := func(id string) []byte {
+		value, err := json.Marshal(map[string]string{
+			"work_id": "work-1", "lesson_id": id, "title": "Lesson", "summary": "Summary",
+			"content": "Body", "idempotency_key": "lesson-key",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	if err := Validate("work_compact_lesson_publish_input", input("x")); err == nil {
+		t.Fatal("one-character lesson ID would create a coverage shard that CI refuses")
+	}
+	if err := Validate("work_compact_lesson_publish_input", input("xy")); err != nil {
+		t.Fatalf("two-character lesson ID refused: %v", err)
+	}
+}
+
 func TestDateTimeFormatIsEnforced(t *testing.T) {
 	schema := map[string]any{"type": "string", "format": "date-time"}
 	for _, text := range []string{"2026-09-14T12:00:00Z", "2026-09-14T12:00:00.123456789+02:30"} {

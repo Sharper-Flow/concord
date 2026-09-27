@@ -122,8 +122,8 @@ func nonNilIDs(values []string) []string {
 }
 
 func validateLessonPublication(req LessonPublication) error {
-	if len(req.LessonID) < 1 || len(req.LessonID) > 128 || !lessonIDPattern.MatchString(req.LessonID) {
-		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson id must be a bounded path-safe identifier", false, "supply a lesson id matching [A-Za-z0-9][A-Za-z0-9._:-]*")
+	if len(req.LessonID) < 2 || len(req.LessonID) > 128 || !lessonIDPattern.MatchString(req.LessonID) {
+		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson id must be a bounded path-safe identifier of at least two characters", false, "supply a lesson id matching [A-Za-z0-9][A-Za-z0-9._:-]* with two to 128 characters")
 	}
 	if len(req.Title) < 1 || len(req.Title) > 256 || len(req.Summary) < 1 || len(req.Summary) > 1024 {
 		return newFailure(KindInvalidNoteProof, "publish_lesson", "lesson title or summary is outside bounds", false, "supply a bounded title and summary")

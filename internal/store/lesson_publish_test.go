@@ -715,6 +715,11 @@ func TestPublishLessonRecordValidatesScopesAndBounds(t *testing.T) {
 	if err := validateLessonPublication(base); err != nil {
 		t.Fatal(err) // defaults to home scope
 	}
+	oneCharacterID := base
+	oneCharacterID.LessonID = "x"
+	if _, err := PublishLessonRecord(context.Background(), home, oneCharacterID); err == nil || !strings.Contains(err.Error(), "identifier") {
+		t.Fatalf("expected coverage-incompatible lesson ID refusal, got %v", err)
+	}
 	homeWithIDs := base
 	homeWithIDs.Scopes = KnowledgeRecordScopes{Mode: "home", ProjectIDs: []string{"project-1"}}
 	if _, err := PublishLessonRecord(context.Background(), home, homeWithIDs); err == nil || !strings.Contains(err.Error(), "home scope") {

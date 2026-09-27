@@ -37,9 +37,10 @@ normal pull request and verifies required CI, and the lesson is published
 only after the pull request merges and a knowledge read verifies the record.
 The manifest — not a parallel event stream — remains the lesson's durable
 backing (CD-0020): no new event kind, no new projection table.
-`resolve_note` (PM1.Q10) verifies the record against the manifest at the
-claimed branch immediately; after the merge, search (PM1.Q9) picks the record
-up at the next index rebuild. Preparation is idempotent: an identical
+The returned commit identifies the prepared three-file tree. Canonical
+knowledge reads make no publication claim before the merge. After the merge,
+`resolve_note` (PM1.Q10) verifies the record against the manifest, and search
+(PM1.Q9) picks it up at the next index rebuild. Preparation is idempotent: an identical
 existing record verifies and returns without a new commit; a conflicting id
 or path is refused. A terminal source work whose original worktree is gone
 publishes through a distinct live publication work that owns the claimed
@@ -92,9 +93,10 @@ archive-time destination.
 - Lesson preparation commits the record shard and the coverage shard under an
   accepted operator approval, mirroring the authority the work-note
   publication already carries.
-- A git-committed lesson whose index rebuild has not run is visible through
-  `resolve_note` immediately and through `search` after the next rebuild; the
-  window is reconciliation, not loss.
+- After a lesson merges into the canonical knowledge home, `resolve_note`
+  verifies the record. Search picks it up after the next index rebuild; that
+  window is reconciliation, not loss. Before merge, neither canonical read
+  establishes publication.
 
 ## Verification
 

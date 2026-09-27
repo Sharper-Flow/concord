@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:485c76daed92a4384dd3e987cff5284ba0fa446b72eb66e3dbedd8b90f929494",
+  "sha256": "sha256:bbc219f0a8c592b556e5fe45e80373d4797f4876ba0ad09ea6a058e7daad60ef",
   "status": "accepted",
-  "summary": "The knowledge manifest and the law-coverage record are committed as shards under docs/knowledge and composed on read: the store composes the manifest from the shard tree at a commit, the scripts compose it through scripts/knowledge_index.py, lesson publication writes one record shard, and a commit that predates the shards is read from its aggregate file. Neither aggregate is committed, so two additions never touch the same line.",
+  "summary": "The knowledge manifest and law-coverage record are committed as shards and composed on read. Lesson preparation commits a note, one record shard, and one coverage shard on a claimed branch. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
   "tags": [
     "knowledge",
     "docs",

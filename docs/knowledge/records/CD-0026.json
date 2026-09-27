@@ -26,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c3872a4495d80b0af583d716d6753f0f92e7a61c9e740681a218fd1960faab42",
+  "sha256": "sha256:bdd3afbba341f98d5fb8e77da4f2af977f3b9cadd6aa72bf40e5fb4c4285624f",
   "status": "accepted",
-  "summary": "Lessons publish through the archive surface into git and the manifest under operator approval; promotion is explicit scope; reflections are tagged lessons; evidence paths give law a structural drift audit.",
+  "summary": "An approved lesson operation prepares a note, record shard, and explicit coverage shard on the claimed knowledge-home worktree. Publication follows pull-request merge and a verified knowledge read. Promotion uses scope, reflections use tags, and evidence paths support the drift audit.",
   "tags": [
     "lessons",
     "knowledge",

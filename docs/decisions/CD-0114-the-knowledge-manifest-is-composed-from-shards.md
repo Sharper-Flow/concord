@@ -98,7 +98,7 @@ Scenario: A prepared commit is not a published lesson
   Given a lesson committed on the claimed worktree branch of the knowledge-home Project
   When the operation returns before the coordinator merges the pull request
   Then the response names the branch and the immutable commit as prepared delivery
-  And no surface claims the lesson is published
+  And the canonical Product knowledge read does not claim publication
 ```
 
 ## Verification

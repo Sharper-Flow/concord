@@ -301,9 +301,11 @@ func TestPublishLessonRecordReplayComparesTheCompleteRecord(t *testing.T) {
 // TestPublishLessonRecordReplayBindsToThePreparedCommitTree holds the
 // prepared-delivery binding: the replay reads the note, the record shard, and
 // the coverage shard from the lesson's own prepared commit tree, never from
-// the working tree. A coverage declaration a later commit changed on the
-// branch refuses typed, and only the original declaration replays to the
-// commit whose tree actually carries it.
+// the working tree, and it returns the prepared delivery only while the
+// claimed branch head still delivers those exact bytes. After a later commit
+// changes the coverage shard, both declarations refuse typed: the new one is
+// not in the prepared commit, and the original one no longer rides the branch
+// a pull request would carry.
 func TestPublishLessonRecordReplayBindsToThePreparedCommitTree(t *testing.T) {
 	t.Parallel()
 	_, home := lessonWorktreeFixture(t)
@@ -342,14 +344,12 @@ func TestPublishLessonRecordReplayBindsToThePreparedCommitTree(t *testing.T) {
 		t.Fatalf("expected prepared-commit coverage refusal, got %v", err)
 	}
 
-	// The original declaration still replays, and the returned commit is the
-	// lesson's own prepared commit, whose tree carries that declaration.
-	replay, err := PublishLessonRecord(ctx, home, base)
-	if err != nil {
-		t.Fatalf("original-coverage replay: %v", err)
-	}
-	if replay.CommitOID != first.CommitOID {
-		t.Fatalf("replay returned %s, want the prepared commit %s", replay.CommitOID, first.CommitOID)
+	// The original declaration refuses too: the prepared commit still carries
+	// it, but the branch head no longer does, so a normal pull request from
+	// the branch would deliver the second declaration, not the returned
+	// commit's bytes.
+	if _, err := PublishLessonRecord(ctx, home, base); err == nil || !strings.Contains(err.Error(), "no longer delivers") {
+		t.Fatalf("expected branch-head delivery refusal, got %v", err)
 	}
 	fromCommit := gitInWorktree(t, home.RepoPath, "cat-file", "blob", first.CommitOID+":"+coverageShardRel)
 	wantBytes, err := marshalLessonCoverageShard(base.LessonID, *base.Coverage)
@@ -358,6 +358,101 @@ func TestPublishLessonRecordReplayBindsToThePreparedCommitTree(t *testing.T) {
 	}
 	if fromCommit != string(wantBytes) {
 		t.Fatalf("prepared commit carries coverage %q, want %q", fromCommit, wantBytes)
+	}
+	if after := commitCount(t, home.RepoPath); after != commits {
+		t.Fatalf("replay verification created commits: before %d after %d", commits, after)
+	}
+}
+
+// TestPublishLessonRecordReplayRequiresTheBranchToDeliverThePreparedCommit
+// holds the prepared-delivery join: a replay returns the prepared branch and
+// commit only while the branch head and its worktree still deliver exactly
+// the prepared commit's lesson bytes. A later head commit that leaves the
+// lesson's three paths unchanged keeps the replay valid; an uncommitted note
+// or coverage edit, staged or not, refuses until the committed bytes are
+// restored on the branch, index, and worktree.
+func TestPublishLessonRecordReplayRequiresTheBranchToDeliverThePreparedCommit(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "lesson-replay-branch-delivery", Title: "The branch delivers the prepared commit",
+		Summary: "A replay names one pull-request-deliverable lesson or refuses.",
+		Content: "# The branch delivers the prepared commit\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Coverage: &LessonCoverageDeclaration{State: "out_of_scope", Reason: "A branch-delivery fixture lesson carries no accepted law to prove."},
+		Now:      time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC),
+	}
+	first, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noteRel := first.Record.Path
+	coverageRel := lessonCoverageDir + "/" + base.LessonID + ".json"
+	noteBytes, err := os.ReadFile(filepath.Join(home.RepoPath, noteRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverageBytes, err := os.ReadFile(filepath.Join(home.RepoPath, coverageRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A later head commit that leaves the lesson's three paths unchanged
+	// keeps the replay valid, and the replay still names the prepared commit.
+	if err := os.WriteFile(filepath.Join(home.RepoPath, "UNRELATED.txt"), []byte("unrelated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInWorktree(t, home.RepoPath, "add", "--", "UNRELATED.txt")
+	gitInWorktree(t, home.RepoPath, "commit", "--quiet", "-m", "unrelated advance")
+	commits := commitCount(t, home.RepoPath)
+	replay, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatalf("replay after an unrelated head advance: %v", err)
+	}
+	if replay.CommitOID != first.CommitOID {
+		t.Fatalf("replay returned %s, want the prepared commit %s", replay.CommitOID, first.CommitOID)
+	}
+
+	// An uncommitted note edit refuses: a pull request from the branch would
+	// not carry the prepared commit's lesson bytes.
+	if err := os.WriteFile(filepath.Join(home.RepoPath, noteRel), append(noteBytes, []byte("\ndrift\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishLessonRecord(ctx, home, base); err == nil || !strings.Contains(err.Error(), "uncommitted change to the lesson") {
+		t.Fatalf("expected uncommitted-note replay refusal, got %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home.RepoPath, noteRel), noteBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A staged coverage edit refuses too: the index, not only the worktree,
+	// must deliver the prepared commit's bytes.
+	second := *base.Coverage
+	second.Reason = "A staged coverage edit the replay must refuse before any return."
+	changed, err := marshalLessonCoverageShard(base.LessonID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.RepoPath, coverageRel), changed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInWorktree(t, home.RepoPath, "add", "--", coverageRel)
+	if _, err := PublishLessonRecord(ctx, home, base); err == nil || !strings.Contains(err.Error(), "uncommitted change to the lesson") {
+		t.Fatalf("expected staged-coverage replay refusal, got %v", err)
+	}
+
+	// Restoring the committed bytes on the branch, index, and worktree lets
+	// the replay succeed again without a new commit.
+	if err := os.WriteFile(filepath.Join(home.RepoPath, coverageRel), coverageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInWorktree(t, home.RepoPath, "add", "--", coverageRel)
+	replay, err = PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatalf("replay after restoring the committed bytes: %v", err)
+	}
+	if replay.CommitOID != first.CommitOID || replay.Branch != lessonFixtureBranch {
+		t.Fatalf("replay=%+v", replay)
 	}
 	if after := commitCount(t, home.RepoPath); after != commits {
 		t.Fatalf("replay verification created commits: before %d after %d", commits, after)

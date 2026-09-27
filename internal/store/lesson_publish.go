@@ -84,7 +84,10 @@ type LessonCoverageDeclaration struct {
 // PublishedLesson is the verified result of a lesson publication. Branch and
 // CommitOID are prepared delivery evidence on the claimed worktree branch:
 // the lesson is published only after the coordinator's pull request merges
-// and a knowledge read verifies it (CD-0026 D1).
+// and a knowledge read verifies it (CD-0026 D1). A replay returns the pair
+// only while the claimed branch head and its worktree still deliver exactly
+// the prepared commit's lesson bytes, so the pair always names one
+// pull-request-deliverable lesson.
 type PublishedLesson struct {
 	Record    KnowledgeRecord
 	Note      VerifiedNote
@@ -437,14 +440,19 @@ func readGitBlob(ctx context.Context, repo, commitOID, repoPath string) ([]byte,
 // and the coverage shard must still equal the caller's request inside the
 // lesson's own prepared commit — the immutable commit that added the record
 // shard. All three are read from that commit's Git tree, never from the
-// working tree: a later commit on the branch or an uncommitted edit that
-// changed the coverage declaration or the record must refuse rather than
-// return a commit that does not carry what the caller declared. A replay of
-// the original declaration still succeeds when HEAD has since advanced past
-// unrelated commits. Any drift refuses typed; a replay never writes.
+// working tree: an uncommitted edit or a declaration the prepared commit
+// never carried must refuse rather than return a commit that does not carry
+// what the caller declared. The replay returns the prepared delivery only
+// while the claimed branch head and its worktree still deliver exactly the
+// prepared commit's lesson bytes: head commits that leave the three paths
+// unchanged qualify, and a head commit or a staged or unstaged edit that
+// changed any of them refuses, because a normal pull request from the branch
+// would otherwise deliver bytes the returned commit does not carry. Any
+// drift refuses typed; a replay never writes.
 func replayLesson(ctx context.Context, home KnowledgeHome, req LessonPublication, existing KnowledgeRecord, notePath, contentSHA, schemaVersion string) (PublishedLesson, error) {
 	out := PublishedLesson{}
 	recordShardPath := path.Join(lessonRecordDir, req.LessonID+".json")
+	coverageShardPath := path.Join(lessonCoverageDir, req.LessonID+".json")
 	adding, err := runGit(ctx, home.RepoPath, "log", "--format=%H", "--diff-filter=A", "-1", "--", recordShardPath)
 	if err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the lesson's prepared commit", true, "restore the claimed worktree and retry", err)
@@ -486,18 +494,66 @@ func replayLesson(ctx context.Context, home KnowledgeHome, req LessonPublication
 	if err != nil {
 		return out, err
 	}
-	committedCoverage, err := readGitBlob(ctx, home.RepoPath, oid, path.Join(lessonCoverageDir, req.LessonID+".json"))
+	committedCoverage, err := readGitBlob(ctx, home.RepoPath, oid, coverageShardPath)
 	if err != nil {
 		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the lesson coverage shard is missing from the prepared commit", false, "replay with the lesson's original coverage declaration or supersede the lesson", err)
 	}
 	if !bytes.Equal(committedCoverage, coverageShard) {
 		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the coverage declaration does not match the committed coverage shard", false, "replay with the lesson's original coverage declaration or supersede the lesson")
 	}
+	// The returned branch and commit must describe one pull-request-deliverable
+	// lesson, so the claimed branch head and its worktree must still deliver
+	// exactly the prepared commit's bytes for the lesson's three paths.
+	if err := requireLessonDeliveryAtHead(ctx, home, oid, notePath, recordShardPath, coverageShardPath); err != nil {
+		return out, err
+	}
 	out.Record = existing
 	out.Note = manifestRecordNote(existing, oid, schemaVersion)
 	out.Branch = home.HeadRef
 	out.CommitOID = oid
 	return out, nil
+}
+
+// requireLessonDeliveryAtHead holds the prepared-delivery join: the replay's
+// returned branch and commit pair must describe one pull-request-deliverable
+// lesson, so the claimed branch's head commit must still name the prepared
+// commit's blob for each of the lesson's three paths, and the worktree and
+// index must carry no uncommitted change to them. A later branch commit or a
+// staged or unstaged edit that changed any of the three would make a normal
+// pull request from the branch deliver bytes the returned commit does not
+// carry, so the replay refuses typed instead of returning evidence the merge
+// cannot honor. Head commits that leave all three paths unchanged keep the
+// replay valid.
+func requireLessonDeliveryAtHead(ctx context.Context, home KnowledgeHome, preparedCommit string, lessonPaths ...string) error {
+	for _, lessonPath := range lessonPaths {
+		prepared, err := gitObjectID(ctx, home.RepoPath, preparedCommit+":"+lessonPath)
+		if err != nil {
+			return wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read "+lessonPath+" in the lesson's prepared commit", true, "restore the claimed worktree and retry", err)
+		}
+		head, err := gitObjectID(ctx, home.RepoPath, "HEAD:"+lessonPath)
+		if err != nil || head != prepared {
+			return newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the claimed branch head no longer delivers "+lessonPath+" with the prepared commit's content", false, "restore the lesson's committed bytes on the claimed branch or supersede the lesson")
+		}
+	}
+	dirty, err := runGit(ctx, home.RepoPath, append([]string{"status", "--porcelain", "--"}, lessonPaths...)...)
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the claimed worktree's lesson state", true, "restore the claimed worktree and retry", err)
+	}
+	if strings.TrimSpace(string(dirty)) != "" {
+		return newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the claimed worktree or its index carries an uncommitted change to the lesson", false, "commit or restore the lesson's three files before replaying")
+	}
+	return nil
+}
+
+// gitObjectID resolves one object ID for a revision such as "<commit>:<path>"
+// (the blob at that path in that commit's tree) or ":<path>" (the index's
+// stage-0 blob). A missing object is an error, never an empty ID.
+func gitObjectID(ctx context.Context, repo, rev string) (string, error) {
+	out, err := runGit(ctx, repo, "rev-parse", "--verify", "--quiet", rev)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // marshalLessonCoverageShard serialises the caller's declaration in the

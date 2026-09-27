@@ -157,6 +157,11 @@ type worktreeClaimInput struct {
 	BaseSHA         string `json:"base_sha"`
 	ExpectedVersion int64  `json:"expected_version"`
 	IdempotencyKey  string `json:"idempotency_key"`
+	// HostPID is the OpenCode process whose adapter records the claim. The
+	// adapter injects it; an agent never supplies it. The claimed worktree's
+	// occupancy row records the process identity, so no claim the agent
+	// surface makes leaves a row without one (CD-0179).
+	HostPID int `json:"host_pid,omitempty"`
 }
 
 type sessionVacateInput struct {
@@ -1810,9 +1815,55 @@ func (r runtime) planLifecycle(ctx context.Context, base Envelope, raw []byte, d
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		resultPayload := mutationPayload(changed, plan.intents)
+		if in.Target == "completed" || in.Target == "cancelled" {
+			// A terminal transition names the vacate target when the calling
+			// session runs in this work item's worktree, so the adapter can
+			// move the session to the registered main checkout after the
+			// transition (CD-0179). The resolution is advisory: any failure
+			// leaves the result without the field, because the transition is
+			// already applied in this transaction and a failed enrichment
+			// must not roll it back.
+			if vacate, vacateErr := r.terminalVacateTargetTx(ctx, tx, grant, in.WorkID); vacateErr == nil && vacate != nil {
+				merged := map[string]any{}
+				if err := json.Unmarshal(resultPayload, &merged); err == nil {
+					merged["vacate_target"] = vacate
+					if payload, marshalErr := json.Marshal(merged); marshalErr == nil {
+						resultPayload = payload
+					}
+				}
+			}
+		}
+		return resultPayload, result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
+}
+
+// terminalVacateTargetTx resolves the vacate target a terminal transition
+// offers the calling session: non-nil only when the session runs in a linked
+// worktree of the ambient Project, that worktree is the transitioned work
+// item's active worktree, and the session's own occupancy row makes the
+// subsequent session_vacate resolvable. Every refusal or read failure
+// resolves to no target: the field is an enrichment of an already-applied
+// transition, never a condition on it (CD-0179).
+func (r runtime) terminalVacateTargetTx(ctx context.Context, tx *store.Transaction, grant Authority, workID string) (map[string]any, error) {
+	if grant.Worktree == "" || grant.MainWorktree {
+		return nil, nil
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return nil, nil
+	}
+	target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+	if err != nil || target.WorkID != workID {
+		return nil, nil
+	}
+	return map[string]any{
+		"work_id":               target.WorkID,
+		"project_id":            target.ProjectID,
+		"source_directory":      target.SourceDirectory,
+		"destination_directory": target.DestinationDirectory,
+	}, nil
 }
 
 // planResearchPackCreate plans concord_work_define.research_pack_create.
@@ -2368,6 +2419,14 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	if refused := r.refuseWhenCallingRepositoryDiffers(ctx, base, r.Envelope.Directory, in.ProjectID); refused != nil {
 		return *refused, nil, true
 	}
+	// The claimed worktree's occupancy row records the recording host's
+	// process identity from creation (CD-0179), so the adapter supplies its
+	// process pid and an agent cannot claim without one. The authority
+	// gates run first: an admission refusal names the authority problem, not
+	// the missing pid.
+	if in.HostPID <= 0 {
+		return coreError(base, "invalid_input", "worktree_claim requires the host process pid the adapter injects", "reread_entities", false), nil, true
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		opID := digest + ":worktree-claim:" + in.ProjectID
 		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
@@ -2376,6 +2435,7 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			SessionRef:      grant.SessionRef,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			HostPID: in.HostPID,
 		})
 		if err != nil {
 			return nil, nil, nil, err
@@ -2527,6 +2587,9 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 			// releases a recorded occupancy that no longer holds; the store
 			// refuses the release without the approval pairing.
 			ReleaseOccupancy: in.Destructive || in.Approval != nil,
+			// The legacy-row release proof compares this lease-set snapshot
+			// against the row's recorded_at (CD-0179).
+			HostLeases: r.Store.ReadHostLeases(),
 		}); err != nil {
 			return nil, nil, nil, err
 		}
@@ -2875,6 +2938,9 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+			// The legacy-row release proof compares this lease-set snapshot
+			// against the row's recorded_at (CD-0179).
+			HostLeases: r.Store.ReadHostLeases(),
 		}); err != nil {
 			return nil, nil, nil, err
 		}
@@ -3621,7 +3687,22 @@ func (r runtime) planSupersede(ctx context.Context, base Envelope, raw []byte, d
 			return nil, nil, nil, err
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
+		resultPayload := mutationPayload(changed, plan.intents)
+		// A supersede of the work whose worktree the calling session runs in
+		// names the vacate target, so the adapter moves the session to the
+		// registered main checkout after the transition (CD-0179). Advisory
+		// enrichment: the supersession is already applied in this
+		// transaction.
+		if vacate, vacateErr := r.terminalVacateTargetTx(ctx, tx, grant, in.PredecessorID); vacateErr == nil && vacate != nil {
+			merged := map[string]any{}
+			if err := json.Unmarshal(resultPayload, &merged); err == nil {
+				merged["vacate_target"] = vacate
+				if payload, marshalErr := json.Marshal(merged); marshalErr == nil {
+					resultPayload = payload
+				}
+			}
+		}
+		return resultPayload, result.EventIDs, changed, nil
 	}
 	return Envelope{}, nil, false
 }

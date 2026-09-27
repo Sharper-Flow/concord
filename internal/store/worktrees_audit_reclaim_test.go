@@ -163,6 +163,7 @@ func TestWorktreeAuditTreatsEveryStoreTerminalLifecycleAsTerminal(t *testing.T) 
 func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done", 3)
@@ -417,6 +418,7 @@ func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testi
 func TestWorktreeAuditReclaimRefusesOccupiedUnstartedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-unstarted-occupied", true)
 	setWorktreeOccupant(t, s, "work-unstarted-occupied", "ses-1")
@@ -486,5 +488,56 @@ func TestWorktreeAuditReclaimRefusesResumedOccupiedUnstartedWorktree(t *testing.
 	failure, ok := err.(*Failure)
 	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
 		t.Fatalf("direct reclaim err=%v, want %s for the resumed session's worktree", err, KindWorktreeOwnershipConflict)
+	}
+}
+
+// The reclaim pass classifies every drift row before the limit applies
+// (CD-0179): report-only rows never consume the limit, so reclaimable rows
+// beyond it stay classified and reported unattempted instead of being
+// crowded out.
+func TestAuditReclaimLimitCountsReclaimAttemptsOnly(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	dirtyPaths := []string{}
+	for _, name := range []string{"work-dirty-a", "work-dirty-b", "work-dirty-c"} {
+		path := auditWork(t, s, git, name, true)
+		completeAuditWork(t, s, name, 3)
+		git.dirty[path] = true
+		dirtyPaths = append(dirtyPaths, path)
+	}
+	for _, name := range []string{"work-done-a", "work-done-b", "work-done-c"} {
+		auditWork(t, s, git, name, true)
+		completeAuditWork(t, s, name, 3)
+	}
+
+	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-limit-order", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reclaimed := 0
+	for _, row := range result.Rows {
+		if row.Outcome == WorktreeAuditReclaimed {
+			reclaimed++
+		}
+	}
+	if reclaimed != 2 {
+		t.Fatalf("reclaimed rows=%d, want the limit's two attempts", reclaimed)
+	}
+	reportedDirty := 0
+	reportedClean := 0
+	for _, drift := range result.ReportOnly {
+		if drift.Class == WorktreeDriftUncommittedContent {
+			reportedDirty++
+		}
+		if drift.Class == WorktreeDriftTerminalPresent {
+			reportedClean++
+		}
+	}
+	if reportedDirty != len(dirtyPaths) {
+		t.Fatalf("report-only dirty rows=%d, want all %d classified", reportedDirty, len(dirtyPaths))
+	}
+	if reportedClean != 1 {
+		t.Fatalf("report-only terminal rows=%d, want the one reclaimable row beyond the limit", reportedClean)
 	}
 }

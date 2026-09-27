@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,7 +33,7 @@ func TestWorktreeClaimEffectReportsCreationAndCleanupCompensates(t *testing.T) {
 	if !ok {
 		t.Fatal("worktree_claim is not a registered contract operation")
 	}
-	raw, err := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "claim-compensation-1"})
+	raw, err := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "claim-compensation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_claim", Reader: grant}
-	raw, err := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1", "base_sha": strings.Repeat("b", 40), "expected_version": 2, "idempotency_key": "cleanup-window-1"})
+	raw, err := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1", "base_sha": strings.Repeat("b", 40), "expected_version": 2, "idempotency_key": "cleanup-window-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

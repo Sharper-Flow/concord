@@ -27,7 +27,7 @@ func TestWorktreeAuditReadClassifiesDriftThroughToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimInput, _ := json.Marshal(map[string]any{
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1",
 		"base_sha":         location.BaseSHA,
 		"expected_version": 2, "idempotency_key": "wt-audit-claim",

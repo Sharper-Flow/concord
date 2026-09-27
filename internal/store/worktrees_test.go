@@ -688,8 +688,12 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	req := baseClaim(git)
 	req.SessionRef = "ses_live"
+	// The legacy row must predate nothing: recording it now keeps the
+	// protecting lease ahead of it in start-time order.
+	req.Now = time.Now().UTC()
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -744,15 +748,17 @@ func TestReclaimWorktreeIgnoresUnscopedOccupancyObservation(t *testing.T) {
 	}
 }
 
-// The release path keeps every strand-guard for live state (CD-0178 D3): a
-// legacy occupancy row whose host process identity is absent can only be
-// released by session_vacate or operator-approved destructive removal. The
-// recorded row keeps the worktree claim live and the reclaim refuses.
+// The release path keeps every strand-guard for live state (CD-0178 D3, as
+// amended by CD-0179): a legacy occupancy row with no process identity stays
+// while a live lease predates it, so the recorded row keeps the worktree
+// claim live and the reclaim refuses.
 func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	req := baseClaim(git)
 	req.SessionRef = "ses_live"
+	req.Now = time.Now().UTC()
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -786,8 +792,10 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	req := baseClaim(git)
 	req.SessionRef = "ses_live"
+	req.Now = time.Now().UTC()
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -960,16 +968,17 @@ func auditWork(t *testing.T, s *Store, git *fakeWorktreeGit, workID string, onDi
 
 func setWorktreeOccupant(t *testing.T, s *Store, workID, sessionRef string) {
 	t.Helper()
-	// The helper inserts a legacy worktree_occupancy row (no process identity) so liveness cannot
-	// release it and the reclaim/destroy path refuses without operator
-	// approval. The fold-only guard requires fold_guard=1 around any
-	// direct INSERT, even in tests.
+	// The helper inserts a legacy worktree_occupancy row (no process
+	// identity) recorded now, so a live host lease that predates the row
+	// keeps it in place (CD-0179) and the reclaim/destroy path refuses
+	// without operator approval. The fold-only guard requires fold_guard=1
+	// around any direct INSERT, even in tests.
 	if _, err := s.DatabaseForTesting().Exec(`
 		INSERT INTO fold_guard(active) VALUES(1);
 		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
-		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, '1970-01-01T00:00:00Z', NULL, NULL, 0
+		SELECT set_id || ':' || project_id || ':' || claim_op_id, ?, ?, NULL, NULL, 0
 		  FROM worktree_entries WHERE set_id=? AND state='active';
-		DELETE FROM fold_guard`, sessionRef, WorktreeSetID(workID)); err != nil {
+		DELETE FROM fold_guard`, sessionRef, time.Now().UTC().Format(time.RFC3339Nano), WorktreeSetID(workID)); err != nil {
 		t.Fatal(err)
 	}
 }

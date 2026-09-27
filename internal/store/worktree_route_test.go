@@ -20,8 +20,10 @@ var routeVacate = []string{"session_vacate", "worktree_reclaim"}
 func TestOccupancyRefusalNamesSessionVacate(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	req := baseClaim(git)
 	req.SessionRef = "ses_live"
+	req.Now = time.Now().UTC()
 	claimed, err := s.ClaimWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)

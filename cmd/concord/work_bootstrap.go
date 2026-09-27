@@ -31,6 +31,11 @@ type workBootstrapInput struct {
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
 	SessionRef            string   `json:"session_ref"`
+	// HostPID is the pid of the OpenCode process that runs the adapter. The
+	// claimed worktree's occupancy row records it with the start time the
+	// core derives, so the row carries process identity from creation
+	// (CD-0179) and never depends on the landing to become releasable.
+	HostPID int `json:"host_pid"`
 }
 
 type workBootstrapOutput struct {
@@ -63,6 +68,10 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", "cannot read invocation directory")
 		return 1
 	}
+	if input.SessionRef != "" && input.HostPID <= 0 {
+		writeOperatorDiagnostic(errOut, "work-bootstrap", "session_ref requires the recording host_pid, so the claimed worktree's occupancy row carries process identity")
+		return 1
+	}
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
 	if err != nil || resolution.ProjectID != input.ProjectID {
@@ -88,6 +97,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,
 		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef, RaisedFromWorkID: input.RaisedFromWorkID,
 		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref, SessionRef: input.SessionRef,
+		HostPID: input.HostPID,
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())

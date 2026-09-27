@@ -100,7 +100,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		t.Fatal("PM1 seeded no history for work-done")
 	}
 
-	claimInput, _ := json.Marshal(map[string]any{
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-done", "project_id": "proj-web",
 		"base_sha":         baseSHA,
 		"expected_version": workItemVersion(t, s, "work-done"), "idempotency_key": "aj8-reclaim-claim",

@@ -424,42 +424,74 @@ func sameNormalizedRecord(candidate, existing KnowledgeRecord) bool {
 		slices.Equal(candidate.Scopes.TagIDs, existing.Scopes.TagIDs)
 }
 
+// readGitBlob reads one path's blob out of a single commit's tree. Replay
+// verification reads the prepared delivery from this tree, never from the
+// working tree, so the commit a replay returns carries exactly the bytes the
+// replay accepted.
+func readGitBlob(ctx context.Context, repo, commitOID, repoPath string) ([]byte, error) {
+	return runGit(ctx, repo, "cat-file", "blob", commitOID+":"+repoPath)
+}
+
 // replayLesson verifies an identical replay in full before returning it: the
-// record matched, so the committed note must still hash to the record's
-// content, and the caller's coverage declaration must still equal the
-// committed coverage shard byte for byte. The commit returned is the
-// immutable commit that added the record shard — the lesson's own prepared
-// commit — never whatever HEAD has since become. Any drift refuses typed;
-// a replay never writes.
+// record matched in the working-tree manifest, so the note, the record shard,
+// and the coverage shard must still equal the caller's request inside the
+// lesson's own prepared commit — the immutable commit that added the record
+// shard. All three are read from that commit's Git tree, never from the
+// working tree: a later commit on the branch or an uncommitted edit that
+// changed the coverage declaration or the record must refuse rather than
+// return a commit that does not carry what the caller declared. A replay of
+// the original declaration still succeeds when HEAD has since advanced past
+// unrelated commits. Any drift refuses typed; a replay never writes.
 func replayLesson(ctx context.Context, home KnowledgeHome, req LessonPublication, existing KnowledgeRecord, notePath, contentSHA, schemaVersion string) (PublishedLesson, error) {
 	out := PublishedLesson{}
-	//nolint:gosec // notePath is the committed record's own path, derived inside this package and read inside the host-verified claimed worktree of public repository content.
-	noteBytes, err := os.ReadFile(path.Join(home.RepoPath, notePath))
-	if err != nil {
-		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note is missing or unreadable", false, "replay with the lesson's committed content or supersede the lesson", err)
-	}
-	sum := sha256.Sum256(noteBytes)
-	if "sha256:"+hex.EncodeToString(sum[:]) != contentSHA {
-		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note no longer matches the manifest record", false, "replay with the lesson's committed content or supersede the lesson")
-	}
-	coverageShard, err := marshalLessonCoverageShard(req.LessonID, *req.Coverage)
-	if err != nil {
-		return out, err
-	}
-	committedCoverage, err := os.ReadFile(path.Join(home.RepoPath, lessonCoverageDir, req.LessonID+".json"))
-	if err != nil {
-		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson coverage shard is missing or unreadable", false, "replay with the lesson's original coverage declaration or supersede the lesson", err)
-	}
-	if !bytes.Equal(committedCoverage, coverageShard) {
-		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the coverage declaration does not match the committed coverage shard", false, "replay with the lesson's original coverage declaration or supersede the lesson")
-	}
-	adding, err := runGit(ctx, home.RepoPath, "log", "--format=%H", "--diff-filter=A", "-1", "--", path.Join(lessonRecordDir, req.LessonID+".json"))
+	recordShardPath := path.Join(lessonRecordDir, req.LessonID+".json")
+	adding, err := runGit(ctx, home.RepoPath, "log", "--format=%H", "--diff-filter=A", "-1", "--", recordShardPath)
 	if err != nil {
 		return out, wrapFailure(KindGitUnreachable, "publish_lesson", "cannot read the lesson's prepared commit", true, "restore the claimed worktree and retry", err)
 	}
 	oid := strings.TrimSpace(string(adding))
 	if len(oid) != 40 && len(oid) != 64 {
 		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "no commit on the claimed branch carries the lesson record shard", false, "publish the lesson on the claimed branch")
+	}
+	// The returned commit is the prepared delivery evidence, so every byte
+	// the replay accepts comes from that commit's tree.
+	noteBytes, err := readGitBlob(ctx, home.RepoPath, oid, notePath)
+	if err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the lesson note is missing from the prepared commit", false, "replay with the lesson's committed content or supersede the lesson", err)
+	}
+	sum := sha256.Sum256(noteBytes)
+	if "sha256:"+hex.EncodeToString(sum[:]) != contentSHA {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the committed lesson note no longer matches the manifest record", false, "replay with the lesson's committed content or supersede the lesson")
+	}
+	committedRecordBytes, err := readGitBlob(ctx, home.RepoPath, oid, recordShardPath)
+	if err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the lesson record shard is missing from the prepared commit", false, "republish the lesson on the claimed branch", err)
+	}
+	if err := rejectDuplicateJSONKeys(committedRecordBytes); err != nil {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the prepared commit's record shard contains duplicate JSON keys", false, "repair the committed record shard")
+	}
+	var committedRecord KnowledgeRecord
+	if err := json.Unmarshal(committedRecordBytes, &committedRecord); err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the prepared commit's record shard is not a readable record", false, "repair the committed record shard", err)
+	}
+	// Mirror the manifest parser's legacy-tier default so a schema-1.2 record
+	// compares the same here as it does in the working-tree gate.
+	if committedRecord.Authority.Tier == "" && schemaVersion == knowledgeManifestSchemaLegacy {
+		committedRecord.Authority = KnowledgeAuthority{Tier: "derived"}
+	}
+	if !sameNormalizedRecord(req.record(contentSHA, committedRecord.Date, committedRecord.Path), committedRecord) {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the prepared commit carries a different record than the caller replayed", false, "replay with the lesson's original record fields or supersede the lesson")
+	}
+	coverageShard, err := marshalLessonCoverageShard(req.LessonID, *req.Coverage)
+	if err != nil {
+		return out, err
+	}
+	committedCoverage, err := readGitBlob(ctx, home.RepoPath, oid, path.Join(lessonCoverageDir, req.LessonID+".json"))
+	if err != nil {
+		return out, wrapFailure(KindKnowledgeAmbiguous, "publish_lesson", "the lesson coverage shard is missing from the prepared commit", false, "replay with the lesson's original coverage declaration or supersede the lesson", err)
+	}
+	if !bytes.Equal(committedCoverage, coverageShard) {
+		return out, newFailure(KindKnowledgeAmbiguous, "publish_lesson", "the coverage declaration does not match the committed coverage shard", false, "replay with the lesson's original coverage declaration or supersede the lesson")
 	}
 	out.Record = existing
 	out.Note = manifestRecordNote(existing, oid, schemaVersion)

@@ -298,6 +298,127 @@ func TestPublishLessonRecordReplayComparesTheCompleteRecord(t *testing.T) {
 	}
 }
 
+// TestPublishLessonRecordReplayBindsToThePreparedCommitTree holds the
+// prepared-delivery binding: the replay reads the note, the record shard, and
+// the coverage shard from the lesson's own prepared commit tree, never from
+// the working tree. A coverage declaration a later commit changed on the
+// branch refuses typed, and only the original declaration replays to the
+// commit whose tree actually carries it.
+func TestPublishLessonRecordReplayBindsToThePreparedCommitTree(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "lesson-replay-binding", Title: "Replay binds to the prepared commit",
+		Summary: "A replay returns the commit whose tree carries the accepted declaration.",
+		Content: "# Replay binds to the prepared commit\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Coverage: &LessonCoverageDeclaration{State: "out_of_scope", Reason: "A replay-binding fixture lesson carries no accepted law to prove."},
+		Now:      time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+	}
+	first, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverageShardRel := lessonCoverageDir + "/" + base.LessonID + ".json"
+
+	// A later commit changes the branch's coverage declaration to a second
+	// reason; the lesson's prepared commit still carries the first.
+	second := *base.Coverage
+	second.Reason = "A second reason the branch now carries after a later commit."
+	changedBytes, err := marshalLessonCoverageShard(base.LessonID, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.RepoPath, coverageShardRel), changedBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInWorktree(t, home.RepoPath, "add", "--", coverageShardRel)
+	gitInWorktree(t, home.RepoPath, "commit", "--quiet", "-m", "coverage change")
+	commits := commitCount(t, home.RepoPath)
+
+	replaySecond := base
+	replaySecond.Coverage = &second
+	if _, err := PublishLessonRecord(ctx, home, replaySecond); err == nil || !strings.Contains(err.Error(), "coverage declaration does not match") {
+		t.Fatalf("expected prepared-commit coverage refusal, got %v", err)
+	}
+
+	// The original declaration still replays, and the returned commit is the
+	// lesson's own prepared commit, whose tree carries that declaration.
+	replay, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatalf("original-coverage replay: %v", err)
+	}
+	if replay.CommitOID != first.CommitOID {
+		t.Fatalf("replay returned %s, want the prepared commit %s", replay.CommitOID, first.CommitOID)
+	}
+	fromCommit := gitInWorktree(t, home.RepoPath, "cat-file", "blob", first.CommitOID+":"+coverageShardRel)
+	wantBytes, err := marshalLessonCoverageShard(base.LessonID, *base.Coverage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromCommit != string(wantBytes) {
+		t.Fatalf("prepared commit carries coverage %q, want %q", fromCommit, wantBytes)
+	}
+	if after := commitCount(t, home.RepoPath); after != commits {
+		t.Fatalf("replay verification created commits: before %d after %d", commits, after)
+	}
+}
+
+// TestPublishLessonRecordReplayRefusesAnUncommittedMatchingCoverageEdit holds
+// the working-tree trap: a replay must not accept a coverage declaration that
+// matches only an uncommitted working-tree edit of the coverage shard.
+func TestPublishLessonRecordReplayRefusesAnUncommittedMatchingCoverageEdit(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	base := LessonPublication{
+		LessonID: "lesson-replay-uncommitted", Title: "Uncommitted edits never replay",
+		Summary: "A replay accepts only the prepared commit's bytes, never working-tree edits.",
+		Content: "# Uncommitted edits never replay\n", Scopes: KnowledgeRecordScopes{Mode: "home"},
+		Coverage: &LessonCoverageDeclaration{State: "outstanding", Issue: "CON-508"},
+		Now:      time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+	}
+	first, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverageShardRel := lessonCoverageDir + "/" + base.LessonID + ".json"
+
+	edited := LessonCoverageDeclaration{State: "outstanding", Issue: "CON-999"}
+	editedBytes, err := marshalLessonCoverageShard(base.LessonID, edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.RepoPath, coverageShardRel), editedBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	replayEdited := base
+	replayEdited.Coverage = &edited
+	commits := commitCount(t, home.RepoPath)
+	if _, err := PublishLessonRecord(ctx, home, replayEdited); err == nil || !strings.Contains(err.Error(), "coverage declaration does not match") {
+		t.Fatalf("expected uncommitted-edit replay refusal, got %v", err)
+	}
+	if after := commitCount(t, home.RepoPath); after != commits {
+		t.Fatalf("refused replay created commits: before %d after %d", commits, after)
+	}
+
+	committedBytes, err := marshalLessonCoverageShard(base.LessonID, *base.Coverage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.RepoPath, coverageShardRel), committedBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := PublishLessonRecord(ctx, home, base)
+	if err != nil {
+		t.Fatalf("identical replay after restoring the committed bytes: %v", err)
+	}
+	if replay.CommitOID != first.CommitOID {
+		t.Fatalf("replay returned %s, want %s", replay.CommitOID, first.CommitOID)
+	}
+}
+
 // TestPublishLessonRecordIsolatedThreeFileCommitOnTheClaimedBranch is the
 // isolated-commit check: the prepared delivery touches exactly the note, the
 // record shard, and the coverage shard, on the claimed branch, and the

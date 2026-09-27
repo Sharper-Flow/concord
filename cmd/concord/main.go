@@ -490,19 +490,21 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	// as CD-0093 and CD-0176 decide it.
 	project := ""
 	forwarded := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
+	for rest := args; len(rest) > 0; {
+		arg := rest[0]
+		rest = rest[1:]
 		switch {
-		case args[i] == "--project":
-			if i+1 >= len(args) {
+		case arg == "--project":
+			if len(rest) == 0 {
 				writeDiagnostic(errOut, "concord zl: --project requires a Project ID")
 				return 2
 			}
-			project = args[i+1]
-			i++
-		case strings.HasPrefix(args[i], "--project="):
-			project = strings.TrimPrefix(args[i], "--project=")
+			project = rest[0]
+			rest = rest[1:]
+		case strings.HasPrefix(arg, "--project="):
+			project = strings.TrimPrefix(arg, "--project=")
 		default:
-			forwarded = append(forwarded, args[i])
+			forwarded = append(forwarded, arg)
 		}
 	}
 	if project != "" && len(forwarded) > 0 && forwarded[0] == "--resume-last" {

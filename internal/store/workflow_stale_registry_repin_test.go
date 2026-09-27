@@ -176,6 +176,14 @@ func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 		t.Fatalf("refused successor left contract version %d (active %d), want the original 1", version, active)
 	}
 
+	// The agent route resolves the action and runs the read-only preflight
+	// before it executes, so both public gates must admit the re-pin too.
+	if _, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil || action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
+		t.Fatalf("resolver under the subject's stale pin = %q approval %q err=%v, want operator-approved supersede_contract", action.ID, action.Approval, err)
+	}
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner); err != nil {
+		t.Fatalf("preflight of the current-hash successor: %v", err)
+	}
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner, operator); err != nil {
 		t.Fatalf("current-hash successor supersede: %v", err)
 	}
@@ -282,6 +290,9 @@ func TestStaleRegistryRePinRefusesAPeerStalePin(t *testing.T) {
 	}
 	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
 
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("resolver admitted supersede_contract on a peer's stale pin")
+	}
 	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(3, rescanned, workID, 2, "root"), owner, operator)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.StaleDomainRegistryPin == nil || failure.StaleDomainRegistryPin.WorkID != peerID {

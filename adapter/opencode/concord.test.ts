@@ -1925,7 +1925,7 @@ test("work start accepts minimal capture and exact declared bounds in a resolved
     adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
     const result = await rawHostResult(adapter.work_start.execute(args, landedContextFor()))
     expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1" })
-    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", ...args, session_ref: "session-1" })
+    expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", ...args, session_ref: "session-1", host_pid: process.pid })
     expect(calls.filter(({ argv }) => argv[1] === "work-bootstrap")).toHaveLength(1)
     expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   }

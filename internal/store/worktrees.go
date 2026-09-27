@@ -66,9 +66,10 @@ type WorktreeEntry struct {
 
 // WorktreeOccupant is one live occupancy row for a worktree, projected from
 // worktree_occupancy (CD-0178 D3). HostPID and HostPIDStart stay empty for
-// legacy rows that carry no process identity: liveness
-// cannot prove anything about a row with no recorded process identity, so
-// only session_vacate or operator-approved removal ever releases it.
+// legacy rows that carry no process identity: the process-liveness proof has
+// nothing to read, so such a row releases only through session_vacate, an
+// operator-approved removal, or the lease-set proof that its recording
+// process ended (CD-0179).
 type WorktreeOccupant struct {
 	WorktreeID         string
 	SessionRef         string
@@ -97,22 +98,28 @@ type worktreeCreatedPayload struct {
 	Path             string `json:"path"`
 	RepositoryID     string `json:"repository_id"`
 	// OccupantSessionRef is the recorded session that owns the claim at
-	// creation time. The fold writes a legacy occupancy row (no process
-	// identity) keyed on it; a later claim-landing for the same session in
-	// the same worktree replaces it with a row that carries host_pid and
-	// host_pid_start. Liveness is read from worktree_occupancy (CD-0178 D3).
-	OccupantSessionRef string          `json:"occupant_session_ref"`
-	GitFacts           json.RawMessage `json:"git_facts"`
+	// creation time. The fold writes an occupancy row keyed on it: one that
+	// carries the host process identity when HostPID is positive, and the
+	// legacy shape otherwise. A later claim-landing for the same session in
+	// the same worktree re-records the row with the landing's identity.
+	// Liveness is read from worktree_occupancy (CD-0178 D3).
+	OccupantSessionRef string `json:"occupant_session_ref"`
+	// HostPID and HostPIDStart are the process identity of the OpenCode
+	// process whose adapter recorded the claim. Both are zero on the legacy
+	// shape. The core derived the start time from /proc at claim time and
+	// the fold replays the recorded value without touching /proc.
+	HostPID      int             `json:"host_pid,omitempty"`
+	HostPIDStart uint64          `json:"host_pid_start,omitempty"`
+	GitFacts     json.RawMessage `json:"git_facts"`
 }
 
 // marshalWorktreeCreated builds the one worktree_created payload every claim
-// route records. The carrying session is the recorded legacy occupant: the
-// fold inserts a worktree_occupancy row from it with has_process_identity=0,
-// and a later claim-landing event for the same session in the same worktree
-// replaces that row with one that carries host_pid and host_pid_start
-// (CD-0178 D3). The occupancy field is an explicit parameter so a route
-// cannot record a claim and silently omit it.
-func marshalWorktreeCreated(expected int64, setID, projectID, claimOpID string, location WorktreeLocation, facts worktreeFacts, occupantSessionRef string) []byte {
+// route records. The carrying session is the recorded occupant: the fold
+// inserts its worktree_occupancy row with the process identity the caller
+// supplied, or the legacy shape when no host pid is known. The occupancy
+// fields are explicit parameters so a route cannot record a claim and
+// silently omit them.
+func marshalWorktreeCreated(expected int64, setID, projectID, claimOpID string, location WorktreeLocation, facts worktreeFacts, occupantSessionRef string, hostPID int, hostPIDStart uint64) []byte {
 	payload, _ := json.Marshal(worktreeCreatedPayload{
 		ExpectedVersion:    expected,
 		ResultingVersion:   expected + 1,
@@ -124,6 +131,8 @@ func marshalWorktreeCreated(expected int64, setID, projectID, claimOpID string, 
 		Path:               location.Path,
 		RepositoryID:       facts.repositoryID,
 		OccupantSessionRef: occupantSessionRef,
+		HostPID:            hostPID,
+		HostPIDStart:       hostPIDStart,
 		GitFacts:           facts.raw(),
 	})
 	return payload
@@ -168,6 +177,9 @@ func foldWorktreeCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if p.ResultingVersion != p.ExpectedVersion+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "worktree creation version must advance by exactly one", false, "supply expected and resulting versions one apart")
 	}
+	if p.HostPID > 0 && p.HostPIDStart == 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "worktree creation payload carries a host pid without its start time", false, "record the process start time the core derived at claim time")
+	}
 	var state, existingClaim string
 	if err := tx.QueryRowContext(ctx, `SELECT state,claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=?`, p.SetID, p.ProjectID).Scan(&state, &existingClaim); err == nil {
 		switch {
@@ -194,20 +206,28 @@ func foldWorktreeCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return err
 	}
 	// Occupancy lives in worktree_occupancy, not in this projection. The fold
-	// inserts a legacy row in worktree_occupancy when the claim carries a
-	// session_ref: a later claim-landing for the same session in the same
-	// worktree replaces it with a row that carries host_pid and
-	// host_pid_start (CD-0178 D3).
+	// inserts the occupant's row when the claim carries a session_ref: with
+	// the recorded host process identity when the payload carries one, and
+	// the legacy shape otherwise. A later claim-landing for the same session
+	// in the same worktree re-records the row (CD-0178 D3).
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts) VALUES(?,?,?,?,?,?,?, 'active', ?, NULL, ?)
 		ON CONFLICT(set_id, project_id) DO UPDATE SET claim_op_id=excluded.claim_op_id, branch=excluded.branch, base_sha=excluded.base_sha, path=excluded.path, repository_id=excluded.repository_id, state='active', verified_at=excluded.verified_at, reclaimed_at=NULL, git_facts=excluded.git_facts`,
 		p.SetID, p.ProjectID, p.ClaimOpID, p.Branch, p.BaseSHA, p.Path, p.RepositoryID, event.OccurredAt.Format(time.RFC3339Nano), string(p.GitFacts)); err != nil {
 		return err
 	}
 	if p.OccupantSessionRef != "" {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES(?,?,?,NULL,NULL,0)
-			ON CONFLICT(worktree_id, session_ref) DO UPDATE SET recorded_at=excluded.recorded_at, host_pid=NULL, host_pid_start=NULL, has_process_identity=0`,
-			worktreeOccupancyID(p.SetID, p.ProjectID, p.ClaimOpID), p.OccupantSessionRef, event.OccurredAt.Format(time.RFC3339Nano)); err != nil {
-			return err
+		if p.HostPID > 0 {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES(?,?,?,?,?,1)
+				ON CONFLICT(worktree_id, session_ref) DO UPDATE SET recorded_at=excluded.recorded_at, host_pid=excluded.host_pid, host_pid_start=excluded.host_pid_start, has_process_identity=1`,
+				worktreeOccupancyID(p.SetID, p.ProjectID, p.ClaimOpID), p.OccupantSessionRef, event.OccurredAt.Format(time.RFC3339Nano), p.HostPID, p.HostPIDStart); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES(?,?,?,NULL,NULL,0)
+				ON CONFLICT(worktree_id, session_ref) DO UPDATE SET recorded_at=excluded.recorded_at, host_pid=NULL, host_pid_start=NULL, has_process_identity=0`,
+				worktreeOccupancyID(p.SetID, p.ProjectID, p.ClaimOpID), p.OccupantSessionRef, event.OccurredAt.Format(time.RFC3339Nano)); err != nil {
+				return err
+			}
 		}
 	}
 	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
@@ -386,6 +406,13 @@ type WorktreeClaimRequest struct {
 	ExpectedVersion int64
 	Now             time.Time
 	Runner          GitRunner
+	// HostPID is the OpenCode process whose adapter records the claim. When
+	// it is positive the core derives its start time from /proc and the
+	// created occupancy row carries the process identity, so no claim made
+	// through the agent surface leaves a row without one. Zero records the
+	// pre-rule legacy shape, which the reclaim gate can release through the
+	// host lease set.
+	HostPID int
 }
 
 type WorktreeClaimResult struct {
@@ -583,7 +610,18 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	// claim in the same transaction. A failure compensates the tree this
 	// operation created; a tree that pre-existed the claim is native state
 	// this operation must not remove, so its failure returns unchanged.
-	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, pinnedBranch, pinnedBase, pinnedPath, facts)
+	// The occupancy row's process start time is derived from /proc here, on
+	// the live path only: the fold replays the recorded value and never
+	// re-derives it.
+	var hostPIDStart uint64
+	if req.HostPID > 0 {
+		start, startErr := hostlease.ProcessStart(req.HostPID)
+		if startErr != nil {
+			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read the host process start time", true, "retry once the host process is observable", startErr)
+		}
+		hostPIDStart = start
+	}
+	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, pinnedBranch, pinnedBase, pinnedPath, facts, hostPIDStart)
 	if phase3Err != nil {
 		if out.Created != nil {
 			return out, compensateClaimWorktree(ctx, runner, *out.Created, phase3Err)
@@ -605,8 +643,11 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 // event and the verified claim state fold and commit together. The git
 // worktree the phases before it created exists outside the transaction, so a
 // failure here rolls the durable record back while the native tree remains.
-func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, setID string, now time.Time, pinnedBranch, pinnedBase, pinnedPath string, facts worktreeFacts) error {
-	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef)
+// hostPIDStart is the value the live path derived from /proc for the
+// requesting host process; the payload records it so the fold replays the
+// identity without touching /proc.
+func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, setID string, now time.Time, pinnedBranch, pinnedBase, pinnedPath string, facts worktreeFacts, hostPIDStart uint64) error {
+	payload := marshalWorktreeCreated(req.ExpectedVersion, setID, req.ProjectID, req.OpID, WorktreeLocation{Branch: pinnedBranch, BaseSHA: pinnedBase, Path: pinnedPath}, facts, req.SessionRef, req.HostPID, hostPIDStart)
 	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{
 		EventID: fmt.Sprintf("%s:worktree-created", req.OpID), Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: req.WorkID, Actor: req.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: payload,
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, req.WorkID): req.ExpectedVersion}}, newFoldScope(tx), false); err != nil {
@@ -731,6 +772,59 @@ type WorktreeReclaimRequest struct {
 	// ReleaseOccupancy permits an operator-approved destroy to clear a stale
 	// recorded occupant before the removal gate runs.
 	ReleaseOccupancy bool
+	// HostLeases is the live host lease set the caller read before the
+	// transaction began. A legacy occupancy row (no process identity)
+	// releases only when every lease in this set started after the row's
+	// recorded_at, which proves the row's recording process ended; an
+	// unreadable lease set releases nothing.
+	HostLeases HostLeaseSet
+}
+
+// HostLeaseSet is the caller's observation of the live host lease set, kept
+// as one value so an unreadable observation travels with the request instead
+// of collapsing into an empty set. Err carries the read failure: a set with
+// Err proves nothing, and the reclaim gate releases no legacy row on it.
+type HostLeaseSet struct {
+	Leases []hostlease.Lease
+	Err    error
+}
+
+// ReadHostLeases reads the live host lease set for this store's data root.
+// The caller runs it before the reclaim transaction opens: the read walks the
+// filesystem and prunes stale lease files, and none of that belongs inside a
+// write transaction.
+func (s *Store) ReadHostLeases() HostLeaseSet {
+	leases, err := hostlease.List(filepath.Dir(s.Path()))
+	return HostLeaseSet{Leases: leases, Err: err}
+}
+
+// hostLeaseWallStart resolves one live lease's process start as wall-clock
+// time. It is a package variable so tests can pin the conversion.
+var hostLeaseWallStart = hostlease.WallStart
+
+// legacyOccupancyRowEnded applies the one release rule a legacy row admits
+// (CD-0179): every live host lease started after the row's recorded_at, so
+// no process alive today existed when the row was recorded and its recording
+// process has ended. An unreadable lease set, an unreadable process start,
+// or a live lease that predates the row releases nothing and reports false.
+func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
+	if set.Err != nil {
+		return false
+	}
+	recorded, err := time.Parse(time.RFC3339Nano, recordedAt)
+	if err != nil {
+		return false
+	}
+	for _, lease := range set.Leases {
+		started, err := hostLeaseWallStart(lease.PID)
+		if err != nil {
+			return false
+		}
+		if !started.After(recorded) {
+			return false
+		}
+	}
+	return true
 }
 
 // WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
@@ -767,6 +861,10 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
 	}
+	// The lease set is read before the transaction opens: the legacy-row
+	// release proof compares it against the row's recorded_at (CD-0179), and
+	// a filesystem walk belongs outside the write transaction.
+	reclaimReq.HostLeases = s.ReadHostLeases()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot begin destroy", true, "retry once the database is writable", err)
@@ -800,6 +898,13 @@ func DestroyWorktreeTx(ctx context.Context, transaction *Transaction, req Worktr
 func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest) (WorktreeEntry, error) {
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_reclaim", "store is not open", false, "open the authority database")
+	}
+	// The lease set is read before the transaction opens: the legacy-row
+	// release proof compares it against the row's recorded_at (CD-0179), and
+	// a filesystem walk belongs outside the write transaction. A caller that
+	// carries its own observation keeps it.
+	if req.HostLeases.Leases == nil && req.HostLeases.Err == nil {
+		req.HostLeases = s.ReadHostLeases()
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -946,10 +1051,12 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// at landing time (CD-0178 D3). The kernel proves whether a process is
 	// alive, so a row whose host process started where it now starts stays
 	// and blocks removal; a row whose host process ended releases; a legacy
-	// row (no process identity) is released only by session_vacate or
-	// operator-approved destructive removal. Operator-approved reclamation
+	// row (no process identity) is released when every live host lease
+	// started after the row's recorded_at, which proves its recording process
+	// ended, and otherwise stays for session_vacate or an operator-approved
+	// removal. Operator-approved reclamation
 	// (ReleaseOccupancy with OperatorApprovalRef) clears every row of the
-	// worktree, including legacy ones, and the destructive path appends the
+	// worktree, and the destructive path appends the
 	// approval to the recorded event so an audit trail names the live
 	// occupants it released.
 	occupants, err := worktreeOccupancyRowsTx(ctx, tx, setID, entry.ProjectID, entry.ClaimOpID)
@@ -971,8 +1078,18 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 				}
 				continue
 			}
-			// Legacy row without process identity: only operator-approved
-			// removal can release it.
+			// Legacy row without process identity (CD-0179): released when
+			// every live host lease started after the row's recorded_at,
+			// which proves its recording process ended. An unreadable lease
+			// set releases nothing, and so does any live lease that
+			// predates the row. Only session_vacate or an operator-approved
+			// removal releases such a row while that proof is missing.
+			if legacyOccupancyRowEnded(req.HostLeases, occ.RecordedAt) {
+				if err := releaseWorktreeOccupancyRowTx(ctx, tx, req, setID, entry.ProjectID, entry.ClaimOpID, occ.SessionRef, incarnation, now); err != nil {
+					return out, err
+				}
+				continue
+			}
 			liveOccupants = append(liveOccupants, occ.SessionRef)
 		}
 		if len(liveOccupants) > 0 {
@@ -1080,6 +1197,12 @@ func validateWorktreeProjectMembershipTx(ctx context.Context, tx *sql.Tx, workID
 // helper confirms the row exists before the event lands. The worktree's
 // claim_op_id resolves the worktree_occupancy row's composite key, since
 // path and project alone name no row.
+// releaseSessionWorktreeOccupancyTx releases a session's recorded occupancy
+// when it vacates a worktree (CD-0178 D3, amended by CD-0179). The host runs
+// a session in one directory at a time, so the release is not scoped to the
+// vacated worktree: every occupancy row the session holds, in any work item,
+// releases with the vacate. Rows another session holds stay: releasing
+// someone else's occupancy is not this call's effect.
 func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operation, workID, projectID, sourceDirectory, sessionRef string) error {
 	var claimOpID string
 	err := tx.QueryRowContext(ctx, `SELECT claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=? AND path=? AND state='active'`, WorktreeSetID(workID), projectID, filepath.Clean(sourceDirectory)).Scan(&claimOpID)
@@ -1095,21 +1218,28 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operatio
 		return err
 	}
 	if !held {
-		// A worktree holds one row per session (CD-0178 D3), so a vacate
-		// releases only the calling session's own row. A session with no row
-		// here refuses while other sessions' rows remain: releasing someone
-		// else's occupancy is not this call's effect, and a silent no-op
-		// would report a release the projection never recorded.
-		var others int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE worktree_id=?`, worktreeID).Scan(&others); err != nil {
+		// The calling session holds no row here. It may still hold stale rows
+		// elsewhere, and the vacate releases those; but a session with no row
+		// anywhere refuses while other sessions hold rows on this worktree:
+		// a silent no-op would report a release the projection never
+		// recorded.
+		var mine int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, sessionRef).Scan(&mine); err != nil {
 			return wrapFailure(KindUnavailable, operation, "cannot read worktree occupancy", true, "retry once the database is readable", err)
 		}
-		if others > 0 {
-			return newFailure(KindWorktreeOwnershipConflict, operation, "session vacate does not own the recorded worktree occupancy", false, "release the worktree from a session recorded as an occupant")
+		if mine == 0 {
+			var others int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE worktree_id=?`, worktreeID).Scan(&others); err != nil {
+				return wrapFailure(KindUnavailable, operation, "cannot read worktree occupancy", true, "retry once the database is readable", err)
+			}
+			if others > 0 {
+				return newFailure(KindWorktreeOwnershipConflict, operation, "session vacate does not own the recorded worktree occupancy", false, "release the worktree from a session recorded as an occupant")
+			}
 		}
-		return nil
 	}
-	_, err = tx.ExecContext(ctx, `DELETE FROM worktree_occupancy WHERE worktree_id=? AND session_ref=?`, worktreeID, sessionRef)
+	// One delete clears the vacated worktree's row and every other stale row
+	// of this session, in this or any other work item.
+	_, err = tx.ExecContext(ctx, `DELETE FROM worktree_occupancy WHERE session_ref=?`, sessionRef)
 	return err
 }
 
@@ -1207,14 +1337,16 @@ type WorktreeClaimLandingResult struct {
 // the claimed worktree in one transaction: the destination row must be active
 // and occupied by this session, or record no occupant — the shape a resumed
 // session lands in, because the read that derives its worktree records
-// nothing (CD-0104 D1) — the work item's other active rows the session
-// occupies clear, and one durable event names the session, work item, source
-// paths, landed path, and the host process identity the core recorded. A
+// nothing (CD-0104 D1) — and every other active row the session occupies, in
+// this or any other work item, clears: the host runs a session in one
+// directory at a time, so the verified landing proves those rows stale
+// (CD-0179). One durable event names the session, work item, source paths,
+// landed path, and the host process identity the core recorded. A
 // destination that is absent, inactive, or occupied by another session
-// refuses before any effect, and no other work item's row is ever cleared.
-// The same landing replays idempotently. The host pid is the only identity
-// the adapter carries; the core reads pid_start itself through
-// hostlease.ProcessStart and stores the result alongside it (CD-0178 D3).
+// refuses before any effect. The same landing replays idempotently. The host
+// pid is the only identity the adapter carries; the core reads pid_start
+// itself through hostlease.ProcessStart and stores the result alongside it
+// (CD-0178 D3).
 func (s *Store) RecordWorktreeClaimLanding(ctx context.Context, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {
 	if s == nil || s.db == nil {
 		return WorktreeClaimLandingResult{}, newFailure(KindUnavailable, "claim-landing", "store is not open", false, "open the authority database")
@@ -1334,11 +1466,13 @@ func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessio
 	return count, nil
 }
 
-// sessionOccupiedSourcesTx lists the work item's other active rows the
-// session occupies, in stable path order, before the landing clears them
-// (CD-0178 D3). The projection moves through worktree_occupancy: every
-// active worktree the session holds inside this work item's set is a source
-// of the transfer, and the destination row itself is excluded by identity.
+// sessionOccupiedSourcesTx lists the active rows the session occupies outside
+// the landing destination, in stable path order, before the landing clears
+// them (CD-0178 D3, amended by CD-0179). The host runs a session in one
+// directory at a time, so the scan is not scoped to the landing's work item:
+// every active worktree the session holds, in any work item, is a stale
+// source of the transfer, and the destination row itself is excluded by
+// identity.
 func sessionOccupiedSourcesTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, landedProjectID, landedDirectory string) ([]string, error) {
 	// Resolve the destination's claim_op_id so the source query can exclude
 	// the row the landing is transferring into. The directory alone is not
@@ -1357,9 +1491,8 @@ func sessionOccupiedSourcesTx(ctx context.Context, tx *sql.Tx, workID, sessionRe
 		  JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id
 		 WHERE e.state='active'
 		   AND o.session_ref=?
-		   AND e.set_id=?
 		   AND (? = '' OR o.worktree_id <> ?)
-		 ORDER BY e.path`, sessionRef, WorktreeSetID(workID), destinationID, destinationID)
+		 ORDER BY e.path`, sessionRef, destinationID, destinationID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "claim-landing", "cannot read the session's occupied worktrees", true, "retry once the database is readable", err)
 	}
@@ -1378,10 +1511,11 @@ func sessionOccupiedSourcesTx(ctx context.Context, tx *sql.Tx, workID, sessionRe
 // foldSessionClaimLanded re-applies the verified transfer during rebuild: the
 // landed row holds the session — a claim-carried landing finds it held
 // already, and a resumed landing records the session its host move verified —
-// and the session's occupancy on the work item's other active rows clears
-// (CD-0178 D3). The fold trusts the recorded host_pid_start: the value was
-// derived from /proc at record time and survives a process that later died,
-// so replay neither re-derives nor re-reads it.
+// and the session's occupancy on every other active row, in any work item,
+// clears (CD-0178 D3, amended by CD-0179). The fold trusts the recorded
+// host_pid_start: the value was derived from /proc at record time and
+// survives a process that later died, so replay neither re-derives nor
+// re-reads it.
 func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -1417,13 +1551,14 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 		destinationID, p.SessionRef, event.OccurredAt.Format(time.RFC3339Nano), p.HostPID, p.HostPIDStart); err != nil {
 		return err
 	}
-	// Clear the session's other occupancy rows inside this work item.
-	// The destination row is excluded by identity.
+	// Clear the session's other occupancy rows, in any work item: the host
+	// runs a session in one directory at a time, so every row outside the
+	// landing destination is stale the moment the landing is verified
+	// (CD-0179). The destination row is excluded by identity.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_occupancy
 		 WHERE session_ref=?
-		   AND substr(worktree_id, 1, length(?))=?
 		   AND worktree_id <> ?`,
-		p.SessionRef, WorktreeSetID(p.WorkID), WorktreeSetID(p.WorkID), destinationID); err != nil {
+		p.SessionRef, destinationID); err != nil {
 		return err
 	}
 	return nil
@@ -1889,7 +2024,8 @@ type WorktreeAuditRequest struct {
 // repository refuses the pass typed rather than degrading to an unclassified row.
 //
 // Output is bounded by limit and ordered deterministically (class, project,
-// path), so a truncated pass is stable for the caller.
+// path), so a truncated pass is stable for the caller. The limit bounds this
+// read's report only; classification itself always runs over every entry.
 func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (WorktreeAudit, error) {
 	if s == nil || s.db == nil {
 		return WorktreeAudit{}, newFailure(KindUnavailable, "worktree_audit", "store is not open", false, "open the authority database")
@@ -1902,18 +2038,29 @@ func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (Wo
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	return worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, req.Limit, runner, now, req.DefaultRef, false)
-}
-
-func worktreeAudit(ctx context.Context, q queryer, root string, productID string, limit int, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
-	if productID == "" {
-		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
-	}
+	limit := req.Limit
 	if limit < 1 {
 		limit = 20
 	}
 	if limit > 100 {
 		limit = 100
+	}
+	audit, err := worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, runner, now, req.DefaultRef, false)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	if len(audit.Drift) > limit {
+		audit.Drift = audit.Drift[:limit]
+	}
+	return audit, nil
+}
+
+// worktreeAudit classifies every drift row for one Product. It applies no
+// limit: the callers own the limit, and a reclaim pass must classify every
+// row before its limit consumes anything (CD-0179).
+func worktreeAudit(ctx context.Context, q queryer, root string, productID string, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
+	if productID == "" {
+		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
 	}
 
 	var projects []string
@@ -2140,9 +2287,6 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		return WorktreeAudit{}, err
 	}
 	drift = append(drift, unstarted...)
-	if len(drift) > limit {
-		drift = drift[:limit]
-	}
 	return WorktreeAudit{Root: root, Drift: drift}, nil
 }
 
@@ -2200,6 +2344,11 @@ type WorktreeAuditReclaimResult struct {
 // Every other class is returned as report-only, because its
 // named action is not a store decision.
 //
+// The pass classifies every drift row before the limit applies (CD-0179): the
+// limit bounds reclaim attempts only, so report-only rows never crowd a
+// reclaimable row out of the pass, and a reclaimable row beyond the limit is
+// classified and reported unattempted rather than silently dropped.
+//
 // Each row reclaims in its own transaction. Rows are independent, and one
 // refusal must not roll back another row's reclamation; the pass is a loop
 // over direct reclaims, not one large write. A refused row is reported with
@@ -2213,17 +2362,35 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	audit, err := worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, req.Limit, runner, req.Now, req.DefaultRef, true)
+	limit := req.Limit
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	audit, err := worktreeAudit(ctx, s.db, filepath.Join(filepath.Dir(s.Path()), "worktrees"), req.ProductID, runner, req.Now, req.DefaultRef, true)
 	if err != nil {
 		return WorktreeAuditReclaimResult{}, err
 	}
+	// The lease set is read once, before the first reclaim opens its
+	// transaction: the legacy-row release proof inside each reclaim compares
+	// this snapshot against the row's recorded_at (CD-0179).
+	leases := s.ReadHostLeases()
 	out := WorktreeAuditReclaimResult{Root: audit.Root, ReportOnly: []WorktreeDrift{}, Rows: []WorktreeAuditReclaimRow{}}
+	attempts := []WorktreeDrift{}
 	for _, drift := range audit.Drift {
-		requireTerminal, requireUnstarted := drift.Class == WorktreeDriftTerminalPresent, drift.Class == WorktreeDriftUnstartedPresent
-		if !requireTerminal && !requireUnstarted {
+		reclaimable := drift.Class == WorktreeDriftTerminalPresent || drift.Class == WorktreeDriftUnstartedPresent
+		if !reclaimable || len(attempts) >= limit {
+			// Report-only classes, and reclaimable rows beyond the limit,
+			// are classified and reported without an attempt.
 			out.ReportOnly = append(out.ReportOnly, drift)
 			continue
 		}
+		attempts = append(attempts, drift)
+	}
+	for _, drift := range attempts {
+		requireTerminal, requireUnstarted := drift.Class == WorktreeDriftTerminalPresent, drift.Class == WorktreeDriftUnstartedPresent
 		row := WorktreeAuditReclaimRow{ProjectID: drift.ProjectID, WorkID: drift.WorkID, Path: drift.Path, Lifecycle: drift.Lifecycle}
 		version, err := currentWorkVersion(ctx, s.db, drift.WorkID)
 		if err != nil {
@@ -2233,6 +2400,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
+			HostLeases: leases,
 		})
 		if reclaimErr == nil {
 			// The row reports the work item's true post-reclaim version: a

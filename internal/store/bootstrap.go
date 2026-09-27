@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
 var bootstrapIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
@@ -45,6 +47,12 @@ type BootstrapRequest struct {
 	// digest is built from it: the same capture asked for by two sessions is
 	// one work item, not two.
 	SessionRef string `json:"-"`
+	// HostPID is the OpenCode process whose adapter records the bootstrap.
+	// The claim's occupancy row carries its process identity, so the row
+	// never waits for the landing to become releasable. It stays out of the
+	// marshalled request with SessionRef: the digest names the capture, not
+	// the recording process.
+	HostPID int `json:"-"`
 }
 
 // BootstrapResult is the durable result of a bootstrap operation.
@@ -1420,7 +1428,18 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 	if state != "native_ready" || facts.branch != location.Branch || facts.headSHA != location.BaseSHA || facts.repositoryID == "" {
 		return BootstrapResult{}, newFailure(KindInvariantViolation, "work_bootstrap", "bootstrap native facts do not match the pinned finalization state", false, "contact_operator")
 	}
-	payload := marshalWorktreeCreated(expected, WorktreeSetID(workID), req.ProjectID, operationID, location, facts, req.SessionRef)
+	// The occupancy row's process start time is derived from /proc here, on
+	// the live path only: the fold replays the recorded value and never
+	// re-derives it.
+	var hostPIDStart uint64
+	if req.HostPID > 0 {
+		start, startErr := hostlease.ProcessStart(req.HostPID)
+		if startErr != nil {
+			return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the host process start time", true, "retry once the host process is observable", startErr)
+		}
+		hostPIDStart = start
+	}
+	payload := marshalWorktreeCreated(expected, WorktreeSetID(workID), req.ProjectID, operationID, location, facts, req.SessionRef, req.HostPID, hostPIDStart)
 	eventID := operationID + ":worktree-created"
 	var priorCreation bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE event_id=?)`, eventID).Scan(&priorCreation); err != nil {

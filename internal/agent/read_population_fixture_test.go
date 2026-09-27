@@ -474,7 +474,7 @@ func (fx readPopulationFixture) seedWorktreeClaim(t *testing.T) {
 	gitRun(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	execPopulationStatement(t, fx.store, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('population-project-repo','proj-web','canonical_path',?,?,'now','now')`, repo, repo)
 	_, version := readWorkFromStore(t, fx.store, fx.workID)
-	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","project_id":"proj-web","base_sha":"` + gitRun(t, repo, "rev-parse", "HEAD") + `","expected_version":` + fmt.Sprintf("%d", version) + `,"idempotency_key":"population-claim"}`)}, fx.envelope(t))
+	claim := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: json.RawMessage(`{"work_id":"` + fx.workID + `","project_id":"proj-web","base_sha":"` + gitRun(t, repo, "rev-parse", "HEAD") + `","expected_version":` + fmt.Sprintf("%d", version) + `,"host_pid":` + strconv.Itoa(os.Getpid()) + `,"idempotency_key":"population-claim"}`)}, fx.envelope(t))
 	if claim.Outcome != OutcomeOK {
 		t.Fatalf("worktree claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}

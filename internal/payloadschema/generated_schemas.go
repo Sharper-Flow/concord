@@ -2591,6 +2591,10 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_id": {
           "$ref": "#/$defs/id"
         },
+        "vacate_target": {
+          "$ref": "#/$defs/vacate_target",
+          "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
+        },
         "work_pins": {
           "items": {
             "$ref": "#/$defs/work_pin"
@@ -4567,6 +4571,30 @@ const GeneratedPayloadSchemaDocument = `{
         "expedite"
       ],
       "type": "string"
+    },
+    "vacate_target": {
+      "additionalProperties": false,
+      "properties": {
+        "destination_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "source_directory",
+        "destination_directory"
+      ],
+      "type": "object"
     },
     "version": {
       "minimum": 1,
@@ -11614,6 +11642,11 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "expected_version": {
           "$ref": "#/$defs/version"
+        },
+        "host_pid": {
+          "description": "The OpenCode process pid whose adapter records the claim. The adapter injects it; an agent never supplies it. The claimed worktree's occupancy row records the process identity from creation.",
+          "minimum": 1,
+          "type": "integer"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"

@@ -80,14 +80,14 @@ func tiersFixture(t *testing.T) (*store.Store, *Service, Authority, *Service, Au
 	t.Helper()
 	s, service, grant, repoRoot := tiersRepoFixture(t)
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
-	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{
+	if response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-1",
 	}); response.Outcome != OutcomeOK {
 		t.Fatalf("claim work-1 response=%+v err=%+v", response, response.Error)
 	}
 	second, _, secondGrant := newAuthorizedService(t, s, "client-2", "human-2", []Capability{"work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	secondGrant.SessionRef = "session-2"
-	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{
+	if response := tiersInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_claim", map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-2", "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "tiers-claim-2",
 	}); response.Outcome != OutcomeOK {
 		t.Fatalf("claim work-2 response=%+v err=%+v", response, response.Error)

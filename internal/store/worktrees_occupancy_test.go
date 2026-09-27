@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,25 @@ func worktreeOccupancyByEntry(t *testing.T, s *Store, setID, projectID, claimOpI
 		t.Fatalf("query worktree_occupancy: %v", err)
 	}
 	return sessionRef
+}
+
+// writeProtectingHostLease writes one live lease — this test process's own —
+// into the store's data root. The process start it proves predates every row
+// the test records afterwards, so the lease-set proof keeps identity-less
+// rows in place (CD-0179): a reclaim refuses them instead of releasing them.
+func writeProtectingHostLease(t *testing.T, s *Store) {
+	t.Helper()
+	start, err := hostlease.ProcessStart(os.Getpid())
+	if err != nil {
+		t.Fatalf("the test process is not observable: %v", err)
+	}
+	if err := hostlease.Write(filepath.Dir(s.Path()), hostlease.Lease{
+		PID: os.Getpid(), PidStart: start, ReleaseRoot: filepath.Dir(s.Path()),
+		CoreBinary: "test", SchemaVersion: CurrentSchemaVersion(),
+		RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatalf("cannot write the protecting host lease: %v", err)
+	}
 }
 
 // insertWorktreeOccupantWithIdentity is a test helper that inserts one
@@ -124,11 +144,14 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 	}
 }
 
-// A legacy row has no process identity, so liveness can never release it
-// (CD-0178 D3): the audit pass refuses the worktree typed, the row survives,
-// and only session_vacate — or an operator-approved removal — releases it.
+// A legacy row has no process identity, so the process-liveness proof has
+// nothing to read (CD-0178 D3). With a live lease predating the row, the
+// lease-set proof keeps it too (CD-0179): the audit pass refuses the
+// worktree typed, the row survives, and session_vacate — or an
+// operator-approved removal — releases it.
 func TestAuditReclaimRejectsLegacyOccupancyWithoutApproval(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
+	writeProtectingHostLease(t, s)
 	ctx := context.Background()
 	legacyPath := auditWork(t, s, git, "work-legacy", true)
 	completeAuditWork(t, s, "work-legacy", 3)

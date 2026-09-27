@@ -955,7 +955,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       prepareTask = ""
     } else {
       const capture = args as WorkStartCaptureArgs
-      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID }
+      // host_pid gives the bootstrap claim's occupancy row its process
+      // identity from creation (CD-0179); the landing re-records it.
+      const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID, host_pid: process.pid }
       const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
       if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown
@@ -1082,7 +1084,20 @@ export const work_define = tool({ description: "Concord work define", args: args
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
 export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context) })
 export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
-export const work_relate = tool({ description: "Concord work relate", args: argsSchema("concord_work_relate"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context) })
+export const work_relate = tool({
+  description: "Concord work relate",
+  args: argsSchema("concord_work_relate"),
+  execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
+    // Same shape as the transition tool: a supersede that terminalizes the
+    // work whose worktree this session runs in carries a vacate_target the
+    // adapter applies before the result is reported (CD-0179).
+    const request = hostRequest(args)
+    const envelope = await invokeConcordOperation("concord_work_relate", request, context)
+    const settled = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
+    const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
+    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), warnings)
+  },
+})
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
   const warnings: string[] = []
@@ -1398,7 +1413,48 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
     return moveSessionToRegisteredMainCheckout(args, context, envelope)
   }
+  if (args?.operation === "worktree_claim") {
+    // The claimed worktree's occupancy row records the recording host's
+    // process identity from creation (CD-0179). The pid belongs to this
+    // process, not to the agent, so the adapter injects it and overwrites
+    // anything an agent named.
+    args = { ...args, input: { ...(record(args.input) ? args.input : {}), host_pid: process.pid } }
+  }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-  const landed = await moveSessionToClaimedWorktree(args, context, envelope)
+  const settled = await vacateTerminalWorktree("concord_work_transition", args, context, envelope)
+  const landed = await moveSessionToClaimedWorktree(args, context, settled)
   return landed
+}
+
+// vacateTerminalWorktree moves a session out of a work item's worktree after
+// the work reached a terminal state (complete, cancel, supersede). The core
+// attaches vacate_target to the transition result only when the calling
+// session's linked worktree is that work item's active worktree, so the hook
+// never releases another work item's occupancy. The vacate runs first — it
+// records the release across every work item and resolves the registered
+// main checkout — and the move follows it. A failed vacate or move queues a
+// notice and keeps the transition result: the transition is durable, and the
+// occupancy release is replayable by an explicit session_vacate.
+export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
+  const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
+  const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"
+  if (!transitioned && !superseded) return envelope
+  if (!record(envelope) || envelope.outcome !== "ok") return envelope
+  const target = record(envelope.result) ? envelope.result.vacate_target : undefined
+  if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope
+  const requestID = `${context.sessionID}-${context.messageID}`
+  const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-terminal-vacate` } }
+  try {
+    const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
+    const moved = await moveSessionToRegisteredMainCheckout(vacateArgs, context, vacated)
+    const failure = record(moved) && record(moved.error) ? moved.error : undefined
+    const reason = failure && typeof failure.kind === "string" && typeof failure.message === "string"
+      ? `${failure.kind}: ${failure.message}`
+      : "the vacate move did not confirm a landing"
+    if (!record(moved) || moved.outcome !== "ok") throw new Error(reason)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, but the session could not return to the registered main checkout: ${message} Run session_vacate from the worktree to retry the move.`)
+  }
+  return envelope
 }

@@ -5113,6 +5113,10 @@
         },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
+        },
+        "vacate_target": {
+          "$ref": "#/$defs/vacate_target",
+          "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
         }
       }
     },
@@ -5534,6 +5538,11 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "host_pid": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The OpenCode process pid whose adapter records the claim. The adapter injects it; an agent never supplies it. The claimed worktree's occupancy row records the process identity from creation."
         }
       }
     },
@@ -8355,9 +8364,6 @@
                 "minLength": 1,
                 "maxLength": 512
               }
-            },
-            "outcome_predicates": {
-              "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
           }
         }
@@ -13607,120 +13613,28 @@
         }
       }
     },
-    "worker_packet_outcome_predicates": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 8,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "predicate_id",
-          "ordinal",
-          "outcome_kind",
-          "outcome_payload"
-        ],
-        "properties": {
-          "predicate_id": {
-            "$ref": "#/$defs/id",
-            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-          },
-          "ordinal": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 7
-          },
-          "outcome_kind": {
-            "type": "string",
-            "enum": [
-              "exists",
-              "absent",
-              "outcome",
-              "check"
-            ]
-          },
-          "outcome_payload": {
-            "$ref": "#/$defs/workflow_outcome_payload"
-          }
+    "vacate_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "project_id",
+        "source_directory",
+        "destination_directory"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
         },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "exists"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_exists"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "absent"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_absent"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "outcome"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_outcome"
-                }
-              }
-            }
-          },
-          {
-            "if": {
-              "properties": {
-                "outcome_kind": {
-                  "const": "check"
-                }
-              },
-              "required": [
-                "outcome_kind"
-              ]
-            },
-            "then": {
-              "properties": {
-                "outcome_payload": {
-                  "$ref": "#/$defs/workflow_outcome_check"
-                }
-              }
-            }
-          }
-        ]
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_directory": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "destination_directory": {
+          "$ref": "#/$defs/absolute_path"
+        }
       }
     }
   }

@@ -1280,6 +1280,10 @@ func TestReclaimRefusesBootstrapClaimedWorktreeHeldBySession(t *testing.T) {
 	capture := bootstrapStoreRequest()
 	capture.IdempotencyKey = "bootstrap-occupancy-gate"
 	capture.SessionRef = "ses-holds-worktree"
+	// The recording host's live lease predates the claim row, so the
+	// lease-set proof keeps the identity-less bootstrap row in place
+	// (CD-0179).
+	writeProtectingHostLease(t, s)
 	created, err := s.BootstrapWorktree(ctx, capture, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,7 +66,7 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	claimInput, _ := json.Marshal(map[string]any{
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1",
 		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "701-claim",

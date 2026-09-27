@@ -159,7 +159,7 @@ Commands read one strict JSON object from stdin:
     required: work_id, session_ref, landed_directory
   concord work-bootstrap < JSON stdin
     required: product_id, project_id, title, value_statement, kind, task, idempotency_key
-    optional: priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD)
+    optional: priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (defaults to HEAD), host_pid (required with session_ref)
     accepted values: kind: task | bug | decision | research | other; urgency: standard | expedite
   concord work-resume < JSON stdin
     required: product_id, project_id, work_id

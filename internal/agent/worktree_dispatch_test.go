@@ -78,7 +78,7 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	}
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 
-	claimInput, _ := json.Marshal(map[string]any{
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1",
 		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "wt-claim-1",
@@ -174,7 +174,7 @@ func TestWorktreeClaimRefusesWhenSessionOccupiesAnotherWorktree(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input, _ := json.Marshal(map[string]any{"work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": key})
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": workID, "project_id": "project-1", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": key})
 		return Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
 	}
 	first, err := claim("work-1", "occupancy-refusal-1")
@@ -297,7 +297,7 @@ func TestWorktreeClaimCrossScopeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-2", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "cross-scope-claim"})
+	input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-2", "base_sha": baseSHA, "expected_version": 2, "idempotency_key": "cross-scope-claim"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(crossGrant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +327,7 @@ func TestWorktreeClaimCrossProjectCarriesDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1b", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-project-claim"})
+	input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1b", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-project-claim"})
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", response, err)
@@ -363,7 +363,7 @@ func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, e
 // from a linked-worktree resolution.
 func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, worktreePath, baseSHA, branch, key string) {
 	t.Helper()
-	claimInput, _ := json.Marshal(map[string]any{
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1",
 		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": key,
@@ -713,7 +713,7 @@ func TestSecondSessionVacateRecordsItsOwnEvent(t *testing.T) {
 	grantB := grant
 	grantB.SessionRef = "session/vacate-b"
 	worktreeB := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-	claimB, _ := json.Marshal(map[string]any{
+	claimB, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-2", "project_id": "project-1",
 		"base_sha":         baseSHA,
 		"expected_version": 2, "idempotency_key": "claim-vacate-b",
@@ -804,7 +804,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project-1x", store.ProjectLocator{ID: "path-1x", Kind: store.LocatorCanonicalPath, Value: crossRepo}, 1); err != nil {
 		t.Fatal(err)
 	}
-	input, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1x", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-repo-claim"})
+	input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1x", "base_sha": baseSHA, "expected_version": 3, "idempotency_key": "cross-repo-claim"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -852,7 +852,7 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if err := s.AddProjectLocator(ctx, "project-1s", store.ProjectLocator{ID: "path-1s", Kind: store.LocatorCanonicalPath, Value: sameRepoTree}, 1); err != nil {
 		t.Fatal(err)
 	}
-	sameInput, _ := json.Marshal(map[string]any{"work_id": "work-1", "project_id": "project-1s", "base_sha": baseSHA, "expected_version": 4, "idempotency_key": "same-repo-claim"})
+	sameInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(), "work_id": "work-1", "project_id": "project-1s", "base_sha": baseSHA, "expected_version": 4, "idempotency_key": "same-repo-claim"})
 	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

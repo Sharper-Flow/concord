@@ -122,4 +122,14 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   expect(advertisedAdmissionTeachingGaps(droppedWaitRule)).toContain(
     "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",
   )
+
+  // A description cut down to its marker phrases no longer carries the rule,
+  // so it is a gap too.
+  const reducedRules = structuredClone(schema)
+  reducedRules.properties.input.properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
+  reducedRules.properties.input.properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
+  expect(advertisedAdmissionTeachingGaps(reducedRules)).toEqual(expect.arrayContaining([
+    "outcome_predicates description does not teach the delivery-decidable rule (CD-0184)",
+    "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",
+  ]))
 })

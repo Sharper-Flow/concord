@@ -44,7 +44,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
     a projection drops the rule."""
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
-    if not isinstance(text, str) or "decidable at delivery" not in text or "raised_from" not in text:
+    if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
         fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
     for condition in defs.get("work_transition_action_shared_input", {}).get("allOf", []):
         trigger = condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const")
@@ -55,7 +55,7 @@ def require_delivery_rule_teaching(defs: dict) -> None:
         for branch in branches:
             wait = branch.get("properties", {}).get("fields", {}).get("properties", {}).get("expected_within_seconds")
             wait_text = wait.get("description") if isinstance(wait, dict) else None
-            if not isinstance(wait_text, str) or "raised_from" not in wait_text or "time window" not in wait_text:
+            if wait_text != DELIVERY_RULE_WAIT_DESCRIPTION:
                 fail("add_condition expected_within_seconds does not teach the CD-0184 delivery-decidable rule")
         return
     fail("the projected workflow action input names no add_condition condition for the delivery-rule teaching")
@@ -833,11 +833,11 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }}
   const delivery: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.description;
-  if (typeof delivery !== "string" || !delivery.includes("decidable at delivery") || !delivery.includes("raised_from")) {{
+  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
     gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
   }}
   const wait: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.expected_within_seconds?.description;
-  if (typeof wait !== "string" || !wait.includes("raised_from") || !wait.includes("time window")) {{
+  if (wait !== {json.dumps(DELIVERY_RULE_WAIT_DESCRIPTION)}) {{
     gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
   }}
   return gaps;

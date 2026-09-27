@@ -544,17 +544,14 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
 
     def test_shipped_predicate_array_teaches_the_rule(self):
         items = payload_schema["$defs"]["workflow_action_outcome_predicates"]
-        text = items.get("description", "")
-        self.assertIn("decidable at delivery", text)
-        self.assertIn("raised_from", text)
+        self.assertEqual(generator.DELIVERY_RULE_PREDICATE_DESCRIPTION, items.get("description"))
 
     def test_shipped_add_condition_wait_teaches_the_rule(self):
         branches = self._add_condition_branches(payload_schema["$defs"])
         self.assertIsNotNone(branches)
         for branch in branches:
             wait = branch["properties"]["fields"]["properties"]["expected_within_seconds"]
-            self.assertIn("raised_from", wait.get("description", ""))
-            self.assertIn("time window", wait.get("description", ""))
+            self.assertEqual(generator.DELIVERY_RULE_WAIT_DESCRIPTION, wait.get("description"))
 
     def test_generator_refuses_a_projection_that_drops_the_rule(self):
         defs = copy.deepcopy(payload_schema["$defs"])
@@ -576,6 +573,19 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
             condition for condition in conditions
             if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") != "add_condition"
         ]
+        with self.assertRaises(ValueError):
+            generator.require_delivery_rule_teaching(defs)
+
+    def test_generator_refuses_a_predicate_description_reduced_to_markers(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        defs["workflow_action_outcome_predicates"]["description"] = "decidable at delivery; raised_from"
+        with self.assertRaises(ValueError):
+            generator.require_delivery_rule_teaching(defs)
+
+    def test_generator_refuses_a_wait_description_reduced_to_markers(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        for branch in self._add_condition_branches(defs):
+            branch["properties"]["fields"]["properties"]["expected_within_seconds"]["description"] = "raised_from; time window"
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
 

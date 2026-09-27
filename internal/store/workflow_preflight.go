@@ -189,8 +189,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 			// ordinary single-contract reader to classify it first.
 			staleRecovery = true
 		} else if lawErr := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, request.WorkID); lawErr != nil {
-			var failure *Failure
-			if !failureAs(lawErr, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
+			if !workflowContractRecoveryStaleness(lawErr, request.WorkID) {
 				return lawErr
 			}
 			staleRecovery = true
@@ -488,8 +487,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			// ordinary single-contract reader to classify it first.
 			staleRecovery = true
 		} else if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
-			var failure *Failure
-			if !failureAs(err, &failure) || (failure.Kind != KindStaleLawRevision && failure.Kind != KindDomainOverlap) {
+			if !workflowContractRecoveryStaleness(err, request.WorkID) {
 				return RegisteredDefinition{}, err
 			}
 			staleRecovery = true

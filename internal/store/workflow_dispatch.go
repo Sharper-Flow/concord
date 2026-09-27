@@ -159,12 +159,15 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return entry, workflowContractRecoveryActionDefinition(), nil
 		}
 		if err := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, workID); err != nil {
-			var failure *Failure
-			if failureAs(err, &failure) && failure.Kind == KindStaleLawRevision {
-				return entry, workflowContractRecoveryActionDefinition(), nil
-			}
-			if !failureAs(err, &failure) || failure.Kind != KindDomainOverlap {
+			if !workflowContractRecoveryStaleness(err, workID) {
 				return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+			}
+			// A stale law revision or the subject's own stale Domain registry
+			// pin admits recovery here. An unresolved overlap still needs the
+			// correction checkpoint below.
+			var failure *Failure
+			if failureAs(err, &failure) && failure.Kind != KindDomainOverlap {
+				return entry, workflowContractRecoveryActionDefinition(), nil
 			}
 		}
 		correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")

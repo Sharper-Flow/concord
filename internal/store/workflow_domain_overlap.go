@@ -369,6 +369,26 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	return WorkflowDomainOverlap{ProductID: from.ProductID, FromWorkID: from.WorkID, ToWorkID: to.WorkID, FromContractVersion: from.ContractVersion, ToContractVersion: to.ContractVersion, SharedAffectedDomainIDs: sharedDomains, SharedLawIDs: sharedLaw, SharedDomainModifications: sharedDomainModifications, SharedRelationTuples: sharedRelations, OverlapClasses: classes, RecoveryActions: append([]string(nil), workflowOverlapRecoveryActions...)}, true
 }
 
+// StaleDomainRegistryPin names the work item whose own approved contract pin
+// a Domain registry rescan stranded. currentWorkflowDomainRegistryCheckTx
+// attaches it to every stale-pin refusal it raises, so the one contract
+// recovery predicate can tell the subject's own stale pin from a peer's
+// without matching refusal text. It never crosses the agent envelope.
+type StaleDomainRegistryPin struct {
+	WorkID          string `json:"work_id"`
+	ContractVersion int64  `json:"contract_version"`
+	PinnedHash      string `json:"pinned_hash"`
+	CurrentHash     string `json:"current_hash"`
+}
+
+// staleWorkflowDomainRegistryPinFailure raises the registry-staleness refusal
+// with the store-internal marker naming the checked footprint's own work item.
+func staleWorkflowDomainRegistryPinFailure(footprint workflowOverlapFootprint, currentHash, detail string) *Failure {
+	failure := newFailure(KindStaleRequiresReview, "workflow_domain_overlap", detail, false, "reread and approve a current workflow contract")
+	failure.StaleDomainRegistryPin = &StaleDomainRegistryPin{WorkID: footprint.WorkID, ContractVersion: footprint.ContractVersion, PinnedHash: footprint.RegistryHash, CurrentHash: currentHash}
+	return failure
+}
+
 func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footprint workflowOverlapFootprint) error {
 	var registryHash string
 	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, footprint.ProductID).Scan(&registryHash); err != nil {
@@ -378,7 +398,7 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 		return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read current Domain registry", true, "retry once the Domain projection is readable", err)
 	}
 	if registryHash != footprint.RegistryHash {
-		return newFailure(KindStaleRequiresReview, "workflow_domain_overlap", "workflow Domain registry pin is stale", false, "reread and approve a current workflow contract")
+		return staleWorkflowDomainRegistryPinFailure(footprint, registryHash, "workflow Domain registry pin is stale")
 	}
 	for _, domainID := range footprint.AffectedDomains {
 		var status, hash string
@@ -389,7 +409,7 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 			return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read current Domain membership", true, "retry once the Domain projection is readable", err)
 		}
 		if status != "current" || hash != registryHash {
-			return newFailure(KindStaleRequiresReview, "workflow_domain_overlap", "workflow Domain membership is stale: "+domainID, false, "reread and approve a current workflow contract")
+			return staleWorkflowDomainRegistryPinFailure(footprint, registryHash, "workflow Domain membership is stale: "+domainID)
 		}
 	}
 	return nil

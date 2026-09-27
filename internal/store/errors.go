@@ -247,6 +247,13 @@ type Failure struct {
 	// DomainOverlap carries both active contract identities and every derived
 	// bounded intersection needed to choose one of the closed recovery paths.
 	DomainOverlap *DomainOverlapFailure `json:"domain_overlap,omitempty"`
+	// StaleDomainRegistryPin is a store-internal marker naming the work item
+	// whose own approved contract pins a Domain registry hash the latest
+	// rescan replaced. Recovery admission matches the marker to the subject
+	// item structurally instead of matching refusal text. The empty json tag
+	// keeps the marker out of the agent envelope, whose schema this failure
+	// does not amend.
+	StaleDomainRegistryPin *StaleDomainRegistryPin `json:"-"`
 	// ExternalRefConflict identifies the live work item that owns a colliding
 	// external reference.
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`

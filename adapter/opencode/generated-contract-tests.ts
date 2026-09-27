@@ -14,13 +14,15 @@ export function payloadFailurePath(name: string, value: unknown): string | null 
 export function envelopeFailurePath(value: unknown): string | null {
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }
-// advertisedAdmissionTeachingGaps reports every approve_contract admission
-// rule the published concord_work_transition schema fails to teach a calling
-// agent. An empty list means the advertised schema carries all four store
-// rules: the item-level required set with ordinal, the strict four-variant
-// outcome_payload oneOf, the predicate_id prefix, and the per-workflow pinned
-// outcome tokens. The store's ValidateOperationPayload stays the closed
-// admission boundary; this checks only what the advertised surface teaches.
+// advertisedAdmissionTeachingGaps reports every approve_contract rule the
+// published concord_work_transition schema fails to teach a calling agent. An
+// empty list means the advertised schema carries four store admission rules
+// (the item-level required set with ordinal, the strict four-variant
+// outcome_payload oneOf, the predicate_id prefix, the per-workflow pinned
+// outcome tokens) and the CD-0184 delivery-decidable rule. CD-0184 is
+// authoring guidance only: the store does not refuse a predicate for it. The
+// store's ValidateOperationPayload stays the closed admission boundary; this
+// checks only what the advertised surface teaches.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const gaps: string[] = [];
   const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
@@ -48,6 +50,14 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const tokens: unknown = allowedBranch?.properties?.allowed?.description;
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  }
+  const delivery: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.description;
+  if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
+    gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
+  }
+  const wait: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.expected_within_seconds?.description;
+  if (wait !== "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.") {
+    gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
   }
   return gaps;
 }

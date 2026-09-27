@@ -19,6 +19,47 @@ def canonical(value: object) -> bytes:
 def fail(message: str) -> None:
     raise ValueError(message)
 
+# CD-0184: agents read contracts through the projected tool surface, so the
+# delivery-decidable rule travels in the descriptions the published schema
+# carries. The emitted admission-teaching gap check asserts the same markers.
+DELIVERY_RULE_PREDICATE_DESCRIPTION = (
+    "CD-0184: acceptance is decidable at delivery. Each predicate names an end "
+    "state verification can decide when the change is delivered. Post-delivery "
+    "observation over a time window (traffic, an error rate, a metric over "
+    "hours or days) is not acceptance: capture a follow-up work item and link "
+    "it raised_from the delivering item before that item completes. A one-shot "
+    "live check that verification can decide at delivery stays allowed."
+)
+DELIVERY_RULE_WAIT_DESCRIPTION = (
+    "CD-0184: this wait bounds an event a declared authority can resolve while "
+    "the item is open. Do not hold the item open to observe production over a "
+    "time window. Capture that observation as a follow-up work item and link "
+    "it raised_from the delivering item."
+)
+
+
+def require_delivery_rule_teaching(defs: dict) -> None:
+    """CD-0184: the projected authoring schema must teach that acceptance is
+    decidable at delivery, so generation fails before any artifact lands when
+    a projection drops the rule."""
+    items = defs.get("workflow_action_outcome_predicates")
+    text = items.get("description") if isinstance(items, dict) else None
+    if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
+        fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
+    for condition in defs.get("work_transition_action_shared_input", {}).get("allOf", []):
+        trigger = condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const")
+        if trigger != "add_condition":
+            continue
+        then = condition.get("then", {})
+        branches = then.get("anyOf") if isinstance(then.get("anyOf"), list) else [then]
+        for branch in branches:
+            wait = branch.get("properties", {}).get("fields", {}).get("properties", {}).get("expected_within_seconds")
+            wait_text = wait.get("description") if isinstance(wait, dict) else None
+            if wait_text != DELIVERY_RULE_WAIT_DESCRIPTION:
+                fail("add_condition expected_within_seconds does not teach the CD-0184 delivery-decidable rule")
+        return
+    fail("the projected workflow action input names no add_condition condition for the delivery-rule teaching")
+
 SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties"}
 
 def schema_validate(value, schema, root, path="$"):
@@ -351,6 +392,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
     defs["workflow_action_outcome_predicates"] = {
         "type": "array", "minItems": 1, "maxItems": 8,
+        "description": DELIVERY_RULE_PREDICATE_DESCRIPTION,
         "items": {"type": "object", "additionalProperties": False, "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"], "properties": {
             "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
             "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
@@ -382,6 +424,11 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         else:
             def payload_branch(payload: dict) -> dict:
                 field_object = workflow_payload_object_schema(payload, defs)
+                if action_id == "add_condition":
+                    wait = field_object.get("properties", {}).get("expected_within_seconds")
+                    if not isinstance(wait, dict):
+                        fail("add_condition payload names no expected_within_seconds field for the delivery-rule teaching")
+                    wait["description"] = DELIVERY_RULE_WAIT_DESCRIPTION
                 branch = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
                 if "required" in field_object:
                     branch["required"] = ["fields"]
@@ -401,6 +448,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
     defs["work_transition_action_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "payload") for action in divergent_actions]}
     defs["work_transition_action_public_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "public_payload") for action in divergent_actions]}
+    require_delivery_rule_teaching(defs)
     return projected
 
 
@@ -748,13 +796,15 @@ export function payloadFailurePath(name: string, value: unknown): string | null 
 export function envelopeFailurePath(value: unknown): string | null {{
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }}
-// advertisedAdmissionTeachingGaps reports every approve_contract admission
-// rule the published concord_work_transition schema fails to teach a calling
-// agent. An empty list means the advertised schema carries all four store
-// rules: the item-level required set with ordinal, the strict four-variant
-// outcome_payload oneOf, the predicate_id prefix, and the per-workflow pinned
-// outcome tokens. The store's ValidateOperationPayload stays the closed
-// admission boundary; this checks only what the advertised surface teaches.
+// advertisedAdmissionTeachingGaps reports every approve_contract rule the
+// published concord_work_transition schema fails to teach a calling agent. An
+// empty list means the advertised schema carries four store admission rules
+// (the item-level required set with ordinal, the strict four-variant
+// outcome_payload oneOf, the predicate_id prefix, the per-workflow pinned
+// outcome tokens) and the CD-0184 delivery-decidable rule. CD-0184 is
+// authoring guidance only: the store does not refuse a predicate for it. The
+// store's ValidateOperationPayload stays the closed admission boundary; this
+// checks only what the advertised surface teaches.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
   const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
@@ -782,6 +832,14 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const tokens: unknown = allowedBranch?.properties?.allowed?.description;
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  }}
+  const delivery: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.description;
+  if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
+    gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
+  }}
+  const wait: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.expected_within_seconds?.description;
+  if (wait !== {json.dumps(DELIVERY_RULE_WAIT_DESCRIPTION)}) {{
+    gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
   }}
   return gaps;
 }}

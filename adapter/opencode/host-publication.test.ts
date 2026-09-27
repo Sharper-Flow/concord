@@ -97,3 +97,39 @@ test("published workflow transition teaches every approve_contract admission rul
   expect(validateAgainstSchema(schema, missingOrdinal, missingFailures)).toBe(false)
   expect(missingFailures.join("; ")).toContain("ordinal")
 })
+
+test("delivery-decidable-rule: the published schema teaches it and the gap check detects its removal", () => {
+  const schema = adapter.publishedRequestSchema("concord_work_transition") as any
+  const fields = schema.properties.input.properties.fields.properties
+  // CD-0184 teaches the rule at both authoring points: the outcome_predicates
+  // array shared by approve_contract and supersede_contract, and the
+  // add_condition hold bound.
+  expect(fields.outcome_predicates.description).toContain("decidable at delivery")
+  expect(fields.outcome_predicates.description).toContain("raised_from")
+  expect(fields.expected_within_seconds.description).toContain("raised_from")
+  expect(fields.expected_within_seconds.description).toContain("time window")
+
+  // Dropping either teaching from the published schema is a reported gap, so
+  // generation and its tests fail on drift.
+  const droppedPredicateRule = structuredClone(schema)
+  delete droppedPredicateRule.properties.input.properties.fields.properties.outcome_predicates.description
+  expect(advertisedAdmissionTeachingGaps(droppedPredicateRule)).toContain(
+    "outcome_predicates description does not teach the delivery-decidable rule (CD-0184)",
+  )
+
+  const droppedWaitRule = structuredClone(schema)
+  delete droppedWaitRule.properties.input.properties.fields.properties.expected_within_seconds.description
+  expect(advertisedAdmissionTeachingGaps(droppedWaitRule)).toContain(
+    "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",
+  )
+
+  // A description cut down to its marker phrases no longer carries the rule,
+  // so it is a gap too.
+  const reducedRules = structuredClone(schema)
+  reducedRules.properties.input.properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
+  reducedRules.properties.input.properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
+  expect(advertisedAdmissionTeachingGaps(reducedRules)).toEqual(expect.arrayContaining([
+    "outcome_predicates description does not teach the delivery-decidable rule (CD-0184)",
+    "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",
+  ]))
+})

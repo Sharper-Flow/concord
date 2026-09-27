@@ -1174,6 +1174,57 @@ func auditRowsByClass(rows []WorktreeDrift) map[string][]WorktreeDrift {
 	return byClass
 }
 
+// The audit read pages its classification: each page continues at the offset
+// the previous page returned, the last page carries no continuation, and a
+// cursor that does not name a position in the current classification refuses
+// typed instead of guessing (CD-0185).
+func TestWorktreeAuditCursorPagesAndRejectsNonPosition(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	ctx := context.Background()
+	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w")
+	for i := 0; i < 7; i++ {
+		if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("work-orphan-%02d", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	full, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := ""
+	walked := 0
+	pages := 0
+	for {
+		page, pageErr := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 3, Runner: git, DefaultRef: "origin/main", Cursor: cursor})
+		if pageErr != nil {
+			t.Fatal(pageErr)
+		}
+		pages++
+		if len(page.Drift) == 0 {
+			t.Fatalf("page %d is empty before the classification is exhausted", pages)
+		}
+		walked += len(page.Drift)
+		if page.NextCursor == "" {
+			break
+		}
+		if len(page.Drift) != 3 {
+			t.Fatalf("page %d holds %d rows, want a full page before the last", pages, len(page.Drift))
+		}
+		cursor = page.NextCursor
+		if pages > 10 {
+			t.Fatalf("paging did not terminate")
+		}
+	}
+	if walked != len(full.Drift) {
+		t.Fatalf("walked=%d rows over %d pages, full classification=%d", walked, pages, len(full.Drift))
+	}
+	for _, bad := range []string{"not-a-number", "-1", strconv.Itoa(len(full.Drift) + 1)} {
+		_, pageErr := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 3, Runner: git, DefaultRef: "origin/main", Cursor: bad})
+		assertFailureKind(t, pageErr, KindInvalidCursor)
+	}
+}
+
 func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)

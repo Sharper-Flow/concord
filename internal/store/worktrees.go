@@ -2081,10 +2081,16 @@ type WorktreeDrift struct {
 	ClaimAgeSeconds int64 `json:"claim_age_seconds,omitempty"`
 }
 
-// WorktreeAudit is the bounded result of one audit pass.
+// WorktreeAudit is one page of one audit pass. The caller pages through
+// NextCursor until it is empty to reach the complete classification; no page
+// drops a classified row that a cursor cannot still deliver (CD-0185).
 type WorktreeAudit struct {
 	Root  string          `json:"root"`
 	Drift []WorktreeDrift `json:"drift"`
+	// NextCursor is the inner continuation of the page after this one, empty
+	// when the classification is exhausted. It is envelope state, not payload:
+	// the read handler signs it before the caller sees it.
+	NextCursor string `json:"-"`
 }
 
 // WorktreeAuditRequest drives one audit pass. The Runner, Now, and DefaultRef
@@ -2092,8 +2098,12 @@ type WorktreeAudit struct {
 // unstarted class derives its gate facts from git, and a pass that will act on
 // those facts must derive them through the same runner it will reclaim with.
 type WorktreeAuditRequest struct {
-	ProductID  string
-	Limit      int
+	ProductID string
+	Limit     int
+	// Cursor is the continuation the previous page returned: the decimal
+	// offset into the deterministic classification order. Empty starts the
+	// first page.
+	Cursor     string
 	Runner     GitRunner
 	Now        time.Time
 	DefaultRef string
@@ -2118,9 +2128,11 @@ type WorktreeAuditRequest struct {
 // a pass that would act on the class refuses typed instead. An unreachable
 // repository refuses the pass typed rather than degrading to an unclassified row.
 //
-// Output is bounded by limit and ordered deterministically (class, project,
-// path), so a truncated pass is stable for the caller. The limit bounds this
-// read's report only; classification itself always runs over every entry.
+// Output is bounded by the page limit and ordered deterministically (class,
+// project, path), so one page of the classification is stable for the caller
+// and the next page continues at the offset the cursor names. The limit
+// bounds this read's report only; classification itself always runs over
+// every entry.
 func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (WorktreeAudit, error) {
 	if s == nil || s.db == nil {
 		return WorktreeAudit{}, newFailure(KindUnavailable, "worktree_audit", "store is not open", false, "open the authority database")
@@ -2144,9 +2156,21 @@ func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (Wo
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
-	if len(audit.Drift) > limit {
-		audit.Drift = audit.Drift[:limit]
+	offset := 0
+	if req.Cursor != "" {
+		parsed, parseErr := strconv.Atoi(req.Cursor)
+		if parseErr != nil || parsed < 0 || parsed > len(audit.Drift) {
+			return WorktreeAudit{}, newFailure(KindInvalidCursor, "worktree_audit", "audit page cursor does not name a position in the current classification", false, "restart the audit from its first page")
+		}
+		offset = parsed
 	}
+	end := offset + limit
+	if end > len(audit.Drift) {
+		end = len(audit.Drift)
+	} else {
+		audit.NextCursor = strconv.Itoa(end)
+	}
+	audit.Drift = audit.Drift[offset:end]
 	return audit, nil
 }
 

@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuditReclaimPageSizeExceedingEnvelopeReportsOkWithPagedReport"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuditReclaimReplayReturnsSameBoundedResult"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeAuditReadPagesCompleteClassification"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestCompactAuditReclaimReportBoundsResultToEnvelopeCap"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditCursorPagesAndRejectsNonPosition"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestAuditReclaimBeyondChangedRefBoundReportsCommittedEffect"
+    }
+  ],
+  "id": "CD-0185",
+  "state": "satisfied"
+}

@@ -17,9 +17,8 @@ not package or install them. This check proves the example contract in CD-0154:
                      conduct corpus, not in the portable examples
   intake restriction the intake definition keeps its write and workflow
                      denials
-  repository         each coordinator states the cross-repository boundary
-                     (CD-0178 D2) and no coordinator example tells a
-                     coordinator to claim or move into another repository
+  repository         each coordinator that carries the Projects guidance
+                     states the cross-repository boundary (CD-0178 D2)
 """
 from __future__ import annotations
 
@@ -68,13 +67,13 @@ DELEGATION_ANCHOR_MARKERS = (
     "steps the core does not admit for dispatch",
 )
 # CD-0178 D2 and its Verification entry 7: the coordinators that carry the
-# Projects guidance must state the cross-repository boundary, and no example
-# may tell a coordinator to claim a worktree in, or move the session into,
-# another repository. The required phrases bind only the examples that carry
-# the Projects guidance; concord-0.md carries none and holds no worktree or
-# session-move authority. The forbidden rule binds every example and reads
-# sentences, not exact phrases: a sentence that names another repository and
-# a claim-or-move action is an instruction unless it forbids the action.
+# Projects guidance must state the cross-repository boundary. The rule is a
+# deterministic presence check over the required phrases. CD-0055 D4 forbids
+# a repository check from blocking on a semantic judgment, so this checker
+# proves the statement is present and claims nothing about the absence of
+# paraphrased move instructions; the examples' own boundary wording governs
+# that. The phrases bind only the examples that carry the Projects guidance;
+# concord-0.md carries none and holds no worktree or session-move authority.
 BOUNDARY_SCOPE_FILES = ("concord-1.md", "concord-2.md")
 REQUIRED_BOUNDARY_PHRASES = (
     "One coordinator session per repository",
@@ -82,55 +81,6 @@ REQUIRED_BOUNDARY_PHRASES = (
     "never claim or move across the boundary",
     "this session stops driving the other repository",
 )
-OTHER_REPOSITORY_RE = re.compile(
-    r"\b(?:another|other|second|target) (?:git )?repositor(?:y|ies)", re.IGNORECASE
-)
-CLAIM_OR_MOVE_RE = re.compile(
-    r"\b(?:claim|claims|move|moves|switch|switches|relocate|relocates|serve|serves)\b",
-    re.IGNORECASE,
-)
-PROHIBITIVE_RE = re.compile(
-    r"\b(?:never|not|no|refuse[sd]?|cannot|stop[s]?|forbid[s]?)\b", re.IGNORECASE
-)
-# A move clause whose target is only a pronoun ('move the session there',
-# 'relocate into it') crosses when the same sentence names another
-# repository; the pronoun carries that reference.
-TARGET_PRONOUN_RE = re.compile(
-    r"\b(?:there|into it|to it)\b", re.IGNORECASE
-)
-
-
-def forbidden_move_sentences(text: str) -> list[str]:
-    """Return each clause that instructs a cross-repository claim or move.
-
-    A clause that names another repository and a claim-or-move action is an
-    instruction unless the same clause forbids the action. Reading clauses,
-    not sentences, keeps a prohibitive word in one clause from masking an
-    affirmative instruction in another ('Do not wait; claim a worktree in
-    the other repository'), and keeps a repository named in one clause from
-    turning a move in a different clause into a crossing. A clause whose
-    action verb carries only a target pronoun ('move the session there') is
-    a crossing when any earlier clause of the same sentence names another
-    repository.
-    """
-    findings: list[str] = []
-    for sentence in re.split(r"(?<=[.!?])\s+|\n", flatten(text)):
-        sentence_names_other_repository = False
-        for clause in re.split(r"[;:]\s*|,\s+|\s(?:but|and|or|then)\s", sentence):
-            if OTHER_REPOSITORY_RE.search(clause):
-                sentence_names_other_repository = True
-            crossing_named = bool(OTHER_REPOSITORY_RE.search(clause))
-            crossing_by_pronoun = bool(
-                TARGET_PRONOUN_RE.search(clause)
-                and sentence_names_other_repository
-            )
-            if (
-                (crossing_named or crossing_by_pronoun)
-                and CLAIM_OR_MOVE_RE.search(clause)
-                and not PROHIBITIVE_RE.search(clause)
-            ):
-                findings.append(clause)
-    return findings
 
 
 def read_prompt(root: Path, name: str) -> str:
@@ -239,10 +189,6 @@ def check_primary_prompts(root: Path) -> list[str]:
                         findings.append(
                             f"{name} lost the cross-repository boundary phrase {phrase!r}"
                         )
-            for sentence in forbidden_move_sentences(text):
-                findings.append(
-                    f"{name} tells a coordinator to move into another repository: {sentence!r}"
-                )
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 

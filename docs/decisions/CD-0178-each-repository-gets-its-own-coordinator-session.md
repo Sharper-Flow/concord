@@ -190,17 +190,16 @@ The linked open work takes these dispositions:
   `cross_repository_claim`, creates no worktree, and names D2 as the remedy.
   `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
   proves the refusal kind, the absent worktree, and the named remedy.
-- Two coordinator sessions in two repositories each dispatch a lane on one
-  work item, and each lane writes only in its own repository's worktree.
-  `internal/store.TestStoreTwoProjectClaimsConcurrent` proves one work
-  item holds both repositories' worktrees;
+- One work item holds a worktree in each of two repositories, a
+  cross-repository claim refuses before creating one, and a
+  second-repository resume routes through the registered session opener
+  while this session captures nothing.
+  `internal/store.TestStoreTwoProjectClaimsConcurrent` proves the two
+  worktrees on one item;
   `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
-  proves the cross-repository refusal; `bun test
-  adapter/opencode/concord.test.ts` proves a second-repository resume
-  routes through the registered session opener and captures nothing in
-  this session. The lane-write containment itself is D2 design intent
-  carried by this record's acceptance; no repository test dispatches two
-  live lanes.
+  proves the refusal; `bun test adapter/opencode/concord.test.ts` proves
+  the opener route. The two-session dispatch route itself is D2 decision
+  text carried by this record's acceptance, not a claim of this section.
 - A second session that lands in an occupied worktree records its own row
   and receives no `worktree_ownership_conflict`.
   `internal/store.TestClaimLandingTransfersOccupancyInOneTransaction` and
@@ -222,8 +221,8 @@ The linked open work takes these dispositions:
 - The removal operations accept no `observed_session_directories` input.
   `bun test adapter/opencode/concord.test.ts` proves no removal input
   carries the field and no removal makes a host session-list round-trip.
-- The coordinator examples contain no text that tells a coordinator to move
-  into another repository. `python3 scripts/check-primary-prompts.py` proves
-  each coordinator states the cross-repository boundary and carries no
-  instruction to claim a worktree in, or move the session into, another
-  repository.
+- The coordinator examples that carry the Projects guidance state the
+  cross-repository boundary. `python3 scripts/check-primary-prompts.py`
+  proves the boundary statement is present in each of them. A repository
+  check cannot prove the absence of every paraphrased move instruction
+  (CD-0055 D4); the examples' own boundary wording governs that.

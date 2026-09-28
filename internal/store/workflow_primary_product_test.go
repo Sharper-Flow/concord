@@ -4,7 +4,6 @@ package store
 // work item's primary Project membership: the primary Project's Product owns
 // the contract, so a secondary membership in another Product widens visibility
 // only and must never refuse a continuity read, a law check, or completion.
-// Each test names the approved contract check it discharges.
 
 import (
 	"context"
@@ -86,10 +85,9 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	}
 }
 
-// The recorded defect: a contract approval carrying an architecture binding
-// refused unknown_scope "workflow must resolve to exactly one Product" once a
-// secondary Project in another Product joined. The approval must record, and
-// the binding must pin the primary Product.
+// A contract approval carrying an architecture binding records even when a
+// secondary Project in another Product joins the work: the approval persists,
+// and the binding pins the primary Product.
 func TestCrossProductWorkApprovesArchitectureBinding(t *testing.T) {
 	t.Parallel()
 	workID := "cross-product-binding-approval"
@@ -104,11 +102,8 @@ func TestCrossProductWorkApprovesArchitectureBinding(t *testing.T) {
 	}
 }
 
-// Continuity is the read the recorded defect refused
-// (concord_work_trace.continuity, unknown_scope from
-// workflow_architecture_binding). A cross-Product work item with an approved
-// architecture binding must read its continuity, and the identity listing
-// must keep every member Product.
+// A cross-Product work item with an approved architecture binding reads its
+// continuity, and the identity listing keeps every member Product.
 func TestContinuityReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
 	t.Parallel()
 	workID := "cross-product-continuity"

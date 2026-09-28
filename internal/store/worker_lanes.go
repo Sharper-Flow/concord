@@ -898,9 +898,16 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 // row or no row at all admits the close. The store never reaches for the
 // host session list, so a session running in another repository cannot
 // strand this attempt through observation alone.
+//
+// A row without process identity follows the CD-0179 D3 release rule the
+// reclaim path applies: it admits the close when the caller's pre-transaction
+// host lease set proves every live host lease started after the row's
+// recorded_at, which proves the recording process ended. A missing or
+// unreadable lease set releases nothing, and so does any live lease that
+// started at or before the row.
 func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) error {
 	rows, err := q.QueryContext(ctx, `
-		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start
+		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start, o.recorded_at
 		  FROM worktree_entries e
 		  JOIN worktree_occupancy o ON o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
 		 WHERE e.set_id=? AND e.state='active'`, WorktreeSetID(workID))
@@ -913,6 +920,7 @@ func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) 
 		hasIdentity                             bool
 		hostPID                                 *int64
 		hostPIDStart                            *uint64
+		recordedAt                              string
 	}
 	var actives []pending
 	for rows.Next() {
@@ -920,7 +928,7 @@ func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) 
 		var hostPID sql.NullInt64
 		var hostPIDStart sql.NullInt64
 		var hasIdentity int
-		if err := rows.Scan(&p.setID, &p.projectID, &p.claimOpID, &p.sessionRef, &hasIdentity, &hostPID, &hostPIDStart); err != nil {
+		if err := rows.Scan(&p.setID, &p.projectID, &p.claimOpID, &p.sessionRef, &hasIdentity, &hostPID, &hostPIDStart, &p.recordedAt); err != nil {
 			return err
 		}
 		p.hasIdentity = hasIdentity == 1
@@ -943,10 +951,16 @@ func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) 
 	for _, p := range actives {
 		if !p.hasIdentity {
 			// Legacy row without process identity: the kernel cannot prove
-			// liveness. The abandon path cannot release it; refuse.
-			return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
-				fmt.Sprintf("session %s holds a legacy occupancy row on the worker attempt worktree; process liveness cannot prove it ended", p.sessionRef),
-				false, "session_vacate the legacy occupant before retrying abandonment")
+			// liveness. The close is admitted only on the CD-0179 D3
+			// lease-set proof the caller carried on the context; a missing
+			// or unreadable observation releases nothing.
+			leases, carried := hostLeaseSetFromContext(ctx)
+			if !carried || !legacyOccupancyRowEnded(leases, p.recordedAt) {
+				return newFailure(KindWorktreeOwnershipConflict, "worker_fail",
+					fmt.Sprintf("session %s holds a legacy occupancy row on the worker attempt worktree; process liveness cannot prove it ended", p.sessionRef),
+					false, "session_vacate the legacy occupant before retrying abandonment")
+			}
+			continue
 		}
 		start, err := hostlease.ProcessStart(int(*p.hostPID))
 		if err != nil || start != *p.hostPIDStart {

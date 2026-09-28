@@ -359,6 +359,80 @@ func TestAbandonedWorkerFailureRequiresAnUnoccupiedActiveWorktree(t *testing.T) 
 	}
 }
 
+// TestAbandonedWorkerFailureMissingLeaseSetRefusesALegacyRow proves the
+// abandon gate applies the CD-0179 D3 release rule to a legacy occupancy row:
+// without a lease observation carried on the context, and with an unreadable
+// one, the row releases nothing and the close is refused; with a readable set
+// whose every live lease started after the row's recorded_at, the recording
+// process is provably ended and the close is admitted.
+func TestAbandonedWorkerFailureMissingLeaseSetRefusesALegacyRow(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	claim := baseClaim(git)
+	if _, err := s.ClaimWorktree(context.Background(), claim); err != nil {
+		t.Fatal(err)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "legacy-row-attempt"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-w", attemptID, lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`
+		INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+		VALUES (?, ?, ?, NULL, NULL, 0);
+		DELETE FROM fold_guard`,
+		worktreeOccupancyID(WorktreeSetID("work-w"), "project-w", "wt-op-1"), "session-legacy", "1970-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	closePayload := WorkerFailedPayload{
+		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureAbandoned,
+		Detail: "the host observed that the lane never reported"}
+	closeAttempt := func(ctx context.Context, eventID string) error {
+		return ApplyOperation(ctx, s, Operation{Events: []Event{{
+			EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: "work-w",
+			Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1,
+			Payload: mustJSONValue(closePayload),
+		}}})
+	}
+	dispatched := func() {
+		t.Helper()
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "dispatched" {
+			t.Fatalf("legacy row close state = %q, want dispatched", state)
+		}
+	}
+
+	// No lease observation carried on the context: nothing releases the row.
+	if err := closeAttempt(context.Background(), "legacy-close-missing-set"); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
+		t.Fatalf("missing lease set close error = %v, want %s", err, KindWorktreeOwnershipConflict)
+	}
+	dispatched()
+
+	// An unreadable lease observation proves nothing and releases nothing.
+	unreadable := WithHostLeaseSet(context.Background(), HostLeaseSet{Err: errors.New("lease set unreadable")})
+	if err := closeAttempt(unreadable, "legacy-close-unreadable-set"); !hasFailureKind(err, KindWorktreeOwnershipConflict) {
+		t.Fatalf("unreadable lease set close error = %v, want %s", err, KindWorktreeOwnershipConflict)
+	}
+	dispatched()
+
+	// A readable set whose every live lease (the live test process) started
+	// after 1970 proves the recording process ended, and the close proceeds.
+	live := WithHostLeaseSet(context.Background(), HostLeaseSet{Leases: []hostlease.Lease{{PID: os.Getpid()}}})
+	if err := closeAttempt(live, "legacy-close-ended-proof"); err != nil {
+		t.Fatalf("ended legacy occupant close: %v", err)
+	}
+	var state, failure string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state, &failure); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || failure != WorkerFailureAbandoned {
+		t.Fatalf("legacy row close projection = %q/%q, want failed/%s", state, failure, WorkerFailureAbandoned)
+	}
+}
+
 // A refused completion closes as invalid_report while the coordinator's own
 // occupancy row is live. The abandoned kind alone carries the CD-0178 D3
 // liveness gate, so a lane that ran inside the live coordinator process ends

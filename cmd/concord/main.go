@@ -980,6 +980,13 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // The integrity check sits beside the existing capability, signature, and
 // nonce checks so a worker that fails any one boundary fails consistently.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, resolve func(store.WorkerAttempt) (store.Event, error), event store.Event, out, errOut io.Writer) int {
+	// CD-0179 D3: an abandoned close releases a legacy occupancy row only on
+	// the lease-set proof, so the verb reads the live host lease set before
+	// the transaction opens and carries the observation to the fold gate on
+	// the context. A missing or unreadable set releases nothing.
+	if binding.Verb == agent.WorkerEvidenceVerbFail && binding.FailureKind == store.WorkerFailureAbandoned {
+		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
+	}
 	var eventIDs []string
 	var recorded error
 	err := s.Transact(ctx, func(tx *store.Transaction) error {

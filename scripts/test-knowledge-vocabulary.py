@@ -150,6 +150,35 @@ def test_legacy_decision_set_growth_in_an_enforcer_is_reported() -> None:
         ]
 
 
+def test_legacy_spec_set_schema_divergence_is_reported() -> None:
+    """The frozen spec boundary binds schema, checker, and generator in both
+    directions, so no single enforcement point can widen the set."""
+    schema = copy.deepcopy(SCHEMA)
+    schema["$defs"]["legacySpecProfileId"]["enum"].append("future-spec")
+    assert validate(schema) == [
+        "LEGACY_SPEC_PROFILE_IDS: declared in schema, absent from the checker: future-spec"
+    ]
+    assert validate_generator(schema) == [
+        "generator LEGACY_SPEC_PROFILE_IDS: declared in schema, absent from the checker: future-spec"
+    ]
+
+
+def test_legacy_spec_set_growth_in_an_enforcer_is_reported() -> None:
+    schema = copy.deepcopy(SCHEMA)
+    with mock.patch.object(
+        CHECKER, "LEGACY_SPEC_PROFILE_IDS", CHECKER.LEGACY_SPEC_PROFILE_IDS | {"future-spec"}
+    ):
+        assert validate(schema) == [
+            "LEGACY_SPEC_PROFILE_IDS: enforced by the checker, absent from the schema: future-spec"
+        ]
+    with mock.patch.object(
+        GENERATOR, "LEGACY_SPEC_PROFILE_IDS", GENERATOR.LEGACY_SPEC_PROFILE_IDS | {"future-spec"}
+    ):
+        assert validate_generator(schema) == [
+            "generator LEGACY_SPEC_PROFILE_IDS: enforced by the checker, absent from the schema: future-spec"
+        ]
+
+
 def test_law_bearing_tier_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
     for clause in schema["$defs"]["record"]["allOf"]:

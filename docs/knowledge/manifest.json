@@ -49,6 +49,12 @@
     },
     "spec": {
       "ac_required": true,
+      "current_required_sections": [
+        "Context",
+        "Contract",
+        "Acceptance criteria",
+        "Verification"
+      ],
       "required_sections": [
         "Context",
         "Contract",

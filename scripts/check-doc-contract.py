@@ -16,17 +16,22 @@ existing corpus can dogfood the rule before it blocks CI.
                 on the current profile the required sections sit in the
                 manifest's declared order at heading level 2, while a legacy
                 record keeps the presence-only rule
-  decision profile
-                CD-0175: when the decision contract declares a
-                current_required_sections outline, a decision record whose
-                shard authors doc_contract_profile "current" must carry that
-                outline. A shard that authors "legacy" keeps the legacy
-                outline, so accepted decisions are preserved without
-                invented sections. Selection reads authored per-record shard
-                metadata, never a record date, and the closed historical set
-                that bounds the legacy profile is frozen in the index schema
-                and enforced by the knowledge-index checker, the shard
-                generator, and their vocabulary binding. A current-profile
+  record profile
+                CD-0175: when a kind's contract declares a
+                current_required_sections outline, a record of that kind
+                whose shard authors doc_contract_profile "current" (or
+                authors no profile, the new-record default) must carry that
+                outline in its declared order at heading level 2, with each
+                required section appearing once. A shard that authors
+                "legacy" keeps the legacy outline, so accepted records are
+                preserved without invented sections. Selection reads
+                authored per-record shard metadata, never a record date,
+                and the closed historical set that bounds the legacy
+                profile is frozen in the index schema and enforced by the
+                knowledge-index checker, the shard generator, and their
+                vocabulary binding. The decision kind and the spec kind
+                declare the outline today; the remaining profile rules
+                below stay decision-specific. A current-profile
                 decision may carry acceptance-criteria sections under either
                 heading spelling, every matching section is read, and
                 criteria stated inside a fenced block parse with the same
@@ -112,14 +117,15 @@ SCENARIO_ID_SHAPE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}-[a-z0-9]+(?:-[a-z0-9]+)*
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
 DOC_CONTRACT_KINDS = ("constitution", "decision", "spec", "lesson", "reference", "research")
 DOC_CONTRACT_FIELDS = {"enforced", *DOC_CONTRACT_KINDS, "banned_phrases", "activation"}
-# CD-0175: the versioned decision profile. `current_required_sections` names
-# the outline every decision carries on the current profile; the profile is
-# authored per record in the record shard's `doc_contract_profile` field, and
-# the closed historical set that bounds the legacy profile lives in the index
-# schema, not here. Authored in the manifest head, never inferred from a
-# record date, and only the decision kind may carry it.
-DECISION_BASE_FIELDS = {"required_sections", "ac_required"}
-DECISION_PROFILE_FIELDS = {"current_required_sections"}
+# CD-0175: the versioned record profile. `current_required_sections` names
+# the outline every record of a kind carries on the current profile; the
+# profile is authored per record in the record shard's `doc_contract_profile`
+# field, and the closed historical set that bounds the legacy profile lives
+# in the index schema, not here. Authored in the manifest head, never
+# inferred from a record date. A kind declares it in its own contract block;
+# a kind without the declaration keeps the unversioned behavior.
+KIND_BASE_FIELDS = {"required_sections", "ac_required"}
+KIND_PROFILE_FIELDS = {"current_required_sections"}
 AC_SECTION_TITLE = "Acceptance criteria"
 DEFAULT_ABBREVIATION_ALLOWLIST = frozenset(
     {
@@ -288,20 +294,20 @@ def unique_string_list(value: object, maximum: int, minimum: int = 0) -> bool:
     return True
 
 
-def validate_decision_profile(body: dict, findings: list[str]) -> None:
-    """Validate the authored CD-0175 profile on the decision contract.
+def validate_kind_profile(kind: str, body: dict, findings: list[str]) -> None:
+    """Validate the authored CD-0175 profile on a kind's contract.
 
-    The field is optional: a decision contract without it keeps the
+    The field is optional: a kind contract without it keeps the
     unversioned behavior. The outline lives in the manifest head because it
-    is one rule for every current-profile decision; the profile itself lives
-    in each record shard, where the knowledge-index checker and the shard
-    generator bound it to the closed historical set.
+    is one rule for every current-profile record of the kind; the profile
+    itself lives in each record shard, where the knowledge-index checker and
+    the shard generator bound it to the closed historical set.
     """
     if "current_required_sections" in body and not unique_string_list(
         body["current_required_sections"], 32, minimum=1
     ):
         findings.append(
-            "manifest.doc_contract.decision: current_required_sections must be a unique array of 1-32 trimmed strings"
+            f"manifest.doc_contract.{kind}: current_required_sections must be a unique array of 1-32 trimmed strings"
         )
 
 
@@ -336,11 +342,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
         if not isinstance(body, dict):
             findings.append(f"manifest.doc_contract.{kind}: must be an object")
             continue
-        body_unknown = set(body) - (
-            DECISION_BASE_FIELDS | DECISION_PROFILE_FIELDS
-            if kind == "decision"
-            else DECISION_BASE_FIELDS
-        )
+        body_unknown = set(body) - (KIND_BASE_FIELDS | KIND_PROFILE_FIELDS)
         if body_unknown:
             findings.append(
                 f"manifest.doc_contract.{kind}: unknown fields: {sorted(body_unknown)}"
@@ -351,8 +353,7 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
             )
         if "ac_required" in body and not isinstance(body["ac_required"], bool):
             findings.append(f"manifest.doc_contract.{kind}: ac_required must be a boolean")
-        if kind == "decision":
-            validate_decision_profile(body, findings)
+        validate_kind_profile(kind, body, findings)
 
     if "banned_phrases" in contract and not unique_string_list(
         contract["banned_phrases"], 64
@@ -819,14 +820,15 @@ def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
     findings.append(f"ac-forbidden: {path.relative_to(ROOT)}#{section[0]}")
 
 
-def decision_on_legacy_profile(record: dict) -> bool:
+def record_on_legacy_profile(record: dict) -> bool:
     """CD-0175: the authored shard profile decides; nothing else is inferred.
 
-    The profile names the outline generation in the record's own shard. A
-    record date or an identifier comparison would select a profile from
-    context instead of from the authored metadata the shard owns, and the
-    knowledge-index checker has already bounded the legacy claim to the
-    closed historical set before this checker runs.
+    The profile names the outline generation in the record's own shard, for
+    whichever kind declares a current outline. A record date or an
+    identifier comparison would select a profile from context instead of
+    from the authored metadata the shard owns, and the knowledge-index
+    checker has already bounded the legacy claim to the closed historical
+    set before this checker runs.
     """
     return record.get("doc_contract_profile") == "legacy"
 
@@ -1134,9 +1136,8 @@ def check_record(
     headings = collect_headings(lines)
     heading_entries = collect_heading_entries(lines)
     on_current_profile = (
-        kind == "decision"
-        and "current_required_sections" in spec
-        and not decision_on_legacy_profile(record)
+        "current_required_sections" in spec
+        and not record_on_legacy_profile(record)
     )
     if on_current_profile:
         required = spec["current_required_sections"]
@@ -1146,11 +1147,11 @@ def check_record(
     if on_current_profile:
         check_outline_order_and_level(heading_entries, required, absolute, findings)
 
-    # The anchor rule covers current-profile decisions and every spec in
+    # The anchor rule covers current-profile records and every spec in
     # doc-contract scope: a count comparison proves resolution only when each
-    # entry names an executable anchor. A legacy decision keeps the
+    # entry names an executable anchor. A legacy record keeps the
     # presence-only contract, and the outline order/level/duplicate rules
-    # stay current-profile-decisions-only.
+    # stay current-profile-only.
     require_anchors = on_current_profile or kind == "spec"
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)

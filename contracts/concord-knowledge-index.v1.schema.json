@@ -367,7 +367,7 @@
           "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
         },
         "doc_contract_profile": {
-          "description": "CD-0175: the authored outline generation a decision record carries. 'legacy' keeps the pre-amendment outline; 'current' carries the manifest head's current_required_sections. Required on every decision record once the manifest head declares doc_contract.decision.current_required_sections, absent-allowed before that declaration, and invalid on every other kind; the legacy profile is bounded by $defs.legacyDecisionProfileId.",
+          "description": "CD-0175: the authored outline generation a decision or spec record carries. 'legacy' keeps the pre-amendment outline; 'current' carries the manifest head's current_required_sections. Required on every decision record once the manifest head declares doc_contract.decision.current_required_sections, absent-allowed before that declaration. On spec records the field is optional and absence authors the current profile, so the registered corpus needs no content change; a spec 'legacy' claim is bounded by $defs.legacySpecProfileId and a decision 'legacy' claim by $defs.legacyDecisionProfileId. Invalid on every other kind.",
           "enum": [
             "legacy",
             "current"
@@ -536,7 +536,6 @@
               "kind": {
                 "enum": [
                   "constitution",
-                  "spec",
                   "lesson",
                   "reference",
                   "research"
@@ -599,6 +598,29 @@
             "properties": {
               "doc_contract_profile": {
                 "const": "current"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "spec"
+              },
+              "doc_contract_profile": {
+                "const": "legacy"
+              }
+            },
+            "required": [
+              "kind",
+              "doc_contract_profile"
+            ]
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/legacySpecProfileId"
               }
             }
           }
@@ -1092,6 +1114,18 @@
             },
             "ac_required": {
               "type": "boolean"
+            },
+            "current_required_sections": {
+              "description": "CD-0175 mirrored for the spec kind: the exact headings every spec record carries on the current profile. Authored in the manifest head; the record shard's doc_contract_profile selects the profile, and a spec 'legacy' claim is bounded by $defs.legacySpecProfileId. Never inferred from a record date.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
             }
           }
         },
@@ -1338,6 +1372,37 @@
         "CD-0172",
         "CD-0173",
         "CD-0174"
+      ]
+    },
+    "legacySpecProfileId": {
+      "description": "CD-0175 mirrored for the spec kind: the closed historical boundary of the spec outline. The spec record identifiers registered before the spec outline amendment; the set never grows. Membership makes the legacy profile available to author, never asserted: an unprofiled spec record authors the current profile, and a spec id outside the set cannot claim the legacy outline.",
+      "enum": [
+        "C14",
+        "C15",
+        "C17",
+        "PM1",
+        "PM10",
+        "PM2",
+        "PM3",
+        "PM4",
+        "PM5",
+        "PM6",
+        "PM7",
+        "PM8",
+        "PM9",
+        "TS1",
+        "TS2",
+        "TS3",
+        "TS4",
+        "TS5",
+        "TS6",
+        "TS7",
+        "TS8",
+        "TS9",
+        "development-authority",
+        "terminal-launcher-contract",
+        "terminal-launcher-replacement-contract",
+        "workflow-engine-contract"
       ]
     },
     "docContractKind": {

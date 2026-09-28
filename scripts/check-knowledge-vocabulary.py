@@ -191,6 +191,12 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
         generator.LEGACY_DECISION_PROFILE_IDS,
         findings,
     )
+    compare(
+        "generator LEGACY_SPEC_PROFILE_IDS",
+        schema_enum(schema, ["$defs", "legacySpecProfileId"], findings),
+        generator.LEGACY_SPEC_PROFILE_IDS,
+        findings,
+    )
     compare_pattern(
         "generator RECORD_PATH_RE",
         schema_string(schema, ["$defs", "record", "properties", "path", "pattern"], findings),
@@ -235,6 +241,12 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
         "LEGACY_DECISION_PROFILE_IDS",
         schema_enum(schema, ["$defs", "legacyDecisionProfileId"], findings),
         checker.LEGACY_DECISION_PROFILE_IDS,
+        findings,
+    )
+    compare(
+        "LEGACY_SPEC_PROFILE_IDS",
+        schema_enum(schema, ["$defs", "legacySpecProfileId"], findings),
+        checker.LEGACY_SPEC_PROFILE_IDS,
         findings,
     )
     compare(

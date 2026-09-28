@@ -144,10 +144,12 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minItems={evidence_entry['properties']['predicate_ids']['minItems']}, "
         f"maxItems={evidence_entry['properties']['predicate_ids']['maxItems']}, "
         f"items={json.dumps(evidence_entry['properties']['predicate_ids']['items'], ensure_ascii=False)}. "
-        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges. "
-        "Discharge rule: when the packet's `inputs.outcome_predicates` is non-empty, a completed report "
-        "must name every declared `predicate_id` in at least one evidence entry's `predicate_ids` — "
-        "including findings entries — or the store refuses the completion with `invalid_report`.",
+        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence proves. "
+        "Tie rule: `predicate_ids` is optional per entry; omit it on an entry that proves no declared predicate, "
+        "because an empty array fails `minItems=1`. Tie a declared `predicate_id` only to an entry whose evidence "
+        "proves that predicate; the store refuses a completed report that ties a `predicate_id` the packet's "
+        "`inputs.outcome_predicates` did not declare with `invalid_report`. Predicates no entry proves are decided "
+        "by the completion verdicts, never by this report.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
         "base_comparison: "

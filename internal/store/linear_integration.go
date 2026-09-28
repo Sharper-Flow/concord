@@ -1309,11 +1309,28 @@ ORDER BY wp.project_id`, productID, workID)
 // resolveLinearInitiativeOwnershipCore applies CD-0171 D6: Linear carries one
 // Project per issue, so among the Initiatives holding this work item the
 // earliest-joined one owns the Project field and the others are reported for
-// the issue description. initiative_entries is the folded projection whose
-// row order is the durable join order: the entry-added fold inserts each row
-// once and removal deletes it, so a re-added entry rejoins at the end.
+// the issue description. The join instant comes from the event log, not from
+// physical row order: a membership's latest initiative_entry.added event seq
+// is when the child joined that Initiative (removal deletes the row, so a
+// re-add restarts the clock at its new event), and the Initiative with the
+// lowest such seq owns. Physical order is not usable here:
+// initiative_entries has no INTEGER PRIMARY KEY, so VACUUM or a rebuild copy
+// can reorder its rows and silently move a shared child's issue to another
+// Initiative's Project. Rows without any added event have no log instant,
+// sort first, and order among themselves by work id.
 func resolveLinearInitiativeOwnershipCore(ctx context.Context, q queryer, workID string) (owner string, others []string, err error) {
-	rows, err := q.QueryContext(ctx, `SELECT initiative_work_id FROM initiative_entries WHERE child_work_id=? ORDER BY rowid`, workID)
+	rows, err := q.QueryContext(ctx, `
+SELECT ie.initiative_work_id
+FROM initiative_entries ie
+LEFT JOIN (
+    SELECT e.subject_id AS initiative_work_id, MAX(e.seq) AS join_seq
+    FROM domain_events e
+    WHERE e.kind='initiative_entry.added' AND e.subject_type='work_item'
+      AND json_extract(e.payload,'$.child_work_id')=?
+    GROUP BY e.subject_id
+) j ON j.initiative_work_id=ie.initiative_work_id
+WHERE ie.child_work_id=?
+ORDER BY coalesce(j.join_seq, 0), ie.initiative_work_id`, workID, workID)
 	if err != nil {
 		return "", nil, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read Initiative entries", true, "retry once the database is readable", err)
 	}
@@ -2356,9 +2373,11 @@ func enqueueLinearIssueUpdateForEntryTx(ctx context.Context, tx *sql.Tx, childWo
 // transaction, so a confirmed entry can never sit outside the new Project in
 // the window between a completed create and a separate refresh (CD-0171 D2).
 // Entries without a confirmed link skip: their next
-// enqueue carries the Project from the start.
+// enqueue carries the Project from the start. Entries walk in the declared
+// position order, so the queued updates carry the Initiative's order and
+// never physical row order.
 func enqueueLinearIssueUpdatesForInitiativeEntriesTx(ctx context.Context, tx *sql.Tx, initiativeWorkID string, at time.Time) ([]ClaimedLinearOperation, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT child_work_id FROM initiative_entries WHERE initiative_work_id=? ORDER BY rowid`, initiativeWorkID)
+	rows, err := tx.QueryContext(ctx, `SELECT child_work_id FROM initiative_entries WHERE initiative_work_id=? ORDER BY position, child_work_id`, initiativeWorkID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_issue_entry_refresh", "cannot read Initiative entries", true, "retry once the database is readable", err)
 	}

@@ -1786,6 +1786,173 @@ def test_legacy_decision_uppercase_criteria_stay_unparsed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The spec profile: the spec kind mirrors the CD-0175 decision profile.
+# ---------------------------------------------------------------------------
+
+
+SPEC_OUTLINE = ["Context", "Contract", "Acceptance criteria", "Verification"]
+
+
+def spec_contract(spec_body: dict | None = None) -> dict:
+    contract = {
+        "enforced": True,
+        "spec": {
+            "required_sections": SPEC_OUTLINE,
+            "ac_required": True,
+        },
+        "banned_phrases": [
+            "in order to", "utilize", "leverage",
+            "it is important to note", "needless to say", "at the end of the day",
+        ],
+    }
+    if spec_body is not None:
+        contract["spec"] = spec_body
+    return contract
+
+
+def current_spec_contract() -> dict:
+    body = spec_contract()["spec"]
+    body["current_required_sections"] = SPEC_OUTLINE
+    return spec_contract(body)
+
+
+def spec_record_with_profile(path: str, profile: str | None, sha_digest: str = "p") -> dict:
+    spec_record = record(path, sha_digest=sha_digest)
+    if profile is not None:
+        spec_record["doc_contract_profile"] = profile
+    return spec_record
+
+
+def ordered_spec_body(headings: list[tuple[int, str]]) -> str:
+    parts = ["# An ordered spec", ""]
+    for level, title in headings:
+        parts += ["#" * level + " " + title, ""]
+        if title == "Acceptance criteria":
+            parts += [
+                "- Given a precondition",
+                "  When an action happens",
+                "  Then an outcome follows.",
+                "",
+            ]
+        elif title == "Verification":
+            parts += ["Proved by `internal/store.TestSpecOutline`.", ""]
+        else:
+            parts += ["The section states its content.", ""]
+    return "\n".join(parts)
+
+
+def run_profiled_spec(path: str, body: str, profile: str | None = None) -> tuple[int, str, str]:
+    root = sandbox()
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root, [spec_record_with_profile(path, profile)], contract=current_spec_contract()
+    )
+    return run_checker(root, manifest)
+
+
+def test_current_spec_with_full_outline_passes() -> None:
+    body = ordered_spec_body([
+        (2, "Context"),
+        (2, "Contract"),
+        (2, "Acceptance criteria"),
+        (2, "Verification"),
+    ])
+    exit_code, stdout, stderr = run_profiled_spec("docs/specs/in-order.md", body, profile="current")
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_spec_outline_out_of_order_fails() -> None:
+    body = ordered_spec_body([
+        (2, "Context"),
+        (2, "Verification"),
+        (2, "Contract"),
+        (2, "Acceptance criteria"),
+    ])
+    exit_code, stdout, _ = run_profiled_spec("docs/specs/out-of-order.md", body, profile="current")
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-out-of-order: docs/specs/out-of-order.md#" in line
+        and "(Contract follows Verification" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_unprofiled_spec_defaults_to_current_profile() -> None:
+    """The validated new-record rule: no authored profile, current outline."""
+    body = ordered_spec_body([
+        (2, "Context"),
+        (2, "Verification"),
+        (2, "Contract"),
+        (2, "Acceptance criteria"),
+    ])
+    exit_code, stdout, _ = run_profiled_spec("docs/specs/unprofiled.md", body, profile=None)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-out-of-order: docs/specs/unprofiled.md#" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_current_spec_heading_level_three_fails() -> None:
+    body = ordered_spec_body([
+        (3, "Context"),
+        (2, "Contract"),
+        (2, "Acceptance criteria"),
+        (2, "Verification"),
+    ])
+    exit_code, stdout, _ = run_profiled_spec("docs/specs/level-three.md", body, profile="current")
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-heading-level: docs/specs/level-three.md#" in line
+        and "(Context is a level-3 heading" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_current_spec_duplicate_section_fails() -> None:
+    body = ordered_spec_body([
+        (2, "Context"),
+        (2, "Contract"),
+        (2, "Acceptance criteria"),
+        (2, "Verification"),
+    ]) + "\n## Verification\n\nA second section restates the proof in prose.\n"
+    exit_code, stdout, _ = run_profiled_spec("docs/specs/duplicate-section.md", body, profile="current")
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-duplicate: docs/specs/duplicate-section.md#" in line
+        and "Verification appears 2 times" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_legacy_spec_keeps_presence_only_outline() -> None:
+    """A spec whose shard authors 'legacy' keeps the presence-only outline.
+
+    The same violations a current-profile spec fails — order, level,
+    duplication — stay allowed, so an accepted spec is preserved without a
+    rewrite. Every required section is present and the criteria parse, which
+    is all the legacy contract asks.
+    """
+    body = ordered_spec_body([
+        (3, "Verification"),
+        (3, "Contract"),
+        (3, "Context"),
+        (2, "Acceptance criteria"),
+        (2, "Verification"),
+    ])
+    exit_code, stdout, stderr = run_profiled_spec("docs/specs/legacy-loose.md", body, profile="legacy")
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_live_manifest_declares_the_spec_profile() -> None:
+    """The shipped head declares the spec outline in the corpus's order."""
+    live = checker.knowledge_index.compose_manifest(Path(checker.ROOT))
+    assert live["doc_contract"]["spec"]["current_required_sections"] == SPEC_OUTLINE, live["doc_contract"]["spec"]
+
+
+# ---------------------------------------------------------------------------
 # Typed criterion resolution
 # ---------------------------------------------------------------------------
 

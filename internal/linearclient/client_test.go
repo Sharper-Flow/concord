@@ -566,6 +566,36 @@ func TestGetIssueResolvesIdentityAndTeam(t *testing.T) {
 	}
 }
 
+// Linear types IssueIDComparator.in as [ID!] and rejects a [UUID!]! variable
+// at validation, and paginated reads omit archived issues unless
+// includeArchived is set. Both would turn every batch into a failure or a
+// false "no issue" row, so the query text is asserted exactly.
+func TestGetIssuesByIDsSendsSchemaTypedArchiveInclusiveQuery(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(buf)
+		gotBody = string(buf)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[{"id":"68d52710-76d9-4b41-ba45-778511d0e2ed","identifier":"SHA-7","url":"https://linear.app/example/issue/SHA-7","title":"Archived","updatedAt":"2026-09-15T08:00:00Z","state":{"id":"state-done","type":"completed"},"team":{"id":"team-uuid-1"}}]}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	states, failures := client.GetIssuesByIDs(context.Background(), []string{"68d52710-76d9-4b41-ba45-778511d0e2ed"})
+	if len(failures) != 0 {
+		t.Fatalf("GetIssuesByIDs() failures = %v", failures)
+	}
+	if !strings.Contains(gotBody, `"query":"query($ids: [ID!]!) { issues(first: 50, includeArchived: true, filter: { id: { in: $ids } }) { nodes { id identifier url title updatedAt state { id type } team { id } } } }"`) {
+		t.Fatalf("request body %q lacks the ID-typed, archive-inclusive batch query", gotBody)
+	}
+	if got := states["68d52710-76d9-4b41-ba45-778511d0e2ed"]; got.StateID != "state-done" || got.StateType != "completed" || got.TeamID != "team-uuid-1" {
+		t.Fatalf("resolved state = %+v", got)
+	}
+}
+
 func TestGetIssueMapsUnknownIssueToPermanentFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

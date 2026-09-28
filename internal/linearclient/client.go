@@ -501,6 +501,70 @@ func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, e
 	return project, nil
 }
 
+// issueStateBatchSize is the number of issue ids one batched state read
+// resolves. Fifty ids keep one request's complexity modest while a Product
+// with 500 confirmed links answers in ten requests.
+const issueStateBatchSize = 50
+
+// IssueBatchFailure reports one failed batch of GetIssuesByIDs together with
+// the ids it carried, so the caller can mark exactly those links failed
+// instead of discarding the batches that answered.
+type IssueBatchFailure struct {
+	IDs []string
+	Err *Failure
+}
+
+// GetIssuesByIDs resolves the current issue state for the given ids in
+// batches through Linear's issues(filter: { id: { in: $ids } }) query. The
+// variable is typed [ID!]! because Linear's IssueIDComparator.in is [ID!],
+// and includeArchived is set because Linear archives closed issues and
+// omits them from paginated reads by default. It
+// returns every issue the answered batches held and one IssueBatchFailure
+// per failed batch. An id a successful batch does not answer is absent from
+// the map: the filter returns only the issues Linear holds, so a deleted or
+// unknown id silently resolves to nothing rather than to an error.
+func (c *Client) GetIssuesByIDs(ctx context.Context, ids []string) (map[string]ResolvedIssue, []*IssueBatchFailure) {
+	states := make(map[string]ResolvedIssue, len(ids))
+	failures := make([]*IssueBatchFailure, 0)
+	for start := 0; start < len(ids); start += issueStateBatchSize {
+		end := start + issueStateBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		var payload struct {
+			Issues struct {
+				Nodes []struct {
+					Issue
+					State struct {
+						ID   string `json:"id"`
+						Type string `json:"type"`
+					} `json:"state"`
+					Team struct {
+						ID string `json:"id"`
+					} `json:"team"`
+				} `json:"nodes"`
+			} `json:"issues"`
+		}
+		query := fmt.Sprintf(`query($ids: [ID!]!) { issues(first: %d, includeArchived: true, filter: { id: { in: $ids } }) { nodes { id identifier url title updatedAt state { id type } team { id } } } }`, issueStateBatchSize)
+		if err := c.call(ctx, query, map[string]any{"ids": batch}, &payload); err != nil {
+			var failure *Failure
+			if !errors.As(err, &failure) {
+				failure = &Failure{Kind: KindGraphqlError, Detail: err.Error()}
+			}
+			failures = append(failures, &IssueBatchFailure{IDs: batch, Err: failure})
+			continue
+		}
+		for _, node := range payload.Issues.Nodes {
+			if node.ID == "" {
+				continue
+			}
+			states[node.ID] = ResolvedIssue{Issue: node.Issue, TeamID: node.Team.ID, StateID: node.State.ID, StateType: node.State.Type}
+		}
+	}
+	return states, failures
+}
+
 // startedIssuesPageSize is the page size the started-issue sweep requests.
 // Linear caps a connection page at 250; a smaller page keeps one team's In
 // Progress set streaming predictably.

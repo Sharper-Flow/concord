@@ -43,6 +43,30 @@ func TestLinearDivergenceAndUnlinkedInProgressRoutes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
+		// The batched divergence read asks for exact ids; the started-issue
+		// sweep paginates a team. Route on the id filter so each verb sees
+		// its own fixture.
+		if strings.Contains(string(body), "id: { in:") {
+			var request struct {
+				Variables struct {
+					IDs []string `json:"ids"`
+				} `json:"variables"`
+			}
+			_ = json.Unmarshal(body, &request)
+			nodes := make([]string, 0, len(request.Variables.IDs))
+			for _, id := range request.Variables.IDs {
+				stateID, stateType := "state-in-progress", "started"
+				switch id {
+				case "remote-linked":
+					stateID, stateType = "state-completed", "completed"
+				case "remote-matched":
+					stateID, stateType = "state-needed", "unstarted"
+				}
+				nodes = append(nodes, `{"id":"`+id+`","identifier":"CON-1","url":"https://linear.app/example/issue/CON-1","updatedAt":"2026-09-16T00:00:00Z","state":{"id":"`+stateID+`","type":"`+stateType+`"},"team":{"id":"team-uuid-1"}}`)
+			}
+			_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[` + strings.Join(nodes, ",") + `]}}}`))
+			return
+		}
 		if strings.Contains(string(body), "issues(") {
 			_, _ = w.Write([]byte(`{"data":{"issues":{"nodes":[` +
 				`{"id":"remote-unlinked","identifier":"CON-22","url":"https://linear.app/example/issue/CON-22","title":"Pre-cutover import","updatedAt":"2026-09-16T00:00:00Z","state":{"id":"state-in-progress","type":"started"}},` +
@@ -75,6 +99,11 @@ func TestLinearDivergenceAndUnlinkedInProgressRoutes(t *testing.T) {
 		t.Fatalf("divergence exit=%d stderr=%q", code, errOut.String())
 	}
 	var divergence struct {
+		Checked     int `json:"checked"`
+		Matched     int `json:"matched"`
+		Diverged    int `json:"diverged"`
+		Unmapped    int `json:"unmapped"`
+		Failed      int `json:"failed"`
 		Divergences []struct {
 			WorkID   string `json:"work_id"`
 			Expected string `json:"expected_status_id"`
@@ -84,6 +113,9 @@ func TestLinearDivergenceAndUnlinkedInProgressRoutes(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out.String()), &divergence); err != nil {
 		t.Fatal(err)
+	}
+	if divergence.Checked != 3 || divergence.Matched != 1 || divergence.Diverged != 2 || divergence.Unmapped != 0 || divergence.Failed != 0 {
+		t.Fatalf("divergence counts = %+v", divergence)
 	}
 	if len(divergence.Divergences) != 2 ||
 		divergence.Divergences[0].WorkID != "divergence-work" || divergence.Divergences[0].Expected != "state-needed" || divergence.Divergences[0].Actual != "state-completed" || divergence.Divergences[0].Outcome != "diverged" ||

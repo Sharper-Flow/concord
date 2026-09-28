@@ -1255,9 +1255,17 @@ type linearDivergenceResult struct {
 	Detail          string `json:"detail,omitempty"`
 }
 
-// runLinearDivergence reads each confirmed link once and reports remote state
-// that does not match the Product's declared local-to-Linear status mapping.
-// It never writes either lifecycle and it stays separate from local health.
+// linearDivergenceRowCap bounds the non-matched rows the divergence report
+// lists. Counts stay complete for every confirmed link; the cap keeps the
+// answer inside the agent envelope for a Product with hundreds of links.
+const linearDivergenceRowCap = 100
+
+// runLinearDivergence reads the confirmed links' issue states in batches and
+// reports remote state that does not match the Product's declared
+// local-to-Linear status mapping. Matched links are counted and never listed;
+// the non-matched rows are capped at linearDivergenceRowCap with an omitted
+// count. It never writes either lifecycle and it stays separate from local
+// health.
 func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
 	var request struct {
 		ProductID string `json:"product_id"`
@@ -1285,9 +1293,9 @@ func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, comman
 		writeOperatorDiagnostic(errOut, command, err.Error())
 		return 1
 	}
-	results := make([]linearDivergenceResult, 0, len(linked))
-	divergences := make([]linearDivergenceResult, 0)
-	for _, item := range linked {
+	outcomes := make([]linearDivergenceResult, len(linked))
+	uuids := make([]string, 0, len(linked))
+	for i, item := range linked {
 		result := linearDivergenceResult{
 			WorkID: item.WorkID, RemoteIssueUUID: item.RemoteIssueUUID, Lifecycle: item.Lifecycle,
 			ExpectedStatus: connection.StatusIDs[item.Lifecycle],
@@ -1295,29 +1303,60 @@ func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, comman
 		if result.ExpectedStatus == "" {
 			result.Outcome = "unmapped"
 			result.Detail = "the Product has no Linear status mapping for the local lifecycle"
-			results = append(results, result)
-			continue
-		}
-		issue, issueErr := client.GetIssue(ctx, item.RemoteIssueUUID)
-		if issueErr != nil {
-			result.Outcome = "failed"
-			result.Detail = issueErr.Error()
-			results = append(results, result)
-			continue
-		}
-		result.ActualStatus = issue.StateID
-		result.RemoteStateType = issue.StateType
-		if issue.StateID != result.ExpectedStatus {
-			result.Outcome = "diverged"
-			divergences = append(divergences, result)
 		} else {
-			result.Outcome = "matched"
+			uuids = append(uuids, item.RemoteIssueUUID)
 		}
-		results = append(results, result)
+		outcomes[i] = result
+	}
+	states, batchFailures := client.GetIssuesByIDs(ctx, uuids)
+	failedDetail := make(map[string]string, len(batchFailures))
+	for _, failure := range batchFailures {
+		for _, id := range failure.IDs {
+			failedDetail[id] = failure.Err.Error()
+		}
+	}
+	matched, diverged, unmapped, failed := 0, 0, 0, 0
+	rows := make([]linearDivergenceResult, 0)
+	for i := range outcomes {
+		result := &outcomes[i]
+		switch {
+		case result.Outcome == "unmapped":
+			unmapped++
+		case failedDetail[result.RemoteIssueUUID] != "":
+			result.Outcome = "failed"
+			result.Detail = failedDetail[result.RemoteIssueUUID]
+			failed++
+		default:
+			issue, ok := states[result.RemoteIssueUUID]
+			if !ok {
+				result.Outcome = "failed"
+				result.Detail = "linear holds no issue for the linked uuid"
+				failed++
+				break
+			}
+			result.ActualStatus = issue.StateID
+			result.RemoteStateType = issue.StateType
+			if issue.StateID != result.ExpectedStatus {
+				result.Outcome = "diverged"
+				diverged++
+			} else {
+				result.Outcome = "matched"
+				matched++
+			}
+		}
+		if result.Outcome != "matched" {
+			rows = append(rows, *result)
+		}
+	}
+	omitted := 0
+	if len(rows) > linearDivergenceRowCap {
+		omitted = len(rows) - linearDivergenceRowCap
+		rows = rows[:linearDivergenceRowCap]
 	}
 	return writeJSON(out, map[string]any{
 		"ok": true, "product_id": request.ProductID, "checked": len(linked),
-		"divergences": divergences, "results": results,
+		"matched": matched, "diverged": diverged, "unmapped": unmapped, "failed": failed,
+		"divergences": rows, "omitted": omitted,
 	}, errOut)
 }
 

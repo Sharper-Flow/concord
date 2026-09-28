@@ -60,6 +60,20 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
 
+    def test_projection_states_the_predicate_discharge_rule(self):
+        # The store refuses a completed worker report whose evidence leaves a
+        # declared outcome predicate unnamed (internal/store/worker_lanes.go
+        # verifyWorkerPredicateDischarge), and the generated contract text is
+        # the only place a lane agent learns that rule, so every lane
+        # definition must state it while predicate_ids stays schema-optional.
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
+        self.assertIn("when the packet's `inputs.outcome_predicates` is non-empty", normalized)
+        self.assertIn("must name every declared `predicate_id` in at least one evidence entry's `predicate_ids`", normalized)
+        self.assertIn("including findings entries", normalized)
+        self.assertIn("`invalid_report`", normalized)
+
     def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
         # The registry declares a per-lane time budget, and the body must
         # project it: a verify attempt that widens to a full Go package suite

@@ -81,7 +81,7 @@ Report contract constraints:
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
 - evidence_entry shape: type=object, additionalProperties=false, required=["obligation", "detail"].
 - evidence_entry.detail: type=string, minLength=1, maxLength=512.
-- evidence_entry.predicate_ids: optional array; type=array, minItems=1, maxItems=8, items={"type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"}. Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges.
+- evidence_entry.predicate_ids: optional array; type=array, minItems=1, maxItems=8, items={"type": "string", "minLength": 11, "maxLength": 128, "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"}. Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges. Discharge rule: when the packet's `inputs.outcome_predicates` is non-empty, a completed report must name every declared `predicate_id` in at least one evidence entry's `predicate_ids` — including findings entries — or the store refuses the completion with `invalid_report`.
 - evidence_entry.obligation: enum=["commands", "exit_codes", "failure_classification"].
 - base_comparison: optional top-level object; type=object, additionalProperties=false, required=["checks"].
 - base_comparison.checks: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/base_comparison_check"}.

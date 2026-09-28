@@ -1,0 +1,40 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-7ca44af74e6cea7639877cf9",
+    "tier": "legislated"
+  },
+  "date": "2026-09-28T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0189",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0093"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    }
+  ],
+  "path": "docs/decisions/CD-0189-the-operator-names-the-host-launch-command.md",
+  "product_wide_rationale": "Governs which program every Go-core host invocation runs and how the registry the session verifies stays the one the command resolves. It binds the operator surface, the agent surface, and the session start path, so no single runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:df1e36e3b5d7dc305519d26548d6b2dca9c27efd9e22e90afc175adfce35f61a",
+  "status": "accepted",
+  "summary": "The operator names the host launch command as a host_command argv array in the options of the Concord plugin tuple in host OpenCode config, read from the opencode debug config document. Absent means the bare opencode executable and unchanged behavior. Present, every Go-core host invocation uses it: the Product and work launch, the Project-path launch, and the registry probe shared by concord session and session-prepare. A second probe through the configured command must carry an identical host_command, and the agent registry check reads that document, so the verified registry is the executing registry. A malformed value or a mismatched second document refuses with a diagnostic naming host_command and starts no host.",
+  "tags": [
+    "launcher",
+    "session-boot",
+    "host-config"
+  ],
+  "title": "The operator names the host launch command"
+}

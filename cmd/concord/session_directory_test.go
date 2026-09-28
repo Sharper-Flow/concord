@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -34,6 +35,8 @@ const fakeHostScript = `#!/bin/sh
 record="$CONCORD_FAKE_HOST_RECORD"
 if [ "$1" = "debug" ] && [ "$2" = "config" ]; then
 	pwd > "$record/probe-cwd"
+	n=$(cat "$record/probe-count" 2>/dev/null || echo 0)
+	echo $((n+1)) > "$record/probe-count"
 	if [ -f opencode.registry.json ]; then
 		cat opencode.registry.json
 	else
@@ -46,12 +49,50 @@ pwd > "$record/host-cwd"
 exit 0
 `
 
+// fakeWrapperScript is the fake configured host command the tests install on
+// PATH beside the bare fake host. Its probe branch answers `debug config`
+// with its own registry file when one is present — so a test can make the
+// configured command's document differ from the bare host's — and counts its
+// probes separately. Its session branch records the argument count, the
+// leading flags, and its own working directory under wrapper-prefixed names.
+const fakeWrapperScript = `#!/bin/sh
+record="$CONCORD_FAKE_HOST_RECORD"
+if [ "$1" = "debug" ] && [ "$2" = "config" ]; then
+	pwd > "$record/wrapper-probe-cwd"
+	n=$(cat "$record/wrapper-probe-count" 2>/dev/null || echo 0)
+	echo $((n+1)) > "$record/wrapper-probe-count"
+	if [ -f wrapper.registry.json ]; then
+		cat wrapper.registry.json
+	elif [ -f opencode.registry.json ]; then
+		cat opencode.registry.json
+	else
+		printf '{}'
+	fi
+	exit 0
+fi
+printf '%s\n' "$#" "$1" "$2" "$3" > "$record/wrapper-argv"
+pwd > "$record/wrapper-cwd"
+exit 0
+`
+
 // installFakeHost puts the fake host binary first on PATH and points its
 // record directory at recordDir.
 func installFakeHost(t *testing.T, recordDir string) {
 	t.Helper()
+	installFakeCommand(t, recordDir, "opencode", fakeHostScript)
+}
+
+// installFakeWrapper puts the fake configured host command first on PATH
+// beside the bare fake host.
+func installFakeWrapper(t *testing.T, recordDir string) {
+	t.Helper()
+	installFakeCommand(t, recordDir, "fake-wrapper", fakeWrapperScript)
+}
+
+func installFakeCommand(t *testing.T, recordDir, name, script string) {
+	t.Helper()
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "opencode"), []byte(fakeHostScript), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CONCORD_FAKE_HOST_RECORD", recordDir)
@@ -140,7 +181,7 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
-		hostSessionDirectory, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+		hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	if code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -157,6 +198,68 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 	if argvLines[1] != "--agent" || argvLines[2] != "concord-1" || argvLines[3] != "--prompt" {
 		t.Fatalf("host argument vector=%q, want --agent %s --prompt", argvLines, "concord-1")
 	}
+	// No host_command is configured here, so the bootstrap probe is the
+	// only probe: one bare `opencode debug config` run, no second probe
+	// (CD-0189's behavior without the option is unchanged).
+	if count := hostRecord(t, recordDir, "probe-count"); count != "1" {
+		t.Fatalf("bare probes=%s, want exactly the one bootstrap probe", count)
+	}
+}
+
+// TestSessionLaunchesAConfiguredHostCommand covers CD-0189 through the
+// production wiring: the bare probe reads the host_command option from the
+// Concord plugin tuple, the second probe runs through the configured command
+// in the resolved directory, the registration check reads that command's own
+// document, and the launch appends Concord's fixed arguments to the
+// configured argv. The bare host never starts a session.
+func TestSessionLaunchesAConfiguredHostCommand(t *testing.T) {
+	projectDir := t.TempDir()
+	writeProjectHostArtifacts(t, projectDir)
+	// The bare probe's document carries the option beside the agent map;
+	// the configured command's own document carries the identical value and
+	// registers the handle.
+	registry := `{"agent":{"concord-1":{"mode":"primary"}},"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]}`
+	if err := os.WriteFile(filepath.Join(projectDir, "opencode.registry.json"), []byte(registry), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, seedSessionProject(t, projectDir))
+
+	launcherDir := t.TempDir()
+	recordDir := t.TempDir()
+	installFakeHost(t, recordDir)
+	installFakeWrapper(t, recordDir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENCODE_BIN", "/bin/false")
+	t.Chdir(launcherDir)
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
+
+	var out, errOut bytes.Buffer
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+	if code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	if count := hostRecord(t, recordDir, "probe-count"); count != "1" {
+		t.Fatalf("bare probes=%s, want exactly the one bootstrap probe", count)
+	}
+	if count := hostRecord(t, recordDir, "wrapper-probe-count"); count != "1" {
+		t.Fatalf("configured probes=%s, want exactly the one verification probe", count)
+	}
+	if probe := hostRecord(t, recordDir, "wrapper-probe-cwd"); probe != projectDir {
+		t.Fatalf("configured command probed %q, want the Project directory %q", probe, projectDir)
+	}
+	if host := hostRecord(t, recordDir, "wrapper-cwd"); host != projectDir {
+		t.Fatalf("configured command started in %q, want the Project directory %q", host, projectDir)
+	}
+	argvLines := strings.Split(hostRecord(t, recordDir, "wrapper-argv"), "\n")
+	if len(argvLines) != 4 || argvLines[0] != "4" || argvLines[1] != "--agent" || argvLines[2] != "concord-1" || argvLines[3] != "--prompt" {
+		t.Fatalf("configured argument vector=%q, want the fixed 4-argument vector after the wrapper argv", argvLines)
+	}
+	if _, err := os.Stat(filepath.Join(recordDir, "host-argv")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the bare host started a session even though a host command is configured")
+	}
 }
 
 // TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve covers CD-0093 D3:
@@ -172,13 +275,16 @@ func TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 		hostSessionDirectory,
+		hostCommandAt(defaultHostResolution()),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 			runs++
 			return nil
 		},
 		func(string) error { identityCalls++; return nil },
-		func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			return "concord-1", nil
+		})
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errOut.String())
 	}
@@ -213,13 +319,16 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 			hostSessionDirectory,
+			hostCommandAt(defaultHostResolution()),
 			func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 				runs++
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			})
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
@@ -235,13 +344,16 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 			hostSessionDirectory,
+			hostCommandAt(defaultHostResolution()),
 			func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 				runs++
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			})
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
@@ -268,6 +380,7 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 	var ranIn string
 	code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
 		func(_ context.Context, _ string, _ string) (string, error) { directoryCalls++; return "", nil },
+		hostCommandAt(defaultHostResolution()),
 		func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil },
 		func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 			ranIn = dir
@@ -275,7 +388,9 @@ func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
 			return nil
 		},
 		func(string) error { return nil },
-		func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			return "concord-1", nil
+		})
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
@@ -354,7 +469,7 @@ func TestSessionStartsInTheActiveWorktree(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
-		hostSessionDirectory, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+		hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	if code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -387,7 +502,7 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
-		hostSessionDirectory, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
+		hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	if code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -419,6 +534,7 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 				resolvedWork, resolvedProject = workID, projectID
 				return "/selected/landing", nil
 			},
+			hostCommandAt(defaultHostResolution()),
 			func(context.Context, string, string, string) ([]byte, error) { return []byte("packet"), nil },
 			func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
 				ranIn = dir
@@ -426,7 +542,9 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 				return nil
 			},
 			func(string) error { return nil },
-			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			})
 		if code != 0 {
 			t.Fatalf("exit=%d", code)
 		}
@@ -452,13 +570,16 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 		var errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
 			func(context.Context, string, string) (string, error) { return "/unused", nil },
+			hostCommandAt(defaultHostResolution()),
 			nil,
 			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 				runs++
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			})
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
@@ -474,13 +595,16 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 		var errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
 			func(context.Context, string, string) (string, error) { return "/unused", nil },
+			hostCommandAt(defaultHostResolution()),
 			nil,
 			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 				runs++
 				return nil
 			},
 			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			})
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}

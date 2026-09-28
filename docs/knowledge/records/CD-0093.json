@@ -18,9 +18,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1829d062a791ce2f3e230ff9489e6044f41e5916adf6af9868d9c7103d6152ad",
+  "sha256": "sha256:a60bb0e1763f4dc34f05e1d885aa6a2da0de157d0d4c805c45fcddf982259c27",
   "status": "accepted",
-  "summary": "Session start resolves the selected work's Project canonical path and uses that one directory for agent resolution, the host registry probe, and execution, failing closed when any of them does not resolve. The host command stays fixed under CD-0078's reasoning, and the per-Project host environment gap is recorded rather than hidden.",
+  "summary": "Session start resolves the selected work's Project canonical path and uses that one directory for agent resolution, the host registry probe, and execution, failing closed when any of them does not resolve. The host command is the operator's configured host_command when one is named and the bare host otherwise (CD-0189), and the per-Project host environment gap closes through host configuration rather than the store.",
   "tags": [
     "launcher",
     "session-boot"

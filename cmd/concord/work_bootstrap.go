@@ -156,8 +156,11 @@ func sessionPrepareReadFailureExit(err error) int {
 // directory — then verifies the active host agent and the lane identity that
 // directory defines, and derives the session boot packet. It records
 // nothing: the session's worktree is the directory it runs in, and the host
-// owns that fact.
-func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneIdentity sessionAgentIdentityFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
+// owns that fact. The registry probe runs through the resolved host command
+// in this directory, the same probe `concord session` launches with
+// (CD-0189), so the registry the caller is told the session verified is the
+// one the configured host resolves.
+func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneIdentity sessionAgentIdentityFunc, hostCommand sessionHostCommandFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
@@ -228,12 +231,19 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	}
 	// cwd is the claimed worktree this command verified above. The identity
 	// callbacks receive it as their directory: the definitions and registry
-	// they verify are the ones that directory resolves (CD-0093 D2).
+	// they verify are the ones that directory resolves (CD-0093 D2). The
+	// host command resolves there too, before the registry check reads the
+	// document the resolution carried back (CD-0189).
 	if err := laneIdentity(cwd); err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return sessionPrepareRefusalExit
 	}
-	handle, err := identity(context.Background(), cwd, input.ProductID, input.WorkID, input.Agent)
+	host, err := hostCommand(context.Background(), cwd)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		return sessionPrepareRefusalExit
+	}
+	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
 		return sessionPrepareRefusalExit

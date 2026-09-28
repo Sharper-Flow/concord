@@ -245,6 +245,45 @@ must be a member of the work, and the session lands in that Project's active
 worktree when one is usable, else its canonical path (CD-0093 D3 fail-closed
 stands).
 
+### The host launch command
+
+An operator who runs OpenCode through a host wrapper — one that prepares a
+per-Project data directory or supervises an in-TUI restart — names the
+wrapper once with a `host_command` argv array in the same plugin options
+(CD-0189):
+
+```jsonc
+{
+  "plugin": [
+    ["/path/to/concord-plugin.ts", {
+      "host_command": ["my-opencode-wrapper", "--profile", "work"]
+    }]
+  ]
+}
+```
+
+Absent, every session starts the bare `opencode` executable, as before.
+Present, every host invocation the Go core makes uses it: the Product and
+work launch (`<cmd...> --agent <handle> --prompt <prompt>`), the Project-path
+launch (`<cmd...> --prompt <prompt>`), and the registry probe shared by
+`concord session` and session-prepare (`<cmd...> debug config`), all in the
+resolved directory. Concord appends its fixed arguments; the array runs as
+argv with no shell and no placeholders.
+
+The value must be a non-empty array of non-empty strings. A present but
+malformed value refuses the launch or probe with a diagnostic naming
+`host_command`, and nothing starts through a fallback command. When the
+option is present, a second probe runs through the configured command, and
+its own `debug config` document must carry an identical `host_command`: the
+agent registry check reads that second document, so the verified registry is
+the one the wrapper resolves (CD-0093 D2). A configured command adds one
+probe per start, and each probe through a wrapper runs that wrapper's own
+start and exit behavior.
+
+`OPENCODE_BIN` stays a test seam. Adapter worker dispatch and the
+move-session version diagnostic stay on the bare host: worker lanes are not
+operator-resumable sessions.
+
 ### Operator work-state tab
 
 The adapter renames the zellij tab and pane frame for every successful mutation

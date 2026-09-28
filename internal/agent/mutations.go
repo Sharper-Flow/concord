@@ -44,29 +44,31 @@ type captureMutationInput struct {
 	Approval              *approvalInput `json:"approval"`
 }
 type reviseMutationInput struct {
-	WorkID          string        `json:"work_id"`
-	ExpectedVersion int64         `json:"expected_version"`
-	Title           string        `json:"title"`
-	Task            *string       `json:"task"`
-	ValueStatement  string        `json:"value_statement"`
-	Kind            string        `json:"kind"`
-	Priority        int64         `json:"priority"`
-	Urgency         string        `json:"urgency"`
-	Tags            []string      `json:"tags"`
-	WorkflowTypeRef string        `json:"workflow_type_ref"`
-	Reason          string        `json:"reason"`
-	IdempotencyKey  string        `json:"idempotency_key"`
-	Evidence        []EvidenceRef `json:"evidence"`
+	WorkID          string         `json:"work_id"`
+	ExpectedVersion int64          `json:"expected_version"`
+	Title           string         `json:"title"`
+	Task            *string        `json:"task"`
+	ValueStatement  string         `json:"value_statement"`
+	Kind            string         `json:"kind"`
+	Priority        int64          `json:"priority"`
+	Urgency         string         `json:"urgency"`
+	Tags            []string       `json:"tags"`
+	WorkflowTypeRef string         `json:"workflow_type_ref"`
+	Reason          string         `json:"reason"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Evidence        []EvidenceRef  `json:"evidence"`
+	Approval        *approvalInput `json:"approval"`
 }
 type initiativeCreateMutationInput struct {
-	Title          string   `json:"title"`
-	ValueStatement string   `json:"value_statement"`
-	ProjectIDs     []string `json:"project_ids"`
-	Priority       int64    `json:"priority"`
-	Urgency        string   `json:"urgency"`
-	Tags           []string `json:"tags"`
-	ExternalRef    string   `json:"external_ref"`
-	IdempotencyKey string   `json:"idempotency_key"`
+	Title          string         `json:"title"`
+	ValueStatement string         `json:"value_statement"`
+	ProjectIDs     []string       `json:"project_ids"`
+	Priority       int64          `json:"priority"`
+	Urgency        string         `json:"urgency"`
+	Tags           []string       `json:"tags"`
+	ExternalRef    string         `json:"external_ref"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 type initiativeEntryMutationInput struct {
 	InitiativeWorkID string         `json:"initiative_work_id"`
@@ -126,11 +128,12 @@ type lifecycleMutationInput struct {
 }
 
 type workerAbandonInput struct {
-	WorkID         string `json:"work_id"`
-	AttemptID      string `json:"attempt_id"`
-	LaneID         string `json:"lane_id"`
-	Detail         string `json:"detail"`
-	IdempotencyKey string `json:"idempotency_key"`
+	WorkID         string         `json:"work_id"`
+	AttemptID      string         `json:"attempt_id"`
+	LaneID         string         `json:"lane_id"`
+	Detail         string         `json:"detail"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 
 type workRemovalMutationInput struct {
@@ -162,34 +165,39 @@ type worktreeClaimInput struct {
 	// adapter injects it; an agent never supplies it. The claimed worktree's
 	// occupancy row records the process identity, so no claim the agent
 	// surface makes leaves a row without one (CD-0179).
-	HostPID int `json:"host_pid,omitempty"`
+	HostPID  int            `json:"host_pid,omitempty"`
+	Approval *approvalInput `json:"approval"`
 }
 
 type sessionVacateInput struct {
-	IdempotencyKey string `json:"idempotency_key"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 
 type worktreeReclaimInput struct {
-	WorkID          string `json:"work_id"`
-	ProjectID       string `json:"project_id"`
-	DefaultRef      string `json:"default_ref"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	ProjectID       string         `json:"project_id"`
+	DefaultRef      string         `json:"default_ref"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 
 type worktreeAuditReclaimInput struct {
-	ProductID      string `json:"product_id"`
-	DefaultRef     string `json:"default_ref"`
-	Limit          int    `json:"limit"`
-	IdempotencyKey string `json:"idempotency_key"`
+	ProductID      string         `json:"product_id"`
+	DefaultRef     string         `json:"default_ref"`
+	Limit          int            `json:"limit"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 
 type worktreeVerifyInput struct {
 	WorkID string `json:"work_id"`
 	// Command is the bounded argv that runs in the derived worktree under
 	// the exclusive lease. A shell command string is never accepted.
-	Command        []string `json:"command"`
-	IdempotencyKey string   `json:"idempotency_key"`
+	Command        []string       `json:"command"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 type worktreeDestroyInput struct {
 	WorkID          string `json:"work_id"`
@@ -316,36 +324,41 @@ func (in *lessonCoverageInput) declaration() *store.LessonCoverageDeclaration {
 }
 
 type resourceClaimInput struct {
-	WorkID          string `json:"work_id"`
-	ResourceKey     string `json:"resource_key"`
-	Reason          string `json:"reason"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	ResourceKey     string         `json:"resource_key"`
+	Reason          string         `json:"reason"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 type resourceReleaseInput struct {
-	WorkID          string `json:"work_id"`
-	ResourceKey     string `json:"resource_key"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	ResourceKey     string         `json:"resource_key"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 type messageSendInput struct {
-	WorkID          string `json:"work_id"`
-	RecipientWorkID string `json:"recipient_work_id"`
-	Broadcast       bool   `json:"broadcast"`
-	Body            string `json:"body"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	RecipientWorkID string         `json:"recipient_work_id"`
+	Broadcast       bool           `json:"broadcast"`
+	Body            string         `json:"body"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 type messageWithdrawInput struct {
-	WorkID          string `json:"work_id"`
-	MessageID       string `json:"message_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	MessageID       string         `json:"message_id"`
+	ExpectedVersion int64          `json:"expected_version"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 type issueAdoptInput struct {
-	WorkID          string `json:"work_id"`
-	RemoteIssueUUID string `json:"remote_issue_uuid"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	RemoteIssueUUID string         `json:"remote_issue_uuid"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 type observationRecordInput struct {
 	WorkID         string   `json:"work_id"`
@@ -359,18 +372,20 @@ type observationRecordInput struct {
 	// and satisfy no evidence or gate; the external variant is also
 	// non-authoritative and can only supply or withhold a precondition.
 	External *observationExternalInput `json:"external"`
+	Approval *approvalInput            `json:"approval"`
 }
 
 // CD-0068: the Domain-anchored twin of observationRecordInput. It carries no
 // external variant — CD-0040 attaches external capture to work, and CD-0068
 // widens only the anchor, not the observation's kinds.
 type domainObservationRecordInput struct {
-	ProductID      string   `json:"product_id"`
-	DomainID       string   `json:"domain_id"`
-	Statement      string   `json:"statement"`
-	Refs           []string `json:"refs"`
-	Tags           []string `json:"tags"`
-	IdempotencyKey string   `json:"idempotency_key"`
+	ProductID      string         `json:"product_id"`
+	DomainID       string         `json:"domain_id"`
+	Statement      string         `json:"statement"`
+	Refs           []string       `json:"refs"`
+	Tags           []string       `json:"tags"`
+	IdempotencyKey string         `json:"idempotency_key"`
+	Approval       *approvalInput `json:"approval"`
 }
 
 type domainObservationDismissInput struct {
@@ -1537,6 +1552,9 @@ func (r runtime) planReviseIntent(ctx context.Context, base Envelope, raw []byte
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindFoldReviseAllowed(in.Kind), "work kind cannot be revised"); refused {
 		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
@@ -1600,6 +1618,9 @@ func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []
 	var in initiativeCreateMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	if len(in.ProjectIDs) == 0 {
 		return coreError(base, "invalid_input", "Initiative creation requires at least one Project membership", "reread_entities", false), nil, true
@@ -1765,6 +1786,9 @@ func (r runtime) planWorkerAbandon(ctx context.Context, base Envelope, raw []byt
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, _ Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		attempt, err := store.WorkerAttemptByIDTx(ctx, tx, in.AttemptID)
@@ -1880,6 +1904,9 @@ func (r runtime) planResearchPackCreate(ctx context.Context, base Envelope, raw 
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.scope["work_ids"] = []string{in.OwnerWorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
@@ -1899,6 +1926,9 @@ func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, 
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
 			return nil, nil, nil, err
@@ -1914,6 +1944,9 @@ func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, r
 	var in researchFindingMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		freshness := in.Finding.Freshness
@@ -1944,6 +1977,9 @@ func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, ra
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
 		if err != nil {
@@ -1960,6 +1996,9 @@ func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, ra
 	var in researchFreshnessMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
@@ -2040,6 +2079,9 @@ func (r runtime) planResourceClaim(ctx context.Context, base Envelope, raw []byt
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
@@ -2060,6 +2102,9 @@ func (r runtime) planResourceRelease(ctx context.Context, base Envelope, raw []b
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
@@ -2079,6 +2124,9 @@ func (r runtime) planMessageSend(ctx context.Context, base Envelope, raw []byte,
 	var in messageSendInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	if in.RecipientWorkID == "" && !in.Broadcast {
 		return coreError(base, "invalid_input", "message requires a recipient work id or broadcast", "resolve_ambiguity", false), nil, true
@@ -2139,6 +2187,9 @@ func (r runtime) planMessageWithdraw(ctx context.Context, base Envelope, raw []b
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
@@ -2158,6 +2209,9 @@ func (r runtime) planObservationRecord(ctx context.Context, base Envelope, raw [
 	var in observationRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	if in.External != nil {
@@ -2242,6 +2296,9 @@ func (r runtime) planLinearIssueAdopt(ctx context.Context, base Envelope, raw []
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	if len(in.WorkID) < 2 || len(in.WorkID) > 128 {
 		return coreError(base, "invalid_input", "work id must be 2 to 128 characters", "reread_entities", false), nil, true
 	}
@@ -2265,6 +2322,9 @@ func (r runtime) planDomainObservationRecord(ctx context.Context, base Envelope,
 	var in domainObservationRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	product := in.ProductID
 	if product == "" {
@@ -2415,6 +2475,9 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{in.ProjectID}
@@ -2478,6 +2541,9 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 	var in sessionVacateInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	project := r.Envelope.AmbientProjectID
 	if project == "" {
@@ -3037,6 +3103,9 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	var in worktreeReclaimInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -4887,12 +4956,14 @@ type researchPackCreateMutation struct {
 	Revision       researchRevisionInput `json:"revision"`
 	Freshness      string                `json:"freshness"`
 	IdempotencyKey string                `json:"idempotency_key"`
+	Approval       *approvalInput        `json:"approval"`
 }
 type researchRevisionMutation struct {
 	PackID          string                `json:"pack_id"`
 	ExpectedVersion int64                 `json:"expected_version"`
 	Revision        researchRevisionInput `json:"revision"`
 	IdempotencyKey  string                `json:"idempotency_key"`
+	Approval        *approvalInput        `json:"approval"`
 }
 type researchFindingMutation struct {
 	PackID          string               `json:"pack_id"`
@@ -4900,19 +4971,22 @@ type researchFindingMutation struct {
 	Finding         researchFindingInput `json:"finding"`
 	SourceIDs       []string             `json:"source_ids"`
 	IdempotencyKey  string               `json:"idempotency_key"`
+	Approval        *approvalInput       `json:"approval"`
 }
 type researchSourceMutation struct {
 	PackID          string              `json:"pack_id"`
 	ExpectedVersion int64               `json:"expected_version"`
 	Source          researchSourceInput `json:"source"`
 	IdempotencyKey  string              `json:"idempotency_key"`
+	Approval        *approvalInput      `json:"approval"`
 }
 type researchFreshnessMutation struct {
-	PackID          string `json:"pack_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	Freshness       string `json:"freshness"`
-	Revision        int64  `json:"revision"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	PackID          string         `json:"pack_id"`
+	ExpectedVersion int64          `json:"expected_version"`
+	Freshness       string         `json:"freshness"`
+	Revision        int64          `json:"revision"`
+	IdempotencyKey  string         `json:"idempotency_key"`
+	Approval        *approvalInput `json:"approval"`
 }
 
 func rawJSON(v any) json.RawMessage {

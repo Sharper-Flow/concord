@@ -590,4 +590,48 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
             generator.require_delivery_rule_teaching(defs)
 
 
+class MutationApprovalPropertyTests(unittest.TestCase):
+    """Every mutation can reach the cross-Product approval escalation: the
+    runtime forces requiresApproval when the derived Product scope crosses the
+    selected Product, and the approved resubmission carries input.approval.
+    Each mutation input must declare the optional typed approval property, and
+    the generator refuses a mutation input without it, so the declared surface
+    and the runtime rule cannot disagree.
+    """
+
+    def mutation_approval_refusals(self, defs):
+        refusals = []
+        for operation in manifest["operations"]:
+            if operation["kind"] != "mutation":
+                continue
+            schema = defs[operation["input_schema"].split("/")[-1]]
+            try:
+                generator.require_mutation_approval_property(operation, schema)
+            except ValueError as err:
+                refusals.append(str(err))
+        return refusals
+
+    def test_shipped_mutation_inputs_declare_optional_approval(self):
+        self.assertEqual(self.mutation_approval_refusals(payload_schema["$defs"]), [])
+
+    def test_a_mutation_input_without_the_approval_property_is_rejected(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        del defs["work_define_observation_record_input"]["properties"]["approval"]
+        refusals = self.mutation_approval_refusals(defs)
+        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
+
+    def test_a_required_approval_property_is_rejected(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        schema = defs["work_define_observation_record_input"]
+        schema["required"] = list(schema["required"]) + ["approval"]
+        refusals = self.mutation_approval_refusals(defs)
+        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
+
+    def test_an_untyped_approval_property_is_rejected(self):
+        defs = copy.deepcopy(payload_schema["$defs"])
+        defs["work_define_observation_record_input"]["properties"]["approval"] = {"type": "string"}
+        refusals = self.mutation_approval_refusals(defs)
+        self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
+
+
 if __name__ == "__main__": unittest.main()

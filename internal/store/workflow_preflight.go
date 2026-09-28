@@ -505,8 +505,10 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	} else {
 		// The boundary holds every other action, late verdict recovery
 		// included: recovery admits the late timing, never a stale pin
-		// (CD-0041 D7).
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+		// (CD-0041 D7). Attempt disposition records facts about attempts made
+		// under the pinned contract, so the subject's own stale pin admits it
+		// while a peer's stale pin still refuses.
+		if err := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, request.WorkID, workflowActionStalePinAdmission(request.ActionID)); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	}

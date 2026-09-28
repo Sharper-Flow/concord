@@ -391,6 +391,46 @@ func staleWorkflowDomainRegistryPinFailure(footprint workflowOverlapFootprint, c
 	return failure
 }
 
+// staleRegistryPinRefusalNamesWork reports whether the refusal is a stale
+// Domain registry pin whose marker names workID itself. A missing registry
+// (unknown_scope) and a marker naming any other item never match.
+func staleRegistryPinRefusalNamesWork(err error, workID string) bool {
+	var failure *Failure
+	if !failureAs(err, &failure) {
+		return false
+	}
+	return failure.Kind == KindStaleRequiresReview && failure.StaleDomainRegistryPin != nil && failure.StaleDomainRegistryPin.WorkID == workID
+}
+
+// workflowStalePinAdmission names the stale-pin refusals one boundary check
+// admits. The default holds every refusal (CD-0041 D7).
+type workflowStalePinAdmission int
+
+const (
+	// workflowStalePinAdmitNone is the default boundary: a stale pin refuses
+	// whatever action runs behind it, whoever the marker names.
+	workflowStalePinAdmitNone workflowStalePinAdmission = iota
+	// workflowStalePinAdmitOwnMarker admits a stale-pin refusal whose marker
+	// names the checked work item itself. Admission under a stale pin belongs
+	// to the marker's named subject only, so a peer's stale pin still refuses.
+	workflowStalePinAdmitOwnMarker
+)
+
+// workflowActionStalePinAdmission reports the stale-pin admission the D7
+// boundary owes one workflow action. Attempt disposition records facts about
+// attempts made under the pinned contract, so the subject's own stale pin
+// admits it and the item settles its attempt before it self-heals through
+// the contract re-pin. Contract-judgment actions (record_verdict, complete)
+// keep the full refusal, so terminal completion still requires the re-pin.
+func workflowActionStalePinAdmission(actionID string) workflowStalePinAdmission {
+	switch actionID {
+	case "accept_worker_result", "accept_worker_evidence", "reject_worker_result", "record_worker_failure":
+		return workflowStalePinAdmitOwnMarker
+	default:
+		return workflowStalePinAdmitNone
+	}
+}
+
 func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footprint workflowOverlapFootprint) error {
 	var registryHash string
 	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, footprint.ProductID).Scan(&registryHash); err != nil {
@@ -417,10 +457,12 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 	return nil
 }
 
-// CheckWorkflowDomainOverlapTx is the consequential mutation boundary check.
-// It derives active overlap from current projections in the caller's write
-// transaction and never treats a heuristic or ordinary relation as authority.
-func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string) error {
+// checkWorkflowDomainOverlapTxAdmitting is the consequential mutation boundary
+// check. It derives active overlap from current projections in the caller's
+// write transaction and never treats a heuristic or ordinary relation as
+// authority. The admission names the stale-pin refusals this call passes;
+// every production caller holds the default full refusal.
+func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, workID string, admission workflowStalePinAdmission) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "workflow_domain_overlap", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -429,7 +471,13 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 		return err
 	}
 	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, self); err != nil {
-		return err
+		// Admission under a stale pin belongs to the marker's named subject
+		// only. The check names the subject it read, so the admitting class
+		// passes a refusal whose marker names workID itself, and a peer's
+		// stale pin together with a missing registry still refuse here.
+		if !(admission == workflowStalePinAdmitOwnMarker && staleRegistryPinRefusalNamesWork(err, workID)) {
+			return err
+		}
 	}
 	exempt, err := workflowSelfRepairExemptTx(ctx, tx, workID)
 	if err != nil {
@@ -444,17 +492,20 @@ func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string
 		if !ok {
 			continue
 		}
-		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, other); err != nil {
-			return err
-		}
+		// A recorded resolution is evaluated before the peer pin check, so a
+		// resolved overlap never vetoes the subject's admission, whatever
+		// hash the peer's own contract still pins.
 		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, tx, overlap)
 		if err != nil {
 			return err
 		}
-		allowed := (overlap.ResolutionState == "current" || overlap.ResolutionState == "sequenced") && overlapAllowsWork(overlap, workID)
-		if !allowed {
-			failures = append(failures, overlap)
+		if allowed := (overlap.ResolutionState == "current" || overlap.ResolutionState == "sequenced") && overlapAllowsWork(overlap, workID); allowed {
+			continue
 		}
+		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, other); err != nil {
+			return err
+		}
+		failures = append(failures, overlap)
 	}
 	if len(failures) == 0 {
 		return nil
@@ -782,13 +833,15 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 		}
 	}
 	// The registry comparison pins the event against the current Git-derived
-	// registry. A replay re-derives the recorded resolution from the log, so
-	// the current registry, which the log never carries, is not its authority.
+	// registry. The declarer's own stale pin still refuses the recording, so
+	// the marker's named subject re-pins its own contract first (CD-0041 D7).
+	// The peer's stale pin does not veto the recording: resolve_overlap is
+	// the D7-exempt recovery route, and the peer's stale pin opens the peer's
+	// recovery route, not a veto over this pair. A replay re-derives the
+	// recorded resolution from the log, so the current registry, which the
+	// log never carries, is not its authority.
 	if !isWorkflowReplay(ctx) {
 		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, left); err != nil {
-			return err
-		}
-		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, right); err != nil {
 			return err
 		}
 	}
@@ -870,11 +923,13 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 }
 
 // InspectWorkflowDomainOverlap reports an unresolved Domain overlap for one
-// work item. It opens the transaction that CheckWorkflowDomainOverlapTx
-// requires, so a caller outside this package observes the same derivation a
-// mutation boundary applies rather than a separate untransacted one.
+// work item. It opens the transaction the boundary check requires, so a
+// caller outside this package observes the same derivation a mutation
+// boundary applies rather than a separate untransacted one. Inspection holds
+// the default admission: a stale pin refuses whatever it would refuse for a
+// caller, whoever the marker names.
 func InspectWorkflowDomainOverlap(ctx context.Context, s *Store, workID string) error {
 	return s.Transact(ctx, func(transaction *Transaction) error {
-		return CheckWorkflowDomainOverlapTx(ctx, transaction.tx, workID)
+		return checkWorkflowDomainOverlapTxAdmitting(ctx, transaction.tx, workID, workflowStalePinAdmitNone)
 	})
 }

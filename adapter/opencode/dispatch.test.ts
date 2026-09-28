@@ -5,7 +5,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, cwdGuardRestartRemedy, defaultRunner, dispatchWorker, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 import type { RouteResult, SessionReader } from "./move-session"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
@@ -271,6 +271,11 @@ test("dispatch refuses when the process cwd is a foreign sibling worktree of the
   const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
   const sibling = fs.realpathSync(path.join(root, "managed", "sibling"))
   const previousDirectory = process.cwd()
+  // The plain restart remedy is the unwrapped condition. The wrapper marker
+  // is host state, so the test pins its absence explicitly instead of
+  // assuming the runner booted outside the oc wrapper.
+  const previousRestartDir = process.env.OC_WRAPPER_RESTART_DIR
+  delete process.env.OC_WRAPPER_RESTART_DIR
   const windows = new DispatchWindows()
   try {
     armClaimedWorktree(SESSION, claimed)
@@ -294,10 +299,63 @@ test("dispatch refuses when the process cwd is a foreign sibling worktree of the
     expect(result.error?.message).not.toMatch(/replay worktree_claim/i)
     expect(windows.has(SESSION)).toBe(false)
   } finally {
+    if (previousRestartDir !== undefined) process.env.OC_WRAPPER_RESTART_DIR = previousRestartDir
     process.chdir(previousDirectory)
     clearClaimedWorktree(SESSION)
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+// Under the oc wrapper an in-app restart relaunches opencode inside the same
+// wrapper process, so the plain "restart the host process" remedy is
+// unreachable: process.cwd() never changes. The wrapper exports
+// OC_WRAPPER_RESTART_DIR, so the guard names the wrapper condition and the
+// required full wrapper quit when that marker is present.
+test("the cwd guard names the wrapper condition when the oc wrapper owns the restart", async () => {
+  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  fs.mkdirSync(path.join(root, "managed", "claimed"), { recursive: true })
+  fs.mkdirSync(path.join(root, "managed", "sibling"))
+  const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
+  const sibling = fs.realpathSync(path.join(root, "managed", "sibling"))
+  const previousDirectory = process.cwd()
+  const previousRestartDir = process.env.OC_WRAPPER_RESTART_DIR
+  const windows = new DispatchWindows()
+  try {
+    process.env.OC_WRAPPER_RESTART_DIR = path.join(root, "restart")
+    armClaimedWorktree(SESSION, claimed)
+    process.chdir(sibling)
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: claimed,
+      resolveWorkerDirectory: async () => claimed,
+      contextDirectory: claimed,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("unauthorized_dispatch")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.message).toContain(claimed)
+    expect(result.error?.message).toContain(sibling)
+    expect(result.error?.message).toMatch(/runs under the oc wrapper/i)
+    expect(result.error?.message).toMatch(/quit the wrapper entirely/i)
+    expect(result.error?.message).not.toMatch(/^restart the host process/)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    if (previousRestartDir === undefined) delete process.env.OC_WRAPPER_RESTART_DIR
+    else process.env.OC_WRAPPER_RESTART_DIR = previousRestartDir
+    process.chdir(previousDirectory)
+    clearClaimedWorktree(SESSION)
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("the cwd guard remedy keeps the plain restart when no wrapper owns the session", () => {
+  expect(cwdGuardRestartRemedy({})).toMatch(/restart the host process from the project trunk or in the claimed worktree/)
+  expect(cwdGuardRestartRemedy({ OC_WRAPPER_RESTART_DIR: "/restart" })).toMatch(/quit the wrapper entirely/)
+  expect(cwdGuardRestartRemedy({ OC_WRAPPER_RESTART_DIR: "" })).toMatch(/restart the host process from the project trunk or in the claimed worktree/)
 })
 
 // The operator's launch route boots the host in the project trunk and relies

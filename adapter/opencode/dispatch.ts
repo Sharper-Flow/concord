@@ -1349,6 +1349,22 @@ function sitsUnder(child: string, prefix: string): boolean {
   return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
 }
 
+// cwdGuardRestartRemedy is the remedy text the process-cwd guard prescribes.
+// Under the oc wrapper the host process never leaves the wrapper: the
+// wrapper's restart loop re-executes opencode inside the same wrapper process,
+// so an in-app restart cannot change process.cwd() and the plain
+// "restart the host process" remedy is unreachable. The wrapper exports
+// OC_WRAPPER_RESTART_DIR for its restart requests, so its presence names the
+// condition exactly and the remedy demands a full wrapper quit instead. The
+// env parameter is the test seam.
+export function cwdGuardRestartRemedy(env: Record<string, string | undefined> = process.env): string {
+  const restartDir = env.OC_WRAPPER_RESTART_DIR
+  if (typeof restartDir === "string" && restartDir !== "") {
+    return "this host runs under the oc wrapper, whose restart relaunches opencode inside the same wrapper process and cannot change the process directory, so an in-app restart cannot repair this; quit the wrapper entirely and relaunch it from the project trunk or the claimed worktree, then dispatch again"
+  }
+  return "restart the host process from the project trunk or in the claimed worktree, then dispatch again"
+}
+
 // contextPreflightRefusal is the pre-effect tool-context gate shared by the
 // lane dispatch path and the dispatchWorker authorize seam (issue #1322). The
 // dispatch_worker action persists an authorized attempt in the core, so a
@@ -1463,7 +1479,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     const physicalWorkerDirectory = canonicalDirectory(process.cwd())
     const managedWorktreesPrefix = path.dirname(armedClaim)
     if (physicalWorkerDirectory !== null && sitsUnder(physicalWorkerDirectory, managedWorktreesPrefix) && physicalWorkerDirectory !== armedClaim) {
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the adapter process runs in ${JSON.stringify(physicalWorkerDirectory)} inside the managed worktrees of ${JSON.stringify(managedWorktreesPrefix)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; restart the host process from the project trunk or in the claimed worktree, then dispatch again`, "reconcile_operation")
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the adapter process runs in ${JSON.stringify(physicalWorkerDirectory)} inside the managed worktrees of ${JSON.stringify(managedWorktreesPrefix)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; ${cwdGuardRestartRemedy()}`, "reconcile_operation")
     }
     // The host's fresh answer is checked second: it catches a move that never
     // landed, which replaying worktree_claim can repair.

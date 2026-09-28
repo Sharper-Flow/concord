@@ -2611,6 +2611,169 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
   expect(windows.releaseRetained(context.sessionID, "attempt-stranded", "implement")).toBe(true)
 })
 
+// The live-occupancy refusal names the calling session's own row as the
+// holder, and the release route it names was left to the operator. The
+// adapter now runs the named route itself: session_vacate releases the row
+// and moves the session to the registered main checkout, one abandon retry
+// with the same event identity closes the attempt, the durable receipt
+// records it, and work_start re-lands the session in the claimed worktree.
+// Every step rides the answer as a recovery notice.
+test("an own-row occupancy refusal runs the vacate, abandon retry, and work_start re-land recovery", async () => {
+  const MAIN_CHECKOUT = "/data/repo-main"
+  const sessionID = "session-abandon-own-row"
+  let sessionDirectory = WORKTREE
+  let metadata: Record<string, unknown> = {}
+  const moves: string[] = []
+  const titles: string[] = []
+  hostControlPlane().bind({
+    post: async ({ body }) => {
+      const destination = (body as { destination: { directory: string } }).destination.directory
+      moves.push(destination)
+      sessionDirectory = destination
+      return { response: new Response(null, { status: 204 }) }
+    },
+    get: async ({ path }) => ({ data: { id: path?.id, directory: sessionDirectory, metadata }, response: new Response(null, { status: 200 }) }),
+    patch: async ({ body }) => {
+      const patchBody = body as { metadata?: Record<string, unknown>; title?: string }
+      if (typeof patchBody.title === "string") {
+        titles.push(patchBody.title)
+        return { response: new Response(null, { status: 200 }) }
+      }
+      metadata = patchBody.metadata as Record<string, unknown>
+      return { response: new Response(null, { status: 200 }) }
+    },
+  })
+  const ownRowRefusal = `concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree; its host process 4242 is still live`
+  const calls: Array<{ argv: string[]; input: string }> = []
+  let abandonCalls = 0
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      const command = argv[1]
+      calls.push({ argv, input })
+      if (command === "worker-abandon") {
+        abandonCalls += 1
+        return abandonCalls === 1
+          ? { exitCode: 1, stdout: "", stderr: ownRowRefusal }
+          : { exitCode: 0, stdout: "", stderr: "" }
+      }
+      if (command === "invoke") {
+        const operation = (JSON.parse(input) as { operation: string }).operation
+        if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: sessionDirectory, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+        if (operation === "worker_abandon") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      }
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    } },
+  })
+  const context = { ...landedContextFor(), sessionID }
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-own-row-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(result.outcome).toBe("ok")
+  expect(result.operation).toBe("worker_abandon")
+  // The recovery notice set rides the ok receipt, one notice per step.
+  const notices = (result.warnings as Array<{ kind: string; details: { step: string } }>).filter((notice) => notice.kind === "worker_abandon_recovery")
+  expect(notices.map((notice) => notice.details.step)).toEqual([
+    "session_vacate: the calling session's occupancy row is released and the session moved to the registered main checkout",
+    "worker_abandon: the retry closed the dispatched attempt",
+    "worker_abandon: the durable replay receipt is recorded",
+    `work_start: the session re-landed in ${WORKTREE}`,
+  ])
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  // The session left for the vacate and returned for the re-land.
+  expect(moves).toEqual([MAIN_CHECKOUT, WORKTREE])
+  // One refused CLI abandon, then the retry carrying the same event identity
+  // the refused write never committed.
+  const abandonInputs = calls.filter(({ argv }) => argv[1] === "worker-abandon").map(({ input }) => JSON.parse(input))
+  expect(abandonInputs).toHaveLength(2)
+  expect(abandonInputs[0].event_id).toBe(abandonInputs[1].event_id)
+  expect(calls.map(({ argv }) => argv[1])).toEqual([
+    "worker-abandon",
+    "project-resolve", "invoke",
+    "worker-abandon",
+    "project-resolve", "invoke",
+    "project-resolve", "work-resume", "session-prepare", "claim-landing",
+  ])
+})
+
+// A foreign holder is outside the adapter's authority: the recovery must not
+// vacate another session's row, so the refusal stands unchanged and no
+// recovery route runs.
+test("an occupancy refusal naming a foreign holder keeps the unchanged refusal", async () => {
+  bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
+  const foreignRefusal = "concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ses-foreign still holds the worker attempt worktree; its host process 4242 is still live"
+  const calls: string[] = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      calls.push(argv[1])
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: foreignRefusal }
+      throw new Error(`no recovery route may run for a foreign holder: ${argv[1]}`)
+    } },
+  })
+  const context = { ...contextFor(), sessionID: "session-abandon-foreign-holder" }
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-foreign-holder-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("operation_conflict")
+  expect(result.error.adapter_reason).toBe("worker_abandon_refused")
+  // The unchanged transport diagnostic: the store refusal plus the wrapper
+  // text the abandon path has always prefixed.
+  expect(result.error.message).toBe(`worker attempt remains open because abandonment could not be recorded: ${foreignRefusal}`)
+  // Only the one refused CLI abandon ran: no vacate, no retry, no receipt.
+  expect(calls).toEqual(["worker-abandon"])
+})
+
+// A vacate that does not confirm its landing stops the recovery before the
+// abandon retry: the caller learns the original refusal plus the step that
+// failed, and nothing of the attempt was written.
+test("an own-row recovery stops at session_vacate when the vacate does not land", async () => {
+  const MAIN_CHECKOUT = "/data/repo-main"
+  const sessionID = "session-abandon-own-row-vacate-fails"
+  let sessionDirectory = WORKTREE
+  let metadata: Record<string, unknown> = {}
+  hostControlPlane().bind({
+    post: async ({ body }) => {
+      // The host performs the relocation but the readback never confirms it.
+      sessionDirectory = (body as { destination: { directory: string } }).destination.directory === MAIN_CHECKOUT ? "/stuck-elsewhere" : (body as { destination: { directory: string } }).destination.directory
+      return { response: new Response(null, { status: 204 }) }
+    },
+    get: async ({ path }) => ({ data: { id: path?.id, directory: sessionDirectory, metadata }, response: new Response(null, { status: 200 }) }),
+    patch: async ({ body }) => {
+      metadata = (body as { metadata?: Record<string, unknown> }).metadata as Record<string, unknown>
+      return { response: new Response(null, { status: 200 }) }
+    },
+  })
+  const ownRowRefusal = `concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree; its host process 4242 is still live`
+  const calls: string[] = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      calls.push(argv[1])
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: ownRowRefusal }
+      if (argv[1] === "invoke") {
+        const operation = (JSON.parse(input) as { operation: string }).operation
+        if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: WORKTREE, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      throw new Error(`no route may run past a failed vacate: ${argv[1]}`)
+    } },
+  })
+  const context = { ...landedContextFor(), sessionID }
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-own-row-vacate-fails-1" }
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  expect(result.outcome).toBe("error")
+  expect(result.error.adapter_reason).toBe("worker_abandon_refused")
+  expect(result.error.message).toContain("stopped at session_vacate")
+  expect(result.error.message).toContain("still holds the worker attempt worktree")
+  expect(result.error.details.recovery_stopped_at).toBe("session_vacate")
+  // The abandon retry never ran.
+  expect(calls.filter((command) => command === "worker-abandon")).toHaveLength(1)
+})
+
 test("portable continuation posture leaves host protocol names to the host surface", () => {
   for (const hostTerm of [
     "Concord",

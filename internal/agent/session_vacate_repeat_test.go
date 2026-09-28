@@ -235,9 +235,9 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	// no landing: landed_directory is the vacate-landing verb's evidence,
 	// never the requester's claim.
 	type vacatedEvent struct {
-		EventID       string
+		EventID        string
 		PayloadVersion int
-		Payload       struct {
+		Payload        struct {
 			WorkID               string `json:"work_id"`
 			ProjectID            string `json:"project_id"`
 			SessionRef           string `json:"session_ref"`

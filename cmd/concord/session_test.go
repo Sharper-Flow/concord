@@ -774,7 +774,9 @@ func TestSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func(string) error { return nil },
-		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) { return "concord-1", nil },
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			return "concord-1", nil
+		},
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -846,7 +848,9 @@ func TestSessionRefusesWhenTheHostCommandResolutionRefuses(t *testing.T) {
 				return nil
 			},
 			func(string) error { return nil },
-			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) { return "concord-1", nil },
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			},
 		)
 		if code != 2 || runs != 0 {
 			t.Fatalf("exit=%d runs=%d stderr=%q", code, runs, errOut.String())
@@ -873,7 +877,9 @@ func TestSessionRefusesWhenTheHostCommandResolutionRefuses(t *testing.T) {
 				return nil
 			},
 			func(string) error { return nil },
-			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) { return "concord-1", nil },
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			},
 		)
 		if code != 2 || runs != 0 {
 			t.Fatalf("exit=%d runs=%d stderr=%q", code, runs, errOut.String())

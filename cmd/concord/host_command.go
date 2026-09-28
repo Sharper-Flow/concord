@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -99,6 +100,10 @@ func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFu
 	}
 	command, present, err := hostCommandFromDocument(document)
 	if err != nil {
+		var invalid *hostCommandInvalidError
+		if errors.As(err, &invalid) {
+			return hostCommandResolution{}, invalid
+		}
 		return hostCommandResolution{}, fmt.Errorf("host registry probe returned an unreadable document: %w", err)
 	}
 	if !present {
@@ -110,6 +115,10 @@ func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFu
 	}
 	confirmed, present, err := hostCommandFromDocument(configuredDocument)
 	if err != nil {
+		var invalid *hostCommandInvalidError
+		if errors.As(err, &invalid) {
+			return hostCommandResolution{}, invalid
+		}
 		return hostCommandResolution{}, &hostCommandInvalidError{Problem: "could not be read from the configured command's own document", Cause: err}
 	}
 	if !present {
@@ -123,45 +132,84 @@ func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFu
 
 // hostCommandFromDocument reads the host_command option out of a resolved
 // host configuration document. present is false when no Concord plugin
-// tuple in the document names the option. A present value that is not a
-// non-empty array of non-empty strings is malformed and refuses.
+// tuple in the document names the option. The resolution refuses when the
+// resolved plugin list carries more than one entry whose file basename is
+// the Concord plugin's, because a first match without the option must not
+// mask a configured tuple, and when the matched tuple's options element is
+// present but not a JSON object, because reading it as no options would
+// silently turn a configured command into a bare launch. A present value
+// that is not a non-empty array of non-empty strings is malformed and
+// refuses.
 func hostCommandFromDocument(document []byte) (command []string, present bool, err error) {
 	var resolved hostConfigDocument
 	if err := json.Unmarshal(document, &resolved); err != nil {
 		return nil, false, err
 	}
-	for _, raw := range resolved.Plugin {
-		entry, options, ok := decodePluginEntry(raw)
+	value, named, err := soleConcordTupleOption(resolved.Plugin)
+	if err != nil {
+		return nil, false, err
+	}
+	if !named {
+		return nil, false, nil
+	}
+	return decodeHostCommand(value)
+}
+
+// soleConcordTupleOption finds the host_command option of the one Concord
+// plugin tuple in the host's resolved plugin list. Entries match by the file
+// basename of the entry path, because the installer registers the resolved
+// install path, which varies between hosts. Matching entries are collected
+// rather than scanned for a first usable one: an earlier duplicate without
+// the option is an ambiguous registration, not an absent option.
+func soleConcordTupleOption(plugins []json.RawMessage) (value json.RawMessage, named bool, err error) {
+	found := false
+	for _, raw := range plugins {
+		entry, options, hasOptions, ok := decodePluginEntry(raw)
 		if !ok || path.Base(strings.TrimPrefix(entry, "file://")) != concordPluginEntryFile {
 			continue
 		}
-		value, named := options[hostCommandOption]
-		if !named {
-			return nil, false, nil
+		if found {
+			return nil, false, &hostCommandInvalidError{Problem: "is ambiguous: the resolved plugin list carries more than one " + concordPluginEntryFile + " entry"}
 		}
-		return decodeHostCommand(value)
+		found = true
+		if !hasOptions {
+			continue
+		}
+		// A JSON null decodes into a map with no error, so the nil map
+		// result refuses: an options element of null names no options
+		// object (encoding/json literalStore sets maps to nil on null).
+		var object map[string]json.RawMessage
+		if objectErr := json.Unmarshal(options, &object); objectErr != nil || object == nil {
+			return nil, false, &hostCommandInvalidError{Problem: "is unreadable: the Concord plugin tuple's options element is not a JSON object"}
+		}
+		if rawValue, present := object[hostCommandOption]; present {
+			value, named = rawValue, true
+		}
 	}
-	return nil, false, nil
+	return value, named, nil
 }
 
 // decodePluginEntry reads one entry of the host's resolved plugin list. The
 // host carries a bare entry string, or a tuple whose second element is the
-// plugin's options object. Anything else is not an entry Concord reads.
-func decodePluginEntry(raw json.RawMessage) (entry string, options map[string]json.RawMessage, ok bool) {
+// plugin's options object. hasOptions reports a second tuple element, and
+// options carries it verbatim: whether it is an object is the caller's
+// refusal to make, and only for a matching tuple, because a foreign
+// plugin's broken options are none of Concord's to read.
+func decodePluginEntry(raw json.RawMessage) (entry string, options json.RawMessage, hasOptions bool, ok bool) {
 	var tuple []json.RawMessage
 	if err := json.Unmarshal(raw, &tuple); err == nil {
 		if len(tuple) == 0 || json.Unmarshal(tuple[0], &entry) != nil {
-			return "", nil, false
+			return "", nil, false, false
 		}
 		if len(tuple) > 1 {
-			_ = json.Unmarshal(tuple[1], &options)
+			return entry, tuple[1], true, true
 		}
-		return entry, options, true
+		return entry, nil, false, true
 	}
 	if err := json.Unmarshal(raw, &entry); err == nil {
-		return entry, nil, true
+		return entry, nil, false, true
 	}
-	return "", nil, false
+	return "", nil, false, false
 }
 
 // decodeHostCommand validates the host_command value: a non-empty JSON

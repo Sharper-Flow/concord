@@ -125,6 +125,93 @@ func TestResolveHostCommandIgnoresForeignTuplesAndBareEntries(t *testing.T) {
 	})
 }
 
+// A plugin list that carries more than one entry whose file basename names
+// the Concord plugin leaves which tuple is Concord's genuinely ambiguous.
+// Either order refuses with a diagnostic naming host_command and starts no
+// host: a first match without the option must not mask a configured tuple,
+// and the resolution never falls back to the bare host.
+func TestResolveHostCommandRefusesTwoConcordEntriesInEitherOrder(t *testing.T) {
+	withOption := func() []any {
+		return []any{[]any{"file:///hosts/tools/concord-plugin.ts", map[string]any{"host_command": []string{"host-wrapper"}}}}
+	}
+	withoutOption := func(install string) []any {
+		return []any{[]any{"file://" + install + "/concord-plugin.ts", map[string]any{}}}
+	}
+	cases := []struct {
+		name  string
+		order []any
+	}{
+		{name: "unconfigured entry first", order: append(withoutOption("/stale/install"), withOption()...)},
+		{name: "configured entry first", order: append(withOption(), withoutOption("/stale/install")...)},
+		{name: "neither entry names the option", order: append(withoutOption("/stale/install"), withoutOption("/other/install")...)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document := probeDocument(t, map[string]any{"agent": map[string]any{}, "plugin": tc.order})
+			probe := &probeStub{documents: map[string]string{"opencode": document}}
+			_, err := resolveHostCommand(context.Background(), "", probe.probe)
+			if err == nil {
+				t.Fatal("resolution accepted an ambiguous Concord plugin list")
+			}
+			if !strings.Contains(err.Error(), "host_command") || !strings.Contains(err.Error(), "ambiguous") {
+				t.Fatalf("diagnostic %q does not name host_command and the ambiguity", err.Error())
+			}
+			if len(probe.calls) != 1 {
+				t.Fatalf("probes=%d, want the refusal before any second probe", len(probe.calls))
+			}
+		})
+	}
+}
+
+// A matching tuple whose options element is present but is not a JSON object
+// is not an entry with no options: silently reading it that way would turn a
+// configured command into a bare launch. The resolution refuses with a
+// diagnostic naming host_command. A foreign tuple with a broken options
+// element is none of Concord's to read and stays ignored.
+func TestResolveHostCommandRefusesAMatchingTupleWhoseOptionsAreNotAnObject(t *testing.T) {
+	cases := []struct {
+		name    string
+		options any
+	}{
+		{name: "string", options: "work"},
+		{name: "array", options: []any{"work"}},
+		{name: "null", options: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document := probeDocument(t, map[string]any{
+				"agent":  map[string]any{},
+				"plugin": []any{[]any{"file:///hosts/tools/concord-plugin.ts", tc.options}},
+			})
+			probe := &probeStub{documents: map[string]string{"opencode": document}}
+			_, err := resolveHostCommand(context.Background(), "", probe.probe)
+			if err == nil {
+				t.Fatal("resolution accepted a Concord tuple whose options element is not an object")
+			}
+			if !strings.Contains(err.Error(), "host_command") {
+				t.Fatalf("diagnostic %q does not name host_command", err.Error())
+			}
+			if len(probe.calls) != 1 {
+				t.Fatalf("probes=%d, want the refusal before any second probe", len(probe.calls))
+			}
+		})
+	}
+	t.Run("a foreign tuple with a non-object options element is ignored", func(t *testing.T) {
+		document := probeDocument(t, map[string]any{
+			"agent":  map[string]any{},
+			"plugin": []any{[]any{"file:///operator/other-plugin.ts", "not an object"}},
+		})
+		probe := &probeStub{documents: map[string]string{"opencode": document}}
+		resolution, err := resolveHostCommand(context.Background(), "", probe.probe)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if !equalArgv(resolution.Command, defaultHostCommand) {
+			t.Fatalf("command=%q, want the bare default", resolution.Command)
+		}
+	})
+}
+
 // A present but malformed value refuses with a diagnostic naming
 // host_command, and no second probe runs: CD-0049 D4 admits no degraded
 // start, and the diagnostic is the only place the operator can see why.

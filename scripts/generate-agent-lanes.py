@@ -144,7 +144,10 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minItems={evidence_entry['properties']['predicate_ids']['minItems']}, "
         f"maxItems={evidence_entry['properties']['predicate_ids']['maxItems']}, "
         f"items={json.dumps(evidence_entry['properties']['predicate_ids']['items'], ensure_ascii=False)}. "
-        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges.",
+        "Name here the predicate_id of each inputs.outcome_predicates entry this entry's evidence discharges. "
+        "Discharge rule: when the packet's `inputs.outcome_predicates` is non-empty, a completed report "
+        "must name every declared `predicate_id` in at least one evidence entry's `predicate_ids` — "
+        "including findings entries — or the store refuses the completion with `invalid_report`.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
         "base_comparison: "

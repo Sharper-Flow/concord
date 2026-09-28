@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -45,12 +46,37 @@ func seedLinearCLIWorkWithExternalRef(t *testing.T, dbPath, workID, projectID, t
 func TestLinearBackfillCLI(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "bf-product", "bf-product-project")
-	// Captured before the Linear connection exists: the capture enqueue is a
-	// silent no-op and the backfill owns these items' visibility.
+	// Enable the Product before seeding work so its timestamps fall after
+	// cutover. The SQL fixtures skip the capture fold, which leaves backfill
+	// responsible for publication.
+	enableLinearProduct(t, dbPath, "bf-product")
 	seedLinearCLIWork(t, dbPath, "bf-cli-a", "bf-product-project", "Backfill A")
 	seedLinearCLIWork(t, dbPath, "bf-cli-b", "bf-product-project", "Backfill B")
 	seedLinearCLIWorkWithExternalRef(t, dbPath, "bf-cli-extref", "bf-product-project", "Backfill extref", "linear:existing-issue-uuid")
-	enableLinearProduct(t, dbPath, "bf-product")
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, workID := range []string{"bf-cli-a", "bf-cli-b", "bf-cli-extref"} {
+		if _, err := tx.Exec(`UPDATE work_items SET created_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), workID); err != nil {
+			s.Close()
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
 
 	var out, errOut strings.Builder
 	t.Setenv(dbOverrideEnv, dbPath)
@@ -86,7 +112,7 @@ func TestLinearBackfillCLI(t *testing.T) {
 
 	// The identity exclusion holds in the store, and a second pass finds
 	// nothing left to queue because every backfilled item now holds a link.
-	s, err := store.Open(context.Background(), dbPath)
+	s, err = store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

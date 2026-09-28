@@ -627,14 +627,14 @@ esac''',
         held_root = str(self.root / "data" / "concord" / "v1.0.0")
         report = self.root / "host-leases-holders.json"
         report.write_text(json.dumps({"leases": [
-            {"pid": 4242, "release_root": held_root, "schema_version": 1, "directory": "/home/x/site"},
-            {"pid": 4243, "release_root": held_root, "schema_version": 1, "worktree": "/home/x/site/.worktrees/wt"},
+            {"pid": 4242, "release_root": held_root, "schema_version": 1, "directory": "/srv/site"},
+            {"pid": 4243, "release_root": held_root, "schema_version": 1, "worktree": "/srv/site/.worktrees/wt"},
         ]}), encoding="utf-8")
         self.env["CONCORD_TEST_HOST_LEASES"] = str(report)
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertTrue((self.root / "data" / "concord" / "v1.0.0").exists(), "a held release was removed")
-        self.assertIn("keeping release v1.0.0: a live session holds it (pid 4242 in /home/x/site; pid 4243 in /home/x/site/.worktrees/wt)", second.stderr)
+        self.assertIn("keeping release v1.0.0: a live session holds it (pid 4242 in /srv/site; pid 4243 in /srv/site/.worktrees/wt)", second.stderr)
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         self.assertIn("v1.0.0", manifest["retained_releases"])
 

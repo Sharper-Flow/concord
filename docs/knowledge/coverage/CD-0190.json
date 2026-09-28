@@ -1,0 +1,42 @@
+{
+  "evidence": [
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#the installed release resolves through the current symlink beside the pinned root"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#the dispatch gate refuses a stale dispatch_worker action before any core call"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#every result from a stale session carries one bounded staleness notice"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a stale session's non-dispatch mutation still runs and carries the notice"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#a fresh session's dispatch_worker still reaches the core"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-installer.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0190",
+  "state": "satisfied"
+}

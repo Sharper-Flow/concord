@@ -275,9 +275,12 @@ def stamp_release_constants(adapter_dir: Path, version_root: Path) -> None:
 HOST_LEASE_TIMEOUT_SECONDS = 30
 
 
-def observe_held_releases(paths: Paths, version: str) -> set[str] | None:
-    """Return the resolved release roots live host sessions hold, or None when
-    the observation failed."""
+def observe_held_releases(paths: Paths, version: str) -> dict[str, list[dict[str, object]]] | None:
+    """Return the live host sessions holding each release root, keyed by the
+    resolved release root, or None when the observation failed. The holder
+    sessions are the retention output's per-release restart list (CD-0190):
+    a session the install made stale keeps working, and the operator needs
+    to know which sessions to restart."""
     binary = paths.data_root / version / "bin" / "concord"
     environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
     environment["XDG_DATA_HOME"] = str(paths.data_home)
@@ -305,14 +308,35 @@ def observe_held_releases(paths: Paths, version: str) -> set[str] | None:
     if not isinstance(leases, list):
         print("host lease observation failed: response carries no lease list", file=sys.stderr)
         return None
-    held: set[str] = set()
+    held: dict[str, list[dict[str, object]]] = {}
     for lease in leases:
         root = lease.get("release_root") if isinstance(lease, dict) else None
         if not isinstance(root, str) or not root:
             print("host lease observation failed: a lease names no release root", file=sys.stderr)
             return None
-        held.add(str(Path(root).resolve()))
+        holder: dict[str, object] = {}
+        pid = lease.get("pid")
+        if isinstance(pid, int) and not isinstance(pid, bool):
+            holder["pid"] = pid
+        for field in ("directory", "worktree"):
+            value = lease.get(field)
+            if isinstance(value, str) and value:
+                holder[field] = value
+        held.setdefault(str(Path(root).resolve()), []).append(holder)
     return held
+
+
+def describe_release_holders(holders: list[dict[str, object]]) -> str:
+    """Render holder sessions for the retention output. Each holder names its
+    pid and, when the lease carries one, the directory or worktree to find it
+    in; a lease without either still names itself as one holder."""
+    parts: list[str] = []
+    for holder in holders:
+        pid = holder.get("pid")
+        location = holder.get("worktree") or holder.get("directory")
+        who = f"pid {pid}" if pid is not None else "a session"
+        parts.append(f"{who} in {location}" if location else who)
+    return "; ".join(parts)
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:
@@ -2493,7 +2517,7 @@ def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
     if not isinstance(candidates, dict) or not candidates:
         return
     replaced = journal.get("cleanup_version")
-    held: set[str] | None = set()
+    held: dict[str, list[dict[str, object]]] | None = {}
     if activating(str(journal.get("operation", ""))):
         held = observe_held_releases(paths, str(journal["new_version"]))
     removed = False
@@ -2506,7 +2530,8 @@ def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
                 print(f"keeping release {version}: no host observation; a live session may still hold it", file=sys.stderr)
                 continue
         elif str(root.resolve()) in held:
-            print(f"keeping release {version}: a live session holds it", file=sys.stderr)
+            holders = describe_release_holders(held[str(root.resolve())])
+            print(f"keeping release {version}: a live session holds it ({holders})", file=sys.stderr)
             continue
         records = candidates[version]
         if not isinstance(records, dict) or not version_matches(root, records):

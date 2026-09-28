@@ -1,12 +1,12 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
-import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
-import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
-import { claimHostLease, configureHostLease } from "./host-lease"
+import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
+import { claimHostLease, configureHostLease, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE } from "./move-session"
@@ -2903,4 +2903,180 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(askingSource).toContain("Do not ask for permission to continue work already agreed")
   expect(continuationSource).not.toContain("Do not ask for general permission to continue")
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)
+})
+
+// CD-0190: installed-versus-session release staleness. The installer
+// repoints the `current` symlink beside the pinned releaseRoot on every
+// install, and OpenCode never hot-reloads lane definitions, so a session
+// whose pinned release differs from the installed release holds replaced
+// lane text. Staleness is visible on every result, lane dispatch refuses
+// before any core call, and every other surface keeps working (CD-0111 D1
+// and D2 stand unchanged).
+
+// withReleaseLayout stamps a pinned release the way the installer does and
+// optionally lays a `current` symlink beside it (null lays none). The seam
+// and the directory restore in every path, so no other test file observes
+// the stamp or the staleness.
+async function withReleaseLayout(current: string | null, run: (pinned: string) => Promise<void>, options: { relative?: boolean; pinnedVersion?: string } = {}) {
+  const dataRoot = await mkdtemp(join(tmpdir(), "concord-stale-"))
+  const pinned = join(dataRoot, options.pinnedVersion ?? "v11.40.3")
+  await mkdir(pinned, { recursive: true })
+  if (current !== null) {
+    const target = options.relative ? current : join(dataRoot, current)
+    await symlink(target, join(dataRoot, "current"))
+  }
+  try {
+    configureHostLease({ release: { coreBinary: join(pinned, "bin", "concord"), releaseRoot: pinned } })
+    await run(pinned)
+  } finally {
+    configureHostLease({ reset: true })
+    await rm(dataRoot, { recursive: true, force: true })
+  }
+}
+
+test("the installed release resolves through the current symlink beside the pinned root", async () => {
+  configureHostLease({ reset: true })
+  // The unstamped repository placeholder carries no release to compare.
+  expect(resolveInstalledReleaseRoot()).toBeNull()
+  expect(releaseStaleness()).toBeNull()
+  await withReleaseLayout(null, async (pinned) => {
+    // No current symlink: staleness is never guessed from a missing
+    // observation.
+    expect(resolveInstalledReleaseRoot()).toBeNull()
+    expect(releaseStaleness()).toBeNull()
+    expect(pinned).toBeTruthy()
+  })
+  await withReleaseLayout("v11.40.3", async (pinned) => {
+    expect(resolveInstalledReleaseRoot()).toBe(pinned)
+    expect(releaseStaleness()).toBeNull()
+  })
+  await withReleaseLayout("v11.40.6", async () => {
+    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" })
+  })
+  // A rollback repoints current the same way: any difference is stale.
+  await withReleaseLayout("v11.40.3", async () => {
+    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.6", installedRelease: "v11.40.3" })
+  }, { pinnedVersion: "v11.40.6" })
+  // The installer writes absolute targets, and a relative target resolves
+  // against the data root either way.
+  await withReleaseLayout("v11.40.6", async () => {
+    expect(releaseStaleness()).toMatchObject({ pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" })
+  }, { relative: true })
+})
+
+test("the dispatch gate refuses a stale dispatch_worker action before any core call", async () => {
+  const refusal = staleReleaseDispatchRefusal({ pinnedReleaseRoot: "/d/v1", installedReleaseRoot: "/d/v2", pinnedRelease: "v1", installedRelease: "v2" })
+  expect(refusal).toContain("v1")
+  expect(refusal).toContain("v2")
+  expect(refusal).toContain("restart this session")
+  await withReleaseLayout("v11.40.6", async () => {
+    let calls = 0
+    adapter.configureConcordAdapter({ runner: { async run(...args: unknown[]) { calls++; void args; throw new Error("no core call may run for a stale dispatch") } } })
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
+      work_id: "work-1", expected_version: 3, action_id: "dispatch_worker", idempotency_key: "idem-stale-1", fields: { lane_id: "implement" },
+    }), contextFor()))
+    // The refusal rides the dispatch surface's adapter-gate envelope: the
+    // turn-move gate's unauthorized_dispatch shape, with the boundary
+    // discriminator and the mandated stale_context refusal kind in the
+    // details, because TS7 pins adapter-origin tool-envelope error kinds to
+    // the transport set.
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("unauthorized_dispatch")
+    expect(result.error.recovery_action).toBe("contact_operator")
+    expect(result.error.details).toMatchObject({
+      boundary: "release_stale", refusal_kind: "stale_context",
+      pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release",
+    })
+    expect(result.error.message).toContain("v11.40.3")
+    expect(result.error.message).toContain("v11.40.6")
+    expect(result.error.message).toContain("restart this session")
+    expect(calls).toBe(0)
+    // A dispatch_worker action that cannot name its lane refuses the same
+    // way: the gate fires before routing, not after it.
+    const shapeless: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
+      work_id: "work-1", expected_version: 3, action_id: "dispatch_worker", idempotency_key: "idem-stale-2",
+    }), contextFor()))
+    expect(shapeless.error.kind).toBe("unauthorized_dispatch")
+    expect(shapeless.error.details.refusal_kind).toBe("stale_context")
+    expect(calls).toBe(0)
+  })
+})
+
+test("a fresh session's dispatch_worker still reaches the core", async () => {
+  await withReleaseLayout("v11.40.3", async () => {
+    // An unknown lane falls through to the generic transport, so the core
+    // answers and no stale refusal appears.
+    const runner = runnerWithContext(coreEnvelope("concord_work_transition", "workflow_action", "error", {
+      error: { kind: "invalid_input", retry_safe: true, recovery_action: { kind: "correct_request" }, effect_state: "none" },
+    }))
+    adapter.configureConcordAdapter({ runner })
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
+      work_id: "work-1", expected_version: 3, action_id: "dispatch_worker", idempotency_key: "idem-fresh-1", fields: { lane_id: "no-such-lane" },
+    }), contextFor()))
+    expect(runner.calls()).toBe(2)
+    expect(result.error?.kind ?? result.outcome).not.toBe("stale_context")
+  })
+})
+
+test("every result from a stale session carries one bounded staleness notice", async () => {
+  const okRead = coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } })
+  await withReleaseLayout("v11.40.6", async () => {
+    adapter.configureConcordAdapter({ runner: runnerWithContext(okRead) })
+    const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
+    expect(result.outcome).toBe("ok")
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]).toMatchObject({
+      kind: "release_stale", source_id: "adapter",
+      details: { pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release" },
+    })
+    expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+    // A fresh session gains no notice.
+    await withReleaseLayout("v11.40.3", async () => {
+      adapter.configureConcordAdapter({ runner: runnerWithContext(okRead) })
+      const fresh: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
+      expect(fresh.warnings).toEqual([])
+    })
+  })
+  // A core envelope whose warnings array is already full keeps its notices
+  // and carries the staleness notice on the output layer instead, so the
+  // envelope never exceeds the bound this adapter itself enforces.
+  await withReleaseLayout("v11.40.6", async () => {
+    const full = coreEnvelope("concord_product_view", "resolve", "ok", {
+      result: { product_id: "product-1", projects: [], stage: "prototype" },
+      warnings: Array.from({ length: 16 }, (_, index) => ({ kind: `core_note_${index}` })),
+    })
+    expect(validateGeneratedEnvelope(full)).toBe(true)
+    adapter.configureConcordAdapter({ runner: runnerWithContext(full) })
+    const result: any = await adapter.product_view.execute(hostCall("resolve", {}), contextFor())
+    const envelope = JSON.parse(result.output.slice(0, result.output.indexOf("\n")))
+    expect(envelope.warnings).toHaveLength(16)
+    expect(typeof result.output).toBe("string")
+    expect(result.output).toContain("restart this session to load the installed release")
+  })
+})
+
+test("a stale session's non-dispatch mutation still runs and carries the notice", async () => {
+  await withReleaseLayout("v11.40.6", async () => {
+    adapter.configureConcordAdapter({ runner: runnerWithContext(approvalSuccess()) })
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+      work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-stale-3",
+    }), contextFor()))
+    expect(result.outcome).toBe("ok")
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0].kind).toBe("release_stale")
+    expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  })
+})
+
+test("a stale work_start carries the staleness notice on its output layer", async () => {
+  await withReleaseLayout("v11.40.6", async () => {
+    adapter.configureConcordAdapter({ runner: { async run() { throw new Error("no core call may run before work_start validation") } } })
+    const result: any = await adapter.work_start.execute({}, contextFor())
+    expect(result.title).toBe("concord_work_start")
+    const envelope = JSON.parse(result.output.slice(0, result.output.indexOf("\n")))
+    expect(envelope.outcome).toBe("error")
+    expect(envelope.error.kind).toBe("invalid_input")
+    expect(result.output).toContain("restart this session to load the installed release")
+  })
+  expect(releaseDisplayName("/data/v11.40.3")).toBe("v11.40.3")
 })

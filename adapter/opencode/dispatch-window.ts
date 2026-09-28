@@ -10,6 +10,7 @@ import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { AgentLanePacket } from "./dispatch"
+import type { ReleaseStaleness } from "./host-lease"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
 // serializeLanePacket is the one byte form of a lane packet: the Task prompt
@@ -29,6 +30,27 @@ export const TASK_TOOL_ID = "task"
 const LANE_AGENT_PREFIX = "concord-"
 
 export class DispatchWindowError extends Error {}
+
+// CD-0190: the stale-release dispatch gate. OpenCode loads lane agent
+// definitions once at process start and never hot-reloads, while the
+// installer rewrites them in place on every install, so a session whose
+// pinned release differs from the installed release would dispatch workers
+// against lane text the install replaced. The gate owns that refusal text
+// and is checked at the dispatch_worker action boundary, before any core
+// call: refusing after core authorization (the window bind, for example)
+// would strand a recorded attempt behind exactly the terminal-attempt harm
+// this gate prevents. The refusal rides the dispatch surface's own
+// adapter-gate vocabulary — unauthorized_dispatch with a boundary
+// discriminator, the turn-move gate's shape — because TS7 pins
+// adapter-origin tool-envelope error kinds to the transport set, and
+// details.refusal_kind carries the stale_context classification.
+export function staleReleaseDispatchRefusal(staleness: ReleaseStaleness): string {
+  return (
+    `this session pinned release ${staleness.pinnedRelease} but the host installed ${staleness.installedRelease}; ` +
+    `the lane definitions this process holds were replaced on disk, so dispatch_worker refuses and no worker attempt opens; ` +
+    `restart this session to load the installed release, then dispatch again`
+  )
+}
 
 // An authorized attempt in flight: the packet and digest captured before the
 // host starts the worker. Completion needs these values after the host runs

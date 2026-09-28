@@ -616,6 +616,28 @@ esac''',
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         self.assertEqual(manifest["retained_releases"], {})
 
+    def test_retention_output_lists_holder_sessions(self) -> None:
+        """CD-0190: the retention output names the holder sessions per
+        retained release, so the operator knows exactly which sessions to
+        restart after the install makes them stale."""
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        held_root = str(self.root / "data" / "concord" / "v1.0.0")
+        report = self.root / "host-leases-holders.json"
+        report.write_text(json.dumps({"leases": [
+            {"pid": 4242, "release_root": held_root, "schema_version": 1, "directory": "/home/x/site"},
+            {"pid": 4243, "release_root": held_root, "schema_version": 1, "worktree": "/home/x/site/.worktrees/wt"},
+        ]}), encoding="utf-8")
+        self.env["CONCORD_TEST_HOST_LEASES"] = str(report)
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertTrue((self.root / "data" / "concord" / "v1.0.0").exists(), "a held release was removed")
+        self.assertIn("keeping release v1.0.0: a live session holds it (pid 4242 in /home/x/site; pid 4243 in /home/x/site/.worktrees/wt)", second.stderr)
+        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertIn("v1.0.0", manifest["retained_releases"])
+
     def test_a_failed_observation_keeps_the_replaced_release_only(self) -> None:
         """CD-0111 D2 bounded fallback: with no host observation the replaced
         release stays, because a session that started before the launcher

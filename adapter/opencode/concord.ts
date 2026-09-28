@@ -5,13 +5,13 @@ import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } 
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { abandonWorkerAttempt } from "./dispatch"
-import { dispatchWindows } from "./dispatch-window"
+import { dispatchWindows, staleReleaseDispatchRefusal } from "./dispatch-window"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
-import { hostLeaseFault } from "./host-lease"
+import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
 import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
@@ -668,6 +668,40 @@ function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
   return { ...result, output: `${result.output}${suffix}` }
 }
 
+// CD-0190: release staleness rides the result a stale session already gets.
+// The notice lives in the envelope's bounded warnings channel — the TS7
+// notice shape, no schema change — and names both versions and the restart
+// remedy. The warnings array holds at most 16 notices, so a result whose
+// core envelope is already full carries the same notice on the output layer
+// instead: one notice per result, never an envelope this adapter would
+// itself refuse.
+const ENVELOPE_WARNINGS_LIMIT = 16
+const STALE_RELEASE_NOTICE_KIND = "release_stale"
+const STALE_RELEASE_REMEDY = "restart this session to load the installed release"
+
+function stalenessNotice(staleness: ReleaseStaleness): Record<string, unknown> {
+  return {
+    kind: STALE_RELEASE_NOTICE_KIND,
+    source_id: "adapter",
+    details: {
+      pinned_release: staleness.pinnedRelease,
+      installed_release: staleness.installedRelease,
+      remedy: STALE_RELEASE_REMEDY,
+    },
+  }
+}
+
+function stalenessSummary(staleness: ReleaseStaleness): string {
+  return `Concord staleness: this session pinned release ${staleness.pinnedRelease} but the host installed ${staleness.installedRelease}; ${STALE_RELEASE_REMEDY}.`
+}
+
+function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: ReleaseStaleness | null): { envelope: HostConcordEnvelope; extraWarnings: string[] } {
+  if (!staleness) return { envelope, extraWarnings: [] }
+  const carried = record(envelope) && Array.isArray(envelope.warnings) && envelope.warnings.length < ENVELOPE_WARNINGS_LIMIT
+  if (carried) return { envelope: { ...envelope, warnings: [...envelope.warnings, stalenessNotice(staleness)] }, extraWarnings: [] }
+  return { envelope, extraWarnings: [stalenessSummary(staleness)] }
+}
+
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) {
@@ -687,15 +721,21 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 }
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
+  // One staleness observation per tool call (CD-0190): the same reading
+  // feeds the dispatch gate and the result notice.
+  const staleness = releaseStaleness()
   const envelope = await invokeConcordOperation(toolName, args, context)
-  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(envelope, context) : []
-  return appendWarnings(await encodeHostToolResult(toolName, args, context, envelope), warnings)
+  const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
+  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(settled, context) : []
+  return appendWarnings(await encodeHostToolResult(toolName, args, context, settled), [...warnings, ...extraWarnings])
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  const envelope = await executeWorkTransition(args, context)
-  const warnings = await workStateReporter.report(envelope, context)
-  return appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, envelope), warnings)
+  const staleness = releaseStaleness()
+  const envelope = await executeWorkTransition(args, context, staleness)
+  const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
+  const warnings = await workStateReporter.report(settled, context)
+  return appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings])
 }
 
 type WorkStartCaptureArgs = {
@@ -1280,16 +1320,22 @@ export const work_relate = tool({
     // Same shape as the transition tool: a supersede that terminalizes the
     // work whose worktree this session runs in carries a vacate_target the
     // adapter applies before the result is reported (CD-0179).
+    const staleness = releaseStaleness()
     const request = hostRequest(args)
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
-    const settled = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
+    const vacated = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
+    const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
-    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), warnings)
+    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings])
   },
 })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
 export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
-  const warnings: string[] = []
+  const staleness = releaseStaleness()
+  // The work_start result envelope is the adapter's own closed shape with no
+  // warnings member, so the staleness notice rides the output layer the
+  // start already uses for best-effort warnings (CD-0190).
+  const warnings: string[] = staleness ? [stalenessSummary(staleness)] : []
   const envelope = await executeWorkStart(args as WorkStartArgs, context, warnings)
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
@@ -1700,7 +1746,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
 // queues the notice that tells a neighbouring session the directory is gone.
 export const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktree_destroy", "worktree_audit_reclaim"])
 
-async function executeWorkTransition(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
+async function executeWorkTransition(args: HostToolArgs, context: ToolContext, staleness: ReleaseStaleness | null): Promise<HostConcordEnvelope> {
   if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
@@ -1708,6 +1754,26 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
     return envelope
   }
   if (args?.operation === "workflow_action") {
+    // CD-0190: the stale-release dispatch gate. A dispatch_worker action from
+    // a session whose pinned release differs from the installed release
+    // refuses here, before any core call, so no worker attempt opens on lane
+    // text the install replaced. Every other action keeps working. The
+    // refusal rides the dispatch surface's adapter-gate envelope
+    // (unauthorized_dispatch, boundary release_stale, refusal_kind
+    // stale_context in the details): TS7 pins adapter-origin tool-envelope
+    // error kinds to the transport set, and this envelope is the shape
+    // dispatch refusals already return.
+    const staleDispatch = record(args?.input) && args.input.action_id === "dispatch_worker" ? staleness : null
+    if (staleDispatch) {
+      const input = args.input
+      const fields = record(input.fields) ? input.fields : {}
+      const partial: { work_id?: string; lane_id?: string } = {}
+      if (typeof input.work_id === "string") partial.work_id = input.work_id
+      if (typeof fields.lane_id === "string") partial.lane_id = fields.lane_id
+      return errorEnvelopeForLane(null, partial, "error", "unauthorized_dispatch", staleReleaseDispatchRefusal(staleDispatch), "contact_operator", {
+        details: { boundary: "release_stale", refusal_kind: "stale_context", pinned_release: staleDispatch.pinnedRelease, installed_release: staleDispatch.installedRelease, remedy: STALE_RELEASE_REMEDY },
+      })
+    }
     const request = laneDispatchRequest(args)
     if (request && "error" in request) {
       const fields = args?.input?.fields

@@ -307,7 +307,7 @@ func runContinuityBlockCommandWithBootstrap(args []string, out, errOut io.Writer
 }
 
 func runOpenCode(ctx context.Context, dir string, argv, env []string, in io.Reader, out, errOut io.Writer) error {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the sole caller builds fixed opencode argv values and this call does not invoke a shell.
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // callers pass the resolved host command (the validated host_command argv or bare opencode) plus Concord's fixed arguments; this call does not invoke a shell.
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
@@ -373,7 +373,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		}
 		argv := append(append([]string(nil), host.Command...), "--prompt", prompt)
 		if err := runner(context.Background(), projectPath, argv, os.Environ(), in, out, errOut); err != nil {
-			writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+			writeDiagnostic(errOut, fmt.Sprintf("concord session: %s: %v", host.Command[0], err))
 			return 1
 		}
 		return 0
@@ -494,7 +494,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// wrapper when one is named, the bare host otherwise (CD-0189).
 	argv := append(append([]string(nil), resolution.Command...), "--agent", handle, "--prompt", prompt)
 	if err := runner(context.Background(), dir, argv, os.Environ(), in, out, errOut); err != nil {
-		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+		writeDiagnostic(errOut, fmt.Sprintf("concord session: %s: %v", resolution.Command[0], err))
 		return 1
 	}
 	return 0

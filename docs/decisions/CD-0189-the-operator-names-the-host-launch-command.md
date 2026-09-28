@@ -93,9 +93,9 @@ ships no wrapper name and hard-codes none; the setting is operator data.
 
 - A configured command adds one probe to each start: the bare probe that
   reads the option, and the second probe through the command.
-- Each probe through a wrapper runs that wrapper's own start and exit
-  behavior. A wrapper that is slow to start slows every session start by
-  that cost, twice.
+- The probe through a wrapper runs that wrapper's own start and exit
+  behavior. A wrapper that is slow to start adds that cost once to every
+  session start, before the launch itself runs through the wrapper.
 - A wrapper that resolves a different `host_command` than the bare host
   names refuses the start. The operator fixes the wrapper's config; Concord
   does not guess.

@@ -277,8 +277,8 @@ option is present, a second probe runs through the configured command, and
 its own `debug config` document must carry an identical `host_command`: the
 agent registry check reads that second document, so the verified registry is
 the one the wrapper resolves (CD-0093 D2). A configured command adds one
-probe per start, and each probe through a wrapper runs that wrapper's own
-start and exit behavior.
+probe per start, and that probe runs the wrapper's own start and exit
+behavior.
 
 `OPENCODE_BIN` stays a test seam. Adapter worker dispatch and the
 move-session version diagnostic stay on the bare host: worker lanes are not

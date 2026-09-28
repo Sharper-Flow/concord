@@ -28,7 +28,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:df1e36e3b5d7dc305519d26548d6b2dca9c27efd9e22e90afc175adfce35f61a",
+  "sha256": "sha256:fc2b6394a4d9fdbaeba884ac5cf68d13b941310c42c3f049ec6af39fce13aa74",
   "status": "accepted",
   "summary": "The operator names the host launch command as a host_command argv array in the options of the Concord plugin tuple in host OpenCode config, read from the opencode debug config document. Absent means the bare opencode executable and unchanged behavior. Present, every Go-core host invocation uses it: the Product and work launch, the Project-path launch, and the registry probe shared by concord session and session-prepare. A second probe through the configured command must carry an identical host_command, and the agent registry check reads that document, so the verified registry is the executing registry. A malformed value or a mismatched second document refuses with a diagnostic naming host_command and starts no host.",
   "tags": [

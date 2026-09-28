@@ -297,7 +297,10 @@ func workflowCorrectionVerdicts(ctx context.Context, q queryer, workID string, d
 }
 
 // workflowAcceptedWorkerDelivery requires both a completed worker attempt and
-// its folded accept_worker_result action before a verdict can request correction.
+// its folded accept action before a verdict can request correction. Either
+// accept action binds the delivery: accept_worker_result accepts a delivered
+// result, and accept_worker_evidence binds the evidence a review dispatch
+// delivered at its confirmation step.
 func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID string, throughSeq int64, subject string) (int64, bool, error) {
 	var dispatchSeq int64
 	var attemptID string
@@ -308,7 +311,7 @@ func workflowAcceptedWorkerDelivery(ctx context.Context, q queryer, workID strin
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	var accepted int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events accepted ON accepted.subject_type=? AND accepted.subject_id=a.work_id AND accepted.kind=? AND accepted.seq>? AND accepted.seq<=? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result' AND json_extract(accepted.payload,'$.worker_attempt_id')=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed')`, string(SubjectWorkItem), WorkflowActionCompleted, dispatchSeq, throughSeq, workID, attemptID).Scan(&accepted); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events accepted ON accepted.subject_type=? AND accepted.subject_id=a.work_id AND accepted.kind=? AND accepted.seq>? AND accepted.seq<=? AND json_extract(accepted.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(accepted.payload,'$.worker_attempt_id')=a.attempt_id WHERE a.work_id=? AND a.attempt_id=? AND a.lifecycle_state='completed')`, string(SubjectWorkItem), WorkflowActionCompleted, dispatchSeq, throughSeq, workID, attemptID).Scan(&accepted); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker delivery", true, "retry once the worker delivery projection is readable", err)
 	}
 	return dispatchSeq, accepted != 0, nil

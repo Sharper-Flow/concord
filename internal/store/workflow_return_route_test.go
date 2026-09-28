@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -533,4 +534,106 @@ func countWorkflowCompletionEvents(t *testing.T, s *Store, workID string) int {
 		t.Fatal(err)
 	}
 	return count
+}
+
+// dispatchVerifyReviewAttempt drives the CD-0187 verify-step review through
+// its dispatch_worker action, lane dispatch, and completed report, leaving
+// the report unbound until an accept action settles it.
+func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
+	t.Helper()
+	lane := reviewGateLane(t, "review")
+	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
+	attemptID := "attempt:" + workID + ":verify-review"
+	packet := joinPacketFor(workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	if _, err := dispatchJoinAttempt(context.Background(), t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
+		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
+	}
+	var packetDigest string
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&packetDigest); err != nil {
+		t.Fatal(err)
+	}
+	laneDispatch := Event{EventID: "verify-review-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
+	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("lane actor dispatch: %v", err)
+	}
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{
+		EventID: "verify-review-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestVerdictCorrectionAdmitsReviewEvidenceAccept pins the accept side of the
+// verdict correction route: a verify-step review whose delivered evidence the
+// accept_worker_evidence accept bound keeps a later non-ok verdict's
+// correction route open.
+func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
+	const workID = "return-route-review-evidence-correction"
+	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+	s := fixture.store
+	reviewer := checkpointReviewReviewer(t, s, workID)
+	dispatchVerifyReviewAttempt(t, fixture, workID)
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	attemptID := "attempt:" + workID + ":verify-review"
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
+		t.Fatalf("accept_worker_evidence refused: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "verify" {
+		t.Fatalf("step after accept_worker_evidence = %q, want verify", step)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record non-ok verdict after the review accept: %v", err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the review found the delivered subject does not satisfy the approved predicate","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("request correction after the review evidence accept: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "repair" {
+		t.Fatalf("step after verdict correction = %q, want repair", got)
+	}
+}
+
+// TestVerdictCorrectionRefusesUnacceptedReviewDelivery pins the refusal side:
+// the same completed review delivery with no accept action gives a non-ok
+// verdict no accepted delivery, so request_correction stays closed.
+func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
+	const workID = "return-route-unaccepted-review-delivery"
+	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+	s := fixture.store
+	reviewer := checkpointReviewReviewer(t, s, workID)
+	dispatchVerifyReviewAttempt(t, fixture, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		t.Fatalf("record non-ok verdict over the unaccepted review: %v", err)
+	}
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	available, err := workflowCorrectionRequestAvailable(context.Background(), s.db, workID, registered.Definition, "verify", "return_route_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if available {
+		t.Fatal("request_correction is available with no accept action on the delivered review")
+	}
+	payload := json.RawMessage(`{"diagnosis":"the review found the delivered subject does not satisfy the approved predicate","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
+		WorkID: workID, ActionID: "request_correction", Payload: payload, Actor: fixture.owner,
+	})
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition {
+		t.Fatalf("correction without an accepted review delivery error=%v, want an illegal transition refusal", err)
+	}
 }

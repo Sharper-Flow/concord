@@ -60,19 +60,22 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
 
-    def test_projection_states_the_predicate_discharge_rule(self):
-        # The store refuses a completed worker report whose evidence leaves a
-        # declared outcome predicate unnamed (internal/store/worker_lanes.go
-        # verifyWorkerPredicateDischarge), and the generated contract text is
-        # the only place a lane agent learns that rule, so every lane
-        # definition must state it while predicate_ids stays schema-optional.
+    def test_projection_states_the_predicate_tie_rule(self):
+        # The store refuses a completed worker report only when an evidence
+        # entry ties a predicate id the dispatch did not declare
+        # (internal/store/worker_lanes.go verifyWorkerPredicateTies); the
+        # predicates no entry proves are decided by the completion verdicts
+        # (CD-0180). The generated contract text is the only place a lane
+        # agent learns that rule, so every lane definition must state it
+        # while predicate_ids stays schema-optional.
         projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
-        self.assertIn("when the packet's `inputs.outcome_predicates` is non-empty", normalized)
-        self.assertIn("must name every declared `predicate_id` in at least one evidence entry's `predicate_ids`", normalized)
-        self.assertIn("including findings entries", normalized)
-        self.assertIn("`invalid_report`", normalized)
+        self.assertIn("omit it on an entry that proves no declared predicate", normalized)
+        self.assertIn("Tie a declared `predicate_id` only to an entry whose evidence proves that predicate", normalized)
+        self.assertIn("the store refuses a completed report that ties a `predicate_id` the packet's `inputs.outcome_predicates` did not declare with `invalid_report`", normalized)
+        self.assertIn("decided by the completion verdicts, never by this report", normalized)
+        self.assertNotIn("must name every declared", normalized)
 
     def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
         # The registry declares a per-lane time budget, and the body must

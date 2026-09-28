@@ -82,7 +82,8 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run the task"), s, &out, &errOut,
 			func(string) error { laneCalls++; return nil },
-			func(context.Context, string, string, string, string) (string, error) {
+			hostCommandAt(defaultHostResolution()),
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 				identityCalls++
 				return "agent", nil
 			},

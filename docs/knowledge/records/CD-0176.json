@@ -24,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8828e3bfd35d092a4fa186e0dd4a608a182a6c9b050fbe3ccdb8ed66fbabe89a",
+  "sha256": "sha256:c6640b4715b12b6c4ff268fc0b9bc33db0140a392b9492c866ba81a4b4e1a1dd",
   "status": "accepted",
-  "summary": "A launcher-started session for selected work lands in that work's active worktree in its primary Project when the worktree is a usable directory on the machine, and in the Project canonical path otherwise; the one-directory binding, the fixed host command, and the fail-closed canonical path stand unchanged, and the adapter landing guard plus the capture-launch turn stay out of scope.",
+  "summary": "A launcher-started session for selected work lands in that work's active worktree in its primary Project when the worktree is a usable directory on the machine, and in the Project canonical path otherwise; the one-directory binding, the fail-closed canonical path, and the host command as CD-0189 amended it stand, and the adapter landing guard plus the capture-launch turn stay out of scope.",
   "tags": [
     "launcher",
     "session-boot",

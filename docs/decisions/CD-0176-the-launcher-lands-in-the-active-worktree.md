@@ -8,11 +8,13 @@
 - **Amends:** CD-0093
 - **Amended:** CD-0182 (2026-09-27) adds the explicit member-Project
   selector to the landing; this record's primary-Project rule is unchanged.
+  CD-0189 (2026-09-28) configures the host command; this record's landing
+  rules are unchanged.
 - **Related:** CD-0008, CD-0088, CD-0103
 - **Approval:** The operator approved the objective in the Concord (CON)
   work contract CON-448 (v1). The pull request is the public record.
 - **Preserves:** CD-0093 D2's one-directory binding, CD-0093 D3's fail-closed
-  canonical path, CD-0093 D4's fixed host command
+  canonical path, CD-0093 D4's resolved host command (amended by CD-0189)
 
 ## Context
 
@@ -69,14 +71,15 @@ CD-0182 adds one exception to the primary-Project limit. With the explicit
 active worktree when it is usable, else in that Project's canonical path.
 Without the selector, this clause binds as recorded.
 
-### D3. One directory, fixed host, and fail-closed canonical path stand
+### D3. One directory, resolved host, and fail-closed canonical path stand
 
 CD-0093 D2 binds unchanged. The one landing directory governs agent
 definition resolution, the host registry probe, and host execution, and it
 resolves before identity verification. CD-0093 D3 binds unchanged for the
 canonical path. A canonical path that does not resolve refuses the launch
-with a typed diagnostic. CD-0093 D4 binds unchanged: the host command stays
-fixed.
+with a typed diagnostic. CD-0093 D4 binds as CD-0189 amended it: the host
+command is the operator's configured `host_command` when one is named, and
+the bare host otherwise, resolved in the same landing directory.
 
 The landing choice happens inside the existing resolution, so no launch step
 reads a second directory, a new setting, or the process working directory.

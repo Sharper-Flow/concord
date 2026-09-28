@@ -55,6 +55,11 @@ type sessionAgentIdentityFunc func(dir string) error
 // typed absence diagnostic. On success it returns the invocation handle the
 // host registers the resolved definition under, which equals agent.
 //
+// host is the host-command resolution the command function made in dir: the
+// registry the verification checks is the document it carried back, so the
+// verified registry is the one the host command that launches resolves
+// (CD-0093 D2, CD-0189).
+//
 // agent is the active host agent the session runs as: the launcher's
 // CONCORD_SELECTED_AGENT selection for `concord session`, or the request's
 // agent field for session-prepare. The host answers an unselected name with
@@ -64,7 +69,7 @@ type sessionAgentIdentityFunc func(dir string) error
 //
 // The function is a parameter so tests can inject an isolated temp store;
 // production wiring is hostOrchestratorIdentity below.
-type sessionOrchestratorFunc func(ctx context.Context, dir, productID, workID, agent string) (string, error)
+type sessionOrchestratorFunc func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error)
 
 // sessionDirectoryUnresolvedError reports a canonical path that does not
 // resolve to a directory on this machine. CD-0093 D3 admits no fallback
@@ -174,19 +179,22 @@ func hostLaneAgentIdentity(dir string) error {
 
 // hostOrchestratorIdentity is the production wiring for the session's
 // orchestrator assertion. It runs the file/digest verification for the
-// active agent in the directory the session resolved, opens the authority
-// store, and records the assertion in a single transaction. The verification
-// runs before any store interaction so a missing definition fails closed
+// active agent in the directory the session resolved, checks the host
+// command resolution's registry document, opens the authority store, and
+// records the assertion in a single transaction. The verification runs
+// before any store interaction so a missing definition fails closed
 // without touching the database — the session either records the assertion
 // it required or refuses.
-func hostOrchestratorIdentity(ctx context.Context, dir, productID, workID, agent string) (string, error) {
-	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), probeHostAgentRegistry, dir, productID, workID, agent)
+func hostOrchestratorIdentity(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
+	return recordOrchestratorIdentity(ctx, os.Getenv("HOME"), host, dir, productID, workID, agent)
 }
 
 // recordOrchestratorIdentity carries the whole assertion. The home directory
-// and the registry probe are parameters so a test drives the real path against
-// a temporary installation instead of restating it.
-func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegistryProbeFunc, dir, productID, workID, agent string) (handleResult string, errResult error) {
+// is a parameter so a test drives the real path against a temporary
+// installation instead of restating it. host is the resolution the session
+// command made in dir: the registry document the host itself resolves is
+// what the registration check reads.
+func recordOrchestratorIdentity(ctx context.Context, home string, host hostCommandResolution, dir, productID, workID, agent string) (handleResult string, errResult error) {
 	assertion, handle, err := verifyOrchestratorIdentity(home, dir, agent)
 	if err != nil {
 		return "", err
@@ -197,7 +205,7 @@ func recordOrchestratorIdentity(ctx context.Context, home string, probe hostRegi
 	// refuses (issue #430). The registry probed is the one the host
 	// resolves in dir, the directory the session itself runs in
 	// (CD-0093 D2).
-	if err := verifyHostRegistersHandle(ctx, probe, dir, handle); err != nil {
+	if err := verifyHostRegistersHandle(host, handle); err != nil {
 		return "", err
 	}
 	assertion.ProductID = productID
@@ -299,7 +307,7 @@ func runContinuityBlockCommandWithBootstrap(args []string, out, errOut io.Writer
 }
 
 func runOpenCode(ctx context.Context, dir string, argv, env []string, in io.Reader, out, errOut io.Writer) error {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the sole caller builds fixed opencode argv values and this call does not invoke a shell.
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // callers pass the resolved host command (the validated host_command argv or bare opencode) plus Concord's fixed arguments; this call does not invoke a shell.
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
@@ -307,16 +315,19 @@ func runOpenCode(ctx context.Context, dir string, argv, env []string, in io.Read
 }
 
 // runSessionCommand is the entry point for `concord session`. The injected
-// callbacks (directory, bootstrap, runner, identity, orchestrator) make the
-// command observable for tests. Production wiring is hostSessionDirectory,
-// DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, and
-// hostOrchestratorIdentity. CD-0093 D2 fixes the order: the Project
-// directory resolves before identity verification, never after, and the one
-// resolved directory governs agent definition resolution, the host registry
-// probe, and host execution. None of them reads the process working
-// directory.
+// callbacks (directory, host command, bootstrap, runner, identity,
+// orchestrator) make the command observable for tests. Production wiring is
+// hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot,
+// runOpenCode, hostLaneAgentIdentity, and hostOrchestratorIdentity. CD-0093
+// D2 fixes the order: the Project directory resolves before identity
+// verification, never after, and the one resolved directory governs agent
+// definition resolution, the host registry probe, and host execution. None
+// of them reads the process working directory. CD-0189 adds the host
+// command: every launch and probe runs the argv the resolution returned,
+// which is the operator's host_command option when one is configured and
+// the bare host otherwise.
 func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool,
-	directory sessionDirectoryFunc, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
+	directory sessionDirectoryFunc, hostCommand sessionHostCommandFunc, bootstrap sessionBootstrapFunc, runner sessionRunnerFunc,
 	identity sessionAgentIdentityFunc, orchestrator sessionOrchestratorFunc) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, "concord session: unsupported arguments")
@@ -349,9 +360,20 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		if prompt == "" {
 			prompt = "OpenCode project session"
 		}
-		argv := []string{"opencode", "--prompt", prompt}
+		// The Project-path launch carries no Concord identity, so it has no
+		// agent registry to check, but it runs on the same host the
+		// Product/work launch runs on: the bootstrap probe reads the
+		// host_command option in the resolved directory, and a configured
+		// command is verified against its own document before any host
+		// starts (CD-0189).
+		host, err := hostCommand(context.Background(), projectPath)
+		if err != nil {
+			writeDiagnostic(errOut, "concord session: "+err.Error())
+			return 2
+		}
+		argv := append(append([]string(nil), host.Command...), "--prompt", prompt)
 		if err := runner(context.Background(), projectPath, argv, os.Environ(), in, out, errOut); err != nil {
-			writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+			writeDiagnostic(errOut, fmt.Sprintf("concord session: %s: %v", host.Command[0], err))
 			return 1
 		}
 		return 0
@@ -396,6 +418,17 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
 	}
+	// The host command resolves in the same directory the session runs in.
+	// A wrapper may resolve a different configuration than the bare host,
+	// so the bootstrap probe reads the option there, and a configured
+	// command is verified against its own document before the registry
+	// check below reads it: the verified registry is the executing registry
+	// (CD-0093 D2, CD-0189).
+	resolution, err := hostCommand(context.Background(), dir)
+	if err != nil {
+		writeDiagnostic(errOut, "concord session: "+err.Error())
+		return 2
+	}
 	// The launcher names the agent this session runs as. The verification
 	// below resolves that agent's definition and requires the host to
 	// register exactly it; an unselected or renamed agent resolves to the
@@ -406,7 +439,7 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 		writeDiagnostic(errOut, "concord session: launcher agent selection is missing or invalid")
 		return 2
 	}
-	handle, err := orchestrator(context.Background(), dir, productID, workID, agent)
+	handle, err := orchestrator(context.Background(), dir, resolution, productID, workID, agent)
 	if err != nil {
 		writeDiagnostic(errOut, "concord session: "+err.Error())
 		return 2
@@ -456,10 +489,12 @@ func runSessionCommand(args []string, in io.Reader, out, errOut io.Writer, termi
 	// directory: the work's active worktree when one is usable on this
 	// machine, else the Project's canonical path. The host defaults its
 	// project to it and every relative path the session resolves starts
-	// there (CD-0093 D1 as amended by CD-0176).
-	argv := []string{"opencode", "--agent", handle, "--prompt", prompt}
+	// there (CD-0093 D1 as amended by CD-0176). The executable and its
+	// fixed prefix are the resolved host command: the operator's configured
+	// wrapper when one is named, the bare host otherwise (CD-0189).
+	argv := append(append([]string(nil), resolution.Command...), "--agent", handle, "--prompt", prompt)
 	if err := runner(context.Background(), dir, argv, os.Environ(), in, out, errOut); err != nil {
-		writeDiagnostic(errOut, fmt.Sprintf("concord session: opencode: %v", err))
+		writeDiagnostic(errOut, fmt.Sprintf("concord session: %s: %v", resolution.Command[0], err))
 		return 1
 	}
 	return 0

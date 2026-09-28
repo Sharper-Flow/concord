@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,9 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(sessionDir), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil }); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(sessionDir), hostCommandAt(defaultHostResolution()), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		return "concord-1", nil
+	}); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	if bootstrapCalls != 1 {
@@ -76,7 +79,9 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/resolved/project-directory"), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil }); code == 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/resolved/project-directory"), hostCommandAt(defaultHostResolution()), bootstrap, runner, func(string) error { return nil }, func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		return "concord-1", nil
+	}); code == 0 {
 		t.Fatal("packet failure started session")
 	}
 	if runs != 0 || !strings.Contains(errOut.String(), "manifest digest mismatch") {
@@ -97,7 +102,7 @@ func TestProjectSessionStartsWithoutConcordIdentity(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/unused"), nil, runner, func(string) error { return errors.New("identity must not run") }, func(context.Context, string, string, string, string) (string, error) {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt("/unused"), hostCommandAt(defaultHostResolution()), nil, runner, func(string) error { return errors.New("identity must not run") }, func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 		return "", errors.New("orchestrator must not run")
 	}); code != 0 {
 		t.Fatalf("project session exit=%d stderr=%q", code, errOut.String())
@@ -194,7 +199,9 @@ func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
 	identity := func(string) error { return verifyLaneAgentIdentity("", "", store.BuiltinLaneDefinitions()) }
 	var out, errOut bytes.Buffer
 
-	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(t.TempDir()), bootstrap, runner, identity, func(context.Context, string, string, string, string) (string, error) { return "concord-1", nil })
+	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(t.TempDir()), hostCommandAt(defaultHostResolution()), bootstrap, runner, identity, func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+		return "concord-1", nil
+	})
 	if code != 2 {
 		t.Fatalf("exit=%d, want 2", code)
 	}
@@ -236,7 +243,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 	// path against temp dirs. With no concord-1.md on disk, the
 	// verification fails before the store is opened, so the recorded
 	// database file must not exist.
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
+	orchestrator := recordOrchestratorIdentityAt(home)
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -244,7 +251,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(cwd), bootstrap, runner, identity, orchestrator); code != 2 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(cwd), hostCommandAt(registryResolutionFor("concord-1")), bootstrap, runner, identity, orchestrator); code != 2 {
 		t.Fatalf("exit=%d, want 2; stderr=%q", code, errOut.String())
 	}
 	if runs != 0 || bootstrapCalls != 0 {
@@ -285,7 +292,7 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
+	orchestrator := recordOrchestratorIdentityAt(home)
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -293,7 +300,7 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 		return nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(cwd), bootstrap, runner, identity, orchestrator); code != 0 {
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true, directoryAt(cwd), hostCommandAt(registryResolutionFor("concord-1")), bootstrap, runner, identity, orchestrator); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
 	// bootstrap may run because workID is set; the durable-write check below
@@ -382,10 +389,11 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 		directoryAt(cwd),
+		hostCommandAt(registryResolutionFor("concord-1")),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, registryProbeFor("concord-1")),
+		recordOrchestratorIdentityAt(home),
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -468,11 +476,12 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	dbPath := filepath.Join(t.TempDir(), "concord-digest.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
-	orchestrator := recordOrchestratorIdentityAt(home, registryProbeFor("concord-1"))
+	orchestrator := recordOrchestratorIdentityAt(home)
 
 	// First session — record an assertion against the current files.
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
 		directoryAt(cwd),
+		hostCommandAt(registryResolutionFor("concord-1")),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
 		identity,
@@ -509,6 +518,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 	}
 	if code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}, true,
 		directoryAt(cwd),
+		hostCommandAt(registryResolutionFor("concord-1")),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error { return nil },
 		identity,
@@ -530,11 +540,26 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 
 // recordOrchestratorIdentityAt binds the real assertion path to a temporary
 // installation, so a test verifies production behavior rather than a copy of
-// it.
-func recordOrchestratorIdentityAt(home string, probe hostRegistryProbeFunc) sessionOrchestratorFunc {
-	return func(ctx context.Context, dir, productID, workID, agent string) (string, error) {
-		return recordOrchestratorIdentity(ctx, home, probe, dir, productID, workID, agent)
+// it. The host command resolution arrives from the command function's
+// hostCommand callback.
+func recordOrchestratorIdentityAt(home string) sessionOrchestratorFunc {
+	return func(ctx context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
+		return recordOrchestratorIdentity(ctx, home, host, dir, productID, workID, agent)
 	}
+}
+
+// hostCommandAt returns a sessionHostCommandFunc that reports the supplied
+// resolution, standing in for what hostSessionHostCommand resolves in
+// production.
+func hostCommandAt(host hostCommandResolution) sessionHostCommandFunc {
+	return func(context.Context, string) (hostCommandResolution, error) { return host, nil }
+}
+
+// defaultHostResolution is the resolution tests inject when the test is not
+// about the host command: the bare default command and no registry, which
+// only a stubbed orchestrator may observe.
+func defaultHostResolution() hostCommandResolution {
+	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...)}
 }
 
 // TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle covers issue #430: a
@@ -556,18 +581,20 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	runs := 0
 	var out, errOut bytes.Buffer
+	orchestrator := recordOrchestratorIdentityAt(home)
 	// The host resolves the definition file but registers no such agent —
 	// the state a `disable: true` or a configuration-layer override leaves
 	// behind, which no on-disk check can see.
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 		directoryAt(cwd),
+		hostCommandAt(registryResolutionFor("some-other-agent")),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
 			runs++
 			return nil
 		},
 		func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, registryProbeFor("some-other-agent")),
+		orchestrator,
 	)
 	if code == 0 {
 		t.Fatal("session started as an agent the host does not register")
@@ -585,11 +612,12 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	}
 }
 
-// registryProbeFor builds a probe whose registry declares each supplied
-// handle as an enabled primary agent. Tests that are not about registration
-// state use it to say "the host registers what the definition derives", so a
-// registration refusal never masquerades as the failure under test.
-func registryProbeFor(handles ...string) hostRegistryProbeFunc {
+// registryResolutionFor builds the host-command resolution whose registry
+// declares each supplied handle as an enabled primary agent. Tests that are
+// not about registration state use it to say "the host registers what the
+// definition derives", so a registration refusal never masquerades as the
+// failure under test.
+func registryResolutionFor(handles ...string) hostCommandResolution {
 	agents := make(map[string]hostAgentEntry, len(handles))
 	for _, handle := range handles {
 		agents[handle] = hostAgentEntry{Mode: "primary"}
@@ -598,7 +626,7 @@ func registryProbeFor(handles ...string) hostRegistryProbeFunc {
 	if err != nil {
 		panic(err)
 	}
-	return func(context.Context, string) ([]byte, error) { return document, nil }
+	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}
 }
 
 // recordedAssertion is the shape TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact
@@ -663,10 +691,11 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 	var out, errOut bytes.Buffer
 	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
 		directoryAt(cwd),
+		hostCommandAt(registryResolutionFor("op-session-renamed")),
 		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
 		runner,
 		func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) },
-		recordOrchestratorIdentityAt(home, registryProbeFor("op-session-renamed")),
+		recordOrchestratorIdentityAt(home),
 	); code != 0 {
 		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
 	}
@@ -692,7 +721,7 @@ func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord-handle.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 
-	handle, err := recordOrchestratorIdentity(context.Background(), home, registryProbeFor("concord-1"), cwd, "product-1", "", "concord-1")
+	handle, err := recordOrchestratorIdentity(context.Background(), home, registryResolutionFor("concord-1"), cwd, "product-1", "", "concord-1")
 	if err != nil {
 		t.Fatalf("record assertion: %v", err)
 	}
@@ -720,4 +749,144 @@ func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 	if actor != want {
 		t.Fatalf("recorded actor=%q, want the actor derived from agent/concord-1", actor)
 	}
+}
+
+// The Product/work launch runs the configured host command: the executable
+// and its fixed prefix come from the host-command resolution, and Concord
+// appends only its fixed --agent and --prompt arguments. The launch runs in
+// the one resolved directory (CD-0093 D2).
+func TestSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
+	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	t.Setenv(selectedAgentEnv, "concord-1")
+	sessionDir := "/resolved/project-directory"
+	configured := hostCommandResolution{Command: []string{"host-wrapper", "--profile", "work"}}
+	var argv []string
+	var runnerDir string
+	runner := func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		runnerDir = dir
+		argv = append([]string(nil), got...)
+		return nil
+	}
+	var out, errOut bytes.Buffer
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		directoryAt(sessionDir),
+		hostCommandAt(configured),
+		func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+		runner,
+		func(string) error { return nil },
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			return "concord-1", nil
+		},
+	); code != 0 {
+		t.Fatalf("session exit=%d stderr=%q", code, errOut.String())
+	}
+	if runnerDir != sessionDir {
+		t.Fatalf("host ran in %q, want the resolved session directory %q", runnerDir, sessionDir)
+	}
+	want := []string{"host-wrapper", "--profile", "work", "--agent", "concord-1", "--prompt", hostPrompt(t, argv)}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("argv=%q, want the configured command followed by the fixed arguments", argv)
+	}
+}
+
+// The Project-path launch carries no Concord identity, so it has no agent
+// registry to check, but it still gains the bootstrap probe and runs the
+// configured command in the validated Project directory.
+func TestProjectSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv(selectedProductEnv, "")
+	t.Setenv(selectedWorkEnv, "")
+	t.Setenv(selectedProjectEnv, project)
+	configured := hostCommandResolution{Command: []string{"host-wrapper", "--login"}}
+	var argv []string
+	var runnerDir string
+	runner := func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
+		runnerDir = dir
+		argv = append([]string(nil), got...)
+		return nil
+	}
+	var out, errOut bytes.Buffer
+	if code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+		directoryAt("/unused"),
+		hostCommandAt(configured),
+		nil,
+		runner,
+		func(string) error { return errors.New("identity must not run") },
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			return "", errors.New("orchestrator must not run")
+		},
+	); code != 0 {
+		t.Fatalf("project session exit=%d stderr=%q", code, errOut.String())
+	}
+	if runnerDir != project {
+		t.Fatalf("host ran in %q, want the Project directory %q", runnerDir, project)
+	}
+	want := []string{"host-wrapper", "--login", "--prompt", hostPrompt(t, argv)}
+	if !slices.Equal(argv, want) {
+		t.Fatalf("argv=%q, want the configured command followed by --prompt", argv)
+	}
+}
+
+// A refused host-command resolution starts no host, on either launch path:
+// the diagnostic names host_command and the exit is the typed refusal (CD-0189,
+// CD-0049 D4 admits no degraded start).
+func TestSessionRefusesWhenTheHostCommandResolutionRefuses(t *testing.T) {
+	t.Run("product launch", func(t *testing.T) {
+		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
+		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+		t.Setenv(selectedAgentEnv, "concord-1")
+		runs := 0
+		var out, errOut bytes.Buffer
+		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+			directoryAt("/resolved/project-directory"),
+			func(context.Context, string) (hostCommandResolution, error) {
+				return hostCommandResolution{}, &hostCommandInvalidError{Problem: "is malformed: the array is empty"}
+			},
+			func(context.Context, string, string, string) ([]byte, error) { return nil, nil },
+			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+				runs++
+				return nil
+			},
+			func(string) error { return nil },
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			},
+		)
+		if code != 2 || runs != 0 {
+			t.Fatalf("exit=%d runs=%d stderr=%q", code, runs, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "host_command") {
+			t.Fatalf("diagnostic=%q, want it to name host_command", errOut.String())
+		}
+	})
+	t.Run("project launch", func(t *testing.T) {
+		project := t.TempDir()
+		t.Setenv(selectedProductEnv, "")
+		t.Setenv(selectedWorkEnv, "")
+		t.Setenv(selectedProjectEnv, project)
+		runs := 0
+		var out, errOut bytes.Buffer
+		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
+			directoryAt("/unused"),
+			func(context.Context, string) (hostCommandResolution, error) {
+				return hostCommandResolution{}, &hostCommandInvalidError{Problem: "names [\"bare\"] in the bootstrap probe but [\"other\"] in the configured command's own document"}
+			},
+			nil,
+			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
+				runs++
+				return nil
+			},
+			func(string) error { return nil },
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				return "concord-1", nil
+			},
+		)
+		if code != 2 || runs != 0 {
+			t.Fatalf("exit=%d runs=%d stderr=%q", code, runs, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "host_command") {
+			t.Fatalf("diagnostic=%q, want it to name host_command", errOut.String())
+		}
+	})
 }

@@ -1,4 +1,4 @@
-# CD-0093: Session start resolves the Project directory, not the host command
+# CD-0093: Session start resolves the Project directory
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
@@ -12,6 +12,10 @@
   and the closed #426, #428, #430, #466
 - **Preserves:** CD-0078 D1's host ownership of placement, CD-0031's
   core-derived session boot, CD-0049 D4's refusal of a degraded start
+- **Amended:** CD-0176 (2026-09-24) lands work-selected sessions in the
+  active worktree; CD-0182 (2026-09-27) adds the explicit member-Project
+  selector; CD-0189 (2026-09-28) configures the host command through host
+  configuration (D4, D5)
 
 ## Context
 
@@ -107,32 +111,39 @@ A session that silently opens in the wrong repository is the same failure with a
 slower symptom, because the agent's file operations land somewhere the operator
 did not choose.
 
-### D4. The host command stays fixed
+### D4. The host command is the operator's configured command, else the bare host
 
-`concord session` starts a fixed host command. It reads no operator setting
-naming a different program.
+CD-0189 configures the host command. The operator names a `host_command`
+argv array in the options of the Concord plugin tuple in host OpenCode
+config, and Concord reads it from the `opencode debug config` document.
+Absent, `concord session` starts the bare `opencode` executable, which is
+the command this record first fixed. Present, every Go-core host invocation
+runs it: the Product/work launch, the Project-path launch, and the registry
+probe. A present but malformed value, or a configured command whose own
+document disagrees, refuses with a diagnostic naming `host_command`; no
+session starts through a fallback command.
 
-CD-0078 rejected a pluggable terminal-placement strategy as "an abstraction with
-one real implementation on one machine." A configurable host command is the same
-shape one layer down, and the same objection answers it. The released binary
-runs the host the same way on every machine.
+The original objection keeps its force for what it answered. Concord ships
+no wrapper name and hard-codes none: the released binary runs the bare host
+on every machine that names no command. CD-0078 rejected a pluggable
+terminal-placement strategy as "an abstraction with one real implementation
+on one machine"; the wrapper is operator configuration in host config, not a
+Concord strategy slot.
 
-### D5. The per-Project host environment is an open gap, not a silent one
+### D5. The per-Project host environment gap closes through host configuration
 
-D4 has a cost and this record names it rather than leaving it to be discovered.
+D4's first form had a cost this record named rather than left to be
+discovered: an operator whose host entry point prepares a per-Project
+environment could not reach it through the Concord launch path.
+CD-0189 closes the gap through host configuration, not the store, because
+the wrapper varies per host, not per Project. A wrapper started after
+selection in the resolved directory derives any per-Project environment
+itself, and the store stays out of the host-command path.
 
-An operator whose host entry point prepares a per-Project environment cannot
-reach it through the Concord launch path. That entry point runs before the
-operator selects work, so it cannot key on a Project that is not yet chosen, and
-D4 declines to invoke it afterward. Launcher-started sessions therefore run with
-whatever host environment the launcher inherited.
-
-If evidence later shows this must change, the surface is Project configuration
-in the store, because the thing that varies is per-Project. It is not an
-environment variable, and it is not `OPENCODE_BIN`, whose only consumers are
-`cmd/concord/work_bootstrap.go`, `adapter/opencode/concord.ts`, and the adapter
-test that sets it to a fake binary. That name is a test seam and acquires no
-operator meaning here.
+The surface is not an environment variable, and it is not `OPENCODE_BIN`,
+whose only consumers are `cmd/concord/work_bootstrap.go`,
+`adapter/opencode/concord.ts`, and the adapter test that sets it to a fake
+binary. That name is a test seam and acquires no operator meaning here.
 
 ## Consequences
 
@@ -141,8 +152,9 @@ operator meaning here.
 - The two host-start paths agree about the working directory.
 - A Project with no canonical path cannot start a session until it has one,
   which surfaces incomplete Project registration at launch rather than later.
-- An operator host environment that varies by Project does not reach
-  launcher-started sessions. D5 records this and no code hides it.
+- An operator host environment that varies by Project reaches launcher-started
+  sessions through the configured wrapper, which derives it after selection in
+  the resolved directory (CD-0189).
 - CD-0079 already answers the directory-to-Project question with the read-only
   `project-resolve` verb. This record runs the opposite direction, Project to
   directory, and reads the store inside the session command. It opens no new
@@ -164,6 +176,8 @@ to operator configuration gives one name two meanings that drift apart.
 **Add a configurable host command now.** Rejected under CD-0078's reasoning
 about one implementation on one machine. The gap D5 names is real, and a
 decision can reopen it when the evidence covers more than a single host.
+CD-0189 reopened it on that clause after operator evidence about host
+wrappers.
 
 **Move execution to the Project directory and leave verification on the
 launcher's.** Rejected because it converts #664's intermittent substitution into
@@ -198,8 +212,9 @@ because it is the current behavior and it is what issue #661 reports.
 - The regression test drives the real host-selection and tool-context path
   rather than an injected probe, so a substituted executor fails the test
   (issue #664 acceptance).
-- The session argument vector names the fixed host command and carries no
-  operator-supplied program name.
+- The session argument vector names the resolved host command: the bare host
+  when no `host_command` is configured, the configured argv otherwise
+  (CD-0189).
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,
   and `python3 scripts/check-cd-allocation.py` pass.

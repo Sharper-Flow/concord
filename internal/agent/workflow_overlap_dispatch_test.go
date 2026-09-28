@@ -51,9 +51,11 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []Capability) (*stor
 		{"work-2 contract", `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-2',1,'overlap','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal')`, []any{actorRef}},
 		{"bindings", `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('work-1',1,'product-1',?,'root',?),('work-2',1,'product-1',?,'root',?)`, []any{hash, hash, hash, hash}},
 		{"affected domains", `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES('work-1',1,'root'),('work-2',1,'root')`, nil},
-		// A contract holds its Domain claim only while the work is in
-		// progress, so the fixture starts both sides. Without this the pair
-		// claims nothing and derives no overlap to resolve.
+		// CD-0183: a contract holds its Domain claim once the item's workflow
+		// instance carries the execution-start fact, so the fixture gives both
+		// sides a started instance. Without this the pair claims nothing and
+		// derives no overlap to resolve.
+		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
 		// Only a write intersection blocks, so the pair must modify the same
 		// Domain. A shared affected Domain alone derives no overlap.
@@ -144,4 +146,15 @@ func TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedAppr
 	if err := s.DatabaseForTesting().QueryRow(`SELECT used_count FROM agent_approvals WHERE approval_ref=?`, approvalRef).Scan(&usedCount); err != nil || usedCount != 1 {
 		t.Fatalf("consumed approval %q used_count=%d err=%v", approvalRef, usedCount, err)
 	}
+}
+
+// breakFixFixtureDigest resolves the registered break-fix digest the overlap
+// fixture's synthetic instance pins, so pin reads verify the fixture.
+func breakFixFixtureDigest(t *testing.T) string {
+	t.Helper()
+	registered, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	if !ok {
+		t.Fatal("workflow.break_fix v9 is unavailable")
+	}
+	return registered.Digest
 }

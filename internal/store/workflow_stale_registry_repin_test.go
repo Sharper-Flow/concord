@@ -254,12 +254,15 @@ func TestStaleRegistryRescanRePinLetsAcceptWorkerResultRecord(t *testing.T) {
 	}
 }
 
-// seedStaleRegistryRescanPeer seeds an in-progress peer whose own contract pin
+// seedStaleRegistryRescanPeer seeds an executing peer whose own contract pin
 // stayed on the pre-rescan hash and whose footprint shares the subject's
 // Domain write, so the subject's boundary check reads the peer's stale pin.
+// The peer carries the durable execution-start fact (CD-0183 D2); a peer that
+// has not started execution claims nothing and blocks nobody.
 func seedStaleRegistryRescanPeer(t *testing.T, s *Store, peerID, approverRef string) {
 	t.Helper()
 	seedWork(t, s, peerID)
+	setExecutionStartedForTesting(t, s, peerID, true)
 	execStaleRegistryInFold(t, s,
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('`+peerID+`',1,'peer contract','internal_sqlite','[]','[]','2026-09-27T00:00:00Z','`+approverRef+`','[]','[]',1,'prototype_internal')`,
 		`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES('`+peerID+`',1,'product','`+registryFixtureHash()+`','root','`+registryFixtureHash()+`')`,

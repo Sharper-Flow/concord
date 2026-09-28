@@ -171,20 +171,17 @@ func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
 		includePremise:   true,
 		verdictKind:      "ok",
 	})
-	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
-		t.Fatal(err)
-	}
-	// Before the work item itself reaches the completed lifecycle the gate
-	// withholds the criteria: the projection pairs approved predicates with
-	// verdicts only for a completed workflow and a completed item.
+	// Before the workflow completes, the gate withholds the criteria: the
+	// projection pairs approved predicates with verdicts only for a
+	// completed workflow and a completed item.
 	pending, err := ReadWorkPin(context.Background(), s, "workpin-completed")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(pending.VerifiedCriteria) != 0 {
-		t.Fatalf("non-completed item carries verified criteria = %v", pending.VerifiedCriteria)
+		t.Fatalf("uncompleted workflow carries verified criteria = %v", pending.VerifiedCriteria)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='completed',terminal_time='2026-09-21T00:00:00Z' WHERE id='workpin-completed'; DELETE FROM fold_guard`); err != nil {
+	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatal(err)
 	}
 	pin, err := ReadWorkPin(context.Background(), s, "workpin-completed")

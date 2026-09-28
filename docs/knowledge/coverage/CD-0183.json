@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFirstWorkflowActionStartsLifecycle"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExecutionStartStepSetMatchesRegistry"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExecutionStartBackfillMatchesFoldDerivation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompleteClosesLifecycle"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTerminalLifecycleRefusesCompletedWhileWorkflowLive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUnstartedContractDoesNotBlockAPeer"
+    }
+  ],
+  "id": "CD-0183",
+  "state": "satisfied"
+}

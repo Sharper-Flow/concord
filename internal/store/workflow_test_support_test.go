@@ -66,6 +66,18 @@ func workflowFixtureDigest(t *testing.T) string {
 	return workflowFixtureDefinition(t, 1).Digest
 }
 
+// seedTerminalInstanceForTesting marks a fixture's workflow instance terminal
+// without running the ordered completion gate: the state a stranded or
+// historical item carries when its lifecycle completes outside the workflow
+// (CD-0183 D4 admits this repair). A completed instance proves the gate ran;
+// cancelled leaves the lifecycle-side decision gate in force.
+func seedTerminalInstanceForTesting(t *testing.T, s *Store, workID, state string) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state=?,completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded'); DELETE FROM fold_guard`, state, workID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testApprovalPayload(actionID string, payload json.RawMessage) json.RawMessage {
 	if actionID == "record_proposal" {
 		var fields map[string]any

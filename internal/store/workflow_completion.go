@@ -117,6 +117,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if payload.ImpactVerdict != "breaking" && payload.ImpactVerdict != "non-breaking" {
 		return newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
+	// CD-0183 D3: the gate below admits only ok verdicts, and the completion
+	// closes the work item lifecycle to its terminal state. Cancellation keeps
+	// the lifecycle route and supersession stays atomic with its relation, so
+	// the completion names completed or refuses before any effect.
+	if payload.TerminalState != "completed" {
+		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or supersede through relate.supersede")
+	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -302,7 +309,40 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := foldRegisteredEvent(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
+	// CD-0183 D3: the workflow's terminal state closes the work item
+	// lifecycle in this same transaction, so the lifecycle and the Linear
+	// status follow the workflow instead of stranding in_progress after a
+	// recorded completion. The completion fold has already marked the
+	// instance terminal, so the terminal-lifecycle close keeps that record:
+	// workflow.completed remains the only fold that may mark an instance
+	// completed. Replay folds the logged transition exactly as it folded
+	// here, because the event is part of the log.
+	if err := appendWorkflowTerminalLifecycleTx(ctx, tx, completion, payload.TerminalState); err != nil {
+		return workflowClauseError(err, 7)
+	}
 	return nil
+}
+
+// appendWorkflowTerminalLifecycleTx appends and folds the work.transitioned
+// event that moves the work item to the workflow's terminal state. The
+// completion event must already be folded: the transition's fold keeps the
+// instance record only because the instance is terminal when it runs.
+func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, completion Event, terminalState string) error {
+	var from string
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT lifecycle,version FROM work_items WHERE id=?`, completion.SubjectID).Scan(&from, &version); err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read the work item for its terminal lifecycle", true, "retry once the database is readable", err)
+	}
+	payload, err := json.Marshal(map[string]any{"from": from, "to": terminalState, "reason": "workflow " + terminalState, "evidence_refs": []string{}, "expected_version": version, "resulting_version": version + 1})
+	if err != nil {
+		return newFailure(KindInvariantViolation, "complete_workflow", "terminal lifecycle payload cannot be encoded", false, "repair the workflow completion path")
+	}
+	transition := Event{EventID: completion.EventID + ":lifecycle", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: completion.SubjectID, Actor: completion.Actor, OccurredAt: completion.OccurredAt, PayloadVersion: 1, Payload: payload}
+	if _, err := appendEvent(ctx, tx, transition, true); err != nil {
+		return err
+	}
+	transition.Seq = 0
+	return foldRegisteredEvent(ctx, tx, transition)
 }
 
 type workflowCompletionContractData struct {

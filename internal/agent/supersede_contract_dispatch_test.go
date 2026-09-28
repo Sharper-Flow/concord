@@ -289,6 +289,7 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		t.Fatal(err)
 	}
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('correction-peer','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z');
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 		SELECT 'correction-peer',contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash)
@@ -297,7 +298,7 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_affected_domains WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id)
 		SELECT 'correction-peer',contract_version,domain_id FROM workflow_contract_domain_modifications WHERE work_id='work-1' AND contract_version=1;
-		DELETE FROM fold_guard;`)
+		DELETE FROM fold_guard;`, breakFixFixtureDigest(t))
 	if err != nil {
 		t.Fatal(err)
 	}

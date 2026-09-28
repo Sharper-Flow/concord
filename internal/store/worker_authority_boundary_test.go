@@ -920,8 +920,15 @@ func TestWorkflowCompletedV2AllowsDistinctOwnerThroughOrderedGate(t *testing.T) 
 	if got := instanceState(t, s, workID); got != "completed" {
 		t.Fatalf("ordered owner completion state=%q, want completed", got)
 	}
-	if got := readWorkVersion(t, s, workID); got != 18 {
-		t.Fatalf("ordered owner completion version=%d, want 18", got)
+	if got := readWorkVersion(t, s, workID); got != 19 {
+		t.Fatalf("ordered owner completion version=%d, want 19", got)
+	}
+	var lifecycle string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "completed" {
+		t.Fatalf("ordered owner completion lifecycle=%q, want completed", lifecycle)
 	}
 }
 

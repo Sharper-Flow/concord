@@ -17,6 +17,10 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	ctx := context.Background()
 	s, _, _, _, _, hash := architectureValidationFixture(t, left)
 	seedWork(t, s, right)
+	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
+	if !ok {
+		t.Fatal("workflow.break_fix v9 is unavailable")
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -39,9 +43,14 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 		}
 	}
 	for _, workID := range []string{left, right} {
-		// CD-0144: a contract holds its Domains only while the work is in
-		// progress, so an overlap fixture has to put both items there.
+		// CD-0183: a contract holds its Domains once its workflow instance
+		// carries the execution-start fact, so an overlap fixture puts both
+		// items there with the fact set.
 		if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress' WHERE id=?`, workID); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -233,10 +242,8 @@ func TestWorkflowDomainOverlapReopenInvalidatesSameVersionResolution(t *testing.
 	}); err != nil {
 		t.Fatalf("resolution: %v", err)
 	}
-	if err := applyWorkEvent(t, s, workTransitionEvent("reopen-terminal", "reopen-left", "in_progress", "completed", 3, 4), nil); err != nil {
-		t.Fatalf("terminal transition: %v", err)
-	}
-	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-again", "reopen-left", "completed", 4, 5), nil); err != nil {
+	setWorkTerminalForTesting(t, s, "reopen-left")
+	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-again", "reopen-left", "completed", 3, 4), nil); err != nil {
 		t.Fatalf("reopen transition: %v", err)
 	}
 	err := InspectWorkflowDomainOverlap(ctx, s, "reopen-left")
@@ -345,9 +352,7 @@ func TestWorkflowDomainOverlapSequenceTerminalUnblocksFollower(t *testing.T) {
 	if err := InspectWorkflowDomainOverlap(ctx, s, "terminal-left"); err == nil {
 		t.Fatal("sequenced follower was allowed before predecessor became terminal")
 	}
-	if err := applyWorkEvent(t, s, workTransitionEvent("terminal-right-complete", "terminal-right", "in_progress", "completed", 3, 4), nil); err != nil {
-		t.Fatalf("terminal predecessor: %v", err)
-	}
+	setWorkTerminalForTesting(t, s, "terminal-right")
 	if err := InspectWorkflowDomainOverlap(ctx, s, "terminal-left"); err != nil {
 		t.Fatalf("terminal predecessor did not resolve active pair: %v", err)
 	}
@@ -448,9 +453,9 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 1)
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.ops_runbook", 1)
 	if !ok {
-		t.Fatal("workflow.implementation is unavailable")
+		t.Fatal("workflow.ops_runbook is unavailable")
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:overlap", ClientRef: "client:overlap", AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -468,15 +473,44 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// CD-0144: the contract claims its Domains only once the work is in
-	// progress, and the claim has to come from the log so a rebuild reproduces
-	// it. The item starts before it has a contract, so it claims nothing yet
-	// and no peer can refuse the transition.
+	// CD-0144, as amended by CD-0183: the contract claims its Domains once
+	// the instance carries the execution-start fact, and the claim has to
+	// come from the log so a rebuild reproduces it. The item starts before it
+	// has a contract, so it claims nothing yet and no peer can refuse the
+	// transition. The fixture then drives the pinned ops-runbook definition —
+	// whose start step declares approve_contract — across its approval step
+	// onto the external-effect step, and start_run records the execution
+	// start the peer query reads.
 	if err := applyWorkEvent(t, s, workTransitionEvent("overlap-start-"+workID, workID, "needed", "in_progress", 4, 5), nil); err != nil {
 		t.Fatal(err)
 	}
+	approved := workflowEventWithActor("overlap-approve-"+workID, WorkflowActionCompleted, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6),
+		"step_id": "plan", "action_id": "approve_contract", "attempt_epoch": int64(1),
+		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approved}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
+		t.Fatalf("advance past the contract step: %v", err)
+	}
+	operation := workflowEventWithActor("overlap-operation-"+workID, WorkflowActionCompleted, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": int64(6), "resulting_version": int64(7),
+		"step_id": "approval", "action_id": "approve_operation", "attempt_epoch": int64(1),
+		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{operation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 6}}); err != nil {
+		t.Fatalf("advance onto the external-effect step: %v", err)
+	}
+	started := workflowEventWithActor("overlap-start-execution-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": int64(7), "resulting_version": int64(8),
+		"step_id": "execute", "action_id": "start_run", "attempt_epoch": int64(1),
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "overlap-start-" + workID,
+		"actor_ref": actorRef,
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 7}}); err != nil {
+		t.Fatalf("record the execution start: %v", err)
+	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "contract_version": int64(1),
+		"work_id": workID, "expected_version": int64(8), "resulting_version": int64(9), "contract_version": int64(1),
 		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
@@ -484,18 +518,15 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	contract.PayloadVersion = 3
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 8}}); err != nil {
 		t.Fatal(err)
 	}
-	return actor, 6
+	return actor, 9
 }
 
 // setWorkLifecycleForTesting places a work item in a lifecycle without moving
-// its version. CD-0144: a contract holds its Domains only while the work is in
-// progress, so a fixture that wants a live claim has to start the work, and a
-// test that exercises the claim boundary has to put the item back. It opens its
-// own transaction and must never run inside one, because the store pools a
-// single connection.
+// its version. It opens its own transaction and must never run inside one,
+// because the store pools a single connection.
 func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string) {
 	t.Helper()
 	ctx := context.Background()
@@ -508,6 +539,73 @@ func setWorkLifecycleForTesting(t *testing.T, s *Store, workID, lifecycle string
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle=? WHERE id=?`, lifecycle, workID); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setExecutionStartedForTesting gives a fixture work item the workflow
+// instance and durable execution-start fact (CD-0183) the overlap peer query
+// reads. A fixture that wants a live claim sets the fact, and a test that
+// exercises the claim boundary clears it. It opens its own transaction and
+// must never run inside one, because the store pools a single connection.
+func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, started bool) {
+	t.Helper()
+	ctx := context.Background()
+	var value any
+	if started {
+		value = "2026-08-19T00:00:00Z"
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setWorkTerminalForTesting places a work item and its workflow instance in
+// the completed terminal state without appending events. CD-0183 requires a
+// live workflow to complete through the workflow completion action, so a
+// fixture that needs a terminal peer seeds both projections directly. It
+// opens its own transaction and must never run inside one, because the store
+// pools a single connection.
+func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='completed',terminal_time='2026-08-19T00:00:00Z' WHERE id=?`, workID); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='completed',completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, workID); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -549,11 +647,11 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	}
 	supersede := workflowEventWithActor("revision-contract-v2", WorkflowContractSuperseded, "revision-left", leftActorRef, map[string]any{
-		"work_id": "revision-left", "expected_version": int64(7), "resulting_version": int64(8),
+		"work_id": "revision-left", "expected_version": int64(10), "resulting_version": int64(11),
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "scope revision",
 		"audit_evidence": []string{"audit:revision-v2"}, "successor_contract": successor,
 	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 7}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 10}}); err != nil {
 		t.Fatalf("contract revision: %v", err)
 	}
 	err = InspectWorkflowDomainOverlap(ctx, s, "revision-left")
@@ -589,6 +687,7 @@ func seedCompletedWorkerOverlap(t *testing.T, workID, otherID string) (*Store, W
 	t.Helper()
 	s, _, owner, attemptID := seedCompletedWorkerAtExecution(t, workID)
 	seedWork(t, s, otherID)
+	setExecutionStartedForTesting(t, s, otherID, true)
 	ctx := context.Background()
 	hash := "sha256:" + strings.Repeat("d", 64)
 	approvedBy, err := WorkflowActorRef(owner)
@@ -836,17 +935,19 @@ func TestOverlapFailureBoundHonorsEnvelopeCountCap(t *testing.T) {
 	}
 }
 
-// CD-0144: an approved contract that has never started claims no Domains, so
-// it cannot refuse a peer. Starting it restores the claim, which keeps the
-// boundary a move rather than a removal.
+// CD-0183: an approved contract whose instance carries no execution-start
+// fact claims no Domains, so it cannot refuse a peer. Setting the fact
+// restores the claim, which keeps the boundary a move rather than a removal.
+// Both items stay in progress throughout: the lifecycle alone decides
+// nothing.
 func TestUnstartedContractDoesNotBlockAPeer(t *testing.T) {
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "unstarted-left", "unstarted-right", false)
-	setWorkLifecycleForTesting(t, s, "unstarted-right", "needed")
+	setExecutionStartedForTesting(t, s, "unstarted-right", false)
 	if err := InspectWorkflowDomainOverlap(ctx, s, "unstarted-left"); err != nil {
-		t.Fatalf("an unstarted contract must not block a peer: %v", err)
+		t.Fatalf("an in_progress peer that has not started execution must not block a peer: %v", err)
 	}
-	setWorkLifecycleForTesting(t, s, "unstarted-right", "in_progress")
+	setExecutionStartedForTesting(t, s, "unstarted-right", true)
 	err := InspectWorkflowDomainOverlap(ctx, s, "unstarted-left")
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap {
@@ -854,17 +955,23 @@ func TestUnstartedContractDoesNotBlockAPeer(t *testing.T) {
 	}
 }
 
-// CD-0144: the claim attaches at execution start. The lifecycle the overlap
-// footprint reads has to move with the external-effect step, or the footprint
-// predicate would be narrower than the old one without being true.
+// CD-0144, as amended by CD-0183: the claim attaches at execution start, and
+// the lifecycle moves at the first workflow action. Driving a break-fix
+// workflow to its repair step leaves the item in progress with the
+// execution-start fact recorded by the fold that began the external-effect
+// step.
 func TestExecutionStartMovesLifecycleIntoTheClaim(t *testing.T) {
 	const workID = "claim-at-execution-start"
 	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
 	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+	var startedAt any
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.execution_started_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &startedAt); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle != "in_progress" {
-		t.Fatalf("execution start left lifecycle=%q, want in_progress", lifecycle)
+		t.Fatalf("workflow action left lifecycle=%q, want in_progress", lifecycle)
+	}
+	if startedAt == nil {
+		t.Fatal("the external-effect step left execution_started_at unset")
 	}
 }

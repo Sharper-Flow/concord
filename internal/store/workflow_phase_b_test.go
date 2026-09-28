@@ -671,6 +671,10 @@ func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
 	const workID = "spike-completion-bound-record"
 	owner := WorkflowActor{PrincipalRef: "principal/phase-b", ClientRef: "client/phase-b", AgentRef: "agent/architect", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	spikeWorkflowFixture(t, s, workID, owner)
+	// CD-0183 D4: the lifecycle decision-record gate runs for an instance the
+	// gate never owned, so the fixture completes the instance before the
+	// transition.
+	seedTerminalInstanceForTesting(t, s, workID, "completed")
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		if err := enterFold(ctx, tx.tx); err != nil {
 			return err

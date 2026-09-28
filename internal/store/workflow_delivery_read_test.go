@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,12 @@ func TestWorkflowCompletionRefusedAtDeliveryGate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unreconciled delivery") {
 		t.Fatalf("refusal must name the unreconciled delivery, got %v", err)
+	}
+	// CD-0183 D4: the remedy names the workflow completion route after the
+	// delivery it owes, not the lifecycle.
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal || !strings.Contains(failure.RecoveryAction, "record_delivery") || !strings.Contains(failure.RecoveryAction, "workflow_action complete") {
+		t.Fatalf("refusal remedy = %+v, want not_terminal naming record_delivery then workflow_action complete", failure)
 	}
 }
 

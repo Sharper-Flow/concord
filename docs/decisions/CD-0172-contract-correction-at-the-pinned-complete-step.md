@@ -7,6 +7,7 @@
 - **Related:** CD-0013, CD-0030, CD-0059, CD-0115, CD-0124, CD-0133, CD-0143
 - **Amends:** CD-0133 at its correction checkpoint, and CD-0030 D1 for the one scoped reader D6 adds
 - **Preserves:** CD-0143's unhealthy-verdict route, released workflow definitions, definition digests, predecessor contracts, verdict history, worker attempt history, and operator authority
+- **Amended by:** [CD-0186](CD-0186-cd-0172-d1-limits-only-its-correction-route.md) at D1's last sentence: the refusal limits only the complete-step correction route, and the ordinary stale recovery re-pin at a non-correction complete step stays admitted.
 
 ## Context
 

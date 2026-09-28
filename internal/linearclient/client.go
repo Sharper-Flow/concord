@@ -514,12 +514,6 @@ type IssueBatchFailure struct {
 	Err *Failure
 }
 
-func (e *IssueBatchFailure) Error() string {
-	return fmt.Sprintf("linearclient: batch of %d issue reads failed: %s", len(e.IDs), e.Err.Error())
-}
-
-func (e *IssueBatchFailure) Unwrap() error { return e.Err }
-
 // GetIssuesByIDs resolves the current issue state for the given ids in
 // batches through Linear's issues(filter: { id: { in: $ids } }) query. The
 // variable is typed [ID!]! because Linear's IssueIDComparator.in is [ID!],

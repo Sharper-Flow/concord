@@ -53,6 +53,20 @@ connected, or neither can answer the question, state that plainly, name the
 missing source, and continue with the evidence your role already allows.
 Never invent a lookup result, and never present recall as a research call.
 
+## Command duration
+
+This lane's wall-time budget is 1500 seconds for the whole attempt. The
+shell tool ends a command at its `timeout` parameter, and without one it
+applies a short default of about 120 seconds, so a slow command dies before
+it finishes and the attempt loses the evidence.
+
+Before you run a command that can take minutes, set the shell tool `timeout`
+parameter in milliseconds to cover the expected runtime, and keep the time
+you spend inside the remaining lane budget. Treat full Go package suites
+(`go test ./...`, or one large package such as `./internal/store`) as able to
+exceed 400 seconds: give such a command an explicit `timeout` above 400000
+milliseconds, or run a narrower test tier instead.
+
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that

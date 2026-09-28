@@ -274,6 +274,28 @@ conflict between that law and the assigned result in your evidence. Return
 """
 
 
+def command_duration_instructions(lane: dict) -> str:
+    # The registry declares a per-lane time budget, but a body that never
+    # states it leaves the worker guessing shell timeouts: verify attempts
+    # widened to full Go package suites died at the host's 120-second shell
+    # default. Project the declared budget (CD-0017 D1) as a rule instead.
+    budget = lane["budgets"]["time_seconds_max"]
+    return f"""## Command duration
+
+This lane's wall-time budget is {budget} seconds for the whole attempt. The
+shell tool ends a command at its `timeout` parameter, and without one it
+applies a short default of about 120 seconds, so a slow command dies before
+it finishes and the attempt loses the evidence.
+
+Before you run a command that can take minutes, set the shell tool `timeout`
+parameter in milliseconds to cover the expected runtime, and keep the time
+you spend inside the remaining lane budget. Treat full Go package suites
+(`go test ./...`, or one large package such as `./internal/store`) as able to
+exceed 400 seconds: give such a command an explicit `timeout` above 400000
+milliseconds, or run a narrower test tier instead.
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
@@ -307,6 +329,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {packet_refusal_instructions()}
 {law_conformance_instructions()}
 {execute_source_lookup_instructions()}
+{command_duration_instructions(lane)}
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that

@@ -280,7 +280,9 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 		}
 	}
 	var productIDs []string
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 2`, workID)
+	// The primary Project's Product owns the contract; a secondary membership
+	// in another Product widens visibility only and must not widen this scope.
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot resolve workflow Product scope", true, "retry once the workflow scope is readable", err)
 	}
@@ -554,7 +556,10 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 }
 
 func workflowBindingProductIDTx(ctx context.Context, tx *sql.Tx, workID string) (string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 2`, workID)
+	// The primary Project's Product owns the contract; a secondary membership
+	// in another Product widens visibility only and must not make the binding
+	// scope ambiguous (mirrors workflowLawHome).
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
 	if err != nil {
 		return "", wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot resolve workflow Product scope", true, "retry once the workflow scope is readable", err)
 	}

@@ -128,8 +128,11 @@ func knowledgeExists(ctx context.Context, q queryer, id string) (bool, error) {
 
 // ResolveCompactionHome applies PM6's deterministic home order: a unique
 // Product-designated home wins; otherwise the unique primary work Project's
-// canonical path locator is used. Multiple candidates are ambiguous and never
-// silently selected.
+// canonical path locator is used. Product-designated home candidates come from
+// the primary membership's Product alone: the primary Project's Product owns
+// the compaction home, so a secondary membership in another Product must not
+// widen the candidate set into an ambiguity. Multiple candidates are ambiguous
+// and never silently selected.
 func (s *Store) ResolveCompactionHome(ctx context.Context, workID string) (KnowledgeHome, error) {
 	return resolveCompactionHome(ctx, s.db, workID)
 }
@@ -140,7 +143,7 @@ func resolveCompactionHome(ctx context.Context, q queryer, workID string) (Knowl
 	}
 	type candidate struct{ project, locator, value string }
 	var productHomes []candidate
-	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.kind='canonical_path' WHERE ph.product_id IN (SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=?) ORDER BY ph.project_id,ph.locator_id`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT ph.project_id,ph.locator_id,pl.locator_value FROM product_knowledge_homes ph JOIN project_locators pl ON pl.locator_id=ph.locator_id AND pl.kind='canonical_path' WHERE ph.product_id IN (SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary') ORDER BY ph.project_id,ph.locator_id`, workID)
 	if err != nil {
 		return KnowledgeHome{}, wrapFailure(KindUnavailable, "compaction_home", "cannot resolve Product knowledge homes", true, "retry once the database is readable", err)
 	}

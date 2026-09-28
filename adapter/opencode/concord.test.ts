@@ -1781,10 +1781,13 @@ const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: numbe
       return outcome
     }
     if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    if (argv[1] === "worktree-locate") {
-      const parsed = JSON.parse(input) as { project_id: string; work_id: string }
-      return { exitCode: 0, stdout: JSON.stringify({ branch: `work/${parsed.work_id}`, base_sha: "a".repeat(40), path: `/data/worktrees/${parsed.project_id}/${parsed.work_id}`, repo: parsed.project_id === "project-2" ? "/other-repo" : "/repo-1", ref: "HEAD" }), stderr: "" }
+    if (argv[1] === "project-canonical-path") {
+      const parsed = JSON.parse(input) as { project_id: string }
+      return { exitCode: 0, stdout: JSON.stringify({ project_id: parsed.project_id, canonical_path: parsed.project_id === "project-2" ? "/other-repo" : "/repo-1" }), stderr: "" }
     }
+    // The routing decision needs only canonical paths: worktree-locate, which
+    // resolves a default branch ref and a commit, must never run on this route.
+    if (argv[1] === "worktree-locate") throw new Error("worktree-locate must not serve the routing decision")
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
@@ -1811,6 +1814,29 @@ test("work start resume routes a second repository through the registered sessio
     // The branch runs before the probe, the resume read, and the move, so a
     // second-repository resume captures and moves nothing.
     expect(calls.some(({ argv }) => argv[1] === "work-resume" || argv[1] === "session-prepare" || argv[1] === "work-bootstrap")).toBe(false)
+  } finally {
+    adapter.configureSessionOpener(undefined)
+  }
+})
+
+// A member Project can hold a valid canonical path while its repository has
+// no resolvable default ref, so worktree-locate — which resolves a default
+// branch ref and a commit — cannot answer for it. The routing decision needs
+// only each Project's canonical repository path and must still reach both
+// the opener run and the no-opener command through the canonical-path read.
+test("a second-repository route with no resolvable default ref opens through the canonical-path read", async () => {
+  const calls: RetargetCall[] = []
+  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
+  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" })) })
+  try {
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+    expect(result.error.kind).toBe("second_session_opened")
+    expect(result.launch.directory).toBe("/other-repo")
+    const selectedReads = calls.filter(({ argv, input }) => argv[1] === "project-canonical-path" && (JSON.parse(input) as { project_id: string }).project_id === "project-2")
+    expect(selectedReads).toHaveLength(1)
+    // The mock refuses worktree-locate outright, so reaching this point with
+    // a routed session proves the route never asked for a ref resolution.
+    expect(calls.some(({ argv }) => argv[1] === "worktree-locate")).toBe(false)
   } finally {
     adapter.configureSessionOpener(undefined)
   }
@@ -1873,6 +1899,7 @@ test("a resume whose selected Project shares the calling repository keeps the cl
     calls.push({ argv, input })
     if (argv[0] === "tab-opener") throw new Error("the opener must not run inside one repository")
     if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    if (argv[1] === "project-canonical-path") return { exitCode: 0, stdout: JSON.stringify({ project_id: (JSON.parse(input) as { project_id: string }).project_id, canonical_path: "/repo-1" }), stderr: "" }
     if (argv[1] === "worktree-locate") {
       const parsed = JSON.parse(input) as { project_id: string; work_id: string }
       return { exitCode: 0, stdout: JSON.stringify({ branch: `work/${parsed.work_id}`, base_sha: "a".repeat(40), path: `/data/worktrees/${parsed.project_id}/${parsed.work_id}`, repo: "/repo-1", ref: "HEAD" }), stderr: "" }
@@ -1901,7 +1928,7 @@ test("a failed project location lookup refuses before the opener runs", async ()
     calls.push({ argv, input: "" })
     if (argv[0] === "tab-opener") throw new Error("the opener must not run")
     if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-    return { exitCode: 1, stdout: "", stderr: "concord worktree-locate: unknown_scope: Project has no canonical_path locator" }
+    return { exitCode: 1, stdout: "", stderr: "concord project-canonical-path: unknown_scope: Project has no canonical_path locator" }
   } } })
   try {
     const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-unknown" }, contextFor()))

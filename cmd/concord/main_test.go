@@ -2506,6 +2506,36 @@ func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {
 	}
 }
 
+// TestZLStopsOptionParsingAtPromptDelimiter covers the delimiter rule of the
+// CD-0182 selector: the first `--` ends option parsing, so prompt words after
+// it stay prompt text and can neither select a Project nor lose words.
+func TestZLStopsOptionParsingAtPromptDelimiter(t *testing.T) {
+	cases := []struct {
+		name          string
+		args          []string
+		wantProject   string
+		wantForwarded []string
+	}{
+		{"option-shaped prompt words stay prompt text", []string{"work-1", "--", "please use", "--project", "other"}, "", []string{"work-1", "--", "please use", "--project", "other"}},
+		{"selector before the delimiter still selects", []string{"--project", "project-2", "work-1", "--", "words --project other"}, "project-2", []string{"work-1", "--", "words --project other"}},
+		{"equals form before the delimiter still selects", []string{"work-1", "--project=project-2", "--", "words"}, "project-2", []string{"work-1", "--", "words"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			project, forwarded, diagnostic := parseZLForwarding(tc.args)
+			if diagnostic != "" {
+				t.Fatalf("diagnostic=%q, want none", diagnostic)
+			}
+			if project != tc.wantProject {
+				t.Fatalf("project=%q, want %q", project, tc.wantProject)
+			}
+			if !slices.Equal(forwarded, tc.wantForwarded) {
+				t.Fatalf("forwarded=%q, want %q", forwarded, tc.wantForwarded)
+			}
+		})
+	}
+}
+
 // TestZLProjectSelectorRefusals covers the CD-0182 selector grammar at the
 // zl boundary: a selector without a value, a selector that combines with
 // --resume-last, and an invalid Project ID each refuse with a diagnostic

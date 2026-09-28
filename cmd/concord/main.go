@@ -192,6 +192,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
+	{Canonical: "project-canonical-path", TwoWord: "project canonical-path", RequiredFields: requiredFields(field("project_id")), Optional: "none", Enums: "none"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
@@ -471,6 +472,38 @@ func runLauncherList(out, errOut io.Writer) int {
 	return writeJSON(out, candidates, errOut)
 }
 
+// parseZLForwarding splits zl arguments into the explicit --project selector
+// and the forwarded work-and-prompt tail. Parsing follows the flag convention
+// the Go flag package and POSIX utility syntax share: the first `--` ends
+// option parsing, so prompt words after the delimiter stay prompt text and
+// can never select a Project (CD-0182). A non-empty diagnostic is a usage
+// refusal; the caller prefixes it with the command name.
+func parseZLForwarding(args []string) (project string, forwarded []string, diagnostic string) {
+	forwarded = make([]string, 0, len(args))
+	for rest := args; len(rest) > 0; {
+		arg := rest[0]
+		rest = rest[1:]
+		if arg == "--" {
+			forwarded = append(forwarded, arg)
+			forwarded = append(forwarded, rest...)
+			return project, forwarded, ""
+		}
+		switch {
+		case arg == "--project":
+			if len(rest) == 0 {
+				return project, nil, "--project requires a Project ID"
+			}
+			project = rest[0]
+			rest = rest[1:]
+		case strings.HasPrefix(arg, "--project="):
+			project = strings.TrimPrefix(arg, "--project=")
+		default:
+			forwarded = append(forwarded, arg)
+		}
+	}
+	return project, forwarded, ""
+}
+
 func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) == 1 {
 		if args[0] == "--resume-last" { // #nosec G602 -- args has length 1, checked by this branch.
@@ -488,24 +521,10 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	// active worktree when one is usable, else its canonical path. The
 	// selector changes the landing only; the default primary landing stays
 	// as CD-0093 and CD-0176 decide it.
-	project := ""
-	forwarded := make([]string, 0, len(args))
-	for rest := args; len(rest) > 0; {
-		arg := rest[0]
-		rest = rest[1:]
-		switch {
-		case arg == "--project":
-			if len(rest) == 0 {
-				writeDiagnostic(errOut, "concord zl: --project requires a Project ID")
-				return 2
-			}
-			project = rest[0]
-			rest = rest[1:]
-		case strings.HasPrefix(arg, "--project="):
-			project = strings.TrimPrefix(arg, "--project=")
-		default:
-			forwarded = append(forwarded, arg)
-		}
+	project, forwarded, diagnostic := parseZLForwarding(args)
+	if diagnostic != "" {
+		writeDiagnostic(errOut, "concord zl: "+diagnostic)
+		return 2
 	}
 	if project != "" && len(forwarded) > 0 && forwarded[0] == "--resume-last" {
 		writeDiagnostic(errOut, "concord zl: --project does not combine with --resume-last")
@@ -2694,6 +2713,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runWorktreeLocate(raw, s, out, errOut)
 	case "project-resolve":
 		return runProjectResolve(raw, s, out, errOut)
+	case "project-canonical-path":
+		return runProjectCanonicalPath(raw, s, out, errOut)
 	case "restore":
 		var request struct {
 			Source      string `json:"source"`

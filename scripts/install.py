@@ -796,49 +796,70 @@ def span_without_adjacent_comma(original: str, start: int, end: int) -> tuple[in
     return start, end
 
 
+def jsonc_array_span_around(original: str, token_start: int) -> tuple[int, int]:
+    """Return the (start, end) offsets of the JSON array open at token_start.
+
+    The walk parses the JSONC structure — strings, ``//`` line comments, and
+    ``/*`` block comments are skipped — so a bracket inside a comment or an
+    option string never opens or closes a span. The token must occur once and
+    outside comments; the parsed document the caller checked guarantees both.
+    The innermost array open at the token is the element span the caller
+    removes. A token position the walk never reaches, an unterminated span,
+    or a non-array element refuses instead of guessing.
+    """
+    refuse = "cannot safely remove the managed plugin entry from the OpenCode config"
+    stack: list[int] = []
+    close_at: dict[int, int] = {}
+    open_at_token = -1
+    index = 0
+    length = len(original)
+    while index < length:
+        if index == token_start and stack:
+            open_at_token = stack[-1]
+        character = original[index]
+        if character == '"':
+            index += 1
+            while index < length:
+                if original[index] == "\\":
+                    index += 2
+                    continue
+                if original[index] == '"':
+                    break
+                index += 1
+            index += 1
+            continue
+        if character == "/" and index + 1 < length and original[index + 1] == "/":
+            newline = original.find("\n", index)
+            index = length if newline < 0 else newline
+            continue
+        if character == "/" and index + 1 < length and original[index + 1] == "*":
+            terminator = original.find("*/", index + 2)
+            index = length if terminator < 0 else terminator + 2
+            continue
+        if character in "[{":
+            stack.append(index)
+        elif character in "]}":
+            if not stack:
+                raise InstallerError(refuse)
+            close_at[stack.pop()] = index
+        index += 1
+    if open_at_token < 0 or original[open_at_token] != "[" or open_at_token not in close_at:
+        raise InstallerError(refuse)
+    return open_at_token, close_at[open_at_token] + 1
+
+
 def drop_json_array_span(original: str, token: str) -> str:
     """Remove the whole JSON array that contains token, plus one adjacent comma.
 
     The tuple form of the plugin entry carries operator options beside the
-    managed path, so deregistration removes the enclosing bracket span —
-    string-aware, so brackets inside option strings never end the scan —
-    rather than the path token alone, which would strand an option fragment.
-    The caller guarantees the token occurs exactly once in the original text.
+    managed path, so deregistration removes the parsed element span — located
+    by walking the JSONC structure, so a bracket inside a comment or an option
+    string never ends the scan — rather than the path token alone, which would
+    strand an option fragment. The caller guarantees the token occurs exactly
+    once in the original text.
     """
-    token_start = original.index(token)
-    open_index = -1
-    for index in range(token_start - 1, -1, -1):
-        if original[index] == "[":
-            open_index = index
-            break
-    if open_index < 0:
-        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
-    end = -1
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(open_index, len(original)):
-        character = original[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character == "[":
-            depth += 1
-        elif character == "]":
-            depth -= 1
-            if depth == 0:
-                end = index
-                break
-    if end < 0:
-        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
-    start, end = span_without_adjacent_comma(original, open_index, end + 1)
+    open_index, end = jsonc_array_span_around(original, original.index(token))
+    start, end = span_without_adjacent_comma(original, open_index, end)
     return original[:start] + original[end:]
 
 

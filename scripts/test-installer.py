@@ -1253,6 +1253,29 @@ esac''',
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
+    def test_uninstall_survives_a_comment_before_the_tuple(self) -> None:
+        """A ``/* [ */`` comment beside the tuple corrupts nothing on uninstall."""
+        entry = self.plugin_entry_path()
+        self.config.write_text(
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    /* [ comment bracket */ "/operator/other",\n'
+            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}]\n'
+            '  ]\n}\n',
+            encoding="utf-8",
+        )
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        self.assertNotIn(entry, config)
+        self.assertNotIn("session_opener", config)
+        # The comment stays, the neighbour stays, and the result still parses.
+        self.assertIn("comment bracket", config)
+        plugin = installer.jsonc_data(config)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
     def test_existing_skills_config_and_launcher_are_not_clobbered(self) -> None:
         self.config.write_text(
             '{\n  "keep": true,\n  "skills": {"paths": ["/operator-authored/skill"]}\n}\n',
@@ -2235,6 +2258,47 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         self.assertIn("/operator/other", result)
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, [["/operator/plugin", {"agents": {}}], "/operator/other"])
+
+    def test_remove_ignores_a_bracket_inside_a_block_comment(self) -> None:
+        """A ``/* [ */`` comment before the tuple never becomes the open bracket."""
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    /* [ comment bracket */ "/operator/other",\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        self.assertIn("comment bracket", result)
+        self.assertIn("/operator/other", result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_ignores_a_bracket_inside_a_line_comment(self) -> None:
+        text = (
+            '{\n  "plugin": [\n'
+            '    // [ comment bracket\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}],\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_ignores_a_close_bracket_inside_a_comment(self) -> None:
+        """A ``/* ] */`` comment inside the tuple's options cannot end the span."""
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    ["/operator/other"],\n'
+            '    ["%s", /* ] comment */ {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        # The neighbour survives whole and the remainder still parses: a span
+        # that ended at the comment's ']' would strand the comment body.
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, [["/operator/other"]])
 
     def test_remove_keeps_the_bare_form_behavior(self) -> None:
         text = '{\n  "keep": true,\n  "plugin": [\n    "/operator/other",\n    "%s"\n  ]\n}\n' % self.ENTRY

@@ -150,6 +150,9 @@ Commands read one strict JSON object from stdin:
   concord project-locator-remove < JSON stdin
   concord project locator-remove < JSON stdin
     required: project_id, locator_id, expected_version
+  concord project-canonical-path < JSON stdin
+  concord project canonical-path < JSON stdin
+    required: project_id
   concord backup < JSON stdin
     required: destination
     accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it

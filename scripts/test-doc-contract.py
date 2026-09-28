@@ -135,7 +135,7 @@ This is the contract paragraph.
 
 ## Verification
 
-This is the verification paragraph.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -179,7 +179,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/no-ac.md"
     write_spec(root, path, body)
@@ -207,7 +207,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/bad-ac.md"
     write_spec(root, path, body)
@@ -236,7 +236,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/then-missing.md"
     write_spec(root, path, body)
@@ -265,7 +265,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/no-given.md"
     write_spec(root, path, body)
@@ -296,7 +296,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/multiline.md"
     write_spec(root, path, body)
@@ -331,7 +331,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/long.md"
     write_spec(root, path, body)
@@ -362,7 +362,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/at-limit.md"
     write_spec(root, path, body)
@@ -395,7 +395,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -435,7 +435,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/unexp.md"
     write_spec(root, path, body)
@@ -465,7 +465,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/exp.md"
     write_spec(root, path, body)
@@ -494,7 +494,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/json.md"
     write_spec(root, path, body)
@@ -529,7 +529,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 
 # {long_phrase}
 """
@@ -565,7 +565,7 @@ Body.
 {long_line}
 ```
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/code.md"
     write_spec(root, path, body)
@@ -597,8 +597,9 @@ Body.
 
 | {cells} |
 | --- |
+| `internal/store.TestFixture` |
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/table.md"
     write_spec(root, path, body)
@@ -884,7 +885,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/repeat.md"
     write_spec(root, path, body)
@@ -915,7 +916,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/comment.md"
     write_spec(root, path, body)
@@ -952,7 +953,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -1076,7 +1077,8 @@ def test_ac_split_triggers_pass() -> None:
         "  Then an outcome follows.\n"
         "- When a second action happens\n"
         "  Then a second outcome follows.",
-        "- One check.\n- A second check.",
+        "- Proved by `internal/store.TestFirstOutcome`.\n"
+        "- Proved by `internal/store.TestSecondOutcome`.",
     )
     path = "docs/split-triggers.md"
     write_spec(root, path, body)
@@ -1099,7 +1101,7 @@ def test_when_prefixed_word_is_not_a_second_trigger() -> None:
     body = _granularity_body(
         "- When a request arrives\n"
         "  Then the system responds. Whenever load is high it queues first.",
-        "Body.",
+        "- Proved by `internal/store.TestWheneverQueueing`.",
     )
     path = "docs/whenever.md"
     write_spec(root, path, body)
@@ -1165,7 +1167,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/sql-tokens.md"
     write_spec(root, path, body)
@@ -1200,7 +1202,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/rfc2119.md"
     write_spec(root, path, body)
@@ -1237,7 +1239,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/names.md"
     write_spec(root, path, body)
@@ -1272,7 +1274,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/nouns.md"
     write_spec(root, path, body)
@@ -1619,7 +1621,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     root = sandbox()
     path = "docs/spec-upper.md"
@@ -2044,7 +2046,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/url-tokens.md"
     write_spec(root, path, body)
@@ -2081,7 +2083,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/link-target.md"
     write_spec(root, path, body)
@@ -2121,7 +2123,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/two-sentences.md"
     write_spec(root, path, body)
@@ -2164,7 +2166,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/references.md"
     write_spec(root, path, body)
@@ -2202,7 +2204,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/emphasis-tokens.md"
     write_spec(root, path, body)
@@ -2432,19 +2434,53 @@ def test_anchor_rule_names_the_unanchored_entry_index() -> None:
     assert not any("(entry 1 " in line for line in stdout.splitlines()), stdout
 
 
-def test_spec_verification_stays_count_only() -> None:
-    """The anchor rule rides the decision profile: a spec keeps the count
-    comparison alone, so its prose Verification entries still satisfy it."""
+def test_spec_verification_requires_executable_anchors() -> None:
+    """Every Verification entry in an in-scope spec names an executable
+    anchor: the prose-only entry the count comparison alone used to accept
+    now fails with verification-entry-unanchored."""
     root = sandbox()
-    path = "docs/spec-count-only.md"
-    write_spec(root, path, VALID_BODY)
+    path = "docs/spec-prose-entry.md"
+    write_spec(
+        root,
+        path,
+        VALID_BODY.replace(
+            "- Proved by `internal/store.TestFixture`.",
+            "This entry names only prose, with no executable anchor.",
+        ),
+    )
     manifest = manifest_with(root, [record(path, sha_digest="anchor1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
-    assert exit_code == 0, (exit_code, stdout, stderr)
-    assert "doc contract check passed" in stdout, stdout
-    assert not any(
-        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any(
+        "verification-entry-unanchored: docs/spec-prose-entry.md#" in line
+        and "(entry 1 names no executable anchor" in line
+        for line in stdout.splitlines()
     ), stdout
+
+
+def test_spec_anchor_passes_on_go_test_symbol_or_validator_command() -> None:
+    """A spec Verification entry naming a Go test symbol or a validator
+    command satisfies the anchor rule, with the count comparison unchanged."""
+    for entry in (
+        "Proved by `internal/store.TestFirstEntry`.",
+        "Proved by `python3 scripts/check-doc-contract.py`.",
+    ):
+        root = sandbox()
+        path = "docs/spec-anchored.md"
+        write_spec(
+            root,
+            path,
+            VALID_BODY.replace(
+                "- Proved by `internal/store.TestFixture`.", f"- {entry}"
+            ),
+        )
+        manifest = manifest_with(root, [record(path, sha_digest="anchor3")])
+        exit_code, stdout, stderr = run_checker(root, manifest)
+        assert exit_code == 0, (entry, exit_code, stdout, stderr)
+        assert "doc contract check passed" in stdout, (entry, stdout)
+        assert not any(
+            "verification-entry-unanchored" in line for line in stdout.splitlines()
+        ), stdout
 
 
 def test_anchor_rule_keeps_the_count_comparison() -> None:

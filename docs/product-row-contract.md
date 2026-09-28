@@ -275,7 +275,8 @@ available in storage is not evidence it belongs on the row.
 The corpus case `active-quiet-duplicate` encodes criterion 3 and
 `focus-priority` encodes criterion 1, but no harness executes the launcher
 corpus yet, so criteria carry typed exemptions naming the Go tests that prove
-the guarantees.
+the guarantees. `python3 scripts/check-doc-contract.py` validates those
+recorded exemptions.
 
 - Criterion 1 is proved by `TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier`
   and `TestProductRowsC14ReturnsFiveGroups`

@@ -247,10 +247,15 @@ Scenario: zlauncher-retirement
 ## Verification
 
 - A store-backed corpus test drives browse, launch, resume, and prompt
-  pass-through against a fixture store.
+  pass-through against a fixture store. The corpus runner is
+  `cmd/concord.TestLauncherPortfolioCorpus`. Prompt pass-through is fixed by
+  `internal/launcher/render/bubbletea.TestSessionCommandPassesPromptThroughEnvironment`.
 - A degradation test fails both probes and asserts the launcher stays
-  usable.
+  usable. The typed preview state is proved by
+  `internal/launcher/storeport.TestProbeFailureIsTypedPreviewState`.
 - The write-free boundary is asserted by a test that runs the full action
-  surface against a store snapshot and compares content hashes.
+  surface against a store snapshot and compares content hashes. The boundary
+  is proved by
+  `internal/launcher/storeport.TestLauncherPortReadsPerformNoDurableWrite`.
 - The ZLauncher retirement condition is operator-verified on the real
   store and recorded on issue #803 before it closes.

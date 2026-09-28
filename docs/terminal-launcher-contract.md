@@ -739,11 +739,16 @@ The runner `TestLauncherPortfolioCorpus` consumes
 `scenarios/launcher-portfolio.v1.json` and executes all five cases against
 production read, launcher-model, and first-run paths.
 
-- Criterion 1 binds to `launcher-session`.
-- Criterion 2 binds to `active-quiet-duplicate`.
-- Criterion 3 binds to `focus-priority`.
-- Criterion 4 binds to `coverage-states`.
-- Criterion 5 binds to `first-run`.
+- Criterion 1 binds to `launcher-session`, executed by
+  `cmd/concord.TestLauncherPortfolioCorpus`.
+- Criterion 2 binds to `active-quiet-duplicate`, executed by
+  `cmd/concord.TestLauncherPortfolioCorpus`.
+- Criterion 3 binds to `focus-priority`, executed by
+  `cmd/concord.TestLauncherPortfolioCorpus`.
+- Criterion 4 binds to `coverage-states`, executed by
+  `cmd/concord.TestLauncherPortfolioCorpus`.
+- Criterion 5 binds to `first-run`, executed by
+  `cmd/concord.TestLauncherPortfolioCorpus`.
 
 `TestLauncherPortfolioCorpusMutationFails` changes a corpus assertion and
 proves that the runner rejects the mutation. Section 17 records the falsifiers

@@ -229,7 +229,8 @@ direction control this decision.
 ## Verification
 
 No corpus scenario can exercise the absence of a store, so every criterion
-carries a typed exemption naming the structural proof.
+carries a typed exemption naming the structural proof. The checker
+`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
 
 - Criterion 1 is proved by
   `TestPM8AndPM9DeclareNoEvidenceOrReceiptStore`

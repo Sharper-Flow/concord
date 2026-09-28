@@ -240,18 +240,21 @@ in one change, with the TS8 evidence, or CI fails.
 
 The budget and shape laws are enforced by the generator and the contract
 tests, so every criterion carries a typed exemption naming the enforcing
-mechanism.
+mechanism. Both run as `python3 scripts/check-agent-contracts.py` and
+`python3 scripts/test-agent-contracts.py`.
 
 - Criterion 1 is proved by the manifest equality pins of
-  `scripts/generate-agent-contracts.py` (exact tool count, unique
+  `python3 scripts/generate-agent-contracts.py` (exact tool count, unique
   identifiers, `surface.tool_count` agreement) and the document-manifest
-  join test of `scripts/test-agent-contracts.py`
+  join test of `python3 scripts/test-agent-contracts.py`
   (`Ts2BudgetTests.test_document_budget_matches_manifest`).
 - Criterion 2 is proved by the generator's closed-tool-section and
   operation-coverage checks, exercised by `ManifestTamperTests`
-  (`scripts/test-agent-contracts.py`).
+  (`python3 scripts/test-agent-contracts.py`).
 - Criterion 3 is proved by the generator's alias rejection.
+  `python3 scripts/generate-agent-contracts.py` exercises it.
 - Criterion 4 is law for future evaluations; it is enforced by the TS8
   change rule, which requires a named scenario and generated-artifact unity
   for any surface change, and by TS1's corpus, which a boundary-crossing
-  candidate fails. Section 8 records the falsifiers.
+  candidate fails. The TS1 corpus executes as
+  `internal/agent.TestAgentJobsCorpus`. Section 8 records the falsifiers.

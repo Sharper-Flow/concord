@@ -280,56 +280,84 @@ Product-law authority to it, or require every document to live there.
 These are process-authority requirements, not evidence of implemented Linear
 behavior. Knowledge, document, link, and public-content checks validate the
 policy artifacts. Review checks the authority table, mode boundaries, and
-cutover requirements against CD-0121 and CD-0122.
+cutover requirements against CD-0121 and CD-0122. Artifact checks:
+`python3 scripts/check-knowledge-index.py`,
+`python3 scripts/check-doc-links.py`, `python3 scripts/check-public-content.py`.
 
 Runtime activation requires separate evidence for Product configuration, access,
 creation, identity mapping, and isolation. A passing document validator does not
 prove those capabilities. Existing workflow, repository-review, and isolation
-mechanisms retain their own verification contracts.
+mechanisms retain their own verification contracts. Those contracts include
+`internal/store.TestLinearSharedCrossProductWorkItemKeepsOneOwningLink` and
+`cmd/concord.TestDatabaseOverrideRefusesRepositoryLocalPath`.
 
 - Criterion 1: review the authority table against CD-0121 D1. Runtime routing
   requires separate evidence; this amendment establishes its policy owner.
+  Artifact check: `python3 scripts/check-knowledge-index.py`.
 - Criterion 2: a merge claim requires the public pull request and required
   checks. Document-link validation alone is not proof of a particular merge.
+  That document-link validation runs as `python3 scripts/check-doc-links.py`.
 - Criterion 3: branch and worktree evidence must establish isolation. Existing
   worktree contracts own that runtime proof; this amendment preserves them.
+  Worktree occupancy isolation is exercised by
+  `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
 - Criterion 4: review the explicit amendment and its law relations.
-  `scripts/check-knowledge-index.py` validates the declared knowledge graph.
+  `python3 scripts/check-knowledge-index.py` validates the declared knowledge graph.
 - Criterion 5: existing session identity evidence remains required. Local and
   Linear planning linkage need mode-specific implementation evidence.
+  Artifact check: `python3 scripts/check-knowledge-index.py`.
 - Criterion 6: typed workflow records supply transition and verdict evidence.
   The generated agent contracts and store workflow tests retain that scope.
-- Criterion 7: the accepted floor and `scripts/check-floor-readiness.py` own
+  `python3 scripts/check-agent-contracts.py` validates the generated contracts,
+  and `internal/store.TestAppendEventRoundTripsEveryField` covers the event records.
+- Criterion 7: the accepted floor and `python3 scripts/check-floor-readiness.py` own
   readiness evidence. They do not establish a Product's Linear activation.
-- Criterion 8: `scripts/check-predecessor-independence.py` checks repository-owned
+- Criterion 8: `python3 scripts/check-predecessor-independence.py` checks repository-owned
   agent surfaces. This amendment adds no predecessor write route.
 - Criterion 9: review the local-only boundary in Product modes. Credential
   independence and cross-Product isolation still require runtime tests.
+  Mode defaults stay event-backed in
+  `internal/store.TestPlanningModeDefaultsToLocalOnlyAndSetIsEventBacked`.
 - Criterion 10: a provider-confirmed issue identity must support a creation
   claim. This policy amendment contains no Linear call or creation result.
+  Confirmed identity handling is exercised in
+  `internal/store.TestLinearCompleteConfirmsLinkIdentity`.
 - Criterion 11: review the outage rule for unchanged planning authority.
-  Queue and failure behavior require separate integration tests.
+  Queue and failure behavior require separate integration tests. Failure-state
+  retention is exercised in
+  `internal/store.TestAcknowledgeFailedLinearOperationsKeepsFailureState`.
 - Criterion 12: activation requires Product configuration and access evidence.
-  Policy adoption and document checks do not supply that evidence.
+  Policy adoption and document checks do not supply that evidence. The missing
+  setup refusal is exercised in
+  `internal/store.TestPlanningModeResolutionRefusesAmbiguityAndMissingSetup`.
 - Criterion 13: a migration requires its own approved contract and verified
   identity mapping. This amendment executes no migration.
+  Artifact check: `python3 scripts/check-knowledge-index.py`.
 - Criterion 14: review the outside-work boundary against CD-0122 D1. Host
   permissions remain authoritative, and no Concord evidence is created.
+  Artifact check: `python3 scripts/check-knowledge-index.py`.
 - Criterion 15: review the defect-repair application against CD-0122 D2.
-  Repository isolation and public review evidence remain required.
+  Repository isolation and public review evidence remain required. Isolation
+  mechanics are exercised by
+  `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
 - Criterion 16: review host-role preservation against CD-0122 D3. This policy
   changes no host-owned permission, session, directory, or participation rule.
+  Artifact check: `python3 scripts/check-knowledge-index.py`.
 - Criterion 17: review the CD-0155 boundary as amended by CD-0167 and the
   Product boundary above. Runtime routing must separately prove both
   recorded-mode destinations, owning-Product scoping in the store, the
   missing-Product refusal, and the absence of a serving-Product work-item
-  effect.
+  effect. Owning-Product scoping is guarded in
+  `internal/store.TestLinearSharedCrossProductWorkItemKeepsOneOwningLink`.
 - Criterion 18: review the foreign-session-only application of the scoped
   route. A session serving a local-only Product still uses Concord's local
-  planning authority.
+  planning authority. Planning-authority refusals are exercised in
+  `internal/store.TestLinearIssueAdoptionPlanningAuthorityRefusals`.
 - Criterion 19: review that CD-0155 and CD-0167 add no typed operation,
-  schema, or validator.
+  schema, or validator. The declared record graph carries no new typed
+  artifacts. `python3 scripts/check-knowledge-index.py` validates what is declared.
 - Criterion 20: review the git-backlog prohibition against CD-0167 D1. The
   store's structural refusal of in-repository database paths carries existing
   enforcement, and any backlog sync route would need its own implementation
-  evidence.
+  evidence. The refusal is enforced in
+  `cmd/concord.TestDatabaseOverrideRefusesRepositoryLocalPath`.

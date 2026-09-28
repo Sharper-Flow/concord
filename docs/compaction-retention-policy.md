@@ -372,6 +372,7 @@ the falsifiers above remain controlling.
 
 No corpus scenario drives the historical-tier join or pack cleanup, so
 criteria carry typed exemptions naming the tests that prove the guarantees.
+`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
 
 - Criterion 1 is proved by the bound `Q10-not-compacted` scenario of
   `scenarios/product-memory-query.v1.json`, executed by

@@ -1146,10 +1146,12 @@ def check_record(
     if on_current_profile:
         check_outline_order_and_level(heading_entries, required, absolute, findings)
 
-    # The anchor rule covers the same records the tightened outline covers:
-    # the current profile. A spec keeps the count comparison alone, and a
-    # legacy record keeps the presence-only contract.
-    require_anchors = on_current_profile
+    # The anchor rule covers current-profile decisions and every spec in
+    # doc-contract scope: a count comparison proves resolution only when each
+    # entry names an executable anchor. A legacy decision keeps the
+    # presence-only contract, and the outline order/level/duplicate rules
+    # stay current-profile-decisions-only.
+    require_anchors = on_current_profile or kind == "spec"
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)
         check_verification_coverage(

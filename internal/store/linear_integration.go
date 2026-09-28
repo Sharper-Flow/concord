@@ -769,7 +769,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 		sort.Strings(health.UnmappedLifecycles)
 	}
 	var oldestPending string
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox o WHERE state IN ('queued','in_flight') AND `+linearProductOwnerPredicate(`o.work_id`), productID, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
+	if err := s.db.QueryRowContext(ctx, linearHealthOutboxDepthQuery, productID, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read outbox depth", true, "retry once the database is readable", err)
 	}
 	if oldestPending != "" {
@@ -780,7 +780,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 			}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE `+linearProductOwnerPredicate(`l.work_id`)+` GROUP BY l.link_state`, productID, productID)
+	rows, err := s.db.QueryContext(ctx, linearHealthLinkCountsQuery, productID, productID)
 	if err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read link counts", true, "retry once the database is readable", err)
 	}
@@ -845,12 +845,7 @@ func (s *Store) ReadConfirmedLinearLinkedWorkForProduct(ctx context.Context, pro
 	if _, err := readProductPlanningModeCore(ctx, s.db, productID); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `
-SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
-FROM linear_issue_links l
-JOIN work_items w ON w.id=l.work_id
-WHERE l.link_state=? AND `+linearProductOwnerPredicate(`l.work_id`)+`
-ORDER BY l.work_id`, LinearLinkConfirmed, productID, productID)
+	rows, err := s.db.QueryContext(ctx, linearConfirmedLinkedWorkQuery, LinearLinkConfirmed, productID, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_divergence_read", "cannot read confirmed Linear links", true, "retry once the database is readable", err)
 	}
@@ -919,11 +914,7 @@ func (s *Store) ReadConfirmedLinearLinksForProduct(ctx context.Context, productI
 }
 
 func readConfirmedLinearLinksForProductCore(ctx context.Context, q queryer, productID, staleBefore string) ([]LinearIssueLink, error) {
-	rows, err := q.QueryContext(ctx, `
-SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash
-FROM linear_issue_links l
-WHERE l.link_state=? AND (l.refreshed_at='' OR l.refreshed_at<?) AND `+linearProductOwnerPredicate(`l.work_id`)+`
-ORDER BY l.work_id`, LinearLinkConfirmed, staleBefore, productID, productID)
+	rows, err := q.QueryContext(ctx, linearStaleConfirmedLinksQuery, LinearLinkConfirmed, staleBefore, productID, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot read confirmed Linear links", true, "retry once the database is readable", err)
 	}
@@ -1187,33 +1178,58 @@ WHERE w.id = ?`
 	return products, nil
 }
 
-// linearProductOwnerPredicate renders the SQL ownership predicate shared by
-// every per-Product Linear read. It matches resolveLinearProductCore: a work
-// item is owned by the Product when its project memberships reach exactly
-// that Product, or when the item spans Products and its primary memberships
-// reach exactly that Product. A secondary-only membership never owns the
-// item, so a cross-Product item is read under its owner alone, and a
-// disposition naming it from the secondary Product refuses. workIDColumn is
-// the outer query's work id column. The rendered predicate carries exactly
-// two Product id placeholders; callers bind the Product id twice, in order.
-func linearProductOwnerPredicate(workIDColumn string) string {
-	return fmt.Sprintf(`EXISTS (
+// linearOwnedWorkIDs selects the work items a Product owns for Linear. It
+// matches resolveLinearProductCore: a work item is owned by the Product when
+// its project memberships reach exactly that Product, or when the item spans
+// Products and its primary memberships reach exactly that Product. A
+// secondary-only membership never owns the item, so a cross-Product item is
+// read under its owner alone, and a disposition naming it from the secondary
+// Product refuses. The subquery carries exactly two Product id placeholders;
+// callers bind the Product id twice, in order. Every per-Product Linear read
+// composes it into a constant statement, so no SQL text is built at runtime.
+const linearOwnedWorkIDs = `SELECT w_own.id FROM work_items w_own
+WHERE EXISTS (
 	SELECT 1 FROM work_projects wp_own
 	JOIN product_projects pp_own ON pp_own.project_id=wp_own.project_id
-	WHERE wp_own.work_id = %s AND pp_own.product_id = ?) AND (
+	WHERE wp_own.work_id = w_own.id AND pp_own.product_id = ?) AND (
 	(SELECT count(DISTINCT pp_all.product_id)
 	 FROM work_projects wp_all
 	 JOIN product_projects pp_all ON pp_all.project_id=wp_all.project_id
-	 WHERE wp_all.work_id = %s) = 1
+	 WHERE wp_all.work_id = w_own.id) = 1
 	OR ((SELECT count(DISTINCT pp_pri.product_id)
 	 FROM work_projects wp_pri
 	 JOIN product_projects pp_pri ON pp_pri.project_id=wp_pri.project_id
-	 WHERE wp_pri.work_id = %s AND wp_pri.role = 'primary') = 1
+	 WHERE wp_pri.work_id = w_own.id AND wp_pri.role = 'primary') = 1
 	AND EXISTS (SELECT 1 FROM work_projects wp_priown
 	 JOIN product_projects pp_priown ON pp_priown.project_id=wp_priown.project_id
-	 WHERE wp_priown.work_id = %s AND wp_priown.role = 'primary'
-	   AND pp_priown.product_id = ?)))`, workIDColumn, workIDColumn, workIDColumn, workIDColumn)
-}
+	 WHERE wp_priown.work_id = w_own.id AND wp_priown.role = 'primary'
+	   AND pp_priown.product_id = ?)))`
+
+const (
+	linearHealthOutboxDepthQuery   = `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox o WHERE state IN ('queued','in_flight') AND o.work_id IN (` + linearOwnedWorkIDs + `)`
+	linearHealthLinkCountsQuery    = `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE l.work_id IN (` + linearOwnedWorkIDs + `) GROUP BY l.link_state`
+	linearConfirmedLinkedWorkQuery = `
+SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
+FROM linear_issue_links l
+JOIN work_items w ON w.id=l.work_id
+WHERE l.link_state=? AND l.work_id IN (` + linearOwnedWorkIDs + `)
+ORDER BY l.work_id`
+	linearStaleConfirmedLinksQuery = `
+SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash
+FROM linear_issue_links l
+WHERE l.link_state=? AND (l.refreshed_at='' OR l.refreshed_at<?) AND l.work_id IN (` + linearOwnedWorkIDs + `)
+ORDER BY l.work_id`
+	linearUnacknowledgedFailedOpsQuery = `
+SELECT o.operation_id
+FROM linear_outbox o
+WHERE o.state=? AND o.work_id IN (` + linearOwnedWorkIDs + `)
+  AND NOT EXISTS (SELECT 1 FROM linear_outbox_dispositions d WHERE d.operation_id=o.operation_id)
+ORDER BY o.created_at, o.operation_id`
+	linearOwnedOutboxOperationQuery = `
+SELECT o.work_id, o.state
+FROM linear_outbox o
+WHERE o.operation_id=? AND o.work_id IN (` + linearOwnedWorkIDs + `)`
+)
 
 // resolveLinearProjectIDsCore returns every Concord project the work item
 // belongs to inside the owning Product. CD-0171 D3: each membership becomes
@@ -3088,12 +3104,7 @@ func (s *Store) AcknowledgeFailedLinearOperations(ctx context.Context, productID
 	}
 	ids := append([]string(nil), operationIDs...)
 	if len(ids) == 0 {
-		rows, queryErr := tx.QueryContext(ctx, `
-SELECT o.operation_id
-FROM linear_outbox o
-WHERE o.state=? AND `+linearProductOwnerPredicate(`o.work_id`)+`
-  AND NOT EXISTS (SELECT 1 FROM linear_outbox_dispositions d WHERE d.operation_id=o.operation_id)
-ORDER BY o.created_at, o.operation_id`, LinearOutboxFailed, productID, productID)
+		rows, queryErr := tx.QueryContext(ctx, linearUnacknowledgedFailedOpsQuery, LinearOutboxFailed, productID, productID)
 		if queryErr != nil {
 			return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot read failed operations", true, "retry once the database is readable", queryErr)
 		}
@@ -3118,10 +3129,7 @@ ORDER BY o.created_at, o.operation_id`, LinearOutboxFailed, productID, productID
 			return nil, newFailure(KindInvalidPayload, "linear_outbox_disposition", "operation id must be 2 to 128 characters", false, "supply a failed operation id")
 		}
 		var workID, state string
-		err := tx.QueryRowContext(ctx, `
-SELECT o.work_id, o.state
-FROM linear_outbox o
-WHERE o.operation_id=? AND `+linearProductOwnerPredicate(`o.work_id`), operationID, productID, productID).Scan(&workID, &state)
+		err := tx.QueryRowContext(ctx, linearOwnedOutboxOperationQuery, operationID, productID, productID).Scan(&workID, &state)
 		if err == sql.ErrNoRows {
 			return nil, newFailure(KindUnknownScope, "linear_outbox_disposition", "failed operation does not belong to the Product", false, "supply a failed operation from the requested Product")
 		}

@@ -200,7 +200,7 @@ func TestLinearOwnerScopeSingleProduct(t *testing.T) {
 // The rendered owner predicate binds the Product id exactly twice; a drift in
 // the placeholder count silently misbinds every call site.
 func TestLinearOwnerPredicateBindsProductTwice(t *testing.T) {
-	if got := strings.Count(linearProductOwnerPredicate(`o.work_id`), "?"); got != 2 {
+	if got := strings.Count(linearOwnedWorkIDs, "?"); got != 2 {
 		t.Fatalf("owner predicate placeholder count = %d, want 2", got)
 	}
 }

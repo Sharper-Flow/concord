@@ -82,6 +82,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(implementationAlignmentV14()),
 		retainedAtDeliveryContract(implementationDeliveryV15()),
 		implementationDeliveryGateReturnV16(),
+		implementationCheckpointReviewV17(),
 	}
 }
 
@@ -103,6 +104,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(breakFixAlignmentV12()),
 		retainedAtDeliveryContract(breakFixDeliveryV13()),
 		breakFixDeliveryGateReturnV14(),
+		breakFixCheckpointReviewV15(),
 	}
 }
 
@@ -119,6 +121,7 @@ func researchVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true)), 7),
 		retainedBeforeDeliveryContract(researchPreDeliveryV8()),
 		researchDeliveryPayloadV9(),
+		researchCheckpointReviewV10(),
 	}
 }
 
@@ -136,6 +139,7 @@ func architectureSpikeVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(withCurrentNonBlankContract(architecturePremiseContractV7()), 8),
 		retainedBeforeDeliveryContract(architecturePreDeliveryV9()),
 		architectureDeliveryPayloadV10(),
+		architectureCheckpointReviewV11(),
 	}
 }
 
@@ -154,6 +158,7 @@ func opsRunbookVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(withCurrentNonBlankContract(opsRunbookPremiseContractV8()), 9),
 		retainedBeforeDeliveryContract(opsRunbookPreDeliveryV10()),
 		opsRunbookDeliveryPayloadV11(),
+		opsRunbookCheckpointReviewV12(),
 	}
 }
 
@@ -169,6 +174,7 @@ func staticAnalysisVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(withCurrentNonBlankContract(withWorkerActions(builtinStaticAnalysis(true), true)), 6),
 		retainedBeforeDeliveryContract(staticAnalysisPreDeliveryV7()),
 		staticAnalysisDeliveryPayloadV8(),
+		staticAnalysisCheckpointReviewV9(),
 	}
 }
 
@@ -185,5 +191,6 @@ func genericOneOffVersionChain() []WorkflowDefinition {
 		retainedAtPreviousVersion(withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true)), 7),
 		retainedBeforeDeliveryContract(genericOneOffPreDeliveryV8()),
 		genericOneOffDeliveryPayloadV9(),
+		genericOneOffCheckpointReviewV10(),
 	}
 }

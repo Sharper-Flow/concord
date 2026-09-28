@@ -66,7 +66,7 @@ func TestPinnedDeliveryGateRecoversThroughEvidenceBearingReturn(t *testing.T) {
 	if !ok {
 		t.Fatal("workflow.break_fix v13 is not registered")
 	}
-	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, released, "repair")
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, released, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
 
 	at := int64(100)

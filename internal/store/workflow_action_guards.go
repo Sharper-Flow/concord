@@ -511,7 +511,7 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
-      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','reject_worker_result')
+      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result')
       AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)) +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
@@ -1071,7 +1071,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["delivery_state"] = state
 	}
 	var workerPacketDigest string
-	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
+	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)
 		completionValues["worker_attempt_id"] = workflowFieldStringDefault(fields, "attempt_id", "")
 	}

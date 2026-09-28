@@ -17,11 +17,19 @@ type workflowReturnRouteFixture struct {
 
 func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
 	t.Helper()
+	return seedWorkflowReturnRouteFixtureRequiring(t, workID, definitionRef, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
+}
+
+// seedWorkflowReturnRouteFixtureRequiring seeds the same item with a chosen
+// contract-required evidence set and a chosen set of bound kinds, so a test
+// can demand a kind no captured record has satisfied yet.
+func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
+	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep)
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, requiredEvidence, boundKinds)
 }
 
 func seedHistoricalWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef string, definitionVersion int64, verdictStep string) workflowReturnRouteFixture {
@@ -30,10 +38,10 @@ func seedHistoricalWorkflowReturnRouteFixture(t *testing.T, workID, definitionRe
 	if !ok {
 		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
 	}
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep)
+	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
 }
 
-func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string) workflowReturnRouteFixture {
+func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -83,7 +91,7 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		}},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"required_evidence": requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal",
 		"consequence_class": "internal_sqlite", "architecture_binding": WorkflowArchitectureBinding{
 			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
@@ -93,7 +101,7 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	})
 	contract.PayloadVersion = 3
 	events = append(events, nextEvent(contract))
-	for _, kind := range []string{"verification", "review", "artifact"} {
+	for _, kind := range boundKinds {
 		evidenceRef := "evidence:return-route-" + kind
 		seedWorkflowAuthority(t, s, "return-authority-"+kind+"-"+workID, workID, "principal/return-route-"+kind, "request/return-route-"+kind, []string{evidenceRef})
 		events = append(events, nextEvent(workflowEventWithActor("return-evidence-"+kind+"-"+workID, WorkflowEvidenceBound, workID, ownerRef, map[string]any{

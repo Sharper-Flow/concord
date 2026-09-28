@@ -1,0 +1,43 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-6760d4542760f2ee6ba03843",
+    "tier": "legislated"
+  },
+  "date": "2026-09-28T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "contracts/lane-step-dispatch.v1.json",
+    "internal/store/generated_lane_step_dispatch.go",
+    "internal/store/workflow_registry.go",
+    "internal/store/lane_step_dispatch_test.go",
+    "scripts/generate-lane-step-dispatch.py"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0187",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0140"
+    }
+  ],
+  "path": "docs/decisions/CD-0187-the-review-lane-dispatches-at-the-confirmation-steps.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:831d3bf80ef5418eb96760a481d7e90ce410e2a39029df8ef9b1f03b0fef7f25",
+  "status": "accepted",
+  "summary": "The review capability-class binding gains human_checkpoint, so a confirmation step that enforces review evidence can dispatch the review lane and bind its report; the promoted definitions carry the checkpoint pair (dispatch_worker and the hold-mode accept_worker_evidence), the dispatch hold releases when an accept resolves the attempt, older versions reach the amended steps by repin, and no other class gains the step kind. Amends CD-0140's preserved human-checkpoint exclusion and refines CD-0133 D3/D4 on the confirmation-step surface.",
+  "tags": [
+    "workflow",
+    "lanes",
+    "law",
+    "agent-surface"
+  ],
+  "title": "The review lane dispatches at the confirmation steps that enforce review evidence"
+}

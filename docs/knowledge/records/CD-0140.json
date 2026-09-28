@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:62fd03421e4ca154197b24de7bc201d4bdc3946a0af5637b73ab9a0ea376a69f",
+  "sha256": "sha256:4bbd1ce58c82485b7760faafbb8b78ea5af98a291d0af2b802512c18e0e54a0f",
   "status": "accepted",
-  "summary": "The review capability-class binding gains external_effect so review evidence can be bound at the steps that hold produced work; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence. Amends CD-0117 D1 for review only; the research binding, checkpoint and terminal exclusions, and worker fences are unchanged.",
+  "summary": "The review capability-class binding gains external_effect so review evidence can be bound at the steps that hold produced work; CD-0138's mandatory refine step is external_effect, so without this binding no contract can ever bind review evidence. Amends CD-0117 D1 for review only; the research binding, terminal exclusion, and worker fences are unchanged; CD-0187 carries the review binding's own confirmation-step reach.",
   "tags": [
     "workflow",
     "lanes",

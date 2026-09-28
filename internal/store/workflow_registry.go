@@ -943,6 +943,15 @@ func withWorkerActionsForVersion(definition WorkflowDefinition, payloadContracts
 		if terminal[definition.StepGraph.Steps[i].ID] || !admitted[string(definition.StepGraph.Steps[i].Kind)] {
 			continue
 		}
+		// The worker-action pair advances or holds the producing step, and
+		// an advancing accept beside the operator's gate would let a worker
+		// acceptance leave a confirmation step without the operator. The
+		// confirmation steps take the CD-0187 checkpoint pair through
+		// withCheckpointWorkerActions instead, so this loop composes the
+		// trio only on the other admitted step kinds.
+		if definition.StepGraph.Steps[i].Kind == WorkflowStepHumanCheckpoint {
+			continue
+		}
 		// An approval-gated step exits only through its operator action: an
 		// ungated advancing action beside the gate would let a worker
 		// acceptance leave the step without the operator (the invariant
@@ -962,6 +971,46 @@ func withWorkerActionsForVersion(definition WorkflowDefinition, payloadContracts
 		for _, action := range workerActions {
 			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, action.ID)
 		}
+	}
+	return definition
+}
+
+// withCheckpointWorkerActions composes the CD-0187 checkpoint pair onto a
+// definition's human_checkpoint steps: dispatch_worker, so the review lane
+// the join admits there can open an attempt at the operator's confirmation
+// step, and accept_worker_evidence, so the completed attempt's report binds
+// as evidence while the step holds. The advancing accept and the failure
+// record stay off these steps: the operator's own gate remains the step's
+// only advancing exit. Definitions promoted before CD-0187 keep the shape
+// they were pinned under and never call this composer.
+func withCheckpointWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	acceptEvidence := currentActionDefinition("accept_worker_evidence", true)
+	acceptEvidence.RequiredCapability = "work_transition"
+	declared := make(map[string]bool, len(definition.ActionDefinitions))
+	for _, action := range definition.ActionDefinitions {
+		declared[action.ID] = true
+	}
+	if !containsString(definition.AvailableActions, "dispatch_worker") {
+		definition.AvailableActions = append(definition.AvailableActions, "dispatch_worker")
+	}
+	if !containsString(definition.AvailableActions, acceptEvidence.ID) {
+		definition.AvailableActions = append(definition.AvailableActions, acceptEvidence.ID)
+	}
+	if !declared["dispatch_worker"] {
+		definition.ActionDefinitions = append(definition.ActionDefinitions, currentActionDefinition("dispatch_worker", true))
+	}
+	if !declared[acceptEvidence.ID] {
+		definition.ActionDefinitions = append(definition.ActionDefinitions, acceptEvidence)
+	}
+	for i := range definition.StepGraph.Steps {
+		if definition.StepGraph.Steps[i].Kind != WorkflowStepHumanCheckpoint {
+			continue
+		}
+		if containsString(definition.StepGraph.TerminalSteps, definition.StepGraph.Steps[i].ID) {
+			continue
+		}
+		definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, "dispatch_worker", acceptEvidence.ID)
 	}
 	return definition
 }
@@ -1475,6 +1524,12 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
 	),
+	// CD-0187: the confirmation-step accept binds a completed worker
+	// attempt's report as evidence and holds the step, so the operator's
+	// own gate stays the step's only advancing exit.
+	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
+	),
 	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
 	),
@@ -1505,21 +1560,21 @@ func workflowCallerEvidenceBinder(actionID string) bool {
 }
 
 // workflowWorkerAttemptEvidenceKinds is the closed set accept_worker_result
-// can produce: workerAttemptEvidenceKind maps a lane capability class onto
-// exactly these kinds, so an accepted attempt binds as one of them and never
-// as approval, commit, durable_note, or native_run.
+// and accept_worker_evidence can produce: workerAttemptEvidenceKind maps a
+// lane capability class onto exactly these kinds, so an accepted attempt binds
+// as one of them and never as approval, commit, durable_note, or native_run.
 var workflowWorkerAttemptEvidenceKinds = []EvidenceKind{EvidenceVerification, EvidenceReview, EvidenceArtifact}
 
 // workflowEvidenceKindsProducedBy returns the evidence kinds one completed
 // action can bind. The caller-kind binders take the kind from their payload,
-// so each can produce any declared kind; accept_worker_result binds the
-// accepted attempt under the closed worker-attempt mapping. Every other
-// action binds no evidence at all.
+// so each can produce any declared kind; accept_worker_result and
+// accept_worker_evidence bind the accepted attempt under the closed
+// worker-attempt mapping. Every other action binds no evidence at all.
 func workflowEvidenceKindsProducedBy(actionID string) []EvidenceKind {
 	if workflowCallerEvidenceBinder(actionID) {
 		return workflowEvidenceKinds
 	}
-	if actionID == "accept_worker_result" {
+	if actionID == "accept_worker_result" || actionID == "accept_worker_evidence" {
 		return workflowWorkerAttemptEvidenceKinds
 	}
 	return nil

@@ -7861,6 +7861,60 @@ const GeneratedPayloadSchemaDocument = `{
           "if": {
             "properties": {
               "action_id": {
+                "const": "accept_worker_evidence"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "attempt_id": {
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "attempt_epoch"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "accept_worker_result"
               }
             },

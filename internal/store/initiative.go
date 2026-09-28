@@ -334,8 +334,13 @@ func validateInitiativeEntryScope(ctx context.Context, tx *sql.Tx, initiative, c
 	}
 	return nil
 }
+
+// workProductIDs derives the Product a work item belongs to over its primary
+// Project membership: the primary Project's Product owns Initiative scope and
+// the pre-approval knowledge warm, so a secondary membership in another
+// Product must not widen this scope into an ambiguity.
 func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id`, id)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id`, id)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot derive Product scope", true, "retry once the database is readable", err)
 	}

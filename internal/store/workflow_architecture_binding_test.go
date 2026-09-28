@@ -117,9 +117,9 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 		{name: "zero Product scope", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
 			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id LIKE 'architecture-validation-zero-Product-scope'; DELETE FROM fold_guard`)
 		}},
-		{name: "multiple Product scope", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
-			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-other','Other','prototype','operator_only',1,'now','now'); INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-other','Other',1,'now','now'); INSERT INTO product_projects(product_id,project_id,role) VALUES('product-other','project-other','primary'); INSERT INTO work_projects(work_id,project_id,role) VALUES('architecture-validation-multiple-Product-scope','project-other','secondary'); DELETE FROM fold_guard`)
-		}},
+		// A secondary membership in another Product does not refuse: the
+		// primary Project's Product owns the contract, and the schema's
+		// one-primary index leaves no multi-primary ambiguity to simulate.
 		{name: "deprecated Domain", mutate: func(s *Store, _ *WorkflowArchitectureBinding, _ *[]string, _ *[]WorkflowLawRevision) {
 			_, _ = s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE domains SET status='deprecated' WHERE product_id='product' AND domain_id='child'; DELETE FROM fold_guard`)
 		}},

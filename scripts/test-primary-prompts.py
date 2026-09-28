@@ -189,6 +189,18 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         self.assertEqual(sentences, [])
 
+    def test_prohibitive_word_in_another_clause_does_not_mask(self) -> None:
+        sentences = check_primary_prompts.forbidden_move_sentences(
+            "Do not wait; claim a worktree in the other repository from this session."
+        )
+        self.assertTrue(any("claim a worktree in the other repository" in s for s in sentences))
+
+    def test_within_repository_move_is_not_a_crossing(self) -> None:
+        sentences = check_primary_prompts.forbidden_move_sentences(
+            "In another repository, move between worktrees within that repository."
+        )
+        self.assertEqual(sentences, [])
+
     def test_forbidden_move_instruction_reports_in_intake_example(self) -> None:
         self.rewrite(
             "concord-0.md",

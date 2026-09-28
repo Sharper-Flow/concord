@@ -95,21 +95,25 @@ PROHIBITIVE_RE = re.compile(
 
 
 def forbidden_move_sentences(text: str) -> list[str]:
-    """Return each sentence that instructs a cross-repository claim or move.
+    """Return each clause that instructs a cross-repository claim or move.
 
-    A sentence that names another repository and a claim-or-move action is an
-    instruction unless the same sentence forbids the action. The boundary
-    statement itself ('never claim or move across the boundary') passes on
-    its own prohibitive wording.
+    A clause that names another repository and a claim-or-move action is an
+    instruction unless the same clause forbids the action. Reading clauses,
+    not sentences, keeps a prohibitive word in one clause from masking an
+    affirmative instruction in another ('Do not wait; claim a worktree in
+    the other repository'), and keeps a repository named in one clause from
+    turning a move in a different clause into a crossing.
     """
-    sentences = re.split(r"(?<=[.!?])\s+|\n", flatten(text))
-    return [
-        sentence
-        for sentence in sentences
-        if OTHER_REPOSITORY_RE.search(sentence)
-        and CLAIM_OR_MOVE_RE.search(sentence)
-        and not PROHIBITIVE_RE.search(sentence)
-    ]
+    findings: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\n", flatten(text)):
+        for clause in re.split(r"[;:]\s*|,\s+", sentence):
+            if (
+                OTHER_REPOSITORY_RE.search(clause)
+                and CLAIM_OR_MOVE_RE.search(clause)
+                and not PROHIBITIVE_RE.search(clause)
+            ):
+                findings.append(clause)
+    return findings
 
 
 def read_prompt(root: Path, name: str) -> str:

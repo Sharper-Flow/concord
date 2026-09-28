@@ -457,13 +457,11 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 	return nil
 }
 
-// CheckWorkflowDomainOverlapTx is the consequential mutation boundary check.
-// It derives active overlap from current projections in the caller's write
-// transaction and never treats a heuristic or ordinary relation as authority.
-func CheckWorkflowDomainOverlapTx(ctx context.Context, tx *sql.Tx, workID string) error {
-	return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, workflowStalePinAdmitNone)
-}
-
+// checkWorkflowDomainOverlapTxAdmitting is the consequential mutation boundary
+// check. It derives active overlap from current projections in the caller's
+// write transaction and never treats a heuristic or ordinary relation as
+// authority. The admission names the stale-pin refusals this call passes;
+// every production caller holds the default full refusal.
 func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, workID string, admission workflowStalePinAdmission) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "workflow_domain_overlap", "transaction is not open", false, "open a mutation transaction")
@@ -925,11 +923,13 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 }
 
 // InspectWorkflowDomainOverlap reports an unresolved Domain overlap for one
-// work item. It opens the transaction that CheckWorkflowDomainOverlapTx
-// requires, so a caller outside this package observes the same derivation a
-// mutation boundary applies rather than a separate untransacted one.
+// work item. It opens the transaction the boundary check requires, so a
+// caller outside this package observes the same derivation a mutation
+// boundary applies rather than a separate untransacted one. Inspection holds
+// the default admission: a stale pin refuses whatever it would refuse for a
+// caller, whoever the marker names.
 func InspectWorkflowDomainOverlap(ctx context.Context, s *Store, workID string) error {
 	return s.Transact(ctx, func(transaction *Transaction) error {
-		return CheckWorkflowDomainOverlapTx(ctx, transaction.tx, workID)
+		return checkWorkflowDomainOverlapTxAdmitting(ctx, transaction.tx, workID, workflowStalePinAdmitNone)
 	})
 }

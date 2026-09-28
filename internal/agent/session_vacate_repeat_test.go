@@ -21,7 +21,7 @@ import (
 func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
 
 	secondWork := []store.Event{
 		{EventID: "wt-dispatch-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Second Worktree","priority":1}`)},
@@ -73,8 +73,19 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v", response, response.Error)
 	}
 
-	// The second claim follows the first vacate, because a claim refuses while
-	// the calling session still occupies another active worktree.
+	// The vacate records the relocation request and leaves the occupancy row
+	// standing, so the adapter's vacate-landing verb stands in for the host
+	// move and readback the adapter performs: the verified landing releases
+	// the row, and the second claim passes the occupancy gate.
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The second claim follows the first vacate landing, because a claim
+	// refuses while the calling session still occupies another active
+	// worktree.
 	claim("work-2", second, "work/vacate-2", "claim-vacate-2")
 
 	// One session vacates a second linked worktree after the first. This is a
@@ -220,11 +231,13 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	}
 
 	// The two vacate operations carry distinct durable events. Each payload
-	// records the derived destination written before any host move, so
-	// landed_directory pins the recorded target and is not proof of landing.
+	// records the derived destination written before any host move and names
+	// no landing: landed_directory is the vacate-landing verb's evidence,
+	// never the requester's claim.
 	type vacatedEvent struct {
-		EventID string
-		Payload struct {
+		EventID        string
+		PayloadVersion int
+		Payload        struct {
 			WorkID               string `json:"work_id"`
 			ProjectID            string `json:"project_id"`
 			SessionRef           string `json:"session_ref"`
@@ -234,14 +247,14 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		}
 	}
 	var events []vacatedEvent
-	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq`)
+	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT event_id, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rows.Next() {
 		var event vacatedEvent
 		var raw string
-		if err := rows.Scan(&event.EventID, &raw); err != nil {
+		if err := rows.Scan(&event.EventID, &event.PayloadVersion, &raw); err != nil {
 			t.Fatal(err)
 		}
 		if err := json.Unmarshal([]byte(raw), &event.Payload); err != nil {
@@ -257,8 +270,11 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	}
 	for i, event := range events {
 		move := event.Payload
-		if move.WorkID != "work-1" || move.ProjectID != "project-1" || move.SessionRef != grant.SessionRef || move.SourceDirectory != worktree1 || move.DestinationDirectory != repo1 || move.LandedDirectory != repo1 {
-			t.Fatalf("vacate %d event=%+v, want the recorded operation from %s toward %s", i, event, worktree1, repo1)
+		if event.PayloadVersion != 2 {
+			t.Fatalf("vacate %d payload version=%d, want the relocation request version 2", i, event.PayloadVersion)
+		}
+		if move.WorkID != "work-1" || move.ProjectID != "project-1" || move.SessionRef != grant.SessionRef || move.SourceDirectory != worktree1 || move.DestinationDirectory != repo1 || move.LandedDirectory != "" {
+			t.Fatalf("vacate %d event=%+v, want the recorded operation from %s toward %s with no landing", i, event, worktree1, repo1)
 		}
 	}
 

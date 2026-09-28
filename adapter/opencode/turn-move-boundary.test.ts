@@ -27,7 +27,7 @@ const context = (directory = "/origin") => ({
 const successfulEnvelope = (destination = "/destination") => ({
   schema_version: "1.0",
   outcome: "ok",
-  result: { destination_directory: destination },
+  result: { work_id: "work-1", destination_directory: destination },
 }) as any
 
 const successfulClaimEnvelope = (path = "/destination") => ({ schema_version: "1.0", outcome: "ok", result: { path } }) as any
@@ -76,11 +76,13 @@ function bindMoveRoutes(destination: string, options: { moveStatus?: number; lan
     },
   })
   // A verified landing records itself in the core through the adapter-only
-  // claim-landing verb; the capture accepts it instead of spawning a binary.
+  // claim-landing and vacate-landing verbs; the capture accepts both instead
+  // of spawning a binary.
   configureConcordAdapter({
     runner: {
       async run(argv: string[], input: string) {
         if (argv[1] === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id }) + "\n", stderr: "" }
+        if (argv[1] === "vacate-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
         throw new Error("unexpected CLI invocation: " + argv.join(" "))
       },
     } as any,

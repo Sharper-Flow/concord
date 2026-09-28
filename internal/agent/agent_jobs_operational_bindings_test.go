@@ -130,14 +130,24 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		t.Fatalf("expected one active worktree entry before reclamation, got %+v err=%v", before, err)
 	}
 
-	// The claiming session vacates before the reclaim. Occupancy is a Concord
-	// projection, and the removal gate refuses while a recorded occupant
-	// remains; ground-truth reclamation does not authorize stranding a session.
+	// The claiming session vacates before the reclaim. The vacate records
+	// the relocation request and leaves the occupancy row standing; the
+	// adapter-only vacate-landing verb records the verified landing at the
+	// registered main checkout and releases the row in one transaction, so
+	// the removal gate no longer sees a live occupant. Occupancy is a
+	// Concord projection, and the gate refuses while a recorded occupant
+	// remains; ground-truth reclamation does not authorize stranding a
+	// session.
 	vacateEnv := env
 	vacateEnv.Worktree = worktreePath
 	vacate := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"aj8-vacate-1"}`)}, vacateEnv)
 	if vacate.Outcome != OutcomeOK {
 		t.Fatalf("session vacate failed outcome=%s err=%+v", vacate.Outcome, vacate.Error)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-done", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatalf("vacate landing failed: %v", err)
 	}
 
 	reclaimInput, _ := json.Marshal(map[string]any{

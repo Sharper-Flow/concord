@@ -299,10 +299,12 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(moves).toHaveLength(1)
     expect(worktreeEntries()).toEqual([{ project_id: PROJECT_1, path: worktree1, state: "active", occupant: SESSION_ID }])
 
-    // First vacate: the core records the operation toward the derived main
-    // checkout and releases the recorded occupancy. The host performs the
-    // relocation and then fails to answer, so the adapter reports the typed
-    // retryable transport failure while the landing already holds.
+    // First vacate: the core records the relocation request toward the
+    // derived main checkout and leaves the recorded occupancy standing. The
+    // host performs the relocation and then fails to answer, so the adapter
+    // reports the typed retryable transport failure without recording the
+    // verified landing: the session's row stands, and the removal gates
+    // never see the live session's worktree as empty.
     failNextMove = true
     const first = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-1" }, worktree1)
     expect(first.outcome, JSON.stringify(first)).toBe("error")
@@ -314,18 +316,19 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
       { from: repo1.repo, to: worktree1 },
       { from: worktree1, to: repo1.repo },
     ])
-    expect(worktreeEntries()[0].occupant).toBe("")
+    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
     // A retry of one unchanged vacate after the landing holds moves nothing
     // and changes nothing: the host readback now reports the main checkout,
     // whose refusal the core answers before any move or occupancy write,
-    // and the durable vacate history still holds exactly one operation.
+    // and the durable vacate history still holds exactly one operation with
+    // the occupancy row standing until a landing records.
     const replay = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-1" }, worktree1)
     expect(replay.outcome, JSON.stringify(replay)).toBe("error")
     expect((replay.error as any).kind).toBe("unauthorized")
     expect(moves).toHaveLength(2)
     expect(vacateEvents()).toHaveLength(1)
-    expect(worktreeEntries()[0].occupant).toBe("")
+    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
     // Work resume's read remains read-only. A move back from main refuses
     // while the tool context still reports main; next-turn replay from the
@@ -348,7 +351,8 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
     // Second vacate, new request identity: the same session leaves the same
-    // worktree again and the core records a second, distinct operation.
+    // worktree again, the core records a second, distinct operation, and the
+    // verified landing the move readback earns releases the session's rows.
     const second = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-2" }, worktree1)
     expect(second.outcome, JSON.stringify(second)).toBe("ok")
     expect(second.replayed).toBe(false)
@@ -364,6 +368,11 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
         destination_directory: repo1.repo,
       })
     }
+    // The verified landing recorded its own event and released the
+    // session's rows in one transaction.
+    const landings = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    expect(landings).toHaveLength(1)
+    expect(JSON.parse(landings[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
 
     // Both vacates preserve the original Project claim, active and
     // unoccupied. The vacated session then claims the same work item in the

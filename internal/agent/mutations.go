@@ -2536,7 +2536,10 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 }
 
 // planSessionVacate derives the registered main checkout for the session's
-// linked worktree and records the relocation before the adapter moves it.
+// linked worktree and records the relocation request before the adapter moves
+// it. The commit leaves every occupancy row standing; the adapter-only
+// vacate-landing verb releases them once the host readback verifies the
+// landing.
 func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in sessionVacateInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2564,12 +2567,16 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 		// session and each one refuses as a conflicting replay (CD-0120 D4).
 		// One relocation request of one work item by one session is the unit
 		// of identity: the recorded vacate count is the ordinal of this
-		// request. This event records the operation before the adapter moves
-		// the host session, so it is never proof of landing; read-only work
-		// resume writes no event and no occupancy, and the worktree
-		// projection is identical before repeated vacates of the same work
-		// item by the same session, so the recorded operation count is the
-		// only projection that orders them.
+		// request. This event records the relocation request before the
+		// adapter moves the host session and leaves every occupancy row
+		// standing: the release waits for the verified landing the
+		// adapter-only vacate-landing verb records after the host readback
+		// names the destination, so a refused move, a destination mismatch,
+		// or an unreadable landing never leaves a live session in a worktree
+		// recorded as empty. Read-only work resume writes no event and no
+		// occupancy, and the worktree projection is identical before repeated
+		// vacates of the same work item by the same session, so the recorded
+		// operation count is the only projection that orders them.
 		vacated, err := store.CountWorkSessionVacatesTx(ctx, tx, target.WorkID, grant.SessionRef)
 		if err != nil {
 			return nil, nil, nil, err
@@ -2581,7 +2588,6 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			"session_ref":           grant.SessionRef,
 			"source_directory":      target.SourceDirectory,
 			"destination_directory": target.DestinationDirectory,
-			"landed_directory":      target.DestinationDirectory,
 		})
 		if err != nil {
 			return nil, nil, nil, err
@@ -2593,7 +2599,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			SubjectID:      target.WorkID,
 			Actor:          grant.PrincipalRef,
 			OccurredAt:     r.Authority.now(),
-			PayloadVersion: 1,
+			PayloadVersion: 2,
 			Payload:        payload,
 		}}}); err != nil {
 			return nil, nil, nil, err

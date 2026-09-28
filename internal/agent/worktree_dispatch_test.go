@@ -379,8 +379,11 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 }
 
 // vacateLinkedWorktree records that the claiming session left its linked
-// worktree. The removal gate refuses while a recorded occupant remains, so
-// every test that claims and then removes must vacate in between.
+// worktree: the session_vacate mutation commits the relocation request, and
+// the adapter-only vacate-landing verb records the verified landing at the
+// derived registered main checkout, releasing the session's rows in one
+// transaction. The removal gate refuses while a recorded occupant remains,
+// so every test that claims and then removes must run both steps.
 func vacateLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, worktreePath, key string) {
 	t.Helper()
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
@@ -394,6 +397,18 @@ func vacateLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant 
 	vacate, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
 	if err != nil || vacate.Outcome != OutcomeOK {
 		t.Fatalf("vacate response=%+v err=%v", vacate, err)
+	}
+	var target struct {
+		WorkID               string `json:"work_id"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(vacate.Result, &target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(context.Background(), store.SessionVacateLandingRequest{
+		WorkID: target.WorkID, SessionRef: grant.SessionRef, LandedDirectory: target.DestinationDirectory, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatalf("vacate landing: %v", err)
 	}
 }
 
@@ -674,6 +689,27 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 	}
 	if eventCount != 1 {
 		t.Fatalf("session_vacated event count=%d, want 1", eventCount)
+	}
+	// The committed request leaves the occupancy row standing: the release
+	// waits for the verified landing the adapter-only vacate-landing verb
+	// records once the host readback names the registered main checkout.
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 1 {
+		t.Fatalf("occupancy rows after the vacate request=%d, want the session's own row standing", occupied)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 0 {
+		t.Fatalf("occupancy rows after the verified landing=%d, want 0", occupied)
 	}
 }
 

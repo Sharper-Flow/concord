@@ -1532,14 +1532,16 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    // A committed core vacate released the occupancy row durably even when
-    // its host move or readback failed afterwards, so the stop reports a
-    // possible effect and names the committed release as a step (TS7
-    // durable-outcome honesty); a refusal before the write keeps none.
-    if (vacateCommitted) steps.push("session_vacate: the calling session's occupancy row is released at the core")
+    // A committed core vacate records the relocation request durably even
+    // when its host move or readback failed afterwards; the occupancy rows
+    // stand until the vacate-landing verb records the verified landing. The
+    // stop reports a possible effect and names the committed request as a
+    // step (TS7 durable-outcome honesty); a refusal before the write keeps
+    // none.
+    if (vacateCommitted) steps.push("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, vacateCommitted ? "possible" : vacateEffectState ?? "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
-  steps.push("session_vacate: the calling session's occupancy row is released and the session moved to the registered main checkout")
+  steps.push("session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows")
   // 2. one abandon retry. The identity derives from the same idempotency key,
   // so the retry carries the event identity the refused first write never
   // committed; it either closes the attempt or reports why it still cannot.
@@ -1656,6 +1658,20 @@ async function recordClaimLanding(workID: string, sessionRef: string, landedDire
   }
 }
 
+// recordVacateLanding runs the adapter-only vacate-landing verb, mirroring
+// claim-landing. The agent names nothing, and the core verifies the landed
+// path against the committed relocation request before it releases the
+// session's occupancy rows. The adapter calls it only after the host readback
+// names the registered main checkout, so the landing the core records is
+// evidence, and every refusal leaves occupancy standing for the CD-0096 D3
+// removal gate.
+async function recordVacateLanding(workID: string, sessionRef: string, landedDirectory: string, signal: AbortSignal): Promise<void> {
+  const result = await runner.run([concordBinaryPath(), "vacate-landing"], JSON.stringify({ work_id: workID, session_ref: sessionRef, landed_directory: landedDirectory, host_pid: process.pid }), signal)
+  if (result.exitCode !== 0) {
+    throw new Error(`vacate-landing failed with exit ${result.exitCode}: ${result.stderr.slice(0, 400)}`)
+  }
+}
+
 // moveSessionToRegisteredMainCheckout applies the core-derived vacate target.
 // The agent can request the operation but cannot name or replace its destination.
 export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
@@ -1689,8 +1705,26 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (!samePath(landed, destination)) {
     return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "none", "retry_same_request")
   }
-  // The session is back at the main checkout, so no claimed worktree is armed
-  // for it any more.
+  // The host readback names the registered main checkout, so the verified
+  // landing records itself through the same adapter-only landing owner the
+  // claim route uses. The core vacate committed only the relocation request
+  // and left every occupancy row standing; the landing releases the
+  // session's rows in one transaction. A landing the core refuses records
+  // nothing, so the source occupancy stands and the removal gate never sees
+  // a live session's worktree as empty; replaying session_vacate retries the
+  // move and the landing record.
+  const workID = record(result) ? result.work_id : undefined
+  if (typeof workID !== "string" || workID === "") {
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_landing_unattributable", "the vacate's landing verified by readback carries no work id to record it under", "none", "retry_same_request")
+  }
+  try {
+    await recordVacateLanding(workID, context.sessionID, destination, context.abort)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay session_vacate to retry the landing record`, "none", "retry_same_request")
+  }
+  // The verified landing released the occupancy rows, so no claimed worktree
+  // is armed for this session any more.
   clearClaimedWorktree(context.sessionID)
   if (!samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   return envelope
@@ -1748,10 +1782,12 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext): 
 // attaches vacate_target to the transition result only when the calling
 // session's linked worktree is that work item's active worktree, so the hook
 // never releases another work item's occupancy. The vacate runs first — it
-// records the release across every work item and resolves the registered
-// main checkout — and the move follows it. A failed vacate or move queues a
-// notice and keeps the transition result: the transition is durable, and the
-// occupancy release is replayable by an explicit session_vacate.
+// records the relocation request and resolves the registered main checkout —
+// the move follows it, and the verified landing the move readback earns
+// releases the session's occupancy rows. A failed vacate or move queues a
+// notice and keeps the transition result: the transition is durable, the
+// occupancy rows stand, and the release is replayable by an explicit
+// session_vacate.
 export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
   const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"

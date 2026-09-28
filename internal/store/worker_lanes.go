@@ -838,16 +838,21 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence); err != nil {
 			return err
 		}
-		// The recorded dispatch owns the discharge obligations: the typed
+		// The recorded dispatch owns the predicate vocabulary: the typed
 		// outcome predicate ids it carried are read from the dispatch
-		// authorization event, never re-derived from the report, so a
-		// completed report must name every declared predicate at least once.
-		declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
-		if err != nil {
-			return err
-		}
-		if err := verifyWorkerPredicateDischarge(declared, payload.Evidence); err != nil {
-			return err
+		// authorization event, never re-derived from the report, so a report
+		// can tie only predicates the dispatch declared. Replay trusts the
+		// recorded completion: history folded before this check may carry ties
+		// the live fold now refuses, or a dispatch recorded before the
+		// predicate list existed.
+		if !isWorkflowReplay(ctx) {
+			declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
+			if err != nil {
+				return err
+			}
+			if err := verifyWorkerPredicateTies(declared, payload.Evidence); err != nil {
+				return err
+			}
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='completed', completed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, payload.ReadbackModel, now, payload.AttemptID, attempt.WorkID)
@@ -1061,9 +1066,9 @@ func sortedObligationList(values map[string]struct{}) string {
 // at authorization and recorded them unconditionally, empty when the packet
 // declared no typed predicates. A recorded dispatch without the list is
 // malformed and refuses fail-closed, so a missing projection can never
-// silently narrow the obligations the fold enforces. An attempt with no
-// dispatch authorization at all carries no recorded packet to discharge
-// against, so the fold holds it to none.
+// silently widen the predicates a report may tie. An attempt with no
+// dispatch authorization at all carries no recorded packet, so the fold
+// admits no predicate tie for it.
 func dispatchedPacketPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) ([]string, error) {
 	var raw *string
 	if err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.worker_packet_predicate_ids') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&raw); err != nil {
@@ -1082,30 +1087,29 @@ func dispatchedPacketPredicateIDsTx(ctx context.Context, tx *sql.Tx, workID, att
 	return ids, nil
 }
 
-// verifyWorkerPredicateDischarge extends the CD-0056 coverage shape to
-// predicates: when the recorded dispatch carried typed outcome predicates, a
-// completed report names every declared predicate id in at least one evidence
-// entry's predicate_ids. One entry may discharge several predicates; the
-// refusal names the un-discharged ids.
-func verifyWorkerPredicateDischarge(declared []string, evidence []WorkerReportEvidence) error {
-	if len(declared) == 0 {
-		return nil
+// verifyWorkerPredicateTies admits a completed report's per-predicate ties
+// only against the typed outcome predicates the recorded dispatch carried. A
+// report ties the predicates its own evidence discharges, which may be none
+// of them: discharge of each predicate is owned by its verdict, which
+// completion requires for every contract predicate (CD-0180). A tie to a
+// predicate id the dispatch did not declare is refused, and the refusal names
+// the undeclared ids.
+func verifyWorkerPredicateTies(declared []string, evidence []WorkerReportEvidence) error {
+	known := make(map[string]struct{}, len(declared))
+	for _, id := range declared {
+		known[id] = struct{}{}
 	}
-	named := make(map[string]struct{})
+	undeclared := make(map[string]struct{})
 	for _, entry := range evidence {
 		for _, id := range entry.PredicateIDs {
-			named[id] = struct{}{}
+			if _, ok := known[id]; !ok {
+				undeclared[id] = struct{}{}
+			}
 		}
 	}
-	missing := make(map[string]struct{})
-	for _, id := range declared {
-		if _, ok := named[id]; !ok {
-			missing[id] = struct{}{}
-		}
-	}
-	if len(missing) > 0 {
+	if len(undeclared) > 0 {
 		return newFailure(KindInvalidPayload, "fold_event",
-			fmt.Sprintf("worker report leaves declared outcome predicates undischarged: %s", sortedObligationList(missing)),
+			fmt.Sprintf("worker report ties outcome predicates the dispatch did not declare: %s", sortedObligationList(undeclared)),
 			false, "record worker.failed with the invalid_report failure kind")
 	}
 	return nil

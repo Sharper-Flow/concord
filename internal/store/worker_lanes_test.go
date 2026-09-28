@@ -808,26 +808,65 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 		}
 	})
 
-	t.Run("a completed report that under-names refuses with the un-discharged ids", func(t *testing.T) {
+	t.Run("replay admits a recorded completion the live fold would refuse", func(t *testing.T) {
 		s := openTemp(t)
-		attemptID := "discharge-refused-attempt"
-		seedDispatchPredicateAuthorization(t, s, "work-discharge-refused", attemptID, []string{"predicate:alpha", "predicate:beta"})
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-refused", attemptID, lane, nil)}}); err != nil {
+		attemptID := "discharge-replay-attempt"
+		// A dispatch recorded before the predicate list existed, and a report
+		// tie the live fold refuses as undeclared.
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-replay", attemptID, nil)
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-replay", attemptID, lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-refused", "discharge-refused-complete", attemptID, model, fullEvidence("predicate:alpha"))}})
-		if !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("under-named completion error = %v, want %s", err, KindInvalidPayload)
-		}
-		if err == nil || !strings.Contains(err.Error(), "predicate:beta") {
-			t.Fatalf("refusal %v does not name the un-discharged predicate:beta", err)
+		complete := workerCompleteEventWithEvidence("work-discharge-replay", "discharge-replay-complete", attemptID, model, fullEvidence("predicate:gamma"))
+		if err := ApplyOperation(workflowReplayContext(context.Background()), s, Operation{Events: []Event{complete}}); err != nil {
+			t.Fatalf("replayed completion refused: %v", err)
 		}
 		var state string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
 			t.Fatal(err)
 		}
-		if state != "dispatched" {
-			t.Fatalf("refused completion state = %q, want dispatched", state)
+		if state != "completed" {
+			t.Fatalf("replayed attempt state = %q, want completed", state)
+		}
+	})
+
+	t.Run("a completed report naming a subset of the declared predicates completes", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-subset-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-subset", attemptID, []string{"predicate:alpha", "predicate:beta"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-subset", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-subset", "discharge-subset-complete", attemptID, model, fullEvidence("predicate:alpha"))}}); err != nil {
+			t.Fatalf("subset completion refused: %v", err)
+		}
+	})
+
+	t.Run("a completed report naming no declared predicate completes", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-untied-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-untied", attemptID, []string{"predicate:alpha", "predicate:beta"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-untied", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-untied", "discharge-untied-complete", attemptID, model, fullEvidence())}}); err != nil {
+			t.Fatalf("untied completion refused: %v", err)
+		}
+	})
+
+	t.Run("a completed report naming an undeclared predicate refuses with that id", func(t *testing.T) {
+		s := openTemp(t)
+		attemptID := "discharge-foreign-attempt"
+		seedDispatchPredicateAuthorization(t, s, "work-discharge-foreign", attemptID, []string{"predicate:alpha"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-discharge-foreign", attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompleteEventWithEvidence("work-discharge-foreign", "discharge-foreign-complete", attemptID, model, fullEvidence("predicate:alpha", "predicate:gamma"))}})
+		if !hasFailureKind(err, KindInvalidPayload) {
+			t.Fatalf("foreign-predicate completion error = %v, want %s", err, KindInvalidPayload)
+		}
+		if err == nil || !strings.Contains(err.Error(), "predicate:gamma") {
+			t.Fatalf("refusal %v does not name the undeclared predicate:gamma", err)
 		}
 	})
 

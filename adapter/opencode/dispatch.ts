@@ -100,8 +100,8 @@ export interface AgentLaneReportEvidence {
   detail: string
   // The optional per-predicate tie: the predicate_id of each typed
   // inputs.outcome_predicates entry this entry's evidence discharges. The
-  // store fold requires every predicate the dispatched packet declared to be
-  // named at least once across the completed report's entries.
+  // store fold refuses a tie to a predicate the dispatched packet did not
+  // declare; each predicate's verdict, not the report, owns its discharge.
   predicate_ids?: string[]
 }
 

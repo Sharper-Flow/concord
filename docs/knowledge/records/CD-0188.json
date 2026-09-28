@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-594a2d0975ddd269b80f9626",
+    "tier": "legislated"
+  },
+  "date": "2026-09-28T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "work-coordination",
+  "id": "CD-0188",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0171"
+    }
+  ],
+  "path": "docs/decisions/CD-0188-cd-0171-d2-initiative-narrative-maps-to-project-content.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:e722f371d3fc88ab67f9d46bc5d96fa301989bc2baba98b36d5477f884a6b19e",
+  "status": "accepted",
+  "summary": "CD-0171 D2's sentence naming the Project description for the Initiative narrative reads instead: the narrative becomes the Project content, and the description holds only legacy text a pre-import Project carried. The shipped Linear client and narrative-revision sync already send content. Amends CD-0171 D2 at that sentence only; every other D2 sentence and D1 and D3 through D6 stand unchanged.",
+  "tags": [
+    "linear",
+    "initiative",
+    "planning",
+    "work-coordination"
+  ],
+  "title": "CD-0171 D2 maps the Initiative narrative to Project content"
+}

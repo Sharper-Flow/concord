@@ -5269,18 +5269,17 @@ ALTER TABLE law_subjects ADD COLUMN criterion_bindings TEXT NOT NULL DEFAULT '[]
 		SQL: `
 -- CD-0183: the Domain-overlap peer claim keys on a durable execution-start
 -- fact carried by the workflow instance, not on the work-item lifecycle. The
--- fact is set by the fold that starts a workflow action on an external-effect
--- step (internal/store/workflow_step.go) and by the folds of every later
--- event in that replay, so this backfill must derive the same value from the
--- log. The step-id set below names every external-effect step the registered
--- definition versions declare; internal/store/workflow_registry.go is
--- mirrored by TestExecutionStartStepSetMatchesRegistry, which fails when the
--- registry and this set drift apart.
+-- fold keeps the first external-effect action start in log order
+-- (internal/store/workflow_step.go), and the log does not require
+-- occurred_at to rise with seq, so the backfill takes the lowest-seq
+-- qualifying start. The step-id set names every external-effect step the
+-- registered definition versions declare; TestExecutionStartStepSetMatchesRegistry
+-- fails when the registry and this set drift apart.
 ALTER TABLE workflow_instances ADD COLUMN execution_started_at TEXT;
 INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 UPDATE workflow_instances
 SET execution_started_at = (
-    SELECT MIN(e.occurred_at)
+    SELECT e.occurred_at
       FROM domain_events e
      WHERE e.subject_type = 'work_item'
        AND e.subject_id = workflow_instances.work_id
@@ -5289,6 +5288,8 @@ SET execution_started_at = (
            'execution', 'refine', 'repair', 'poc_optional',
            'rollback_optional', 'analyze', 'execute'
        )
+     ORDER BY e.seq
+     LIMIT 1
 );
 DELETE FROM fold_guard;
 `,

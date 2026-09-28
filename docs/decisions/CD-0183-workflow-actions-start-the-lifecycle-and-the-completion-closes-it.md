@@ -35,9 +35,11 @@ reading ready.
 ### D2. Execution start is an instance fact
 
 The workflow instance carries `execution_started_at`. The fold that starts a
-workflow action on an external-effect step sets it, and the earliest start
-wins. Migration 107 backfills existing instances from the log with the same
-derivation, and RebuildFromLog derives the same value. The Domain-overlap peer
+workflow action on an external-effect step sets it, and the first start in
+log order wins. The log orders events by sequence and does not require their
+timestamps to rise with it. Migration 107 backfills existing instances from
+the lowest-sequence qualifying start, and RebuildFromLog derives the same
+value. The Domain-overlap peer
 query selects peers by this fact, not by the lifecycle, so an `in_progress`
 item that has not started execution blocks no peer. A subject keeps its
 prospective footprint at its own boundary (CD-0144 D3).
@@ -46,7 +48,10 @@ prospective footprint at its own boundary (CD-0144 D3).
 
 The workflow complete action appends `work.transitioned` to the workflow's
 terminal state in the same transaction as `workflow.completed`, so the
-lifecycle and the Linear status follow. The instance keeps its completed
+lifecycle and the Linear status follow. The completion gate admits only `ok`
+verdicts, so that terminal state is `completed`. A completion that names
+`cancelled` or `superseded` refuses before any effect: cancellation keeps the
+lifecycle route, and supersession stays atomic with its relation. The instance keeps its completed
 state: the terminal-lifecycle close admits an item whose instance is already
 terminal and writes nothing there.
 

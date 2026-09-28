@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -164,39 +165,74 @@ func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestExecutionStartBackfillMatchesFoldDerivation drives a break_fix workflow
-// onto its external-effect repair step, then proves three derivations of the
-// execution-start fact agree: the fold's value, the migration backfill's SQL
-// over the same log, and a rebuild from the log.
+// TestExecutionStartBackfillMatchesFoldDerivation proves three derivations of
+// the execution-start fact agree: the fold's value, migration 107's backfill
+// over the same log, and a rebuild from the log. The second external-effect
+// start carries an earlier occurred_at than the first, because appendEvent
+// orders by seq and never requires timestamps to rise with it.
 func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 	const workID = "execution-start-derivation"
-	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
-	var folded string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&folded); err != nil {
+	s, workerRef := seedDispatchedWorkerAtExecution(t, workID)
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if folded == "" {
-		t.Fatal("the external-effect step start left execution_started_at unset")
+	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 2, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": workerRef, "execution_model": preferredModelForLane(BuiltinLaneDefinitions()[0])})
+	restart.OccurredAt = restart.OccurredAt.Add(-time.Hour)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{restart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+	executionStart := func(label string) string {
+		t.Helper()
+		var value sql.NullString
+		if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		if !value.Valid || value.String == "" {
+			t.Fatalf("%s left execution_started_at unset", label)
+		}
+		return value.String
+	}
+	folded := executionStart("the fold")
+	if want := restart.OccurredAt.Add(time.Hour).UTC().Format(time.RFC3339Nano); folded != want {
+		t.Fatalf("fold kept %q, want the first start in log order %q", folded, want)
 	}
 
-	const backfill = `SELECT coalesce((SELECT MIN(e.occurred_at) FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=workflow_instances.work_id AND e.kind='workflow.action_started' AND json_extract(e.payload,'$.step_id') IN ('execution','refine','repair','poc_optional','rollback_optional','analyze','execute')),'') FROM workflow_instances WHERE work_id=?`
-	var derived string
-	if err := s.DatabaseForTesting().QueryRow(backfill, workID).Scan(&derived); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1); UPDATE workflow_instances SET execution_started_at=NULL WHERE work_id=?; DELETE FROM fold_guard;`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if derived != folded {
-		t.Fatalf("backfill derivation %q does not match the folded value %q", derived, folded)
+	if _, err := s.DatabaseForTesting().Exec(migration107Backfill(t)); err != nil {
+		t.Fatal(err)
+	}
+	if backfilled := executionStart("the migration backfill"); backfilled != folded {
+		t.Fatalf("migration backfill derived %q, want the folded value %q", backfilled, folded)
 	}
 
-	if err := RebuildFromLog(context.Background(), s); err != nil {
+	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	var rebuilt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&rebuilt); err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt != folded {
+	if rebuilt := executionStart("the rebuild"); rebuilt != folded {
 		t.Fatalf("rebuild derived %q, want the folded value %q", rebuilt, folded)
 	}
+}
+
+// migration107Backfill returns migration 107's text after its ALTER TABLE, so
+// the derivation test runs the shipped backfill rather than a copy of it.
+func migration107Backfill(t *testing.T) string {
+	t.Helper()
+	const alter = "ALTER TABLE workflow_instances ADD COLUMN execution_started_at TEXT;"
+	for _, migration := range migrations {
+		if migration.Version != 107 {
+			continue
+		}
+		index := strings.Index(migration.SQL, alter)
+		if index < 0 {
+			t.Fatal("migration 107 carries no execution_started_at ALTER TABLE")
+		}
+		return migration.SQL[index+len(alter):]
+	}
+	t.Fatal("migration 107 is missing")
+	return ""
 }

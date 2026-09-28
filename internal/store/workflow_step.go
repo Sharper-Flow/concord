@@ -157,8 +157,8 @@ func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID
 		instanceState = "planned"
 	}
 	// CD-0183: beginning an external-effect step is the durable execution
-	// start the Domain-overlap peer claim reads. The earliest start wins, so
-	// replay and the migration backfill derive the same value. Only the
+	// start the Domain-overlap peer claim reads. The first start in log order
+	// wins, so replay and the migration backfill derive the same value. Only the
 	// external-effect branch names the column: a start on any other step
 	// writes nothing the older schemas it can run against do not hold.
 	var result sql.Result

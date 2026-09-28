@@ -117,6 +117,13 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if payload.ImpactVerdict != "breaking" && payload.ImpactVerdict != "non-breaking" {
 		return newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
+	// CD-0183 D3: the gate below admits only ok verdicts, and the completion
+	// closes the work item lifecycle to its terminal state. Cancellation keeps
+	// the lifecycle route and supersession stays atomic with its relation, so
+	// the completion names completed or refuses before any effect.
+	if payload.TerminalState != "completed" {
+		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or supersede through relate.supersede")
+	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}

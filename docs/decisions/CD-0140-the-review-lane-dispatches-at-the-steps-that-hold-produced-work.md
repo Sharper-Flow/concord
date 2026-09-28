@@ -9,8 +9,9 @@
   Toolbox work items.
 - **Related:** CD-0117, CD-0138, CD-0059, CD-0115
 - **Amends:** CD-0117 D1, which bound read-only classes to read steps only
-- **Preserves:** CD-0117 D2–D5, the research binding, the human-checkpoint and
-  terminal-step exclusions, and worker fences
+- **Preserves:** CD-0117 D2–D5, the research binding, the terminal-step
+  exclusion, and worker fences; CD-0187 carries the review binding's own
+  confirmation-step reach
 
 ## Context
 

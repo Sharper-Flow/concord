@@ -1853,7 +1853,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
-	if p.ActionID != "accept_worker_result" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
+	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
@@ -2050,7 +2050,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return err
 			}
 		}
-		if p.ActionID == "accept_worker_result" {
+		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
 				return err
 			}
@@ -2112,9 +2112,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 }
 
 // workflowDispatchHoldsStepAdvance reports whether a worker dispatch in the
-// current attempt holds every advancing exit except accept_worker_result.
-// rejectWorkerDispatchedStepAdvance refuses on this fact in the fold, and the
-// work pin reads it so the pin never offers an advance the fold will refuse
+// current attempt holds every advancing exit except accept_worker_result,
+// plus CD-0187's confirmation-step accept: an attempt whose completed report
+// an accept has dispositioned no longer holds the step, because the accept
+// resolved it rather than bypassing it. A rejected or failed attempt keeps
+// holding, so the effect-step recovery routes are unchanged. The same rule
+// feeds the work pin, so the pin never offers an advance the fold will refuse
 // (CD-0133 D4). One owner keeps the two surfaces from drifting apart.
 // beforeSeq bounds the start search at the caller's own sequence position, so
 // a replay fold sees only the attempts that preceded its event.
@@ -2126,17 +2129,25 @@ func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, st
 	if !found {
 		return false, nil
 	}
-	query := `SELECT count(*) FROM domain_events WHERE subject_id=? AND subject_type=? AND kind=? AND seq>?`
+	query := `SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND EXISTS (
+ SELECT 1 FROM domain_events d WHERE d.subject_type=? AND d.subject_id=a.work_id AND d.kind=?
+   AND json_extract(d.payload,'$.attempt_id')=a.attempt_id AND d.seq>?`
 	args := []any{workID, string(SubjectWorkItem), WorkerDispatched, startSeq}
 	if beforeSeq > 0 {
-		query += ` AND seq<?`
+		query += ` AND d.seq<?`
 		args = append(args, beforeSeq)
 	}
-	var dispatched int
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&dispatched); err != nil {
+	query += ` ) AND NOT (
+ a.lifecycle_state='completed' AND EXISTS (
+    SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
+      AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')
+      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id))`
+	args = append(args, WorkflowActionCompleted)
+	var held int
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&held); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
 	}
-	return dispatched != 0, nil
+	return held != 0, nil
 }
 
 func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string, beforeSeq int64) error {
@@ -2218,7 +2229,7 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 	writer := executionActor
 	live := false
 	if err == nil {
-		err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&writer)
+		err = q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND seq<? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, dispatchSeq, beforeSeq, attemptID).Scan(&writer)
 		if err != nil && err != sql.ErrNoRows {
 			return false, workflowProjectionError(err, "cannot inspect worker attempt disposals for the workflow writing authority")
 		}
@@ -2247,7 +2258,17 @@ func workflowCheckpointWriterAdmitted(ctx context.Context, q queryer, workID, ex
 
 // workflowStepFences reports whether any action on the step runs fenced, and so
 // whether the step records an attempt start a checkpoint can bind to.
+// workflowStepFences reports whether the step carries a coordinator
+// execution fence: a fenced action whose attempt the step's checkpoint and
+// failure events belong to. The CD-0187 checkpoint dispatch is a lane attempt
+// beside the operator's gate, not a coordinator fence, so a confirmation step
+// hosts none: its checkpoint events record operator decisions, admit the
+// coordinator writers, and a checkpoint with no start still carries the first
+// attempt epoch (CD-0112 D3).
 func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
+	if step.Kind == WorkflowStepHumanCheckpoint {
+		return false
+	}
 	for _, actionID := range step.Actions {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
 			return true

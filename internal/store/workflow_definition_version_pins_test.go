@@ -28,7 +28,10 @@ import (
 // The latest versions add the shared evidence-reference payload contract.
 // Version 14 of break_fix and version 16 of implementation add the CD-0166
 // gate corrective return; versions 13 and 15 carry the closed three-action
-// gate.
+// gate. The current versions compose the CD-0187 checkpoint pair:
+// implementation 17, break_fix 15, research 10, architecture_spike 11,
+// ops_runbook 12, static_analysis 9, and generic_one_off 10 carry
+// dispatch_worker and accept_worker_evidence on their confirmation steps.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -74,6 +77,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "14"}:     "sha256:609beef3fda073435d22fcba81e9661b64979c77561d485e6c60268a243056cf",
 	{"workflow.implementation", "15"}:     "sha256:e67484ab82967317470b819b1efe8c0af71448fa8a6c1eb1dd0b2989a4b5f996",
 	{"workflow.implementation", "16"}:     "sha256:ac13f85d1e460c3f54be49e3550aeac564e510ed66db524ee10f619bd2ea05cc",
+	{"workflow.implementation", "17"}:     "sha256:a50776df39e5a2a6c961b2a580bf320675eacf15d2d1fa0a9d9723d3911cde80",
+	{"workflow.break_fix", "15"}:          "sha256:dc4b081253f694fdd4383792b762b0b03517fa84256f04219c0a6fa15156162c",
+	{"workflow.research", "10"}:           "sha256:a128ff1052e9ccca96ddab042ead8cd323ef9b860ca291e002def58806349229",
+	{"workflow.architecture_spike", "11"}: "sha256:70bc49deec7cc09ae69854822e11b2f4bdac5c58bae80813fb4c3f4e0aed51d5",
+	{"workflow.ops_runbook", "12"}:        "sha256:478dae5af8bb382061e806353d53aa16d0b4047aa151b80ae6a3fb86c7798c25",
+	{"workflow.static_analysis", "9"}:     "sha256:2b25171e70180d1c842ab9bfdae5e4299aa4463be01174b81399c9e73bd3ae56",
+	{"workflow.generic_one_off", "10"}:    "sha256:77336c042ffb2fbd8e5ee7922d6c86399321af7966af61545688f5d53bec915c",
 	{"workflow.generic_one_off", "7"}:     "sha256:11a397de86d2d4ef98acc345a2ed91a14b0c45c1a0054b140e40a45b9a6127b7",
 	{"workflow.generic_one_off", "8"}:     "sha256:c5e07368f5d906a6c0996ea2041c488ce282fb9ce82f3e5f4acc559d4a0fec7e",
 	{"workflow.generic_one_off", "9"}:     "sha256:b8b85e67bf052cdf90a774b9ff7f050fa15f814b4cbb7108df55525235bd46e0",
@@ -181,13 +191,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          14,
-		"workflow.implementation":     16,
-		"workflow.generic_one_off":    9,
-		"workflow.research":           9,
-		"workflow.architecture_spike": 10,
-		"workflow.ops_runbook":        11,
-		"workflow.static_analysis":    8,
+		"workflow.break_fix":          15,
+		"workflow.implementation":     17,
+		"workflow.generic_one_off":    10,
+		"workflow.research":           10,
+		"workflow.architecture_spike": 11,
+		"workflow.ops_runbook":        12,
+		"workflow.static_analysis":    9,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

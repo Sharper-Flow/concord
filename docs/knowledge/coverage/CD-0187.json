@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAcceptanceReviewRoundTrip"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRepinReachesTheCheckpointReviewDefinition"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestJoinRefusesLaneAtUnadmittedStepKind"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLaneStepDispatchClassesInvertsTheJoin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    }
+  ],
+  "id": "CD-0187",
+  "state": "satisfied"
+}

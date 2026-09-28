@@ -564,10 +564,11 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		return refs, false, nil
 	}
-	if request.ActionID == "accept_worker_result" {
+	if request.ActionID == "accept_worker_result" || request.ActionID == "accept_worker_evidence" {
 		// The accepted attempt is the evidence the acceptance certifies. Its id
 		// joins the operation's evidence refs so the evidence_bound fold finds
-		// the acceptance as the binding's durable authority (#865).
+		// the acceptance as the binding's durable authority (#865); CD-0187's
+		// checkpoint accept binds under the same rule.
 		fields, err := workflowActionObject(payload)
 		if err != nil {
 			return nil, false, err
@@ -817,7 +818,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowRecordAlignmentEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "supersede_contract":
 		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
-	case "accept_worker_result":
+	case "accept_worker_result", "accept_worker_evidence":
 		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)

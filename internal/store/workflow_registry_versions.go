@@ -711,6 +711,15 @@ func implementationDeliveryGateReturnV16() WorkflowDefinition {
 	return withDeliveryGateCorrection(d, "refine", "acceptance")
 }
 
+// implementationCheckpointReviewV17 composes the CD-0187 checkpoint pair, so
+// the review lane the amended join admits at the acceptance step can dispatch
+// there and bind its report while the operator's gate holds the step.
+func implementationCheckpointReviewV17() WorkflowDefinition {
+	d := implementationDeliveryGateReturnV16()
+	d.Version = 17
+	return withCheckpointWorkerActions(d)
+}
+
 // breakFixDeliveryV13 adds the coordinator-owned delivery gate after the
 // refinement pass. Earlier definitions keep their original graph and payload
 // shape for pinned instances.
@@ -730,10 +739,27 @@ func breakFixDeliveryGateReturnV14() WorkflowDefinition {
 	return withDeliveryGateCorrection(d, "refine", "verify")
 }
 
+// breakFixCheckpointReviewV15 composes the CD-0187 checkpoint pair onto the
+// verify step, so a contract-required review can be dispatched and bound
+// there (CD-0187).
+func breakFixCheckpointReviewV15() WorkflowDefinition {
+	d := breakFixDeliveryGateReturnV14()
+	d.Version = 15
+	return withCheckpointWorkerActions(d)
+}
+
 func researchDeliveryPayloadV9() WorkflowDefinition {
 	d := withCurrentNonBlankContract(withWorkerActions(builtinResearch(true), true))
 	d.Version = 9
 	return d
+}
+
+// researchCheckpointReviewV10 composes the CD-0187 checkpoint pair onto the
+// conclude step (CD-0187).
+func researchCheckpointReviewV10() WorkflowDefinition {
+	d := researchDeliveryPayloadV9()
+	d.Version = 10
+	return withCheckpointWorkerActions(d)
 }
 
 func architectureDeliveryPayloadV10() WorkflowDefinition {
@@ -742,10 +768,26 @@ func architectureDeliveryPayloadV10() WorkflowDefinition {
 	return withCurrentDeliveryPayload(d)
 }
 
+// architectureCheckpointReviewV11 composes the CD-0187 checkpoint pair onto
+// the spike's confirmation steps (CD-0187).
+func architectureCheckpointReviewV11() WorkflowDefinition {
+	d := architectureDeliveryPayloadV10()
+	d.Version = 11
+	return withCheckpointWorkerActions(d)
+}
+
 func opsRunbookDeliveryPayloadV11() WorkflowDefinition {
 	d := withCurrentNonBlankContract(opsRunbookPremiseContractV8())
 	d.Version = 11
 	return d
+}
+
+// opsRunbookCheckpointReviewV12 composes the CD-0187 checkpoint pair onto the
+// plan, approval, and cleanup steps (CD-0187).
+func opsRunbookCheckpointReviewV12() WorkflowDefinition {
+	d := opsRunbookDeliveryPayloadV11()
+	d.Version = 12
+	return withCheckpointWorkerActions(d)
 }
 
 func staticAnalysisDeliveryPayloadV8() WorkflowDefinition {
@@ -754,10 +796,26 @@ func staticAnalysisDeliveryPayloadV8() WorkflowDefinition {
 	return d
 }
 
+// staticAnalysisCheckpointReviewV9 composes the CD-0187 checkpoint pair onto
+// the scope and review steps (CD-0187).
+func staticAnalysisCheckpointReviewV9() WorkflowDefinition {
+	d := staticAnalysisDeliveryPayloadV8()
+	d.Version = 9
+	return withCheckpointWorkerActions(d)
+}
+
 func genericOneOffDeliveryPayloadV9() WorkflowDefinition {
 	d := withCurrentNonBlankContract(withWorkerActions(builtinGenericOneOff(true), true))
 	d.Version = 9
 	return d
+}
+
+// genericOneOffCheckpointReviewV10 composes the CD-0187 checkpoint pair onto
+// the define and verify steps (CD-0187).
+func genericOneOffCheckpointReviewV10() WorkflowDefinition {
+	d := genericOneOffDeliveryPayloadV9()
+	d.Version = 10
+	return withCheckpointWorkerActions(d)
 }
 
 func researchPreDeliveryV8() WorkflowDefinition {

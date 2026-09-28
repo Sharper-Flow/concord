@@ -257,5 +257,3 @@ Scenario: zlauncher-retirement
   surface against a store snapshot and compares content hashes. The boundary
   is proved by
   `internal/launcher/storeport.TestLauncherPortReadsPerformNoDurableWrite`.
-- The ZLauncher retirement condition is operator-verified on the real
-  store and recorded on issue #803 before it closes.

@@ -52,7 +52,6 @@ func crossProductBindingApproval(t *testing.T, s *Store, workID string, actor Wo
 	issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "cross-product-"+workID+"-approve", actor, approval)
 }
 
-// check:go-test-binding-product-primary-only
 // The binding scope resolves over the primary membership alone: a cross-
 // Product work item keeps exactly one contract owner, and a complete binding
 // validates against that Product's registry.
@@ -91,7 +90,6 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 // refused unknown_scope "workflow must resolve to exactly one Product" once a
 // secondary Project in another Product joined. The approval must record, and
 // the binding must pin the primary Product.
-// check:go-test-binding-product-primary-only
 func TestCrossProductWorkApprovesArchitectureBinding(t *testing.T) {
 	t.Parallel()
 	workID := "cross-product-binding-approval"
@@ -111,8 +109,6 @@ func TestCrossProductWorkApprovesArchitectureBinding(t *testing.T) {
 // workflow_architecture_binding). A cross-Product work item with an approved
 // architecture binding must read its continuity, and the identity listing
 // must keep every member Product.
-// check:go-test-binding-product-primary-only
-// check:go-test-listing-keeps-secondary-product
 func TestContinuityReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
 	t.Parallel()
 	workID := "cross-product-continuity"
@@ -130,7 +126,6 @@ func TestContinuityReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
 	}
 }
 
-// check:go-test-compaction-home-primary-only
 // Both member Products carry a designated knowledge home here; the compaction
 // home must resolve over the primary membership's Product alone instead of
 // refusing the two candidates as ambiguous.
@@ -150,7 +145,6 @@ func TestCompactionHomeFollowsThePrimaryMembership(t *testing.T) {
 	}
 }
 
-// check:go-test-initiative-child-primary-product
 // Initiative and child each derive exactly one Product over the primary
 // membership, so a secondary membership in another Product neither widens the
 // shared scope nor refuses the entry.
@@ -185,7 +179,6 @@ func TestInitiativeChildProductFollowsThePrimaryMembership(t *testing.T) {
 	}
 }
 
-// check:go-test-listing-keeps-secondary-product
 // Listing and visibility sites keep every member Product: the cross-Product
 // work stays visible in the secondary Product's own work listing and its
 // scope resolution carries both identities.

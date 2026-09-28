@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStaleRegistryRescanHoldsLateVerdictUntilRePin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionStaleLawStaysBehindTheGate"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0186",
+  "state": "satisfied"
+}

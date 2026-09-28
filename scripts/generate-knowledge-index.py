@@ -62,13 +62,18 @@ ALLOWED_RECORD = {
     "product_wide_rationale",
     "doc_contract_profile",
 }
-# CD-0175: the authored outline generation a decision record carries, and the
-# closed historical set that bounds the legacy profile. The set is frozen in
-# contracts/concord-knowledge-index.v1.schema.json ($defs.legacyDecisionProfileId)
-# and bound here by scripts/check-knowledge-vocabulary.py, so authoring a
-# profile claim is never enough to escape the current outline.
-DECISION_PROFILES = {"legacy", "current"}
+# CD-0175: the authored outline generation a decision or spec record carries,
+# and the closed historical sets that bound the legacy profile per kind. Each
+# set is frozen in contracts/concord-knowledge-index.v1.schema.json
+# ($defs.legacyDecisionProfileId, $defs.legacySpecProfileId) and bound here by
+# scripts/check-knowledge-vocabulary.py, so authoring a profile claim is never
+# enough to escape the current outline.
+RECORD_PROFILES = {"legacy", "current"}
 LEGACY_DECISION_PROFILE_IDS = frozenset({"CD-0002", "CD-0003", "CD-0005", "CD-0006", "CD-0007", "CD-0008", "CD-0009", "CD-0010", "CD-0011", "CD-0012", "CD-0013", "CD-0014", "CD-0015", "CD-0016", "CD-0017", "CD-0018", "CD-0019", "CD-0020", "CD-0021", "CD-0022", "CD-0023", "CD-0024", "CD-0025", "CD-0026", "CD-0027", "CD-0028", "CD-0029", "CD-0030", "CD-0031", "CD-0033", "CD-0034", "CD-0035", "CD-0036", "CD-0037", "CD-0038", "CD-0039", "CD-0040", "CD-0041", "CD-0042", "CD-0043", "CD-0044", "CD-0045", "CD-0046", "CD-0047", "CD-0048", "CD-0049", "CD-0050", "CD-0051", "CD-0052", "CD-0053", "CD-0054", "CD-0055", "CD-0056", "CD-0057", "CD-0058", "CD-0059", "CD-0060", "CD-0061", "CD-0062", "CD-0063", "CD-0064", "CD-0065", "CD-0066", "CD-0067", "CD-0068", "CD-0069", "CD-0070", "CD-0071", "CD-0072", "CD-0073", "CD-0074", "CD-0075", "CD-0076", "CD-0077", "CD-0078", "CD-0079", "CD-0080", "CD-0081", "CD-0082", "CD-0083", "CD-0084", "CD-0085", "CD-0086", "CD-0087", "CD-0088", "CD-0089", "CD-0090", "CD-0091", "CD-0092", "CD-0093", "CD-0094", "CD-0095", "CD-0096", "CD-0097", "CD-0098", "CD-0102", "CD-0103", "CD-0104", "CD-0105", "CD-0106", "CD-0108", "CD-0109", "CD-0110", "CD-0111", "CD-0112", "CD-0113", "CD-0114", "CD-0115", "CD-0116", "CD-0117", "CD-0118", "CD-0119", "CD-0120", "CD-0121", "CD-0122", "CD-0124", "CD-0128", "CD-0129", "CD-0130", "CD-0132", "CD-0133", "CD-0134", "CD-0137", "CD-0138", "CD-0139", "CD-0140", "CD-0142", "CD-0143", "CD-0144", "CD-0145", "CD-0146", "CD-0147", "CD-0148", "CD-0149", "CD-0150", "CD-0151", "CD-0152", "CD-0153", "CD-0154", "CD-0155", "CD-0156", "CD-0157", "CD-0158", "CD-0159", "CD-0160", "CD-0161", "CD-0162", "CD-0163", "CD-0164", "CD-0165", "CD-0166", "CD-0167", "CD-0168", "CD-0169", "CD-0170", "CD-0171", "CD-0172", "CD-0173", "CD-0174"})
+# The spec boundary is the spec record identifiers registered before the spec
+# outline amendment. Membership makes legacy available to author, never
+# asserted: an unprofiled spec record authors the current profile.
+LEGACY_SPEC_PROFILE_IDS = frozenset({"C14", "C15", "C17", "PM1", "PM10", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "TS1", "TS2", "TS3", "TS4", "TS5", "TS6", "TS7", "TS8", "TS9", "development-authority", "terminal-launcher-contract", "terminal-launcher-replacement-contract", "workflow-engine-contract"})
 REQUIRED_RECORD = ALLOWED_RECORD - {
     "successor",
     "law_relations",
@@ -259,21 +264,31 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         if field in record and record[field] not in domain_ids:
             findings.append(f"{prefix}: home domain is dangling")
     # CD-0175: every decision names its outline generation in its own shard.
-    # The legacy profile is bounded by the closed historical set in both
-    # directions: a set member cannot claim the current outline it never
+    # The decision legacy profile is bounded by the closed historical set in
+    # both directions: a set member cannot claim the current outline it never
     # carried, and a record outside the set cannot claim the legacy outline,
-    # so a newly accepted decision cannot exempt itself.
+    # so a newly accepted decision cannot exempt itself. The spec kind
+    # mirrors the boundary one-directionally: the field is optional and
+    # absence authors the current profile, so the registered corpus needs no
+    # content change, while a spec id outside the frozen set cannot claim the
+    # legacy outline.
     profile = record.get("doc_contract_profile")
     if kind == "decision":
         if profile is None:
             if profiles_enforced:
                 findings.append(f"{prefix}: decision requires a doc_contract_profile of 'legacy' or 'current'")
-        elif profile not in DECISION_PROFILES:
+        elif profile not in RECORD_PROFILES:
             findings.append(f"{prefix}: decision requires a doc_contract_profile of 'legacy' or 'current'")
         elif (profile == "legacy") != (identifier in LEGACY_DECISION_PROFILE_IDS):
             findings.append(f"{prefix}: doc_contract_profile {profile!r} contradicts the closed legacy decision set for {identifier}")
+    elif kind == "spec":
+        if profile is not None:
+            if profile not in RECORD_PROFILES:
+                findings.append(f"{prefix}: spec requires a doc_contract_profile of 'legacy' or 'current'")
+            elif profile == "legacy" and identifier not in LEGACY_SPEC_PROFILE_IDS:
+                findings.append(f"{prefix}: doc_contract_profile {profile!r} contradicts the closed legacy spec set for {identifier}")
     elif "doc_contract_profile" in record:
-        findings.append(f"{prefix}: doc_contract_profile is only valid on decision records")
+        findings.append(f"{prefix}: doc_contract_profile is only valid on decision records and spec records whose id is in the frozen legacy spec set")
     if "applies_to_domain_ids" in record:
         values = record["applies_to_domain_ids"]
         if not unique_ids(values) or any(value not in domain_ids for value in values):

@@ -240,9 +240,63 @@ def test_non_decision_record_cannot_carry_a_profile() -> None:
     findings: list[str] = []
     generator.validate_record(value, "1.2", {"product-root:concord"}, "records/shard.json", findings)
     assert any(
-        "doc_contract_profile is only valid on decision records" in finding
+        "doc_contract_profile is only valid on decision records and spec records whose id is in the frozen legacy spec set" in finding
         for finding in findings
     ), findings
+
+
+def spec_shard(identifier: str, profile: str | None) -> dict:
+    value = {
+        "id": identifier,
+        "kind": "spec",
+        "path": f"docs/specs/{identifier}.md",
+        "status": "accepted",
+        "date": "2026-08-20T00:00:00Z",
+        "title": identifier,
+        "summary": "A bounded spec.",
+        "tags": [],
+        "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
+        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+        "home_domain_id": "product-root:concord",
+        "product_wide_rationale": "Fixture law binds every child Domain.",
+        "sha256": "sha256:" + "a" * 64,
+    }
+    if profile is not None:
+        value["doc_contract_profile"] = profile
+    return value
+
+
+def test_frozen_spec_shard_authors_the_legacy_profile() -> None:
+    """A spec id inside the frozen set may claim the legacy outline."""
+    assert profile_findings(spec_shard("TS1", "legacy")) == []
+
+
+def test_new_spec_shard_cannot_claim_the_legacy_profile() -> None:
+    """A spec id outside the frozen set cannot claim the legacy outline."""
+    assert profile_findings(spec_shard("future-spec", "legacy")) == [
+        "records/shard.json: doc_contract_profile 'legacy' contradicts the closed legacy spec set for future-spec"
+    ]
+
+
+def test_unprofiled_spec_shard_needs_no_profile() -> None:
+    """Membership makes legacy available, never asserted: absence is current."""
+    assert profile_findings(spec_shard("TS1", None)) == []
+    assert profile_findings(spec_shard("future-spec", None)) == []
+
+
+def test_spec_shard_unknown_profile_value_fails() -> None:
+    assert profile_findings(spec_shard("TS1", "obsolete")) == [
+        "records/shard.json: spec requires a doc_contract_profile of 'legacy' or 'current'"
+    ]
+
+
+def test_legacy_spec_profile_composes_into_the_aggregate() -> None:
+    """The composer emits the authored field for a frozen spec shard."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = build_root(directory)
+        write_shard(root, spec_shard("TS1", "legacy"))
+        composed = json.loads(generator.derive_aggregate(root, []))
+        assert composed["records"][0]["doc_contract_profile"] == "legacy"
 
 
 if __name__ == "__main__":

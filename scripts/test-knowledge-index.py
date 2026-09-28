@@ -743,13 +743,95 @@ def test_non_decision_record_cannot_carry_a_profile() -> None:
         value = v12_fixture()
         (root / "docs").mkdir(parents=True, exist_ok=True)
         (root / "docs/lesson.md").write_text("body\n", encoding="utf-8")
+        value["records"][0]["kind"] = "lesson"
+        value["records"][0]["status"] = "published"
+        value["records"][0].pop("home_domain_id", None)
+        value["records"][0].pop("product_wide_rationale", None)
+        value["records"][0]["path"] = "docs/lesson.md"
         value["records"][0]["doc_contract_profile"] = "current"
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
         assert any(
-            "doc_contract_profile is only valid on decision records" in finding
+            "doc_contract_profile is only valid on decision records and spec records whose id is in the frozen legacy spec set" in finding
             for finding in findings
         ), findings
+
+
+def spec_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
+    """A one-spec v1.2 manifest whose authored profile is the subject."""
+    (root / "docs/specs").mkdir(parents=True, exist_ok=True)
+    path = f"docs/specs/{record_id}.md"
+    (root / path).write_text("body\n", encoding="utf-8")
+    value = v12_fixture()
+    value["doc_contract"] = {
+        "spec": {
+            "required_sections": ["Context", "Contract", "Acceptance criteria", "Verification"],
+            "ac_required": True,
+            "current_required_sections": [
+                "Context", "Contract", "Acceptance criteria", "Verification",
+            ],
+        }
+    }
+    value["records"] = [{
+        "id": record_id,
+        "kind": "spec",
+        "path": path,
+        "status": "accepted",
+        "date": "2026-08-10T00:00:00Z",
+        "title": "Spec",
+        "summary": "Summary",
+        "tags": [],
+        "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
+        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+        "home_domain_id": "product-root:concord",
+        "product_wide_rationale": "Fixture law binds every child Domain.",
+        "sha256": "sha256:" + "a" * 64,
+    }]
+    if profile is not None:
+        value["records"][0]["doc_contract_profile"] = profile
+    return value
+
+
+def test_frozen_spec_can_author_the_legacy_profile() -> None:
+    """A spec id inside the closed historical set may claim the legacy outline."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = spec_profile_fixture(root, "TS1", "legacy")
+        assert profile_findings(root, value) == []
+
+
+def test_new_spec_cannot_claim_the_legacy_profile() -> None:
+    """A spec id outside the frozen set cannot select the legacy outline."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = spec_profile_fixture(root, "future-spec", "legacy")
+        findings = profile_findings(root, value)
+        assert findings == [
+            "manifest.records[0]: doc_contract_profile 'legacy' contradicts the closed legacy spec set for future-spec"
+        ], findings
+
+
+def test_unprofiled_spec_authors_the_current_profile() -> None:
+    """Membership makes legacy available, never asserted: absence is current.
+
+    The registered corpus carries no profile claims and stays valid without
+    a content change.
+    """
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        for record_id in ("TS1", "future-spec"):
+            value = spec_profile_fixture(root, record_id, None)
+            assert profile_findings(root, value) == [], record_id
+
+
+def test_spec_with_unknown_profile_value_fails() -> None:
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        value = spec_profile_fixture(root, "TS1", "obsolete")
+        findings = profile_findings(root, value)
+        assert findings == [
+            "manifest.records[0]: spec requires a doc_contract_profile of 'legacy' or 'current'"
+        ], findings
 
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts" / "concord-knowledge-index.v1.schema.json"
@@ -815,6 +897,28 @@ def test_schema_demands_the_profile_only_under_the_amended_head() -> None:
         assert any("'legacy' was expected" in message for message in crossed), crossed
 
         assert schema_errors(validator, decision_profile_fixture(root, "CD-0002", "legacy")) == []
+
+
+def test_schema_admits_a_bounded_spec_profile() -> None:
+    """The canonical schema bounds spec legacy authoring to the frozen set.
+
+    A frozen id may author 'legacy', absence authors the current profile with
+    no demand, a current claim is valid anywhere, and a spec id outside the
+    set cannot claim the legacy outline.
+    """
+    validator = schema_validator()
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        assert schema_errors(validator, spec_profile_fixture(root, "TS1", "legacy")) == []
+        assert schema_errors(validator, spec_profile_fixture(root, "TS1", None)) == []
+        assert schema_errors(validator, spec_profile_fixture(root, "future-spec", "current")) == []
+        assert schema_errors(validator, spec_profile_fixture(root, "TS1", "current")) == []
+
+        crossed = schema_errors(validator, spec_profile_fixture(root, "future-spec", "legacy"))
+        assert any("future-spec" in message for message in crossed), crossed
+
+        forged = spec_profile_fixture(root, "TS1", "obsolete")
+        assert any("'obsolete' is not one of ['legacy', 'current'" in message for message in schema_errors(validator, forged)), schema_errors(validator, forged)
 
 
 def test_composed_repository_manifest_passes_the_canonical_schema() -> None:

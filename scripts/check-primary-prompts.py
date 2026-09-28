@@ -22,7 +22,6 @@ not package or install them. This check proves the example contract in CD-0154:
 """
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 

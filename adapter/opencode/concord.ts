@@ -1479,10 +1479,14 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
   // checkout the core derives, never a destination this adapter names.
   const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-abandon-vacate` } }
   let vacateCommitted = false
+  let vacateEffectState: "none" | "possible" | undefined
   try {
     const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
     if (!record(vacated) || vacated.outcome !== "ok") {
       const failure = record(vacated) && record(vacated.error) ? vacated.error : null
+      if (failure && (failure.effect_state === "none" || failure.effect_state === "possible")) {
+        vacateEffectState = failure.effect_state
+      }
       const detail = failure && typeof failure.message === "string" ? failure.message : "the core refused the vacate"
       throw new Error(detail)
     }
@@ -1500,7 +1504,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // possible effect and names the committed release as a step (TS7
     // durable-outcome honesty); a refusal before the write keeps none.
     if (vacateCommitted) steps.push("session_vacate: the calling session's occupancy row is released at the core")
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, vacateCommitted ? "possible" : "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, vacateCommitted ? "possible" : vacateEffectState ?? "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("session_vacate: the calling session's occupancy row is released and the session moved to the registered main checkout")
   // 2. one abandon retry. The identity derives from the same idempotency key,
@@ -1522,7 +1526,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // re-land runs before the stop: a refusal that ended at the main checkout
     // would strand the coordinator away from its claimed worktree.
     await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery released the occupancy row, but the abandon retry still refused: ${retryMessage}`, "none", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery released the occupancy row, but the abandon retry still refused: ${retryMessage}`, "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("worker_abandon: the retry closed the dispatched attempt")
   // 3. the durable receipt, the same route the direct-accept path records.

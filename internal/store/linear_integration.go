@@ -88,6 +88,7 @@ type LinearIntegrationHealth struct {
 	OutboxOldestPendingAgeSeconds int64             `json:"outbox_oldest_pending_age_seconds"`
 	LinkCounts                    map[string]int    `json:"link_counts"`
 	UnmappedLifecycles            []string          `json:"unmapped_lifecycles"`
+	UnlinkedObligatedItems        int               `json:"unlinked_obligated_items"`
 }
 
 type productPlanningModeSetPayload struct {
@@ -796,6 +797,9 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 	if err := rows.Err(); err != nil {
 		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot finish link count read", true, "retry once the database is readable", err)
 	}
+	if err := s.db.QueryRowContext(ctx, linearUnlinkedObligationsQuery, productID, productID, productID).Scan(&health.UnlinkedObligatedItems); err != nil {
+		return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read unlinked publication obligations", true, "retry once the database is readable", err)
+	}
 	return health, nil
 }
 
@@ -1208,6 +1212,7 @@ WHERE EXISTS (
 const (
 	linearHealthOutboxDepthQuery   = `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox o WHERE state IN ('queued','in_flight') AND o.work_id IN (` + linearOwnedWorkIDs + `)`
 	linearHealthLinkCountsQuery    = `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE l.work_id IN (` + linearOwnedWorkIDs + `) GROUP BY l.link_state`
+	linearUnlinkedObligationsQuery = `SELECT count(*) FROM work_items w WHERE w.kind <> 'initiative' AND w.id IN (` + linearOwnedWorkIDs + `) AND w.created_at > (SELECT min(e.occurred_at) FROM domain_events e WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=? AND json_extract(e.payload,'$.planning_mode')='linear_enabled') AND NOT EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=w.id AND l.link_state='confirmed')`
 	linearConfirmedLinkedWorkQuery = `
 SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
 FROM linear_issue_links l
@@ -1413,9 +1418,8 @@ type linearIssueEnqueuePlan struct {
 	// skipPersist marks a plan whose entry is an operation already queued or
 	// in flight: the enqueue returns it without inserting a second row.
 	skipPersist bool
-	// reviveFailed marks a plan whose entry reuses a failed project_create's
-	// identity: persistence requeues that row with a refreshed payload
-	// instead of inserting a second one (CD-0171 D2).
+	// reviveFailed marks a plan that reuses a failed create's identity.
+	// Persistence requeues that row with a refreshed payload.
 	reviveFailed bool
 }
 
@@ -1819,12 +1823,30 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		}
 	}
 	clientUUID := newLinearClientUUID()
+	reviveFailed := false
 	if opKind == LinearOpIssueCreate {
 		var linkState string
 		if err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err == sql.ErrNoRows {
 			createLink = true
 		} else if err != nil {
 			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
+		} else if linkState == LinearLinkUnpublished {
+			var pending bool
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_outbox WHERE work_id=? AND op_kind=? AND state IN (?,?))`, workID, LinearOpIssueCreate, LinearOutboxQueued, LinearOutboxInFlight).Scan(&pending); err != nil {
+				return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect pending issue create", true, "retry once the database is readable", err)
+			}
+			if pending {
+				return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", fmt.Sprintf("work item already links Linear issue state %s", linkState), false, "drain the existing issue create")
+			}
+			var idempotencyKey string
+			if err := q.QueryRowContext(ctx, `SELECT idempotency_key FROM linear_outbox WHERE work_id=? AND op_kind=? AND state=? ORDER BY rowid DESC LIMIT 1`, workID, LinearOpIssueCreate, LinearOutboxFailed).Scan(&idempotencyKey); err != nil {
+				if err == sql.ErrNoRows {
+					return linearIssueEnqueuePlan{}, newFailure(KindInvalidOperation, "linear_issue_enqueue", "unpublished link has no failed issue create to revive", false, "use the Linear issue backfill route after the prior create is resolved")
+				}
+				return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect failed issue creates", true, "retry once the database is readable", err)
+			}
+			clientUUID = idempotencyKey
+			reviveFailed = true
 		} else {
 			// One issue per work item is enforced where the create is
 			// requested, not where the drain meets Linear's insert conflict.
@@ -1844,7 +1866,7 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 		return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot encode payload", true, "retry the enqueue", err)
 	}
 	entry := ClaimedLinearOperation{OperationID: "linear-" + clientUUID, WorkID: workID, OpKind: opKind, IdempotencyKey: clientUUID, Payload: payload}
-	return linearIssueEnqueuePlan{entry: entry, payload: payload, createLink: createLink}, nil
+	return linearIssueEnqueuePlan{entry: entry, payload: payload, createLink: createLink, reviveFailed: reviveFailed}, nil
 }
 
 func persistLinearIssueEnqueueTx(ctx context.Context, tx *sql.Tx, plan linearIssueEnqueuePlan, now string) (ClaimedLinearOperation, error) {
@@ -1858,7 +1880,7 @@ func persistLinearIssueEnqueueTx(ctx context.Context, tx *sql.Tx, plan linearIss
 		// drain's replayed send targets the same remote Project.
 		if _, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET payload=?, state='queued', attempts=0, last_error='', updated_at=? WHERE operation_id=? AND op_kind=?`,
 			string(plan.payload), now, entry.OperationID, entry.OpKind); err != nil {
-			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot requeue the failed Project create", true, "retry once the database is writable", err)
+			return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot requeue the failed issue create", true, "retry once the database is writable", err)
 		}
 		return entry, nil
 	}
@@ -2622,15 +2644,11 @@ func linearCaptureConfigurationRefusal(err error) bool {
 	return false
 }
 
-// enqueueLinearIssueForCaptureTx queues the issue_create that puts a freshly
-// captured work item on the operator's Linear board from the instant its
-// capture transaction commits. The capture membership fold precedes this call,
-// so the owning Product resolves only here. Every configuration gap is a
-// silent no-op — local_only mode, a missing declared connection, an unresolvable
-// Product scope, an existing link row, an initiative kind, and an
-// external_ref that already names a Linear issue — and terminal items are
-// never published. It reports whether an operation was queued, with the queued
-// entry when it was.
+// enqueueLinearIssueForCaptureTx queues an issue_create for a captured work
+// item. The capture membership fold precedes this call, so the owning Product
+// resolves only here. Configuration refusals leave the post-cutover publication
+// obligation derivable from the work and planning-mode events for backfill.
+// Initiatives and external references with Linear identities do not create issues.
 func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID string, at time.Time) (ClaimedLinearOperation, bool, error) {
 	if isWorkflowReplay(ctx) {
 		// The outbox is direct authority the log never carries, and the
@@ -2644,7 +2662,7 @@ func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID stri
 		return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect Linear link schema", true, "retry once the database is readable", err)
 	}
 	var kind, externalRef string
-	err := tx.QueryRowContext(ctx, `SELECT kind, coalesce(json_extract(intent_json, '$.external_ref'), '') FROM work_items WHERE id=? AND terminal_time IS NULL`, workID).Scan(&kind, &externalRef)
+	err := tx.QueryRowContext(ctx, `SELECT kind, coalesce(json_extract(intent_json, '$.external_ref'), '') FROM work_items WHERE id=?`, workID).Scan(&kind, &externalRef)
 	if err == sql.ErrNoRows {
 		return ClaimedLinearOperation{}, false, nil
 	} else if err != nil {
@@ -2661,7 +2679,20 @@ func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID stri
 		return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 	}
 	if linked {
-		return ClaimedLinearOperation{}, false, nil
+		var linkState string
+		if err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err != nil {
+			return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read existing link", true, "retry once the database is readable", err)
+		}
+		if linkState != LinearLinkUnpublished {
+			return ClaimedLinearOperation{}, false, nil
+		}
+		var pending bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_outbox WHERE work_id=? AND op_kind=? AND state IN (?,?))`, workID, LinearOpIssueCreate, LinearOutboxQueued, LinearOutboxInFlight).Scan(&pending); err != nil {
+			return ClaimedLinearOperation{}, false, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect pending issue create", true, "retry once the database is readable", err)
+		}
+		if pending {
+			return ClaimedLinearOperation{}, false, nil
+		}
 	}
 	productID, err := resolveLinearProductCore(ctx, tx, workID)
 	if err != nil {
@@ -2704,10 +2735,9 @@ func enqueueLinearIssueForCaptureTx(ctx context.Context, tx *sql.Tx, workID stri
 	return entry, true, nil
 }
 
-// BackfillLinearIssueCreates queues issue_create operations for every work
-// item of one Product that a capture predating the capture-time enqueue left
-// unlinked. Eligibility matches the capture enqueue exactly: non-terminal,
-// not an initiative, no link row, and no Linear identity in the external_ref.
+// BackfillLinearIssueCreates queues issue_create operations for every
+// post-cutover work item of one Product that has no confirmed issue link.
+// Terminal work retains its current lifecycle in the create payload.
 // Configuration gaps skip an item instead of failing the backfill. Publication
 // stays with the operator-run linear outbox-drain command.
 func (s *Store) BackfillLinearIssueCreates(ctx context.Context, productID string) ([]ClaimedLinearOperation, error) {
@@ -2734,8 +2764,12 @@ SELECT DISTINCT w.id
 FROM work_items w
 JOIN work_projects wp ON wp.work_id = w.id
 JOIN product_projects pp ON pp.project_id = wp.project_id
-WHERE pp.product_id = ? AND w.terminal_time IS NULL
-ORDER BY w.created_at, w.id`, productID)
+WHERE pp.product_id = ? AND w.created_at > (
+ SELECT min(e.occurred_at) FROM domain_events e
+ WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=?
+ AND json_extract(e.payload,'$.planning_mode')='linear_enabled'
+)
+	ORDER BY w.created_at, w.id`, productID, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot read backfill candidates", true, "retry once the database is readable", err)
 	}

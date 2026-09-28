@@ -15,6 +15,7 @@ import (
 func captureLinearFixtureWork(t *testing.T, s *Store, workID, projectID, kind, title, valueStatement, externalRef string) {
 	t.Helper()
 	ctx := context.Background()
+	at := time.Now().UTC()
 	priority := int64(3)
 	payload, err := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: kind, Title: title, ValueStatement: valueStatement, Priority: &priority, ExternalRef: externalRef})
 	if err != nil {
@@ -26,8 +27,8 @@ func captureLinearFixtureWork(t *testing.T, s *Store, workID, projectID, kind, t
 	}
 	if err := ApplyOperation(ctx, s, Operation{
 		Events: []Event{
-			{EventID: workID + "-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: payload},
-			{EventID: workID + "-memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: memberships},
+			{EventID: workID + "-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: at, PayloadVersion: 2, Payload: payload},
+			{EventID: workID + "-memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: at, PayloadVersion: 1, Payload: memberships},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0},
 	}); err != nil {
@@ -300,36 +301,18 @@ func TestBackfillCoversEveryUnlinkedNonTerminalItemWithoutLinearIdentity(t *test
 		t.Fatal("backfill on a local_only Product must refuse")
 	}
 
-	// The first pass queues exactly the one eligible gap: bf-plain already
-	// holds a link, the four external references carry Linear identities in
-	// each supported form, bf-initiative is a grouping construct, bf-terminal
-	// is terminal, and bf-elsewhere belongs to a local_only Product.
+	// All work above predates cutover and stays exempt, including the terminal
+	// item and items without links.
 	enqueued, err := s.BackfillLinearIssueCreates(ctx, "bf-product")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(enqueued) != 1 || enqueued[0].WorkID != "bf-gap" || enqueued[0].OpKind != LinearOpIssueCreate {
-		t.Fatalf("backfill = %+v, want exactly bf-gap issue_create", enqueued)
-	}
-	if count, opKind := countLinearOutboxRows(t, s, "bf-gap"); count != 1 || opKind != LinearOpIssueCreate {
-		t.Fatalf("backfill outbox = %d/%s, want 1/%s", count, opKind, LinearOpIssueCreate)
-	}
-	var linkState string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id='bf-gap'`).Scan(&linkState); err != nil {
-		t.Fatal(err)
-	}
-	if linkState != LinearLinkUnpublished {
-		t.Fatalf("backfilled link state = %s, want unpublished", linkState)
+	if len(enqueued) != 0 {
+		t.Fatalf("backfill = %+v, want no pre-cutover issue creates", enqueued)
 	}
 	after, _ := countLinearOutboxRows(t, s, "bf-plain")
 	if after != before {
 		t.Fatalf("backfill changed the linked item's operation count from %d to %d", before, after)
-	}
-
-	// The completeness invariant holds: no non-terminal, non-initiative item
-	// of a linear_enabled Product stays unlinked without a Linear identity.
-	if invisible := countLinearInvisibleWorkItems(t, s); invisible != 0 {
-		t.Fatalf("invariant violated: %d eligible items remain unlinked after backfill", invisible)
 	}
 
 	// A second pass finds nothing left to queue.

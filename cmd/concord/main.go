@@ -1618,7 +1618,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			continue
 		}
 		if payload.ConnectionVersion < 1 || payload.ConnectionVersion != connection.Version {
-			const detail = "Linear connection changed after this operation was queued; re-enqueue it for the current destination"
+			const detail = "Linear connection changed after this operation was queued; run concord linear backfill for the current destination"
 			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
 			continue

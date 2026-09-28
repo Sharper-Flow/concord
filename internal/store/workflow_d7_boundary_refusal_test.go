@@ -54,9 +54,20 @@ func seedD7BoundaryOverlap(t *testing.T, workID, otherID, step string) (*Store, 
 	}{
 		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,'project','workflow-law-locator','product',?,'1.0',?,'test')`, []any{d7BoundaryProduct, d7BoundaryDomain, hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,?,'Root','Product law','current',?,'test')`, []any{d7BoundaryProduct, d7BoundaryDomain, hash}},
-		{`UPDATE workflow_instances SET current_step=? WHERE work_id=?`, []any{step, workID}},
+		{`UPDATE workflow_instances SET current_step=?,execution_started_at='2026-08-19T00:00:00Z' WHERE work_id=?`, []any{step, workID}},
 	}
 	for _, id := range []string{workID, otherID} {
+		if id == otherID {
+			// CD-0183: the peer claims its Domains through the instance's
+			// execution-start fact, so the peer fixture carries a started
+			// instance on the same step.
+			statements = append(statements,
+				struct {
+					query string
+					args  []any
+				}{`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', 9, ?, ?, 'running', '2026-08-19T00:00:00Z')`, []any{otherID, "sha256:" + strings.Repeat("e", 64), step}},
+			)
+		}
 		statements = append(statements,
 			struct {
 				query string

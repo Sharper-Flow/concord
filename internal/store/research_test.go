@@ -644,6 +644,11 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 		t.Fatal(err)
 	}
 	initializeCompositionWorkflow(t, s, "spike", "workflow.architecture_spike", WorkflowActor{PrincipalRef: "principal:architecture", ClientRef: "client:architecture", AgentRef: "agent:architecture", SessionRef: "session:architecture", ActorClass: ActorAgent})
+	// CD-0183 D4: a live instance refuses the lifecycle completion outright,
+	// so the fail-closed decision-record case runs against a cancelled
+	// instance, where the workflow gate never ran and the lifecycle-side
+	// decision gate stays in force.
+	seedTerminalInstanceForTesting(t, s, "spike", "cancelled")
 	pack := createSimplePack(t, s, "spike-research", "spike")
 	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("spike-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingConclusion, Statement: "research alone is not accepted decision proof", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
 		t.Fatal(err)

@@ -3,15 +3,17 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // A work item that reaches a terminal lifecycle closes its workflow instance
-// in the same fold. Cancelled and superseded mirror the lifecycle. An item
-// completed on external evidence never ran its completion gate, so its
-// instance records the abandoned workflow as cancelled while the item's
-// lifecycle carries the outcome.
+// in the same fold. Cancelled and superseded mirror the lifecycle. A completed
+// target whose workflow instance still runs is refused (CD-0183 D4): the
+// lifecycle cannot bypass the workflow's completion gate, whose remedy names
+// the workflow_action complete action.
 func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -21,11 +23,6 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 	}{
 		{name: "cancelled", instanceState: "cancelled", terminal: func(t *testing.T, s *Store, workID string) {
 			if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-cancel", workID, "needed", "cancelled", 3, 4), workVersion(workID, 3)); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{name: "completed on external evidence", instanceState: "cancelled", terminal: func(t *testing.T, s *Store, workID string) {
-			if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-complete", workID, "needed", "completed", 3, 4), workVersion(workID, 3)); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -80,9 +77,44 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 	}
 }
 
-// An instance that already completed its workflow keeps that record when the
-// item's lifecycle reaches a terminal state afterwards. The terminal fold
-// closes only a live instance.
+// CD-0183 D4: a completed lifecycle target whose workflow instance has not
+// reached a terminal state is refused with a typed refusal whose remedy names
+// the workflow completion action.
+func TestTerminalLifecycleRefusesCompletedWhileWorkflowLive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "terminal-completed-live"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "version": registered.Definition.Version, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{selected}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
+		t.Fatal(err)
+	}
+	err = applyWorkEvent(t, s, workTransitionEvent(workID+"-complete", workID, "needed", "completed", 3, 4), workVersion(workID, 3))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal {
+		t.Fatalf("completed on external evidence error=%v, want %s", err, KindNotTerminal)
+	}
+	if !strings.Contains(failure.RecoveryAction, "workflow_action complete") {
+		t.Fatalf("recovery action = %q, want the workflow completion action", failure.RecoveryAction)
+	}
+	var lifecycle, state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.instance_state FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "needed" || state != "planned" {
+		t.Fatalf("refused transition changed state: lifecycle=%q instance=%q, want needed/planned", lifecycle, state)
+	}
+}
+
+// The workflow completion's own lifecycle move keeps the instance record the
+// completion fold wrote: the terminal-lifecycle close admits an item whose
+// instance is already terminal, and stamps nothing (CD-0183 D3).
 func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	t.Parallel()
 	workID := "completed-then-lifecycle"
@@ -90,20 +122,19 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("workflow completion refused: %v", err)
 	}
-	var version int64
-	var completedAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version, i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &completedAt); err != nil {
+	var lifecycle, state string
+	var completedAt *string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.instance_state, i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &completedAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-cancel", workID, "in_progress", "cancelled", version, version+1), workVersion(workID, version)); err != nil {
-		t.Fatal(err)
+	if lifecycle != "completed" {
+		t.Fatalf("lifecycle = %q after the workflow completion, want completed", lifecycle)
 	}
-	var state, after string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state, completed_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&state, &after); err != nil {
-		t.Fatal(err)
+	if state != "completed" {
+		t.Fatalf("instance_state = %q after the workflow completion, want completed", state)
 	}
-	if state != "completed" || after != completedAt {
-		t.Errorf("instance = (%q, %q), want the completed record (%q, %q) untouched", state, after, "completed", completedAt)
+	if completedAt == nil || *completedAt == "" {
+		t.Fatal("the completion left no instance stamp")
 	}
 }
 
@@ -155,8 +186,21 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			if err := applyWorkEvent(t, s, workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1), workVersion(workID, version)); err != nil {
 				t.Fatal(err)
 			}
+		case "completed":
+			// The historical orphan migration 75 repairs predates the
+			// CD-0183 gate, so the recorded transition folds under the
+			// replay context a rebuild gives it, exactly as the log that
+			// survives from an earlier release does.
+			event := workTransitionEvent(workID+"-end", workID, "in_progress", "completed", version, version+1)
+			err := ApplyOperation(workflowReplayContext(context.Background()), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
+			assertFoldGuardEmpty(t, s)
+			if err != nil {
+				t.Fatal(err)
+			}
 		default:
-			if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-end", workID, "needed", lifecycle, version, version+1), workVersion(workID, version)); err != nil {
+			// The action start above moves the item to in_progress (CD-0183
+			// D1), so the terminal transition starts from there.
+			if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1), workVersion(workID, version)); err != nil {
 				t.Fatal(err)
 			}
 		}

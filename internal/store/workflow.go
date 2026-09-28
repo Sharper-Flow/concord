@@ -1034,6 +1034,9 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
+		return err
+	}
 	predecessors, err := validateWorkflowContractSupersessionPredecessors(ctx, tx, event, p)
 	if err != nil {
 		return err
@@ -1445,30 +1448,26 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
-	return startExecutionLifecycleTx(ctx, tx, event, definitionStepKind(entry.Definition, p.StepID))
+	return beginWorkflowLifecycleTx(ctx, tx, event)
 }
 
-// startExecutionLifecycleTx moves a work item from needed to in_progress when
-// an external-effect step starts. CD-0144: Domain exclusivity attaches at
-// execution start, and the overlap footprint reads the lifecycle, so the
-// lifecycle has to move with the action that begins external effect. Without
-// this the footprint predicate would merely be narrower, not correct: an item
-// could hold a worktree and a branch while its record still said needed. The
-// action already advanced the work version, so this carries no version of its
-// own. Only a needed item moves, which leaves a resumed item untouched.
-func startExecutionLifecycleTx(ctx context.Context, tx *sql.Tx, event Event, kind WorkflowStepKind) error {
-	if kind != WorkflowStepExternalEffect {
-		return nil
-	}
+// beginWorkflowLifecycleTx moves a needed work item to in_progress when the
+// store applies a workflow action to it, and enqueues the Linear issue update
+// in the same transaction (CD-0183 D1). Every action fold calls it, so the
+// first action of any kind — checkpoint and dispatch included — starts the
+// lifecycle and the item stops reading ready. Only a needed item moves, which
+// leaves a resumed item untouched, and the move carries no version of its
+// own: the action already advanced the work version.
+func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) error {
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot start execution on the work item projection", true,
+		return wrapFailure(KindUnavailable, "fold_event", "cannot start the work item lifecycle", true,
 			"retry once the database is writable", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot verify execution start on the work item projection", true,
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify the work item lifecycle start", true,
 			"retry once the database is readable", err)
 	}
 	if affected == 0 {
@@ -1504,6 +1503,9 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || !workflowString(p.StepKind, 32) || len(p.ResumeCursor) > 2048 || len(p.CheckpointPayload) > 16*1024 || p.RequestID == "" {
@@ -1670,6 +1672,9 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
+		return err
+	}
 	if !workflowString(p.CheckpointID, 128) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 ||
 		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
 		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
@@ -1758,6 +1763,9 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 		return err
 	}
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
@@ -1999,6 +2007,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		return err
 	}
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
 	if err := validateWorkflowActionCompletedShape(p); err != nil {

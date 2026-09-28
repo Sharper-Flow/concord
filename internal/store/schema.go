@@ -5262,6 +5262,37 @@ ALTER TABLE law_subjects ADD COLUMN criterion_bindings TEXT NOT NULL DEFAULT '[]
     CHECK(json_valid(criterion_bindings) AND json_type(criterion_bindings)='array');
 `,
 	},
+	{
+		Version:  107,
+		Name:     "workflow_instances_carry_execution_start",
+		Breaking: false,
+		SQL: `
+-- CD-0183: the Domain-overlap peer claim keys on a durable execution-start
+-- fact carried by the workflow instance, not on the work-item lifecycle. The
+-- fact is set by the fold that starts a workflow action on an external-effect
+-- step (internal/store/workflow_step.go) and by the folds of every later
+-- event in that replay, so this backfill must derive the same value from the
+-- log. The step-id set below names every external-effect step the registered
+-- definition versions declare; internal/store/workflow_registry.go is
+-- mirrored by TestExecutionStartStepSetMatchesRegistry, which fails when the
+-- registry and this set drift apart.
+ALTER TABLE workflow_instances ADD COLUMN execution_started_at TEXT;
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE workflow_instances
+SET execution_started_at = (
+    SELECT MIN(e.occurred_at)
+      FROM domain_events e
+     WHERE e.subject_type = 'work_item'
+       AND e.subject_id = workflow_instances.work_id
+       AND e.kind = 'workflow.action_started'
+       AND json_extract(e.payload, '$.step_id') IN (
+           'execution', 'refine', 'repair', 'poc_optional',
+           'rollback_optional', 'analyze', 'execute'
+       )
+);
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

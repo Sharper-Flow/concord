@@ -79,7 +79,7 @@ func TestWorkResumeRefusesTerminalAndUnknownButBootstrapsUnclaimedWork(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	transitionWorkItem(t, s, origin.WorkID, "needed", "completed", origin.WorkVersion)
+	transitionWorkItem(t, s, origin.WorkID, "needed", "cancelled", origin.WorkVersion)
 	if code, _, stderr := resumeCLI(t, s, repo, origin.WorkID); code == 0 || !strings.Contains(stderr, "terminal work item") {
 		t.Fatalf("terminal work code=%d stderr=%q", code, stderr)
 	}

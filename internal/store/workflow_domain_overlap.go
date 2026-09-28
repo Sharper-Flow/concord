@@ -144,7 +144,8 @@ func domainRelationTupleKey(value WorkflowDomainRelationTuple) string {
 // It reads the subject's prospective footprint, so it admits any nonterminal
 // item: an item entering execution has to be checked against the claim it is
 // about to take, not the empty one it holds while it waits. Which footprints
-// count as live claims is decided where peers are enumerated (CD-0144).
+// count as live claims is decided where peers are enumerated (CD-0144, as
+// amended by CD-0183).
 func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, error) {
 	var footprint workflowOverlapFootprint
 	footprint.WorkID = workID
@@ -213,18 +214,19 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 }
 
 // readWorkflowDomainOverlapCandidatesTx pairs the subject against the items
-// that actually hold Domains. CD-0144: exclusivity attaches at execution start,
-// not at contract approval, so only work that is in progress is a candidate. An
-// approved contract that nobody has started claims nothing and blocks nobody.
-// The lifecycle moves with the external-effect step that starts execution,
-// which is what makes this predicate name the boundary rather than merely
-// narrow the old one.
+// that actually hold Domains. CD-0144 put exclusivity at execution start;
+// CD-0183 moves the marker off the lifecycle: the first workflow action moves
+// a needed item to in_progress, so the lifecycle no longer names execution.
+// A peer is an item whose workflow instance carries the durable
+// execution-start fact the fold that begins an external-effect step sets. An
+// in_progress item that has not started execution claims nothing and blocks
+// nobody.
 func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, []workflowOverlapFootprint, error) {
 	self, err := readWorkflowOverlapFootprintTx(ctx, tx, workID)
 	if err != nil || self.ProductID == "" {
 		return self, []workflowOverlapFootprint{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle = 'in_progress' AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN workflow_instances i ON i.work_id=c.work_id JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND i.execution_started_at IS NOT NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
 	if err != nil {
 		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
 	}

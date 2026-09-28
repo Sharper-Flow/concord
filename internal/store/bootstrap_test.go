@@ -565,12 +565,14 @@ func liveBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult {
 	return origin
 }
 
-// terminalBootstrapOrigin bootstraps one worktree and moves its item to
-// completed, so a chained start may leave it.
+// terminalBootstrapOrigin bootstraps one worktree and moves its item to a
+// terminal lifecycle, so a chained start may leave it. The lifecycle ends
+// cancelled: a completed target on this item's live workflow instance is the
+// workflow completion action's to make (CD-0183 D4).
 func terminalBootstrapOrigin(t *testing.T, s *Store, key string) BootstrapResult {
 	t.Helper()
 	origin := liveBootstrapOrigin(t, s, key)
-	payload, err := json.Marshal(map[string]any{"from": "needed", "to": "completed", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
+	payload, err := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
 	if err != nil {
 		t.Fatal(err)
 	}

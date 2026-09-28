@@ -320,7 +320,7 @@ func TestWorkBootstrapChainsFromCleanTerminalWorktreeAtDefaultBranch(t *testing.
 	if originSHA == defaultSHA {
 		t.Fatal("terminal origin did not advance beyond the default branch")
 	}
-	terminalPayload, err := json.Marshal(map[string]any{"from": "needed", "to": "completed", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
+	terminalPayload, err := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "fixture terminal", "expected_version": origin.WorkVersion, "resulting_version": origin.WorkVersion + 1})
 	if err != nil {
 		t.Fatal(err)
 	}

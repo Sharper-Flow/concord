@@ -156,7 +156,17 @@ func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID
 	if step == contractStep {
 		instanceState = "planned"
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?) WHERE work_id=?`, step, instanceState, actorRef, executionModel, at.UTC().Format(time.RFC3339Nano), workID)
+	// CD-0183: beginning an external-effect step is the durable execution
+	// start the Domain-overlap peer claim reads. The earliest start wins, so
+	// replay and the migration backfill derive the same value. Only the
+	// external-effect branch names the column: a start on any other step
+	// writes nothing the older schemas it can run against do not hold.
+	var result sql.Result
+	if resolved := workflowStep(definition.Definition, step); resolved != nil && resolved.Kind == WorkflowStepExternalEffect {
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?),execution_started_at=coalesce(execution_started_at,?) WHERE work_id=?`, step, instanceState, actorRef, executionModel, at.UTC().Format(time.RFC3339Nano), at.UTC().Format(time.RFC3339Nano), workID)
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state=?,execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?) WHERE work_id=?`, step, instanceState, actorRef, executionModel, at.UTC().Format(time.RFC3339Nano), workID)
+	}
 	if err != nil {
 		return workflowProjectionError(err, "cannot start workflow action")
 	}

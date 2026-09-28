@@ -470,22 +470,44 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := refuseUnreconciledDelivery(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}
+		// CD-0183 D4: the live path refuses a completed target while the
+		// item's workflow instance has not reached a terminal state, so the
+		// lifecycle cannot bypass the workflow's completion gate. Replay
+		// binds only the log: historical rows recorded before this gate
+		// existed are folded as they stand and are not rewritten. An absent
+		// instance is an imported item, and a terminal instance admits the
+		// repair of a stranded item.
+		if !isWorkflowReplay(ctx) {
+			if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, event.SubjectID); err != nil {
+				return err
+			}
+		}
 		kind, err := readWorkKind(ctx, tx, event.SubjectID)
 		if err != nil {
 			return err
 		}
 		var definitionRef string
-		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionRef)
+		var definitionVersion int64
+		var instanceState string
+		definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_version,instance_state FROM workflow_instances WHERE work_id=?`, event.SubjectID).Scan(&definitionRef, &definitionVersion, &instanceState)
 		if definitionErr != nil && definitionErr != sql.ErrNoRows {
 			return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
 		}
 		var definition WorkflowDefinition
 		if definitionErr == nil {
-			registered, lookupErr := BuiltinWorkflowDefinitionForRef(definitionRef)
-			if lookupErr != nil {
-				return lookupErr
+			registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+			if !ok {
+				return newFailure(KindDefinitionDigestMismatch, "fold_event", "pinned workflow definition is not registered", false, "restore the registered workflow definition")
 			}
 			definition = registered.Definition
+		}
+		// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
+		// row on the lifecycle path. A completed instance proves the ordered
+		// completion gate ran, and the gate owns the decision through the
+		// approved outcome, so the fold does not re-ask for a row the gate
+		// never required.
+		if definitionErr == nil && instanceState == "completed" {
+			definition.OutcomeSchema.DecisionRecordRequired = false
 		}
 		if definition.OutcomeSchema.DecisionRecordRequired {
 			if err := requireBoundDecisionRecordTx(ctx, tx, event.SubjectID, definition); err != nil {
@@ -1010,6 +1032,27 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		return err
 	}
 	return nil
+}
+
+// refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
+// target whose workflow instance still runs (CD-0183 D4). The typed refusal
+// names the workflow completion action as its remedy; the delivery-gate
+// refusal above stays the more specific answer for a parked gate.
+func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	var state string
+	err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return workflowProjectionError(err, "cannot read the workflow instance for lifecycle completion")
+	}
+	if state == "completed" || state == "cancelled" || state == "superseded" {
+		return nil
+	}
+	return newFailure(KindNotTerminal, "fold_event",
+		"the work item's workflow instance is "+state+", not terminal", false,
+		"complete the workflow with the workflow_action complete action before completing the work item")
 }
 
 // closeWorkflowInstanceForTerminalLifecycle closes a live workflow instance in

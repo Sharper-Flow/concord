@@ -454,22 +454,80 @@ func schemaVariantDescriptions(branches []any, root map[string]any) []string {
 			descriptions = append(descriptions, "schema variant")
 			continue
 		}
-		branch = resolveSchemaRef(branch, root)
+		frames := composedSchemaFrames(resolveSchemaRef(branch, root), root, 0)
 		parts := []string{}
-		if discriminator := schemaDiscriminator(branch); discriminator != "" {
+		if discriminator := composedSchemaDiscriminator(frames); discriminator != "" {
 			parts = append(parts, discriminator)
 		}
-		if fields := schemaFieldList(branch["required"]); len(fields) > 0 {
+		if fields := composedSchemaRequiredFields(frames); len(fields) > 0 {
 			parts = append(parts, "requires ["+strings.Join(fields, ", ")+"]")
 		} else {
 			parts = append(parts, "requires no fields")
 		}
-		if forbidden := schemaForbiddenFields(branch["not"]); forbidden != "" {
+		if forbidden := composedSchemaForbiddenFields(frames); forbidden != "" {
 			parts = append(parts, forbidden)
 		}
 		descriptions = append(descriptions, strings.Join(parts, " "))
 	}
 	return descriptions
+}
+
+// composedSchemaFrames returns the branch plus every schema its allOf keyword
+// composes into it, resolving local refs, so a variant factored through allOf
+// describes itself by what its frames require. A frame that carries only
+// if/then contributes nothing: its requirements hold only when its condition
+// does, so they are not unconditional requirements of the variant. The depth
+// bound matches resolveSchemaRef, because describing a refusal must not
+// itself refuse on a cyclic or self-referential schema.
+func composedSchemaFrames(branch map[string]any, root map[string]any, depth int) []map[string]any {
+	frames := []map[string]any{branch}
+	if depth >= 8 {
+		return frames
+	}
+	composed, ok := branch["allOf"].([]any)
+	if !ok {
+		return frames
+	}
+	for _, entry := range composed {
+		frame, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		frames = append(frames, composedSchemaFrames(resolveSchemaRef(frame, root), root, depth+1)...)
+	}
+	return frames
+}
+
+func composedSchemaDiscriminator(frames []map[string]any) string {
+	for _, frame := range frames {
+		if discriminator := schemaDiscriminator(frame); discriminator != "" {
+			return discriminator
+		}
+	}
+	return ""
+}
+
+func composedSchemaRequiredFields(frames []map[string]any) []string {
+	fields := []string{}
+	seen := map[string]bool{}
+	for _, frame := range frames {
+		for _, field := range schemaFieldList(frame["required"]) {
+			if !seen[field] {
+				seen[field] = true
+				fields = append(fields, field)
+			}
+		}
+	}
+	return fields
+}
+
+func composedSchemaForbiddenFields(frames []map[string]any) string {
+	for _, frame := range frames {
+		if forbidden := schemaForbiddenFields(frame["not"]); forbidden != "" {
+			return forbidden
+		}
+	}
+	return ""
 }
 
 // resolveSchemaRef follows a "$ref" so a variant declared as a bare reference

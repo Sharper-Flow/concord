@@ -375,7 +375,23 @@ test("a same-generation malformed response is still malformed_core_response", as
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("malformed_response")
   expect(result.error.adapter_reason).toBe("malformed_core_response")
-  expect(result.error.effect_state).toBe("possible")
+  // A read cannot have written, so its failure never reports a possible
+  // effect and never sends the caller to reconcile a write.
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+})
+
+// A read failure must never report a possible effect or a reconcile
+// recovery. entries is a read on a mutation-bearing tool, the shape where
+// that distinction is easiest to lose.
+test("a failed entries read never reports a possible effect", async () => {
+  adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 1, stdout: "", stderr: "core marshal failure" }) })
+  const result: any = await rawHostResult(adapter.work_initiative.execute(hostCall("entries", { initiative_work_id: "work-1" }), contextFor()))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("transport_failure")
+  expect(result.error.adapter_reason).toBe("io_failure")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
 
 test("unknown-effect mutation errors do not expose failed response data", async () => {
@@ -569,14 +585,19 @@ test("all context and transport failures produce valid adapter envelopes", async
 test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", async () => {
   const io: any = await runProduct(runnerWithContext({ exitCode: 1, stdout: "", stderr: "broken pipe" }))
   assertAdapterEnvelope(io)
-  expect(io.error.kind).toBe("operation_conflict")
-  expect(io.error.effect_state).toBe("possible")
+  // A read that fails with an unknown outcome is classified as the transport
+  // event it is, reports no effect, and never sends the caller to reconcile
+  // a write a read cannot have made.
+  expect(io.error.kind).toBe("transport_failure")
+  expect(io.error.effect_state).toBe("none")
+  expect(io.error.recovery_action.kind).toBe("retry_same_request")
 
   for (const stdout of ["not-json", "{}\n{}", "{} {}"] as const) {
     const malformed: any = await runProduct(runnerWithContext({ exitCode: 0, stdout, stderr: "" }))
     assertAdapterEnvelope(malformed)
     expect(malformed.error.kind).toBe("malformed_response")
-    expect(malformed.error.effect_state).toBe("possible")
+    expect(malformed.error.effect_state).toBe("none")
+    expect(malformed.error.recovery_action.kind).toBe("retry_same_request")
   }
 
   const timeout: any = await runProduct({ async run() { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }) } })

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // Every ok envelope is validated in MarshalJSON, and only there. The
@@ -120,11 +121,13 @@ func containsNoticeKind(notices []Notice, want string) bool {
 	return false
 }
 
-// A tool may carry reads and mutations. The envelope validator once asked
-// whether the tool was a mutation tool, so every read on a mixed tool was
-// validated as a mutation and refused at marshal. This enumerates the
-// surface: for each read on a tool that also has a mutation, a minimal ok
-// read envelope must marshal without mutation metadata.
+// A tool may carry reads and mutations. The envelope validator answers the
+// mutation-metadata question per operation, and the generated TS7 schema is
+// a separate gate reached only at marshal, so a read can pass the
+// structural check and still fail MarshalJSON. This enumerates the surface:
+// for each read on a tool that also has a mutation, a minimal ok read
+// envelope must marshal, and the schema check is only exercised by the
+// marshal itself.
 func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
 	t.Parallel()
 	mutating := map[string]bool{}
@@ -139,13 +142,59 @@ func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
 			continue
 		}
 		checked++
-		e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, Items: []json.RawMessage{}}
-		if err := e.validateOK(); err != nil && strings.Contains(err.Error(), "mutation metadata") {
-			t.Errorf("%s.%s is a read on a mixed tool and is validated as a mutation: %v", op.Tool, op.Operation, err)
+		e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+		if _, err := json.Marshal(e); err != nil {
+			t.Errorf("%s.%s is a read on a mixed tool and does not marshal as a read: %v", op.Tool, op.Operation, err)
 		}
 	}
 	if checked == 0 {
 		t.Fatal("no read on a mixed tool found; the surface changed shape")
+	}
+}
+
+// concord_work_initiative.entries answers ok with entries and narrative, and
+// a read envelope carries no mutation metadata. This walks the full path the
+// transport sees: create the initiative, add an entry, read the entries, and
+// marshal the envelope, which is where the generated schema check runs.
+func TestInitiativeEntriesReadMarshalsWithEntriesAndNarrative(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	created, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Initiative","value_statement":"Coordinate work","project_ids":["project-1"],"idempotency_key":"initiative-entries-read"}`)}, env)
+	if err != nil || created.Outcome != OutcomeOK {
+		t.Fatalf("create response=%+v err=%v", created, err)
+	}
+	initiativeID := (*created.ChangedRefs)[0].ID
+	added, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":2,"position":0,"idempotency_key":"initiative-entries-add"}`)}, env)
+	if err != nil || added.Outcome != OutcomeOK {
+		t.Fatalf("add_entry response=%+v err=%v", added, err)
+	}
+	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "entries", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `"}`)}, env)
+	if err != nil || read.Outcome != OutcomeOK {
+		t.Fatalf("entries response=%+v err=%v", read, err)
+	}
+	raw, err := json.Marshal(read)
+	if err != nil {
+		t.Fatalf("entries read does not marshal: %v", err)
+	}
+	var entryResult struct {
+		Entries   []store.InitiativeEntry `json:"entries"`
+		Narrative string                  `json:"narrative"`
+	}
+	if err := json.Unmarshal(read.Result, &entryResult); err != nil || len(entryResult.Entries) != 1 || entryResult.Entries[0].ChildWorkID != "work-1" {
+		t.Fatalf("entries result=%s err=%v", read.Result, err)
+	}
+	wire := string(raw)
+	if strings.Contains(wire, `"changed_refs"`) || strings.Contains(wire, `"next_valid_intents"`) {
+		t.Fatalf("a read envelope must not carry mutation metadata: %s", firstBytes(raw, 400))
+	}
+	if !strings.Contains(wire, `"entries"`) || !strings.Contains(wire, `"narrative"`) {
+		t.Fatalf("entries read lost its entries or narrative member: %s", firstBytes(raw, 400))
 	}
 }
 

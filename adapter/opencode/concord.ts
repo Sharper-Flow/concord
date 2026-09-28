@@ -412,6 +412,24 @@ function operationIsMutation(toolName: string, operation: string): boolean {
   return contractOperations.some((item: any) => item.tool === toolName && item.id.endsWith(`.${operation}`) && item.kind === "mutation")
 }
 
+// A failed invocation is classified by what its operation kind can have
+// done. A read cannot have written: its failures carry effect none, a
+// recovery that never reconciles a write, and the transport kind the event
+// names. operation_conflict is reserved for an operation whose effect may
+// need reconciling, and the envelope law couples it to that recovery, so a
+// read never carries it. A mutation's effect stays possible until the
+// readback reconciles it.
+function unknownOutcomeClassification(toolName: string, operation: string, transportFailure: boolean): [string, string, "none" | "possible", "retry_same_request" | "reconcile_operation"] {
+  if (operationIsMutation(toolName, operation)) {
+    return transportFailure
+      ? ["operation_conflict", "unknown_effect", "possible", "reconcile_operation"]
+      : ["malformed_response", "malformed_core_response", "possible", "reconcile_operation"]
+  }
+  return transportFailure
+    ? ["transport_failure", "io_failure", "none", "retry_same_request"]
+    : ["malformed_response", "malformed_core_response", "none", "retry_same_request"]
+}
+
 
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
@@ -466,9 +484,15 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
-  if (result.exitCode !== 0 && !result.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", result.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
+  if (result.exitCode !== 0 && !result.stdout.trim()) {
+    const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
+    return adapterError(toolName, operation, requestID, kind, reason, result.stderr.slice(0, MAX_STDERR), effect, recovery)
+  }
   let response: any
-  try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
+  try { response = singleJSON(result.stdout) } catch (error) {
+    const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
+    return adapterError(toolName, operation, requestID, kind, reason, String(error), effect, recovery, salvageDetails(result.stdout))
+  }
   const skewRefusal = () => {
     const disk = resolveDiskManifestDigest()
     const diskDetail = disk === null ? "the digest on disk could not be read" : `the adapter files on disk stamp ${disk}`
@@ -493,9 +517,15 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
       try { retryResult = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
-      if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", retryResult.stderr.slice(0, MAX_STDERR), "possible", "reconcile_operation")
+      if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
+        const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
+        return adapterError(toolName, operation, requestID, kind, reason, retryResult.stderr.slice(0, MAX_STDERR), effect, recovery)
+      }
       let retryResponse: any
-      try { retryResponse = singleJSON(retryResult.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", String(error), "possible", "reconcile_operation", salvageDetails(retryResult.stdout)) }
+      try { retryResponse = singleJSON(retryResult.stdout) } catch (error) {
+        const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
+        return adapterError(toolName, operation, requestID, kind, reason, String(error), effect, recovery, salvageDetails(retryResult.stdout))
+      }
       if (!coreResponseFailure(retryResponse, toolName, operation)) {
         response = retryResponse
       } else {
@@ -506,7 +536,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       return skewRefusal()
     }
   } else if (contractFailure) {
-    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", `core response failed the generated TS7 contract: ${contractFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
+    const [, , effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
+    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", `core response failed the generated TS7 contract: ${contractFailure}`, effect, recovery, salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
@@ -640,14 +671,16 @@ function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) {
-    output = JSON.stringify(adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, "possible", "reconcile_operation"))
+    const [, , effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
+    output = JSON.stringify(adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, effect, recovery))
   }
   return { title: toolName, output, metadata: {} }
 }
 
 async function encodeHostToolResult(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<ToolResult> {
   if (Buffer.byteLength(JSON.stringify(envelope)) > maxEnvelopeBytes) {
-    const oversized = adapterError(toolName, args.operation, `${context.sessionID}-${context.messageID}`, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, "possible", "reconcile_operation")
+    const [, , effect, recovery] = unknownOutcomeClassification(toolName, args.operation, false)
+    const oversized = adapterError(toolName, args.operation, `${context.sessionID}-${context.messageID}`, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, effect, recovery)
     return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, await reconcileUnknownEffect(toolName, args, context, oversized))
   }
   return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, envelope)

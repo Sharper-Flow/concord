@@ -977,19 +977,217 @@ const GeneratedEnvelopeSchemaDocument = `{
             {
               "if": {
                 "properties": {
-                  "tool": {
+                  "operation": {
                     "enum": [
-                      "concord_work_define",
-                      "concord_work_initiative",
-                      "concord_work_transition",
-                      "concord_work_relate",
-                      "concord_work_compact"
+                      "capture",
+                      "issue_adopt",
+                      "observation_record",
+                      "research_finding_record",
+                      "research_freshness_set",
+                      "research_pack_create",
+                      "research_revision_append",
+                      "research_source_record",
+                      "revise_intent"
                     ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_work_define",
                     "type": "string"
                   }
                 },
                 "required": [
-                  "tool"
+                  "tool",
+                  "operation"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                },
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "add_entry",
+                      "change_requiredness",
+                      "create",
+                      "remove_entry",
+                      "reorder_entry",
+                      "revise_narrative"
+                    ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_work_initiative",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                },
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "correct_delivery",
+                      "lifecycle",
+                      "remove",
+                      "session_vacate",
+                      "worker_abandon",
+                      "worktree_audit_reclaim",
+                      "worktree_claim",
+                      "worktree_destroy",
+                      "worktree_reclaim",
+                      "worktree_verify",
+                      "workflow_action"
+                    ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_work_transition",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                },
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "client_policy_grant_request",
+                      "link",
+                      "message_send",
+                      "message_withdraw",
+                      "product_project_add",
+                      "resource_claim",
+                      "resource_release",
+                      "resolve_overlap",
+                      "restore_superseded",
+                      "set_memberships",
+                      "supersede",
+                      "unlink"
+                    ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_work_relate",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                },
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "lesson_publish",
+                      "publish",
+                      "reconcile"
+                    ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_work_compact",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation"
+                ]
+              },
+              "then": {
+                "not": {
+                  "required": [
+                    "items"
+                  ]
+                },
+                "required": [
+                  "result",
+                  "changed_refs",
+                  "next_valid_intents"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "observation_dismiss",
+                      "observation_record"
+                    ],
+                    "type": "string"
+                  },
+                  "tool": {
+                    "const": "concord_domain",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tool",
+                  "operation"
                 ]
               },
               "then": {

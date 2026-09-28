@@ -230,10 +230,12 @@ func resolveLinearPlanningTargetCore(ctx context.Context, q queryer, productID s
 }
 
 // ReadLinearConnection resolves the Product's declarative Linear connection
-// from the C15 inventory: the owner-role managed resource of kind saas_account
-// whose metadata carries the linear convention. declared requires workspace
-// URL, team id, and auth mode; partial means some are missing; absent means no
-// such resource exists.
+// from the C15 inventory: the owner- or consumer-linked managed resource of
+// kind saas_account whose metadata carries the linear convention. declared
+// requires workspace URL, team id, and auth mode; partial means some are
+// missing; absent means no such resource exists. More than one candidate
+// resource for one Product refuses with ambiguous_scope naming the resource
+// ids; it never prefers one by id order.
 func (s *Store) ReadLinearConnection(ctx context.Context, productID string) (LinearConnection, error) {
 	return readLinearConnectionCore(ctx, s.db, productID)
 }
@@ -243,13 +245,13 @@ func readLinearConnectionCore(ctx context.Context, q queryer, productID string) 
 SELECT r.resource_id, r.version, r.metadata
 FROM managed_resources r
 JOIN resource_products rp ON rp.resource_id = r.resource_id
-WHERE rp.product_id = ? AND rp.role = 'owner' AND r.class = 'saas' AND r.kind = 'saas_account'
+WHERE rp.product_id = ? AND rp.role IN ('owner','consumer') AND r.class = 'saas' AND r.kind = 'saas_account'
 ORDER BY r.resource_id`, productID)
 	if err != nil {
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot read Linear connection resources", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	var connection *LinearConnection
+	var candidates []LinearConnection
 	for rows.Next() {
 		var resourceID, metadataJSON string
 		var version int64
@@ -319,21 +321,30 @@ ORDER BY r.resource_id`, productID)
 				candidate.LabelIDs[key] = labelID
 			}
 		}
-		connection = &candidate
-		break
+		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot finish Linear connection read", true, "retry once the database is readable", err)
 	}
-	if connection == nil {
+	if len(candidates) > 1 {
+		ids := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			ids = append(ids, candidate.ResourceID)
+		}
+		return LinearConnection{}, newAmbiguousScopeFailure("linear_connection_read",
+			fmt.Sprintf("Product %s matches %d Linear connection resources", productID, len(candidates)),
+			"keep exactly one Linear connection resource linked to the Product and remove the other link or its linear metadata", ids)
+	}
+	if len(candidates) == 0 {
 		return LinearConnection{State: LinearConnectionAbsent}, nil
 	}
+	connection := candidates[0]
 	if connection.WorkspaceURL != "" && connection.TeamID != "" && connection.AuthMode != "" {
 		connection.State = LinearConnectionDeclared
 	} else {
 		connection.State = LinearConnectionPartial
 	}
-	return *connection, nil
+	return connection, nil
 }
 
 // LinearConnectionUpdateRequest changes the destination, status mapping, and label mapping

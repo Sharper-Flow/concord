@@ -3084,6 +3084,54 @@ func (s *Store) FailLinearOperation(ctx context.Context, operationID, class, det
 	return s.linearOutboxTransition(ctx, operationID, LinearOutboxInFlight, target, detail)
 }
 
+// RequeueLinearOperationsForRateLimit returns the operation Linear deferred
+// and every claim the pass had not yet sent to queued, releasing the attempt
+// each claim spent: a rate limit defers the whole pass and must not move any
+// operation toward failed. detail records the refusal as the deferred
+// operation's last_error; the unsent claims carry no failure of their own.
+func (s *Store) RequeueLinearOperationsForRateLimit(ctx context.Context, rateLimitedOperationID, detail string, pendingOperationIDs []string) error {
+	if rateLimitedOperationID == "" {
+		return newFailure(KindInvalidPayload, "linear_outbox_transition", "rate-limited operation id is required", false, "supply the operation Linear deferred")
+	}
+	if detail == "" {
+		return newFailure(KindInvalidPayload, "linear_outbox_transition", "rate-limit reason is required", false, "state why the operations returned to queued")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot open rate-limit requeue transaction", true, "retry once the database is writable", err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET state=?, attempts=MAX(attempts-1, 0), last_error=?, updated_at=? WHERE operation_id=? AND state=?`,
+		LinearOutboxQueued, detail, s.now().UTC().Format(time.RFC3339Nano), rateLimitedOperationID, LinearOutboxInFlight)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot release the deferred operation", true, "retry once the database is writable", err)
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed == 0 {
+		var state string
+		queryErr := tx.QueryRowContext(ctx, `SELECT state FROM linear_outbox WHERE operation_id=?`, rateLimitedOperationID).Scan(&state)
+		if queryErr == sql.ErrNoRows {
+			return newFailure(KindUnknownScope, "linear_outbox_transition", "queued operation does not exist", false, "supply a queued operation id")
+		}
+		if queryErr != nil {
+			return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot read queued operation", true, "retry once the database is readable", queryErr)
+		}
+		return newFailure(KindInvalidTransition, "linear_outbox_transition", fmt.Sprintf("outbox state is %s, not %s", state, LinearOutboxInFlight), false, "reload the operation and transition from its current state")
+	}
+	for _, id := range pendingOperationIDs {
+		if _, err := tx.ExecContext(ctx, `UPDATE linear_outbox SET state=?, attempts=MAX(attempts-1, 0), updated_at=? WHERE operation_id=? AND state=?`,
+			LinearOutboxQueued, s.now().UTC().Format(time.RFC3339Nano), id, LinearOutboxInFlight); err != nil {
+			return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot release an unsent claim", true, "retry once the database is writable", err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // AcknowledgeFailedLinearOperations records a disposition for failed rows in
 // one Product. Failed rows stay failed, so this route cannot silently retry or
 // change the one-way authority boundary.

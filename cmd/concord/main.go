@@ -1588,7 +1588,22 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		Detail      string `json:"detail,omitempty"`
 	}
 	results := make([]drained, 0, len(claimed))
+	// rateLimited marks the first send result Linear deferred. The pass stops
+	// there: the deferred operation and every unsent claim return to queued
+	// with the claim's attempt released, and the link-refresh sweep waits for
+	// a later drain instead of spending more of the drained quota.
+	var (
+		rateLimited       bool
+		rateLimitedID     string
+		rateLimitedDetail string
+		unsentClaims      []string
+	)
 	for _, op := range claimed {
+		if rateLimited {
+			unsentClaims = append(unsentClaims, op.OperationID)
+			results = append(results, drained{OperationID: op.OperationID, Outcome: "queued", Detail: "Linear rate limit reached before this operation was sent"})
+			continue
+		}
 		var payload linearDrainPayload
 		if err := json.Unmarshal(op.Payload, &payload); err != nil {
 			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", "payload does not decode")
@@ -1651,6 +1666,13 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
 			project, projectState, perr := drainProject(ctx, s, client, op, payload, teamID)
 			if perr != nil {
+				if linearRateLimitedErr(perr) {
+					rateLimited = true
+					rateLimitedID = op.OperationID
+					rateLimitedDetail = perr.Error()
+					results = append(results, drained{OperationID: op.OperationID, Outcome: "rate_limited", Detail: perr.Error()})
+					continue
+				}
 				class := "permanent"
 				if linearclient.IsRetryable(perr) {
 					class = "retryable"
@@ -1695,6 +1717,13 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			issue, derr = drainCreate(ctx, client, payload, teamID, projectID)
 		}
 		if derr != nil {
+			if linearRateLimitedErr(derr) {
+				rateLimited = true
+				rateLimitedID = op.OperationID
+				rateLimitedDetail = derr.Error()
+				results = append(results, drained{OperationID: op.OperationID, Outcome: "rate_limited", Detail: derr.Error()})
+				continue
+			}
 			class := "permanent"
 			if linearclient.IsRetryable(derr) {
 				class = "retryable"
@@ -1754,8 +1783,24 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		}
 		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier, Detail: detail})
 	}
-	linkRefreshes := refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
+	var linkRefreshes []linearLinkRefreshResult
+	if rateLimited {
+		if err := s.RequeueLinearOperationsForRateLimit(ctx, rateLimitedID, rateLimitedDetail, unsentClaims); err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+	} else {
+		linkRefreshes = refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
+	}
 	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results, "link_refreshes": linkRefreshes}, errOut)
+}
+
+// linearRateLimitedErr reports whether Linear deferred the request itself.
+// Every further send in the same window meets the same refusal, so the drain
+// releases the remaining claims instead of burning quota and attempts on it.
+func linearRateLimitedErr(err error) bool {
+	var failure *linearclient.Failure
+	return errors.As(err, &failure) && failure.Kind == linearclient.KindRateLimited
 }
 
 type linearLinkRefreshResult struct {
@@ -1804,8 +1849,7 @@ func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *li
 			// make next. Spending more of the drained quota on the same
 			// refusal cannot refresh a link, so the sweep stops and the links
 			// it never attempted report skipped.
-			var failure *linearclient.Failure
-			if errors.As(err, &failure) && failure.Kind == linearclient.KindRateLimited {
+			if linearRateLimitedErr(err) {
 				for _, remaining := range links[i+1:] {
 					results = append(results, linearLinkRefreshResult{WorkID: remaining.WorkID, RemoteIssueUUID: remaining.RemoteIssueUUID, Outcome: "skipped", Detail: "Linear rate limit reached; refresh deferred to a later drain"})
 				}

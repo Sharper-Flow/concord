@@ -516,8 +516,12 @@ func TestLinearIssueUpdateDrainReportsUnresolvedRevisionOnRemoteFailure(t *testi
 
 	rec := &drainOwnershipRecorder{humanBody: "A human rewrote this body.", commentStatus: http.StatusTooManyRequests, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, rec.handler())
-	if len(operations) != 1 || operations[0].Outcome != "retryable" {
-		t.Fatalf("drain result = %+v, want one retryable operation", operations)
+	// The 429 on the revision comment defers the operation: the drain
+	// reports it rate_limited, returns it to queued without spending an
+	// attempt, and the created digest stands while the revision is
+	// unsynchronized.
+	if len(operations) != 1 || operations[0].Outcome != "rate_limited" {
+		t.Fatalf("drain result = %+v, want one rate_limited operation", operations)
 	}
 	if !strings.Contains(operations[0].Detail, "publish managed revision comment") {
 		t.Fatalf("failure detail = %q, want the unsynchronized revision named", operations[0].Detail)
@@ -590,8 +594,11 @@ func TestLinearIssueUpdateDrainKeepsRetryableWhenCommentLookupFails(t *testing.T
 	remote.responseLost = false
 	remote.lookupStatus = http.StatusTooManyRequests
 	operations = drainDescriptionOwnershipProduct(t, dbPath, remote.handler())
-	if len(operations) != 1 || operations[0].Outcome != "retryable" {
-		t.Fatalf("lookup-failure drain = %+v, want one retryable operation", operations)
+	// The 429 comment lookup defers the operation: it returns to queued as
+	// rate_limited instead of reporting the insert conflict as a permanent
+	// failure.
+	if len(operations) != 1 || operations[0].Outcome != "rate_limited" {
+		t.Fatalf("lookup-failure drain = %+v, want one rate_limited operation", operations)
 	}
 	if strings.Contains(operations[0].Detail, "already exists") {
 		t.Fatalf("lookup-failure detail = %q, want the lookup failure, not the insert conflict", operations[0].Detail)

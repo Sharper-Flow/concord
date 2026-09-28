@@ -479,31 +479,6 @@ func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, wo
 	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
-func workflowActionAllowsTerminalRecovery(request WorkflowActionPreflightRequest) bool {
-	if request.ActionID != "complete" {
-		return false
-	}
-	fields, err := workflowActionObject(request.Payload)
-	if err != nil {
-		return false
-	}
-	terminalState := workflowFieldStringDefault(fields, "terminal_state", "completed")
-	return terminalState == "cancelled" || terminalState == "superseded"
-}
-
-func workflowExecutionAllowsStaleRecovery(actionID string, payload []byte) bool {
-	if actionID != "complete" {
-		return false
-	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(payload, &fields) != nil {
-		return false
-	}
-	var terminalState string
-	_ = json.Unmarshal(fields["terminal_state"], &terminalState)
-	return terminalState == "cancelled" || terminalState == "superseded"
-}
-
 // WorkflowLawContext is the bounded, typed resolution of the approved
 // contract's binding law and Domain references. The core turns every
 // contract-bound law ID and home or affected Domain ID into its projection

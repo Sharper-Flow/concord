@@ -127,7 +127,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowExecutionAllowsStaleRecovery("complete", event.Payload) && !isWorkflowReplay(ctx) {
+	if !isWorkflowReplay(ctx) {
 		// The staleness boundary consults the current Git-derived law state,
 		// which the log never carried; replay owes only the projection folds
 		// below.

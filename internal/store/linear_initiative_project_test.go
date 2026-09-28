@@ -42,13 +42,47 @@ func seedLinearWorkOfKind(t *testing.T, s *Store, workID, projectID, kind, title
 }
 
 // seedLinearInitiativeEntry inserts one Initiative entry row directly, in the
-// given join order, with fold guards open. The matching includes relation
-// rides along, so the seeded projection satisfies the initiative invariants
-// an unrelated later operation verifies.
+// given join order, with fold guards open, and appends the matching
+// initiative_entry.added log event, because ownership reads derive the join
+// instant from the log. The matching includes relation rides along, so the
+// seeded projection satisfies the initiative invariants an unrelated later
+// operation verifies.
 func seedLinearInitiativeEntry(t *testing.T, s *Store, initiative, child string, required bool) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES(?, ?, (SELECT coalesce(max(position)+1, 0) FROM initiative_entries WHERE initiative_work_id=?), ?); INSERT INTO relations(work_id_from, work_id_to, kind, created_at) VALUES(?, ?, 'includes', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`, initiative, child, initiative, boolInt(required), initiative, child); err != nil {
-		t.Fatalf("seed entry %s->%s: %v", initiative, child, err)
+	ctx := context.Background()
+	var position int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT coalesce(max(position)+1, 0) FROM initiative_entries WHERE initiative_work_id=?`, initiative).Scan(&position); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(initiativeEntryPayload{ChildWorkID: child, Position: position, Required: required, ExpectedVersion: 1, ResultingVersion: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO initiative_entries(initiative_work_id, child_work_id, position, required) VALUES(?, ?, ?, ?)`, []any{initiative, child, position, boolInt(required)}},
+		{`INSERT INTO relations(work_id_from, work_id_to, kind, created_at) VALUES(?, ?, 'includes', '2026-09-23T00:00:00Z')`, []any{initiative, child}},
+		{`INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?, 'initiative_entry.added', 'work_item', ?, 'operator', '2026-09-23T00:00:00Z', 1, ?)`, []any{initiative + ":" + child + ":seed-added", initiative, string(payload)}},
+	} {
+		if _, err := tx.ExecContext(ctx, step.query, step.args...); err != nil {
+			t.Fatalf("seed entry %s->%s: %v", initiative, child, err)
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 

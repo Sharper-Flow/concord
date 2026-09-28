@@ -88,6 +88,7 @@ type LinearIntegrationHealth struct {
 	OutboxOldestPendingAgeSeconds int64             `json:"outbox_oldest_pending_age_seconds"`
 	LinkCounts                    map[string]int    `json:"link_counts"`
 	UnmappedLifecycles            []string          `json:"unmapped_lifecycles"`
+	UnmappedLabelKeys             []string          `json:"unmapped_label_keys"`
 	UnlinkedObligatedItems        int               `json:"unlinked_obligated_items"`
 }
 
@@ -761,6 +762,7 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 	// the terminal lifecycles. Health names the gap so the operator can
 	// re-declare without reading the resource record.
 	health.UnmappedLifecycles = []string{}
+	health.UnmappedLabelKeys = []string{}
 	if connection.State == LinearConnectionDeclared {
 		for lifecycle := range lifecycleStates {
 			if connection.StatusIDs[lifecycle] == "" {
@@ -768,6 +770,39 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 			}
 		}
 		sort.Strings(health.UnmappedLifecycles)
+		// CD-0171 D3/D5: enqueue refuses when a member Project lacks its
+		// project:<id> mapping or a non-required Initiative entry lacks the
+		// optional mapping, and the capture and lifecycle folds absorb that
+		// refusal as a configuration no-op. Health names the missing keys so
+		// the silent no-op is visible to the operator without reading the
+		// connection resource.
+		projectRows, err := s.db.QueryContext(ctx, linearHealthProductProjectsQuery, productID)
+		if err != nil {
+			return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read the Product's member Projects", true, "retry once the database is readable", err)
+		}
+		for projectRows.Next() {
+			var projectID string
+			if err := projectRows.Scan(&projectID); err != nil {
+				projectRows.Close()
+				return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot scan the Product's member Projects", true, "retry once the database is readable", err)
+			}
+			if connection.LabelIDs[LinearLabelProjectPrefix+projectID] == "" {
+				health.UnmappedLabelKeys = append(health.UnmappedLabelKeys, LinearLabelProjectPrefix+projectID)
+			}
+		}
+		if err := projectRows.Err(); err != nil {
+			projectRows.Close()
+			return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot finish the member Project read", true, "retry once the database is readable", err)
+		}
+		projectRows.Close()
+		var optionalEntry int
+		if err := s.db.QueryRowContext(ctx, linearHealthOptionalEntryQuery, productID, productID).Scan(&optionalEntry); err != nil {
+			return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read non-required Initiative entries", true, "retry once the database is readable", err)
+		}
+		if optionalEntry == 1 && connection.LabelIDs[LinearLabelOptionalKey] == "" {
+			health.UnmappedLabelKeys = append(health.UnmappedLabelKeys, LinearLabelOptionalKey)
+		}
+		sort.Strings(health.UnmappedLabelKeys)
 	}
 	var oldestPending string
 	if err := s.db.QueryRowContext(ctx, linearHealthOutboxDepthQuery, productID, productID).Scan(&health.OutboxDepth, &oldestPending); err != nil {
@@ -1210,10 +1245,12 @@ WHERE EXISTS (
 	   AND pp_priown.product_id = ?)))`
 
 const (
-	linearHealthOutboxDepthQuery   = `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox o WHERE state IN ('queued','in_flight') AND o.work_id IN (` + linearOwnedWorkIDs + `)`
-	linearHealthLinkCountsQuery    = `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE l.work_id IN (` + linearOwnedWorkIDs + `) GROUP BY l.link_state`
-	linearUnlinkedObligationsQuery = `SELECT count(*) FROM work_items w WHERE w.kind <> 'initiative' AND w.id IN (` + linearOwnedWorkIDs + `) AND w.created_at > (SELECT min(e.occurred_at) FROM domain_events e WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=? AND json_extract(e.payload,'$.planning_mode')='linear_enabled') AND NOT EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=w.id AND l.link_state='confirmed')`
-	linearConfirmedLinkedWorkQuery = `
+	linearHealthOutboxDepthQuery     = `SELECT count(*), coalesce(min(created_at), '') FROM linear_outbox o WHERE state IN ('queued','in_flight') AND o.work_id IN (` + linearOwnedWorkIDs + `)`
+	linearHealthLinkCountsQuery      = `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE l.work_id IN (` + linearOwnedWorkIDs + `) GROUP BY l.link_state`
+	linearHealthProductProjectsQuery = `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`
+	linearHealthOptionalEntryQuery   = `SELECT EXISTS(SELECT 1 FROM initiative_entries ie WHERE ie.required=0 AND ie.child_work_id IN (` + linearOwnedWorkIDs + `))`
+	linearUnlinkedObligationsQuery   = `SELECT count(*) FROM work_items w WHERE w.kind <> 'initiative' AND w.id IN (` + linearOwnedWorkIDs + `) AND w.created_at > (SELECT min(e.occurred_at) FROM domain_events e WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=? AND json_extract(e.payload,'$.planning_mode')='linear_enabled') AND NOT EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=w.id AND l.link_state='confirmed')`
+	linearConfirmedLinkedWorkQuery   = `
 SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
 FROM linear_issue_links l
 JOIN work_items w ON w.id=l.work_id

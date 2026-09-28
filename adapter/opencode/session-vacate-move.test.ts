@@ -1,10 +1,15 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { moveSessionToRegisteredMainCheckout } from "./concord"
+import { moveSessionToRegisteredMainCheckout, configureConcordAdapter } from "./concord"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { HostControlPlane } from "./move-session"
+import { configureCoreBinary } from "./dispatch"
+
+// The landing record resolves the core binary path before the runner seam
+// intercepts the verb, so the file binds a path once at module level.
+configureCoreBinary("concord")
 
 const context = () => ({
   sessionID: "session-1",
@@ -17,10 +22,27 @@ const args = (input: Record<string, unknown>) => ({ operation: "session_vacate",
 const okEnvelope = () => ({
   schema_version: "1.0",
   outcome: "ok",
-  result: { destination_directory: "/main" },
+  result: { work_id: "work-1", destination_directory: "/main" },
 }) as Parameters<typeof moveSessionToRegisteredMainCheckout>[2]
 
-async function fakeHost(post: (body: any) => { status: number; body: any }, get: () => { status: number; body: any }) {
+// The verified landing records itself through the adapter-only vacate-landing
+// verb; the capture records the calls instead of spawning a binary.
+let landingCalls: string[] = []
+
+function landingRunner() {
+  return {
+    async run(argv: string[], input: string) {
+      if (argv[1] === "vacate-landing") {
+        landingCalls.push((JSON.parse(input) as { landed_directory: string }).landed_directory)
+        return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+      }
+      throw new Error("unexpected CLI invocation: " + argv.join(" "))
+    },
+  } as never
+}
+
+async function fakeHost(post: (body: any) => { status: number; body: any }, get: () => { status: number; body: any }, runner: any = landingRunner()) {
+  configureConcordAdapter({ runner })
   await ConcordAdapterPlugin({
     client: {
       _client: {
@@ -39,13 +61,15 @@ async function fakeHost(post: (body: any) => { status: number; body: any }, get:
 }
 
 afterEach(async () => {
+  landingCalls = []
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
+  configureConcordAdapter({ reset: true })
   await ConcordAdapterPlugin({})
 })
 
 describe("session_vacate moves only to the core-derived checkout", () => {
-  test("moves and verifies the registered destination", async () => {
+  test("moves, verifies the registered destination, and records the verified landing", async () => {
     let moved = ""
     await fakeHost((body) => {
       moved = body.destination.directory
@@ -54,6 +78,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-1" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(moved).toBe("/main")
+    expect(landingCalls).toEqual(["/main"])
   })
 
   test("refuses an agent-named destination before the move", async () => {
@@ -68,11 +93,29 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("agent_named_destination")
   })
 
-  test("refuses a landing mismatch", async () => {
+  test("refuses a landing mismatch and records no vacate landing", async () => {
     await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/other" } }))
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-3" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
+    // The refused move leaves the occupancy standing: no landing runs.
+    expect(landingCalls).toEqual([])
+  })
+
+  // A landing the core refuses records nothing, so the source occupancy
+  // stands and the typed refusal names the replay route.
+  test("refuses when the vacate landing does not record", async () => {
+    await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/main" } }), {
+      async run() {
+        return { exitCode: 1, stdout: "", stderr: "concord vacate-landing: projection_not_found: the committed session vacate names /main as its registered main checkout, not /main" }
+      },
+    } as never)
+    const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-refused" }), context(), okEnvelope())
+    expect(envelope.outcome).toBe("error")
+    if (envelope.outcome === "error") {
+      expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_landing_refused")
+      expect((envelope.error as { message: string }).message).toContain("the source occupancy stands")
+    }
   })
 
   // The confirmed vacate landing drops the armed claim, so a later dispatch
@@ -88,6 +131,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-armed" }), context(), okEnvelope())
       expect(envelope.outcome).toBe("ok")
       expect(moved).toBe("/main")
+      expect(landingCalls).toEqual(["/main"])
       expect(armedClaimedWorktree("session-1")).toBeNull()
     } finally {
       clearClaimedWorktree("session-1")

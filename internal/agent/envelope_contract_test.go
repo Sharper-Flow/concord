@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 // Issue #701 regression coverage. Committed mutation envelopes must satisfy
@@ -76,12 +78,19 @@ func TestCommittedReclaimEnvelopeSatisfiesGeneratedContract(t *testing.T) {
 		t.Fatalf("claim response=%+v err=%v", claim, err)
 	}
 	// The claim recorded this session as the worktree occupant, and the
-	// removal gate refuses while a recorded occupant remains. Vacate first.
+	// removal gate refuses while a recorded occupant remains. Vacate, then
+	// record the verified landing at the registered main checkout through
+	// the adapter-only verb, which releases the session's rows.
 	vacateEnv := mutationEnvelope(grant, scopeVersion)
 	vacateEnv.Worktree = worktreePath
 	vacate, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"701-vacate"}`)}, vacateEnv)
 	if err != nil || vacate.Outcome != OutcomeOK {
 		t.Fatalf("vacate response=%+v err=%v", vacate, err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatalf("vacate landing: %v", err)
 	}
 	reclaimInput, _ := json.Marshal(map[string]any{
 		"work_id": "work-1", "project_id": "project-1",

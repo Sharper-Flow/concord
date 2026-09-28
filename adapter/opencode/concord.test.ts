@@ -2683,6 +2683,7 @@ test("an own-row recovery records a refused re-land on the successful abandon re
         if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: sessionDirectory, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
         if (operation === "worker_abandon") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
       }
+      if (command === "vacate-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
       if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
       if (command === "work-resume") return { exitCode: 1, stdout: "", stderr: "work resume refused" }
       if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
@@ -2698,7 +2699,7 @@ test("an own-row recovery records a refused re-land on the successful abandon re
   // A refused re-land does not erase the abandon receipt or its recovery notice.
   const notices = (result.warnings as Array<{ kind: string; details: { step: string } }>).filter((notice) => notice.kind === "worker_abandon_recovery")
   expect(notices.map((notice) => notice.details.step)).toEqual([
-    "session_vacate: the calling session's occupancy row is released and the session moved to the registered main checkout",
+    "session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows",
     "worker_abandon: the retry closed the dispatched attempt",
     "worker_abandon: the durable replay receipt is recorded",
     expect.stringContaining("work_start re-land refused: work resume refused; replay work_start once the session's tool context runs in the claimed worktree"),
@@ -2713,7 +2714,7 @@ test("an own-row recovery records a refused re-land on the successful abandon re
   expect(abandonInputs[0].event_id).toBe(abandonInputs[1].event_id)
   expect(calls.map(({ argv }) => argv[1])).toEqual([
     "worker-abandon",
-    "project-resolve", "invoke",
+    "project-resolve", "invoke", "vacate-landing",
     "worker-abandon",
     "project-resolve", "invoke",
     "project-resolve", "work-resume",
@@ -2820,7 +2821,10 @@ test("an own-row recovery reports a committed vacate when the host move fails", 
   expect(result.outcome).toBe("error")
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.details.recovery_stopped_at).toBe("session_vacate")
-  expect(result.error.details.recovery_steps).toContain("session_vacate: the calling session's occupancy row is released at the core")
+  // The committed vacate records the relocation request; the occupancy rows
+  // stand until the landing is recorded, so a refused move never leaves a
+  // live session in a worktree recorded as empty.
+  expect(result.error.details.recovery_steps).toContain("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
   expect(result.error.message).toContain("host move failed")
   expect(calls).toEqual(["worker-abandon", "project-resolve", "invoke"])
 })
@@ -2864,6 +2868,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
       if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
       if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
       if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      if (command === "vacate-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
       throw new Error(`unexpected command ${argv.join(" ")}`)
     } },
   })
@@ -2880,7 +2885,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(moves).toEqual([MAIN_CHECKOUT, WORKTREE])
   expect(abandonCalls).toBe(2)
   expect(calls).toEqual([
-    "worker-abandon", "project-resolve", "invoke", "worker-abandon",
+    "worker-abandon", "project-resolve", "invoke", "vacate-landing", "worker-abandon",
     "project-resolve", "work-resume", "session-prepare", "claim-landing",
   ])
 })

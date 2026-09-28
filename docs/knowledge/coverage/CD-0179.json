@@ -30,7 +30,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/terminal-vacate.test.ts#a completed lifecycle with a vacate target vacates and moves to the main checkout"
+      "value": "adapter/opencode/terminal-vacate.test.ts#a completed lifecycle with a vacate target vacates, moves, and records the verified landing"
     }
   ],
   "id": "CD-0179",

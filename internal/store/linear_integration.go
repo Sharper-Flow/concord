@@ -1260,8 +1260,14 @@ const (
 	linearHealthLinkCountsQuery      = `SELECT l.link_state, count(*) FROM linear_issue_links l WHERE l.work_id IN (` + linearOwnedWorkIDs + `) GROUP BY l.link_state`
 	linearHealthProductProjectsQuery = `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`
 	linearHealthOptionalEntryQuery   = `SELECT EXISTS(SELECT 1 FROM initiative_entries ie WHERE ie.required=0 AND ie.child_work_id IN (` + linearOwnedWorkIDs + `))`
-	linearUnlinkedObligationsQuery   = `SELECT count(*) FROM work_items w WHERE w.kind <> 'initiative' AND w.id IN (` + linearOwnedWorkIDs + `) AND w.created_at > (SELECT min(e.occurred_at) FROM domain_events e WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=? AND json_extract(e.payload,'$.planning_mode')='linear_enabled') AND NOT EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=w.id AND l.link_state='confirmed')`
-	linearConfirmedLinkedWorkQuery   = `
+	// An item whose external_ref names the Linear issue another work item
+	// already links as confirmed can never publish (the capture enqueue
+	// refuses it), so it is not a publication obligation. An external_ref
+	// naming an unlinked issue stays an obligation because adoption can still
+	// bind it. concord_linear_external_issue_identity is the publication
+	// refusal's own identity rule.
+	linearUnlinkedObligationsQuery = `SELECT count(*) FROM work_items w WHERE w.kind <> 'initiative' AND w.id IN (` + linearOwnedWorkIDs + `) AND w.created_at > (SELECT min(e.occurred_at) FROM domain_events e WHERE e.kind='product.planning_mode_set' AND e.subject_type='product' AND e.subject_id=? AND json_extract(e.payload,'$.planning_mode')='linear_enabled') AND NOT EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=w.id AND l.link_state='confirmed') AND NOT EXISTS (SELECT 1 FROM linear_issue_links dup WHERE dup.link_state='confirmed' AND concord_linear_external_issue_identity(json_extract(w.intent_json,'$.external_ref')) IN (dup.human_key, dup.remote_issue_uuid))`
+	linearConfirmedLinkedWorkQuery = `
 SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.link_state, l.content_hash, w.lifecycle
 FROM linear_issue_links l
 JOIN work_items w ON w.id=l.work_id

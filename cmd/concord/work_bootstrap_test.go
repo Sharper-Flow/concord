@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -659,7 +660,7 @@ func TestSessionPrepareVerifiesTheConfiguredCommandDocument(t *testing.T) {
 			func(string) error { return nil },
 			hostSessionHostCommand,
 			func(_ context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
-				if !equalArgv(host.Command, []string{"fake-wrapper"}) {
+				if !slices.Equal(host.Command, []string{"fake-wrapper"}) {
 					t.Fatalf("orchestrator received command %q, want the configured argv", host.Command)
 				}
 				if err := verifyHostRegistersHandle(host, agent); err != nil {

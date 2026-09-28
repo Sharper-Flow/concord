@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -124,7 +125,7 @@ func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFu
 	if !present {
 		return hostCommandResolution{}, &hostCommandInvalidError{Problem: "is absent from the configured command's own document"}
 	}
-	if !equalArgv(confirmed, command) {
+	if !slices.Equal(confirmed, command) {
 		return hostCommandResolution{}, &hostCommandInvalidError{Problem: fmt.Sprintf("names %q in the bootstrap probe but %q in the configured command's own document", command, confirmed)}
 	}
 	return hostCommandResolution{Command: command, Registry: configuredDocument}, nil
@@ -230,18 +231,6 @@ func decodeHostCommand(value json.RawMessage) ([]string, bool, error) {
 		}
 	}
 	return argv, true, nil
-}
-
-func equalArgv(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // hostSessionHostCommand is the production wiring for the session's host

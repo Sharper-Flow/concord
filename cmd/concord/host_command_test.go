@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,13 +60,13 @@ func TestResolveHostCommandDefaultsToTheBareHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if !equalArgv(resolution.Command, []string{"opencode"}) {
+	if !slices.Equal(resolution.Command, []string{"opencode"}) {
 		t.Fatalf("command=%q, want the bare default", resolution.Command)
 	}
 	if string(resolution.Registry) != document {
 		t.Fatalf("registry=%q, want the bare probe's document", resolution.Registry)
 	}
-	if len(probe.calls) != 1 || !equalArgv(probe.calls[0], []string{"opencode", "debug", "config"}) {
+	if len(probe.calls) != 1 || !slices.Equal(probe.calls[0], []string{"opencode", "debug", "config"}) {
 		t.Fatalf("probes=%q, want exactly the bare probe argv", probe.calls)
 	}
 }
@@ -85,13 +86,13 @@ func TestResolveHostCommandReadsTheConcordTupleAndVerifiesThroughIt(t *testing.T
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if !equalArgv(resolution.Command, []string{"host-wrapper", "--profile", "work"}) {
+	if !slices.Equal(resolution.Command, []string{"host-wrapper", "--profile", "work"}) {
 		t.Fatalf("command=%q, want the configured argv", resolution.Command)
 	}
 	if string(resolution.Registry) != configured {
 		t.Fatalf("registry came from the bare probe, want the configured command's document")
 	}
-	if len(probe.calls) != 2 || !equalArgv(probe.calls[1], []string{"host-wrapper", "--profile", "work", "debug", "config"}) {
+	if len(probe.calls) != 2 || !slices.Equal(probe.calls[1], []string{"host-wrapper", "--profile", "work", "debug", "config"}) {
 		t.Fatalf("probes=%q, want the second probe through the configured command", probe.calls)
 	}
 }
@@ -109,7 +110,7 @@ func TestResolveHostCommandIgnoresForeignTuplesAndBareEntries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		if !equalArgv(resolution.Command, defaultHostCommand) {
+		if !slices.Equal(resolution.Command, defaultHostCommand) {
 			t.Fatalf("command=%q, want the bare default", resolution.Command)
 		}
 	})
@@ -206,7 +207,7 @@ func TestResolveHostCommandRefusesAMatchingTupleWhoseOptionsAreNotAnObject(t *te
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		if !equalArgv(resolution.Command, defaultHostCommand) {
+		if !slices.Equal(resolution.Command, defaultHostCommand) {
 			t.Fatalf("command=%q, want the bare default", resolution.Command)
 		}
 	})

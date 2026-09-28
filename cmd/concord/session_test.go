@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -784,7 +785,7 @@ func TestSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 		t.Fatalf("host ran in %q, want the resolved session directory %q", runnerDir, sessionDir)
 	}
 	want := []string{"host-wrapper", "--profile", "work", "--agent", "concord-1", "--prompt", hostPrompt(t, argv)}
-	if !equalArgv(argv, want) {
+	if !slices.Equal(argv, want) {
 		t.Fatalf("argv=%q, want the configured command followed by the fixed arguments", argv)
 	}
 }
@@ -822,7 +823,7 @@ func TestProjectSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 		t.Fatalf("host ran in %q, want the Project directory %q", runnerDir, project)
 	}
 	want := []string{"host-wrapper", "--login", "--prompt", hostPrompt(t, argv)}
-	if !equalArgv(argv, want) {
+	if !slices.Equal(argv, want) {
 		t.Fatalf("argv=%q, want the configured command followed by --prompt", argv)
 	}
 }

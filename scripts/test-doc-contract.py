@@ -2325,6 +2325,22 @@ def current_decision_with_verification(verification: str) -> str:
     )
 
 
+def test_second_verification_section_reports_duplicate() -> None:
+    body = current_decision_with_verification(
+        "Proved by `internal/store.TestCurrentDecision`."
+    ) + (
+        "\n## Verification\n\n- A second section states prose only, and a\n"
+        "  reader could trust it as proof.\n"
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/duplicate-section.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-duplicate: docs/decisions/duplicate-section.md#" in line
+        and "Verification appears 2 times" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
 def test_verification_entry_names_a_package_qualified_test_symbol() -> None:
     body = current_decision_with_verification(
         "Proved by `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`."

@@ -446,6 +446,7 @@ def check_outline_order_and_level(
     between them disturbs nothing. A legacy record never reaches this check.
     """
     position = {section: index for index, section in enumerate(required)}
+    occurrences: dict[str, int] = {}
     seen: list[tuple[int, str, int]] = []
     for level, text, line in heading_entries:
         if text not in position:
@@ -454,6 +455,13 @@ def check_outline_order_and_level(
             findings.append(
                 f"section-heading-level: {path.relative_to(ROOT)}#{line} "
                 f"({text} is a level-{level} heading; the required outline is level 2)"
+            )
+        occurrences[text] = occurrences.get(text, 0) + 1
+        if occurrences[text] > 1:
+            findings.append(
+                f"section-duplicate: {path.relative_to(ROOT)}#{line} "
+                f"({text} appears {occurrences[text]} times; each required "
+                f"section appears once)"
             )
         seen.append((position[text], text, line))
     for earlier, later in zip(seen, seen[1:]):

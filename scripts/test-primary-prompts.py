@@ -167,6 +167,28 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             for finding in findings
         ))
 
+    def test_reworded_move_instruction_reports(self) -> None:
+        self.rewrite(
+            "concord-1.md",
+            lambda text: text
+            + "\nFor a second repository, claim a worktree in another repository "
+            "and move your session to that repository.\n",
+        )
+        findings = self.findings()
+        self.assertTrue(any(
+            "concord-1.md" in finding
+            and "move into another repository" in finding
+            for finding in findings
+        ))
+
+    def test_boundary_statement_passes_the_sentence_rule(self) -> None:
+        sentences = check_primary_prompts.forbidden_move_sentences(
+            "When a work item needs a second Project in another git "
+            "repository, never claim or move across the boundary: the core "
+            "refuses it with `cross_repository_claim`."
+        )
+        self.assertEqual(sentences, [])
+
     def test_forbidden_move_instruction_reports_in_intake_example(self) -> None:
         self.rewrite(
             "concord-0.md",

@@ -190,12 +190,13 @@ The linked open work takes these dispositions:
   `cross_repository_claim`, creates no worktree, and names D2 as the remedy.
   `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
   proves the refusal kind, the absent worktree, and the named remedy.
-- Two coordinator sessions in two repositories each dispatch a lane on one
-  work item, and each lane writes only in its own repository's worktree.
-  `internal/store.TestStoreTwoProjectClaimsConcurrent` and
+- One work item holds a claimed worktree in each of two repositories, and
+  no session claims across the repository boundary.
+  `internal/store.TestStoreTwoProjectClaimsConcurrent` proves one work
+  item holds both repositories' worktrees;
   `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
-  prove one work item holds both repositories' worktrees and no session
-  claims across the boundary.
+  proves the cross-repository refusal. The two-session dispatch behavior
+  is design intent stated by D2, not a claim these tests make.
 - A second session that lands in an occupied worktree records its own row
   and receives no `worktree_ownership_conflict`.
   `internal/store.TestClaimLandingTransfersOccupancyInOneTransaction` and

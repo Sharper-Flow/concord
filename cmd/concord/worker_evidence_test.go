@@ -462,6 +462,93 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	assertNoTerminalWorkerEvent(t, dbPath, errOut.String())
 }
 
+// TestWorkerAbandonAppliesTheLegacyRowLeaseProof proves that the abandon path
+// applies the CD-0179 release rule to a legacy occupancy row: a row with no
+// process identity admits the close when every live host lease started after
+// the row was recorded, and still refuses when a live lease predates it.
+func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		recordedAt string
+		wantClose  bool
+	}{
+		{name: "ended recording process closes", recordedAt: "2000-01-01T00:00:00Z", wantClose: true},
+		{name: "live lease predates the row refuses", recordedAt: "2999-01-01T00:00:00Z", wantClose: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := freshMigratedCLIDatabase(t)
+			key := seedWorkerEvidenceClient(t)
+			lane := store.BuiltinLaneDefinitions()[0]
+			seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", preferredLaneModel(lane))
+
+			request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-legacyrow1")
+			request["event_id"] = "abandon-legacy-row"
+			request["detail"] = "the host observed that the lane never reported"
+			delete(request, "readback_model")
+			delete(request, "failure_kind")
+			assertion.ReadbackModel = ""
+			assertion.FailureKind = string(store.WorkerFailureAbandoned)
+			request["assertion"] = signWorkerEvidence(t, key, assertion)
+
+			// The test process holds the only live host lease, and it
+			// started after 2000 and before 2999.
+			pid := os.Getpid()
+			pidStart, err := hostlease.ProcessStart(pid)
+			if err != nil {
+				t.Fatalf("cannot read test pid start: %v", err)
+			}
+			if err := hostlease.Write(filepath.Dir(dbPath), hostlease.Lease{
+				PID: pid, PidStart: pidStart, ReleaseRoot: filepath.Dir(dbPath), CoreBinary: "test",
+				SchemaVersion: store.CurrentSchemaVersion(), RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			}); err != nil {
+				t.Fatalf("cannot write the host lease: %v", err)
+			}
+			s, err := store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.DatabaseForTesting().Exec(`
+				INSERT INTO fold_guard(active) VALUES(1);
+				INSERT INTO worktree_occupancy (worktree_id, session_ref, recorded_at, host_pid, host_pid_start, has_process_identity)
+				SELECT set_id || ':' || project_id || ':' || claim_op_id, 'ses_legacy', ?, NULL, NULL, 0
+				  FROM worktree_entries WHERE set_id='wts:work-1' AND state='active' LIMIT 1;
+				DELETE FROM fold_guard`, tc.recordedAt); err != nil {
+				t.Fatal(err)
+			}
+			var rows int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_occupancy WHERE session_ref='ses_legacy'`).Scan(&rows); err != nil || rows != 1 {
+				t.Fatalf("legacy occupancy rows=%d err=%v, want one seeded row", rows, err)
+			}
+			_ = s.Close()
+
+			var out, errOut bytes.Buffer
+			code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut)
+			if !tc.wantClose {
+				if code == 0 || !strings.Contains(errOut.String(), "legacy occupancy row") {
+					t.Fatalf("worker-abandon exit=%d stderr=%q, want the legacy-row refusal", code, errOut.String())
+				}
+				assertNoTerminalWorkerEvent(t, dbPath, errOut.String())
+				return
+			}
+			if code != 0 {
+				t.Fatalf("worker-abandon exit=%d stderr=%q, want the ended legacy occupant to admit the close", code, errOut.String())
+			}
+			s, err = store.Open(context.Background(), dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			var state string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, "attempt-1").Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			if state != "failed" {
+				t.Fatalf("lifecycle_state = %q, want failed", state)
+			}
+		})
+	}
+}
+
 // assertNoTerminalWorkerEvent proves a refusal happened before mutation: the
 // seeded dispatch may exist, but no completion or failure was appended.
 func assertNoTerminalWorkerEvent(t *testing.T, dbPath, stderr string) {

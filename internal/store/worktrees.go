@@ -798,6 +798,28 @@ func (s *Store) ReadHostLeases() HostLeaseSet {
 	return HostLeaseSet{Leases: leases, Err: err}
 }
 
+// hostLeaseSetContextKey carries the caller's pre-transaction host lease
+// observation into gates that run inside the transaction's folds.
+type hostLeaseSetContextKey struct{}
+
+// WithHostLeaseSet returns a context that carries set, the live host lease
+// set the caller read before the transaction opened (CD-0179 D3). Gates
+// running inside the transaction read the observation from here instead of
+// walking the lease filesystem while the write transaction holds the pool's
+// only connection.
+func WithHostLeaseSet(ctx context.Context, set HostLeaseSet) context.Context {
+	return context.WithValue(ctx, hostLeaseSetContextKey{}, set)
+}
+
+// hostLeaseSetFromContext returns the lease observation carried on ctx and
+// whether any observation was carried at all. A caller that carried nothing
+// releases no legacy row: the release rule needs the observation, not the
+// absence of one.
+func hostLeaseSetFromContext(ctx context.Context) (HostLeaseSet, bool) {
+	set, ok := ctx.Value(hostLeaseSetContextKey{}).(HostLeaseSet)
+	return set, ok
+}
+
 // hostLeaseWallStart resolves one live lease's process start as wall-clock
 // time. It is a package variable so tests can pin the conversion.
 var hostLeaseWallStart = hostlease.WallStart

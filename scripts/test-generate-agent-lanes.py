@@ -19,6 +19,7 @@ class AgentProjectionTests(unittest.TestCase):
     LANE = {
         "id": "review",
         "purpose": "Review a bounded change against its contract.",
+        "budgets": {"time_seconds_max": 1200},
         "evidence_obligations": ["findings", "verdict"],
     }
 
@@ -58,6 +59,29 @@ class AgentProjectionTests(unittest.TestCase):
         for field in ("schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"):
             self.assertIn(f"`{field}`", projection)
         self.assertIn("`status` `failed`", projection)
+
+    def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
+        # The registry declares a per-lane time budget, and the body must
+        # project it: a verify attempt that widens to a full Go package suite
+        # runs for minutes, and a worker left to guess shell timeouts loses
+        # the run at the host's 120-second default.
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        self.assertIn("## Command duration", projection)
+        self.assertIn("1200 seconds", projection)
+        self.assertIn("`timeout`", projection)
+        self.assertIn("milliseconds", projection)
+
+    def test_projection_budget_tracks_the_declared_time_seconds_max(self):
+        lane = dict(self.LANE, budgets={"time_seconds_max": 777})
+        projection = generator.agent_projection(lane, REPORT_SCHEMA)
+        self.assertIn("777 seconds", projection)
+        self.assertNotIn("1200 seconds", projection)
+
+    def test_projection_treats_full_go_suites_as_able_to_exceed_400_seconds(self):
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        self.assertIn("full Go package suites", projection)
+        self.assertIn("exceed 400 seconds", projection)
+        self.assertIn("go test ./...", projection)
 
     def test_projection_does_not_require_a_worker_cwd_readback(self):
         # The dispatch window pins the worker directory, and the adapter

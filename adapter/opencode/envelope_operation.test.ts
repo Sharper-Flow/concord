@@ -4,8 +4,10 @@ import { envelopeSchema, validateGeneratedEnvelope } from "./generated-contract-
 
 // The pairs are read out of the shipped envelope schema rather than listed
 // here, so an operation added to $defs/toolOperation is covered by
-// construction instead of by remembering to extend this file.
-const writeTools = new Set(["concord_work_define", "concord_work_initiative", "concord_work_transition", "concord_work_relate", "concord_work_compact"])
+// construction instead of by remembering to extend this file. The operations
+// whose ok response must carry mutation metadata are read out of the ok
+// branch's per-tool conditionals the same way, so the two surfaces cannot
+// drift apart.
 type Pair = { tool: string; operation: string; queryId?: string }
 
 const declaredPairs: Pair[] = ((envelopeSchema as any).$defs.toolOperation.oneOf as any[]).flatMap((branch) => {
@@ -15,6 +17,11 @@ const declaredPairs: Pair[] = ((envelopeSchema as any).$defs.toolOperation.oneOf
   return operations.map((operation) => ({ tool: properties.tool.const as string, operation, queryId }))
 })
 
+const mutationPairs = new Set((((envelopeSchema as any).$defs.ok.allOf[1].allOf as any[]) ?? []).flatMap((branch) => {
+  const properties = branch.if.properties
+  return properties.operation.enum.map((operation: string) => `${properties.tool.const}.${operation}`)
+}))
+
 function coreEnvelope({ tool, operation, queryId }: Pair) {
   const envelope: Record<string, unknown> = {
     schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core",
@@ -22,7 +29,7 @@ function coreEnvelope({ tool, operation, queryId }: Pair) {
     authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [],
     next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, result: {},
   }
-  if (writeTools.has(tool)) { envelope.changed_refs = []; envelope.next_valid_intents = [] }
+  if (mutationPairs.has(`${tool}.${operation}`)) { envelope.changed_refs = []; envelope.next_valid_intents = [] }
   return envelope
 }
 

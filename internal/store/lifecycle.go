@@ -581,7 +581,7 @@ func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, workID string) 
 	if !workflowStepIsDeliveryGate(step) {
 		return nil
 	}
-	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record_delivery")
+	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record the delivery with record_delivery, then complete the workflow with the workflow_action complete action")
 }
 
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1036,8 +1036,9 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 
 // refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
 // target whose workflow instance still runs (CD-0183 D4). The typed refusal
-// names the workflow completion action as its remedy; the delivery-gate
-// refusal above stays the more specific answer for a parked gate.
+// names the workflow completion action as its remedy. A parked delivery gate
+// refuses first in refuseUnreconciledDelivery, whose remedy names the owed
+// delivery and then the same completion action.
 func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var state string
 	err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state)

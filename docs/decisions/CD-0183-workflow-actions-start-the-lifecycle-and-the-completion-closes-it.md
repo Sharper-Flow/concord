@@ -59,7 +59,9 @@ terminal and writes nothing there.
 
 `concord_work_transition.lifecycle` refuses a `completed` target while the
 item's workflow instance has not reached a terminal state. The refusal is
-typed, and its remedy names the `workflow_action complete` action. It admits
+typed, and its remedy names the `workflow_action complete` action. At a parked
+delivery gate the remedy names `record_delivery` first, then the same
+completion action. It admits
 the target when the instance is already terminal: a completed instance is the
 stranded-item repair, and a cancelled or superseded instance closed before the
 item ended keeps the lifecycle route with its evidence and approval gates. It

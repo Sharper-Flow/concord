@@ -1276,6 +1276,26 @@ esac''',
         plugin = installer.jsonc_data(config)["plugin"]
         self.assertEqual(plugin, ["/operator/other"])
 
+    def test_uninstall_survives_a_comment_after_the_tuple(self) -> None:
+        """A comment between the tuple and its comma corrupts nothing on uninstall."""
+        entry = self.plugin_entry_path()
+        self.config.write_text(
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    ["' + entry + '", {"session_opener": ["my-tabs", "{command}"]}] /* after */,\n'
+            '    "/operator/other"\n  ]\n}\n',
+            encoding="utf-8",
+        )
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        config = self.config.read_text(encoding="utf-8")
+        self.assertNotIn(entry, config)
+        self.assertNotIn("session_opener", config)
+        plugin = installer.jsonc_data(config)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
     def test_existing_skills_config_and_launcher_are_not_clobbered(self) -> None:
         self.config.write_text(
             '{\n  "keep": true,\n  "skills": {"paths": ["/operator-authored/skill"]}\n}\n',
@@ -2299,6 +2319,70 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
         # that ended at the comment's ']' would strand the comment body.
         plugin = installer.jsonc_data(result)["plugin"]
         self.assertEqual(plugin, [["/operator/other"]])
+
+    def test_remove_skips_a_block_comment_between_the_tuple_and_its_comma(self) -> None:
+        """A comment between the tuple and its separating comma hides nothing."""
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}] /* after */, "/operator/other"\n  ]\n}\n'
+            % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        # The neighbour survives and the remainder still parses: a span that
+        # stopped at the comment would strand a leading comma before it.
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_skips_a_line_comment_between_the_tuple_and_its_comma(self) -> None:
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}] // tuple note\n'
+            '    ,\n    "/operator/other"\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_skips_a_block_comment_before_the_trailing_tuples_comma(self) -> None:
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    "/operator/other", /* tuple note */\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        # The comma before the comment goes with the tuple; a span that kept
+        # it would leave a trailing comma after "/operator/other".
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_skips_a_full_line_comment_before_the_tuples_comma(self) -> None:
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    "/operator/other",\n'
+            '    // tuple note\n'
+            '    ["%s", {"session_opener": ["x", "{command}"]}]\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        self.assertNotIn("session_opener", result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
+
+    def test_remove_skips_a_comment_between_the_bare_token_and_its_comma(self) -> None:
+        text = (
+            '{\n  "keep": true,\n  "plugin": [\n'
+            '    "%s" /* note */, "/operator/other"\n  ]\n}\n' % self.ENTRY
+        )
+        result = installer.remove_plugin_entry(text, self.ENTRY)
+        self.assertNotIn(self.ENTRY, result)
+        plugin = installer.jsonc_data(result)["plugin"]
+        self.assertEqual(plugin, ["/operator/other"])
 
     def test_remove_keeps_the_bare_form_behavior(self) -> None:
         text = '{\n  "keep": true,\n  "plugin": [\n    "/operator/other",\n    "%s"\n  ]\n}\n' % self.ENTRY

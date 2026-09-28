@@ -684,22 +684,14 @@ def plugin_entry_path(paths: Paths) -> str:
 def drop_string_token(original: str, token: str) -> str:
     """Remove one exact JSON string token and a single adjacent comma.
 
-    Shared by the skills and plugin deregistration paths. The caller guarantees
-    the token occurs exactly once in the original text.
+    Shared by the skills and plugin deregistration paths. The comma hunt
+    skips whitespace and comments, so a comment beside the token never
+    hides its separating comma. The caller guarantees the token occurs
+    exactly once in the original text.
     """
     start = original.index(token)
     end = start + len(token)
-    after = end
-    while after < len(original) and original[after].isspace():
-        after += 1
-    if after < len(original) and original[after] == ",":
-        end = after + 1
-    else:
-        before = start - 1
-        while before >= 0 and original[before].isspace():
-            before -= 1
-        if before >= 0 and original[before] == ",":
-            start = before
+    start, end = span_without_adjacent_comma(original, start, end)
     return original[:start] + original[end:]
 
 
@@ -781,18 +773,92 @@ def plan_plugin_entry(text: str, entry_path: str) -> str:
     return text[:insert_at] + insertion + text[insert_at:]
 
 
+def _line_comment_start(line: str) -> int:
+    """Return the offset of the first ``//`` outside strings in line, or -1."""
+    index = 0
+    in_string = False
+    while index < len(line):
+        char = line[index]
+        if in_string:
+            if char == "\\":
+                index += 1
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "/" and line.startswith("//", index):
+            return index
+        index += 1
+    return -1
+
+
+def _skip_ws_comments_right(text: str, pos: int) -> int:
+    """Return the first significant offset at or above pos.
+
+    Whitespace, ``//`` line comments, and ``/*`` block comments carry no
+    structure, so a comma hunt walks over them.
+    """
+    index = pos
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char.isspace():
+            index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = length if newline < 0 else newline
+        elif text.startswith("/*", index):
+            terminator = text.find("*/", index + 2)
+            index = length if terminator < 0 else terminator + 2
+        else:
+            break
+    return index
+
+
+def _skip_ws_comments_left(text: str, pos: int) -> int:
+    """Return the first significant offset at or below pos, or -1.
+
+    Walks backwards over whitespace and comments. A line that ends in a
+    ``//`` comment is skipped to the comment start, so a comma hidden under
+    it is still found; anything else significant stops the walk, including
+    strings, whose quotes the walk never crosses.
+    """
+    index = pos
+    while index >= 0:
+        char = text[index]
+        if char.isspace():
+            if char == "\n":
+                line_start = text.rfind("\n", 0, index) + 1
+                comment = _line_comment_start(text[line_start:index])
+                if comment >= 0:
+                    index = line_start + comment - 1
+                    continue
+            index -= 1
+        elif index >= 1 and char == "/" and text[index - 1] == "*":
+            opener = text.rfind("/*", 0, index)
+            if opener < 0:
+                break
+            index = opener - 1
+        elif index >= 1 and char == "/" and text[index - 1] == "/":
+            index -= 2
+        else:
+            break
+    return index
+
+
 def span_without_adjacent_comma(original: str, start: int, end: int) -> tuple[int, int]:
-    """Grow one removal span by exactly one adjacent comma, either side."""
-    after = end
-    while after < len(original) and original[after].isspace():
-        after += 1
+    """Grow one removal span by exactly one adjacent comma, either side.
+
+    The hunt skips whitespace and comments, so a comment between the removed
+    span and its separating comma never hides that comma. When no comma is
+    adjacent the skipped text stays and the span is unchanged.
+    """
+    after = _skip_ws_comments_right(original, end)
     if after < len(original) and original[after] == ",":
         return start, after + 1
-    before = start - 1
-    while before >= 0 and original[before].isspace():
-        before -= 1
+    before = _skip_ws_comments_left(original, start - 1)
     if before >= 0 and original[before] == ",":
-        start = before
+        return before, end
     return start, end
 
 

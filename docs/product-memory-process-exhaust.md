@@ -177,7 +177,8 @@ PM1–PM8 and Concord's no-WIP-byte decision remain controlling.
 ## Verification
 
 No corpus scenario can exercise the absence of a receipt mechanism, so every
-criterion carries a typed exemption naming the structural proof.
+criterion carries a typed exemption naming the structural proof. The checker
+`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
 
 - Criterion 1 is proved by the compaction flow tests of PM6's verification
   (`TestPublishCanonicalNoteCommitsOneNote` and

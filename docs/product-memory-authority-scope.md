@@ -262,7 +262,8 @@ tradeoffs; SQLite's official documentation remains authoritative for behavior.
 
 The corpus scenarios are query-shaped and prove no physical-scope claim, so
 every criterion carries a typed exemption in the record naming the store test
-that proves the guarantee.
+that proves the guarantee. `python3 scripts/check-doc-contract.py` validates
+those recorded exemptions.
 
 - Criterion 1 is proved by `TestDefaultPathHonorsDataHome` and
   `TestDefaultPathFallsBackToHome` (`internal/store/store_test.go`), which

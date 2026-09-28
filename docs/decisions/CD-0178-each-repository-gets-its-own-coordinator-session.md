@@ -188,14 +188,41 @@ The linked open work takes these dispositions:
 
 - A `worktree_claim` for a Project in another repository refuses with
   `cross_repository_claim`, creates no worktree, and names D2 as the remedy.
-- Two coordinator sessions in two repositories each dispatch a lane on one
-  work item, and each lane writes only in its own repository's worktree.
+  `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
+  proves the refusal kind, the absent worktree, and the named remedy.
+- One work item holds a worktree in each of two repositories, a
+  cross-repository claim refuses before creating one, and a
+  second-repository resume routes through the registered session opener
+  while this session captures nothing.
+  `internal/store.TestStoreTwoProjectClaimsConcurrent` proves the two
+  worktrees on one item;
+  `internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation`
+  proves the refusal; `bun test adapter/opencode/concord.test.ts` proves
+  the opener route. The two-session dispatch route itself is D2 decision
+  text carried by this record's acceptance, not a claim of this section.
 - A second session that lands in an occupied worktree records its own row
   and receives no `worktree_ownership_conflict`.
+  `internal/store.TestClaimLandingTransfersOccupancyInOneTransaction` and
+  `internal/store.TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree`
+  prove the added row and the absent refusal.
 - A row whose host process ended is released. A row whose host process is
   alive is not released, also when that process runs in another repository,
   and its worktree is not removed by a reclaim or an audit pass.
+  `internal/store.TestLegacyRowReleasesOnEndedRecordingProcess` proves the
+  ended-process release. `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`,
+  `internal/agent.TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface`,
+  and `internal/store.TestWorktreeAuditReclaimRefusesResumedOccupiedUnstartedWorktree`
+  prove a live row keeps the worktree from a reclaim and an audit pass.
 - A row with no process identity is not released by liveness.
+  `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal` and
+  `internal/store.TestLegacyRowStaysOnUnreadableLeaseSet` prove the row
+  stays while a live lease predates it and when the release proof cannot
+  run.
 - The removal operations accept no `observed_session_directories` input.
-- The coordinator examples contain no text that tells a coordinator to move
-  into another repository.
+  `bun test adapter/opencode/concord.test.ts` proves no removal input
+  carries the field and no removal makes a host session-list round-trip.
+- The coordinator examples that carry the Projects guidance state the
+  cross-repository boundary. `python3 scripts/check-primary-prompts.py`
+  proves the boundary statement is present in each of them. A repository
+  check cannot prove the absence of every paraphrased move instruction
+  (CD-0055 D4); the examples' own boundary wording governs that.

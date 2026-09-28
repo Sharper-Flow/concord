@@ -313,6 +313,7 @@ context, operation-bound approval, same-key retries, and native-system ownership
 
 The transport is exercised below scenario grain, so every criterion carries a
 typed exemption in the record naming the test that proves the guarantee.
+`python3 scripts/check-doc-contract.py` validates those recorded exemptions.
 
 - Criterion 1 is proved by `TestCommandBoundaryRejectsInvalidTrailingJSONAcrossCommands`
   (`cmd/concord/main_test.go`) and `TestCLIEndToEndRegistersClientAndInvokesRead`

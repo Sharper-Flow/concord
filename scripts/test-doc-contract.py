@@ -135,7 +135,7 @@ This is the contract paragraph.
 
 ## Verification
 
-This is the verification paragraph.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -179,7 +179,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/no-ac.md"
     write_spec(root, path, body)
@@ -207,7 +207,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/bad-ac.md"
     write_spec(root, path, body)
@@ -236,7 +236,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/then-missing.md"
     write_spec(root, path, body)
@@ -265,7 +265,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/no-given.md"
     write_spec(root, path, body)
@@ -296,7 +296,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/multiline.md"
     write_spec(root, path, body)
@@ -331,7 +331,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/long.md"
     write_spec(root, path, body)
@@ -362,7 +362,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/at-limit.md"
     write_spec(root, path, body)
@@ -395,7 +395,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -435,7 +435,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/unexp.md"
     write_spec(root, path, body)
@@ -465,7 +465,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/exp.md"
     write_spec(root, path, body)
@@ -494,7 +494,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/json.md"
     write_spec(root, path, body)
@@ -529,7 +529,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 
 # {long_phrase}
 """
@@ -565,7 +565,7 @@ Body.
 {long_line}
 ```
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/code.md"
     write_spec(root, path, body)
@@ -597,8 +597,9 @@ Body.
 
 | {cells} |
 | --- |
+| `internal/store.TestFixture` |
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/table.md"
     write_spec(root, path, body)
@@ -884,7 +885,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/repeat.md"
     write_spec(root, path, body)
@@ -915,7 +916,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/comment.md"
     write_spec(root, path, body)
@@ -952,7 +953,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
 
 
@@ -1076,7 +1077,8 @@ def test_ac_split_triggers_pass() -> None:
         "  Then an outcome follows.\n"
         "- When a second action happens\n"
         "  Then a second outcome follows.",
-        "- One check.\n- A second check.",
+        "- Proved by `internal/store.TestFirstOutcome`.\n"
+        "- Proved by `internal/store.TestSecondOutcome`.",
     )
     path = "docs/split-triggers.md"
     write_spec(root, path, body)
@@ -1099,7 +1101,7 @@ def test_when_prefixed_word_is_not_a_second_trigger() -> None:
     body = _granularity_body(
         "- When a request arrives\n"
         "  Then the system responds. Whenever load is high it queues first.",
-        "Body.",
+        "- Proved by `internal/store.TestWheneverQueueing`.",
     )
     path = "docs/whenever.md"
     write_spec(root, path, body)
@@ -1165,7 +1167,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/sql-tokens.md"
     write_spec(root, path, body)
@@ -1200,7 +1202,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/rfc2119.md"
     write_spec(root, path, body)
@@ -1237,7 +1239,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/names.md"
     write_spec(root, path, body)
@@ -1272,7 +1274,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/nouns.md"
     write_spec(root, path, body)
@@ -1379,7 +1381,7 @@ The consequence states the effect.
 
 ## Verification
 
-The verification states the proof.
+The verification states the proof with `internal/store.TestCurrentDecision`.
 """
 
 
@@ -1619,7 +1621,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     root = sandbox()
     path = "docs/spec-upper.md"
@@ -2044,7 +2046,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/url-tokens.md"
     write_spec(root, path, body)
@@ -2081,7 +2083,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/link-target.md"
     write_spec(root, path, body)
@@ -2121,7 +2123,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/two-sentences.md"
     write_spec(root, path, body)
@@ -2164,7 +2166,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/references.md"
     write_spec(root, path, body)
@@ -2202,7 +2204,7 @@ Body.
 
 ## Verification
 
-Body.
+- Proved by `internal/store.TestFixture`.
 """
     path = "docs/emphasis-tokens.md"
     write_spec(root, path, body)
@@ -2215,6 +2217,290 @@ Body.
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, stdout
     assert "ABBR=SPOF" in stdout, stdout
+
+
+# ---------------------------------------------------------------------------
+# Outline order and heading level on the current profile, and the
+# executable-anchor rule on Verification entries.
+# ---------------------------------------------------------------------------
+
+
+def ordered_decision_body(headings: list[tuple[int, str]]) -> str:
+    parts = ["# An ordered decision", ""]
+    for level, title in headings:
+        parts += ["#" * level + " " + title, "", "The section states its content.", ""]
+    return "\n".join(parts)
+
+
+def anchor_verification_section(body: str) -> str:
+    """Anchor the builder's Verification entry so an order or level finding
+    stands alone in the tests that target those rules."""
+    return body.replace(
+        "## Verification\n\nThe section states its content.",
+        "## Verification\n\nProved by `internal/store.TestOrderCheck`.",
+    )
+
+
+def run_current_decision(path: str, body: str) -> tuple[int, str, str]:
+    root = sandbox()
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
+    )
+    return run_checker(root, manifest)
+
+
+def test_current_decision_outline_out_of_order_fails() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (2, "Context"),
+        (2, "Verification"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (2, "Consequences"),
+    ]))
+    exit_code, stdout, _ = run_current_decision("docs/decisions/out-of-order.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-out-of-order: docs/decisions/out-of-order.md#" in line
+        and "(Decision follows Verification" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_current_decision_outline_in_order_passes_with_extra_sections() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (2, "Context"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (1, "An unrelated heading"),
+        (2, "Consequences"),
+        (3, "An unrelated subsection"),
+        (2, "Verification"),
+    ]))
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/in-order.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def test_current_decision_heading_level_three_fails() -> None:
+    body = anchor_verification_section(ordered_decision_body([
+        (3, "Context"),
+        (2, "Decision"),
+        (2, "Alternatives considered"),
+        (2, "Consequences"),
+        (2, "Verification"),
+    ]))
+    exit_code, stdout, _ = run_current_decision("docs/decisions/level-three.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-heading-level: docs/decisions/level-three.md#" in line
+        and "(Context is a level-3 heading" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_legacy_decision_order_level_and_prose_verification_stay_allowed() -> None:
+    body = ordered_decision_body([
+        (3, "Verification"),
+        (3, "Consequences"),
+        (2, "Alternatives considered"),
+        (3, "Decision"),
+        (2, "Context"),
+    ])
+    root = sandbox()
+    path = "docs/decisions/legacy-loose.md"
+    write_spec(root, path, body)
+    manifest = manifest_with(
+        root,
+        [decision_record(path, "CD-0002", profile="legacy")],
+        contract=amended_decision_contract(),
+    )
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+    assert "doc contract check passed" in stdout, stdout
+
+
+def current_decision_with_verification(verification: str) -> str:
+    return FULL_DECISION_BODY.replace(
+        "The verification states the proof with `internal/store.TestCurrentDecision`.",
+        verification,
+    )
+
+
+def test_second_verification_section_reports_duplicate() -> None:
+    body = current_decision_with_verification(
+        "Proved by `internal/store.TestCurrentDecision`."
+    ) + (
+        "\n## Verification\n\n- A second section states prose only, and a\n"
+        "  reader could trust it as proof.\n"
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/duplicate-section.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "section-duplicate: docs/decisions/duplicate-section.md#" in line
+        and "Verification appears 2 times" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_verification_entry_names_a_package_qualified_test_symbol() -> None:
+    body = current_decision_with_verification(
+        "Proved by `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`."
+    )
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/pkg-symbol.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_bare_test_symbol() -> None:
+    body = current_decision_with_verification(
+        "Proved by `TestClaimLandingTransfersOccupancyInOneTransaction`."
+    )
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/bare-symbol.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_scenario_id() -> None:
+    body = current_decision_with_verification("Proved by `WF01-capture-late-outcome`.")
+    exit_code, stdout, stderr = run_current_decision("docs/decisions/scenario-id.md", body)
+    assert exit_code == 0, (exit_code, stdout, stderr)
+
+
+def test_verification_entry_names_a_command_or_a_named_checker() -> None:
+    for index, anchor in enumerate((
+        "`go test ./internal/store/`",
+        "`python3 scripts/check-doc-contract.py`",
+        "`bun test adapter/opencode/concord.test.ts`",
+        "`check-knowledge-closure.py`",
+    )):
+        body = current_decision_with_verification(f"Proved by {anchor}.")
+        exit_code, stdout, stderr = run_current_decision(
+            f"docs/decisions/command-{index}.md", body
+        )
+        assert exit_code == 0, (anchor, exit_code, stdout, stderr)
+
+
+def test_command_shaped_token_that_names_no_check_stays_prose() -> None:
+    for index, token in enumerate((
+        "`python3 not-a-check`",
+        "`python3 scripts/`",
+        "`go tester`",
+        "`bun testing`",
+    )):
+        body = current_decision_with_verification(f"Proved by {token}.")
+        exit_code, stdout, _ = run_current_decision(
+            f"docs/decisions/not-a-command-{index}.md", body
+        )
+        assert exit_code == 1, (token, exit_code, stdout)
+        assert any(
+            "verification-entry-unanchored" in line for line in stdout.splitlines()
+        ), (token, stdout)
+
+
+def test_bare_prose_verification_entry_fails() -> None:
+    body = current_decision_with_verification(
+        "The verification names the operations and the behavior it trusts."
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/prose-verification.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored: docs/decisions/prose-verification.md#" in line
+        and "(entry 1 names no executable anchor" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_scenario_shaped_token_that_resolves_nothing_stays_prose() -> None:
+    body = current_decision_with_verification("Proved by `WF99-no-such-scenario`.")
+    exit_code, stdout, _ = run_current_decision(
+        "docs/decisions/unresolved-scenario.md", body
+    )
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    ), stdout
+
+
+def test_anchor_rule_names_the_unanchored_entry_index() -> None:
+    body = current_decision_with_verification(
+        "- Proved by `internal/store.TestFirstEntry`.\n"
+        "- The second entry names only an operation and a behavior."
+    )
+    exit_code, stdout, _ = run_current_decision("docs/decisions/two-entries.md", body)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-entry-unanchored" in line and "(entry 2 " in line
+        for line in stdout.splitlines()
+    ), stdout
+    assert not any("(entry 1 " in line for line in stdout.splitlines()), stdout
+
+
+def test_spec_verification_requires_executable_anchors() -> None:
+    """Every Verification entry in an in-scope spec names an executable
+    anchor: the prose-only entry the count comparison alone used to accept
+    now fails with verification-entry-unanchored."""
+    root = sandbox()
+    path = "docs/spec-prose-entry.md"
+    write_spec(
+        root,
+        path,
+        VALID_BODY.replace(
+            "- Proved by `internal/store.TestFixture`.",
+            "This entry names only prose, with no executable anchor.",
+        ),
+    )
+    manifest = manifest_with(root, [record(path, sha_digest="anchor1")])
+    exit_code, stdout, stderr = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout, stderr)
+    assert any(
+        "verification-entry-unanchored: docs/spec-prose-entry.md#" in line
+        and "(entry 1 names no executable anchor" in line
+        for line in stdout.splitlines()
+    ), stdout
+
+
+def test_spec_anchor_passes_on_go_test_symbol_or_validator_command() -> None:
+    """A spec Verification entry naming a Go test symbol or a validator
+    command satisfies the anchor rule, with the count comparison unchanged."""
+    for entry in (
+        "Proved by `internal/store.TestFirstEntry`.",
+        "Proved by `python3 scripts/check-doc-contract.py`.",
+    ):
+        root = sandbox()
+        path = "docs/spec-anchored.md"
+        write_spec(
+            root,
+            path,
+            VALID_BODY.replace(
+                "- Proved by `internal/store.TestFixture`.", f"- {entry}"
+            ),
+        )
+        manifest = manifest_with(root, [record(path, sha_digest="anchor3")])
+        exit_code, stdout, stderr = run_checker(root, manifest)
+        assert exit_code == 0, (entry, exit_code, stdout, stderr)
+        assert "doc contract check passed" in stdout, (entry, stdout)
+        assert not any(
+            "verification-entry-unanchored" in line for line in stdout.splitlines()
+        ), stdout
+
+
+def test_anchor_rule_keeps_the_count_comparison() -> None:
+    root = sandbox()
+    path = "docs/count-unchanged.md"
+    body = _granularity_body(
+        "- When an action happens\n  Then an outcome follows.\n"
+        "- When a second action happens\n  Then a second outcome follows.",
+        "- Proved by `internal/store.TestBothOutcomes`.",
+    )
+    write_spec(root, path, body)
+    manifest = manifest_with(root, [record(path, sha_digest="anchor2")])
+    exit_code, stdout, _ = run_checker(root, manifest)
+    assert exit_code == 1, (exit_code, stdout)
+    assert any(
+        "verification-underspecified" in line for line in stdout.splitlines()
+    ), stdout
+    assert not any(
+        "verification-entry-unanchored" in line for line in stdout.splitlines()
+    ), stdout
 
 
 def main() -> int:

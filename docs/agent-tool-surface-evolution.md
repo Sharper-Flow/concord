@@ -141,9 +141,11 @@ Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario of
 records.
 
 - Criterion 1 is proved by the validator's digest-binding checks over the
-  generated contracts and the manifest.
+  generated contracts and the manifest. Run
+  `python3 scripts/check-agent-contracts.py`.
 - Criterion 2 is proved by the validator's generated-drift checks, which fail
-  when the manifest and its artifacts disagree.
+  when the manifest and its artifacts disagree. Run
+  `python3 scripts/check-agent-contracts.py`.
 - Criterion 3 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields`
   (`internal/agent/envelope_test.go`) and the adapter contract tests' strict
   unknown-input rejection.

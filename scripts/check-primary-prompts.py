@@ -17,6 +17,8 @@ not package or install them. This check proves the example contract in CD-0154:
                      conduct corpus, not in the portable examples
   intake restriction the intake definition keeps its write and workflow
                      denials
+  repository         each coordinator that carries the Projects guidance
+                     states the cross-repository boundary (CD-0178 D2)
 """
 from __future__ import annotations
 
@@ -62,6 +64,21 @@ DELEGATION_ANCHOR_MARKERS = (
     "`dispatch_worker` among the next valid intents",
     "Size is not an exemption",
     "steps the core does not admit for dispatch",
+)
+# CD-0178 D2 and its Verification entry 7: the coordinators that carry the
+# Projects guidance must state the cross-repository boundary. The rule is a
+# deterministic presence check over the required phrases. CD-0055 D4 forbids
+# a repository check from blocking on a semantic judgment, so this checker
+# proves the statement is present and claims nothing about the absence of
+# paraphrased move instructions; the examples' own boundary wording governs
+# that. The phrases bind only the examples that carry the Projects guidance;
+# concord-0.md carries none and holds no worktree or session-move authority.
+BOUNDARY_SCOPE_FILES = ("concord-1.md", "concord-2.md")
+REQUIRED_BOUNDARY_PHRASES = (
+    "One coordinator session per repository",
+    "a second Project in another git repository",
+    "never claim or move across the boundary",
+    "this session stops driving the other repository",
 )
 
 
@@ -165,6 +182,12 @@ def check_primary_prompts(root: Path) -> list[str]:
                 for marker in DELEGATION_ANCHOR_MARKERS:
                     if marker not in flat:
                         findings.append(f"{name} lost the delegation anchor marker {marker!r}")
+            if name in BOUNDARY_SCOPE_FILES:
+                for phrase in REQUIRED_BOUNDARY_PHRASES:
+                    if phrase not in flat:
+                        findings.append(
+                            f"{name} lost the cross-repository boundary phrase {phrase!r}"
+                        )
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 

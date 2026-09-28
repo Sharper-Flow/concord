@@ -5,11 +5,13 @@ Positive scenarios run the checker against the real repository examples.
 Negative scenarios copy the examples into a temporary tree, break one invariant
 on purpose, and prove the checker reports it: a host tool name in frontmatter, a
 missing advisory handoff, duplicated conduct text, a diverged shared section,
-and a lost intake boundary.
+a lost intake boundary, a missing cross-repository boundary phrase, and a
+forbidden move-into-another-repository instruction.
 """
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import sys
 import tempfile
@@ -128,6 +130,27 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         findings = self.findings()
         self.assertTrue(any("task boundary" in finding for finding in findings))
+
+    def test_boundary_phrases_pass_on_real_examples(self) -> None:
+        self.assertEqual(self.findings(), [])
+
+    def test_missing_boundary_statement_reports(self) -> None:
+        def drop_boundary(text: str) -> str:
+            rewritten, count = re.subn(
+                r"never claim or move across the\s+boundary",
+                "follow the work into the other repository",
+                text,
+            )
+            self.assertEqual(count, 1, "fixture no longer carries the boundary statement")
+            return rewritten
+
+        self.rewrite("concord-1.md", drop_boundary)
+        findings = self.findings()
+        self.assertTrue(any(
+            "concord-1.md" in finding
+            and "cross-repository boundary phrase 'never claim or move across the boundary'" in finding
+            for finding in findings
+        ))
 
 
 if __name__ == "__main__":

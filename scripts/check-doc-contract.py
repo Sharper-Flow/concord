@@ -12,7 +12,10 @@ This validator enforces three machine-checkable layers on records whose kind
 is in scope, gating hard-fail mode behind a manifest-level flag so the
 existing corpus can dogfood the rule before it blocks CI.
 
-  outline       exact-case headings under the kind's required_sections list
+  outline       exact-case headings under the kind's required_sections list;
+                on the current profile the required sections sit in the
+                manifest's declared order at heading level 2, while a legacy
+                record keeps the presence-only rule
   decision profile
                 CD-0175: when the decision contract declares a
                 current_required_sections outline, a decision record whose
@@ -43,7 +46,11 @@ existing corpus can dogfood the rule before it blocks CI.
                 replaces the forbidden half for decisions only; the spec rule
                 is unchanged.
   ac coverage   the "Verification" section states at least as many entries as
-                there are criteria, so no criterion is left unproven
+                there are criteria, so no criterion is left unproven; on a
+                current-profile record every entry also names an executable
+                anchor - a Go test symbol, a scenario id, a validator or
+                script command, or a named checker - so the comparison
+                proves resolution and not just quantity
   ste subset    sentence length ≤ 40 words, banned phrases absent,
                 abbreviation discipline on first use
   vendor content
@@ -85,6 +92,21 @@ MAX_CRITERION_EXEMPTION = 512
 # per-predicate verdict, which this store-less checker cannot reach.
 CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
 CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$")
+# The executable-anchor shapes a Verification entry may name. Shape-only, so
+# the rule stays deterministic and storeless: a package-qualified or bare Go
+# test symbol, a validator or script command, or a named checker. A scenario
+# id resolves through the binding form the criterion bindings use; a shape
+# gate keeps that resolution to tokens shaped like the corpus's scenario ids,
+# so prose tokens never pay the corpus scan.
+GO_TEST_SYMBOL_RE = re.compile(r"^(?:[a-z0-9_][a-z0-9_./-]*\.)?Test[A-Za-z0-9_]+$")
+NAMED_CHECKER_RE = re.compile(r"^check-[A-Za-z0-9][A-Za-z0-9._-]*$")
+# A validator or script command: a repository script run by python3, or a Go
+# or Bun test run. The runner word must stand alone, so `go tester` and
+# `python3 not-a-check` name no command.
+VALIDATOR_COMMAND_RE = re.compile(
+    r"^(?:python3 scripts/[A-Za-z0-9][A-Za-z0-9._-]*\.py|go test|bun test)(?: \S.*)?$"
+)
+SCENARIO_ID_SHAPE_RE = re.compile(r"^[A-Z][A-Z0-9]{1,7}-[a-z0-9]+(?:-[a-z0-9]+)*$")
 # The record kinds a doc contract may address, in taxonomy order. A kind absent
 # from the manifest's doc_contract is not checked at all; a kind present is
 # checked against its outline, its acceptance-criteria rule, and the STE subset.
@@ -396,6 +418,61 @@ def check_required_sections(
             findings.append(f"missing-section: {path.relative_to(ROOT)} ({section})")
 
 
+def collect_heading_entries(lines: list[str]) -> list[tuple[int, str, int]]:
+    """Return (level, text, 1-based line) for every heading, in order.
+
+    The current profile's order-and-level rule reads this sequence; the
+    presence map collect_headings stays the presence-only rule's input. A
+    heading inside a fenced block opens no section and appears in neither.
+    """
+    entries: list[tuple[int, str, int]] = []
+    for index, line in outside_fences(lines):
+        match = HEADING_RE.match(line)
+        if match:
+            entries.append((len(match.group(1)), match.group(2).strip(), index))
+    return entries
+
+
+def check_outline_order_and_level(
+    heading_entries: list[tuple[int, str, int]],
+    required: list[str],
+    path: Path,
+    findings: list[str],
+) -> None:
+    """Current profile: the required outline carries its declared order and level.
+
+    Every required section sits at heading level 2, and the required sections
+    that appear do so in the manifest's declared order; an unrelated heading
+    between them disturbs nothing. A legacy record never reaches this check.
+    """
+    position = {section: index for index, section in enumerate(required)}
+    occurrences: dict[str, int] = {}
+    seen: list[tuple[int, str, int]] = []
+    for level, text, line in heading_entries:
+        if text not in position:
+            continue
+        if level != 2:
+            findings.append(
+                f"section-heading-level: {path.relative_to(ROOT)}#{line} "
+                f"({text} is a level-{level} heading; the required outline is level 2)"
+            )
+        occurrences[text] = occurrences.get(text, 0) + 1
+        if occurrences[text] > 1:
+            findings.append(
+                f"section-duplicate: {path.relative_to(ROOT)}#{line} "
+                f"({text} appears {occurrences[text]} times; each required "
+                f"section appears once)"
+            )
+        seen.append((position[text], text, line))
+    for earlier, later in zip(seen, seen[1:]):
+        if later[0] < earlier[0]:
+            findings.append(
+                f"section-out-of-order: {path.relative_to(ROOT)}#{later[2]} "
+                f"({later[1]} follows {earlier[1]}; the declared order is "
+                f"{', '.join(required)})"
+            )
+
+
 def find_section(
     lines: list[str], title: str, start_after: int = 0, exact: bool = True
 ) -> tuple[int, int] | None:
@@ -572,8 +649,33 @@ def parse_gherkin_criteria(
     return len(blocks)
 
 
+def verification_anchor(entry_text: str) -> str | None:
+    """Return the first executable anchor a Verification entry names, or None.
+
+    The shape list is closed: a Go test symbol with or without its package
+    path, a validator or script command, a named checker, and a scenario id
+    resolved through the same binding form the criterion bindings use. A
+    prose entry names none of these shapes, and that absence is the finding.
+    """
+    for span in INLINE_CODE_RE.findall(entry_text):
+        token = span.strip("`").strip()
+        if GO_TEST_SYMBOL_RE.match(token):
+            return token
+        if VALIDATOR_COMMAND_RE.match(token):
+            return token
+        if NAMED_CHECKER_RE.match(token):
+            return token
+        if SCENARIO_ID_SHAPE_RE.match(token) and resolved_scenario_exists(token):
+            return token
+    return None
+
+
 def check_verification_coverage(
-    lines: list[str], criteria_count: int, path: Path, findings: list[str]
+    lines: list[str],
+    criteria_count: int,
+    path: Path,
+    findings: list[str],
+    require_anchors: bool = False,
 ) -> None:
     """Join the acceptance criteria to the Verification section.
 
@@ -582,14 +684,28 @@ def check_verification_coverage(
     criteria than it verifies has left criteria unproven. This is a necessary
     condition only. Proving that a named artifact actually exercises a given
     criterion is the typed scenario-resolution work on issue #319.
+
+    On an in-scope record every entry also names an executable anchor, so the
+    count comparison proves resolution and not just quantity. The count
+    comparison itself is unchanged.
     """
-    if criteria_count == 0:
+    if criteria_count == 0 and not require_anchors:
         return
     section = find_section(lines, "Verification")
     if section is None:
         # check_required_sections already reports the absent section.
         return
     entries = iter_section_blocks(lines, section[0], section[1])
+    if require_anchors:
+        for number, (start_line, text_lines) in enumerate(entries, start=1):
+            if verification_anchor(" ".join(text_lines)) is None:
+                findings.append(
+                    f"verification-entry-unanchored: {path.relative_to(ROOT)}#{start_line} "
+                    f"(entry {number} names no executable anchor: a backticked "
+                    f"Go test symbol, scenario id, or command)"
+                )
+    if criteria_count == 0:
+        return
     if not entries:
         findings.append(
             f"verification-empty: {path.relative_to(ROOT)} "
@@ -1016,6 +1132,7 @@ def check_record(
 
     spec = contract[kind]
     headings = collect_headings(lines)
+    heading_entries = collect_heading_entries(lines)
     on_current_profile = (
         kind == "decision"
         and "current_required_sections" in spec
@@ -1026,14 +1143,28 @@ def check_record(
     else:
         required = spec.get("required_sections", [])
     check_required_sections(headings, required, absolute, findings)
+    if on_current_profile:
+        check_outline_order_and_level(heading_entries, required, absolute, findings)
 
+    # The anchor rule covers current-profile decisions and every spec in
+    # doc-contract scope: a count comparison proves resolution only when each
+    # entry names an executable anchor. A legacy decision keeps the
+    # presence-only contract, and the outline order/level/duplicate rules
+    # stay current-profile-decisions-only.
+    require_anchors = on_current_profile or kind == "spec"
     if spec.get("ac_required", False):
         criteria_count = check_gherkin(lines, absolute, findings)
-        check_verification_coverage(lines, criteria_count, absolute, findings)
+        check_verification_coverage(
+            lines, criteria_count, absolute, findings, require_anchors=require_anchors
+        )
         check_criterion_bindings(record, criteria_count, absolute, findings)
     elif on_current_profile:
         check_optional_decision_criteria(lines, absolute, findings)
         check_no_domain_heading(headings, absolute, findings)
+        # A current-profile decision carries no criteria, so the count
+        # comparison has nothing to compare; the anchor rule still reads its
+        # Verification entries.
+        check_verification_coverage(lines, 0, absolute, findings, require_anchors=True)
         check_criterion_bindings(record, 0, absolute, findings)
     else:
         check_no_gherkin(lines, absolute, findings)

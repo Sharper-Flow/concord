@@ -235,7 +235,8 @@ This contract must be revised or superseded when:
 
 No corpus scenario exercises the coordination view, so every criterion
 carries a typed exemption in the record naming the port test that proves
-the guarantee.
+the guarantee. `python3 scripts/check-doc-contract.py` validates those
+recorded exemptions.
 
 - Criterion 1 is proved by `TestRelationTreeSurfacesCycles`
   (`internal/launcher/storeport/port_test.go`).

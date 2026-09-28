@@ -46,7 +46,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:33d47d0c8c0c355e2e3d07ca5ce1362d82e52d946212704866731e1e35b8021c",
+  "sha256": "sha256:bc5ec424daae528f530bcc3621fe3c439cf06bcc9f8b7a2cd0d99de49c9f67f0",
   "status": "superseded",
   "successor": "terminal-launcher-replacement-contract",
   "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Superseded by the terminal launcher replacement contract under CD-0108.",

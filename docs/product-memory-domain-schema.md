@@ -240,7 +240,8 @@ caveated, and no private SaaS storage internals are inferred.
 
 The corpus scenarios are query-shaped and prove no schema-boundary claim, so
 every criterion carries a typed exemption in the record naming the store test
-that proves the guarantee.
+that proves the guarantee. `python3 scripts/check-doc-contract.py` validates
+those recorded exemptions.
 
 - Criterion 1 is proved by
   `TestRebuildRestoresWorkAndRelationProjectionsByteForByte`

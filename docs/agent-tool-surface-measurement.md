@@ -126,7 +126,9 @@ authority, and operator acceptance for Product consequences.
 
 The evidence contract is proved by the validators and corpus runner that
 enforce it, so every criterion carries a typed exemption in the record naming
-the enforcing mechanism.
+the enforcing mechanism. The runnable proofs:
+`python3 scripts/check-public-content.py` and
+`internal/agent.TestAgentJobsCorpus`.
 
 - Criterion 1 is proved by the absent-probe guard of
   `TestAgentJobsCorpus` (`internal/agent/agent_jobs_corpus_test.go`), whose
@@ -134,8 +136,11 @@ the enforcing mechanism.
 - Criterion 2 is a law about what cannot authorize; it is enforced
   structurally by the corpus being the only accepted evidence path in CI
   (`.github/workflows/ci.yml`), with no model-trial gate in any workflow.
+  The corpus path executes as `internal/agent.TestAgentJobsCorpus`.
 - Criterion 3 is proved by the recorded operator acceptance on the
   domain-overlap change (issue #195, cited in TS1's approved amendments).
+  The recorded exemption is validated by
+  `python3 scripts/check-doc-contract.py`.
 - Criterion 4 is proved by the operational-plane boundary checks in
-  `scripts/check-public-content.py` and the corpus runner's recorded
+  `python3 scripts/check-public-content.py` and the corpus runner's recorded
   measurements, which carry typed structural facts only.

@@ -375,7 +375,8 @@ compatibility treatment. Prose convenience is not sufficient evidence.
 
 The envelope is a per-call property below scenario grain, so every criterion
 carries a typed exemption in the record naming the envelope test that proves
-the guarantee.
+the guarantee. `python3 scripts/check-doc-contract.py` validates those
+recorded exemptions.
 
 - Criterion 1 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields` and
   `TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome`

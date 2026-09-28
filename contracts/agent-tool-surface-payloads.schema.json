@@ -4049,6 +4049,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "evidence": {
           "type": "array",
           "maxItems": 32,
@@ -4107,6 +4110,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -4416,6 +4422,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -5565,6 +5574,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
@@ -5584,6 +5596,9 @@
       "properties": {
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -5614,6 +5629,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -5729,6 +5747,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -5839,6 +5860,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -5865,6 +5889,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -5957,6 +5984,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6037,6 +6067,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6068,6 +6101,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "revision": {
           "type": "integer",
@@ -6689,6 +6725,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6718,6 +6757,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -6849,6 +6891,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6878,6 +6923,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -7483,6 +7531,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7975,6 +8026,9 @@
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -8439,7 +8493,6 @@
           "default": false
         },
         "approval": {
-          "description": "The operator approval a non-terminal or destructive removal consumes.",
           "$ref": "#/$defs/approval"
         },
         "idempotency_key": {
@@ -8512,6 +8565,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -13353,6 +13409,9 @@
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"

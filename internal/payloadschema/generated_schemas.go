@@ -1473,6 +1473,9 @@ const GeneratedPayloadSchemaDocument = `{
     "domain_observation_record_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "domain_id": {
           "$ref": "#/$defs/id"
         },
@@ -2017,6 +2020,9 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_create_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "external_ref": {
           "$ref": "#/$defs/short"
         },
@@ -5269,6 +5275,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_issue_adopt_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -5316,6 +5325,9 @@ const GeneratedPayloadSchemaDocument = `{
         }
       ],
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "external": {
           "additionalProperties": false,
           "oneOf": [
@@ -5507,6 +5519,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_research_finding_record_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -5541,6 +5556,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_research_freshness_set_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -5578,6 +5596,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_research_pack_create_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "freshness": {
           "enum": [
             "current",
@@ -5609,6 +5630,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_research_revision_append_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -5636,6 +5660,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_research_source_record_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -5663,6 +5690,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_define_revise_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "evidence": {
           "items": {
             "$ref": "#/$defs/evidence"
@@ -6553,6 +6583,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_relate_message_send_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "body": {
           "maxLength": 4096,
           "minLength": 1,
@@ -6588,6 +6621,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_relate_message_withdraw_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -6821,6 +6857,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_relate_resource_claim_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -6857,6 +6896,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_relate_resource_release_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "expected_version": {
           "$ref": "#/$defs/version"
         },
@@ -11669,6 +11711,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_session_vacate_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -11684,6 +11729,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_worker_abandon_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "attempt_id": {
           "$ref": "#/$defs/id"
         },
@@ -11715,6 +11763,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_worktree_audit_reclaim_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "default_ref": {
           "$ref": "#/$defs/short"
         },
@@ -11741,6 +11792,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_worktree_claim_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "base_sha": {
           "maxLength": 64,
           "minLength": 40,
@@ -11781,8 +11835,7 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "approval": {
-          "$ref": "#/$defs/approval",
-          "description": "The operator approval a non-terminal or destructive removal consumes."
+          "$ref": "#/$defs/approval"
         },
         "default_ref": {
           "description": "Optional merge target ref. The default branch of origin resolves when empty.",
@@ -11820,6 +11873,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_worktree_reclaim_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "default_ref": {
           "$ref": "#/$defs/short"
         },
@@ -11850,6 +11906,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_transition_worktree_verify_input": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
         "command": {
           "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
           "items": {

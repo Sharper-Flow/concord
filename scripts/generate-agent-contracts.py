@@ -520,6 +520,18 @@ def check_evidence_bound_parity(payload: dict, envelope: dict) -> None:
                 f"{json.dumps(envelope_bound, ensure_ascii=False, sort_keys=True)}"
             )
 
+def require_mutation_approval_property(operation: dict, input_schema: dict) -> None:
+    """Every mutation can reach the cross-Product approval escalation: the
+    runtime forces requiresApproval whenever the derived Product scope crosses
+    the selected Product, and the approved resubmission carries the core-issued
+    reference in input.approval. So every mutation input must declare the
+    optional typed approval property — a $defs/approval ref, never required —
+    or generation fails before the declared surface and the runtime rule can
+    disagree."""
+    approval_schema = input_schema.get("properties", {}).get("approval")
+    if approval_schema != {"$ref": "#/$defs/approval"} or "approval" in input_schema.get("required", []):
+        fail(f"mutation must expose an optional typed approval property: {operation['id']}")
+
 def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
@@ -604,10 +616,8 @@ def validate(manifest: dict) -> str:
         branch_required=[set(branch.get("required",[])) for branch in input_schema.get("oneOf",[])]
         has_idempotency="idempotency_key" in input_schema.get("required",[]) or bool(branch_required and all("idempotency_key" in branch for branch in branch_required))
         if op["kind"] == "mutation" and not has_idempotency: fail(f"mutation lacks idempotency identity: {op['id']}")
-        if op["approval"] == "required":
-            approval_schema = input_schema.get("properties", {}).get("approval")
-            if approval_schema != {"$ref": "#/$defs/approval"} or "approval" in input_schema.get("required", []):
-                fail(f"required-approval operation must expose an optional typed approval property: {op['id']}")
+        if op["kind"] == "mutation":
+            require_mutation_approval_property(op, input_schema)
         if not result_schema.get("required"): fail(f"result schema lacks required fields: {op['id']}")
     unsigned = dict(manifest); unsigned.pop("digest", None)
     return "sha256:" + hashlib.sha256(canonical(unsigned)).hexdigest()

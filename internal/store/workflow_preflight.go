@@ -502,7 +502,10 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 				return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
 			}
 		}
-	} else if !workflowActionAllowsTerminalRecovery(request) && !lateVerdictRecovery {
+	} else if !workflowActionAllowsTerminalRecovery(request) {
+		// The boundary holds every action except the terminal cancel/supersede
+		// escape, late verdict recovery included: recovery admits the late
+		// timing, never a stale pin (CD-0041 D7).
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			return RegisteredDefinition{}, err
 		}

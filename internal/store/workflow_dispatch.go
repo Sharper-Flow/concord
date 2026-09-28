@@ -340,6 +340,12 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		if err := guardLateVerdictRecovery(guards); err != nil {
 			return result, err
 		}
+		// Recovery admits the late timing only. A verdict is a consequential
+		// action (CD-0041 D7), so the stale law and Domain registry boundary
+		// holds it exactly as it holds a verdict at its own step.
+		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+			return result, err
+		}
 	} else if !guards.staleRecovery && !workflowExecutionAllowsStaleRecovery(request.ActionID, request.Payload) {
 		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
 			return result, err

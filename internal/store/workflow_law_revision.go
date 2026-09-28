@@ -479,6 +479,11 @@ func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, wo
 	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
+// workflowActionAllowsTerminalRecovery reports a complete action whose
+// terminal_state cancels or supersedes the work. That closure records no
+// verdict and advances no approved law, so the staleness boundary does not
+// hold it: the operator keeps one route that retires an item a registry
+// rescan stranded without re-pinning it. Every other complete checks.
 func workflowActionAllowsTerminalRecovery(request WorkflowActionPreflightRequest) bool {
 	if request.ActionID != "complete" {
 		return false
@@ -491,6 +496,10 @@ func workflowActionAllowsTerminalRecovery(request WorkflowActionPreflightRequest
 	return terminalState == "cancelled" || terminalState == "superseded"
 }
 
+// workflowExecutionAllowsStaleRecovery is the dispatch-side twin of
+// workflowActionAllowsTerminalRecovery: the same terminal cancel/supersede
+// completion skips the staleness check inside the owning transaction, so both
+// surfaces answer the escape identically.
 func workflowExecutionAllowsStaleRecovery(actionID string, payload []byte) bool {
 	if actionID != "complete" {
 		return false

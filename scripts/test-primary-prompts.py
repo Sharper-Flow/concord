@@ -195,6 +195,18 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         )
         self.assertTrue(any("claim a worktree in the other repository" in s for s in sentences))
 
+    def test_prohibition_does_not_mask_affirmative_conjunction(self) -> None:
+        sentences = check_primary_prompts.forbidden_move_sentences(
+            "Do not claim a worktree in another repository but move this session into the other repository."
+        )
+        self.assertTrue(any("move this session into the other repository" in s for s in sentences))
+
+    def test_target_pronoun_after_repository_clause_is_a_crossing(self) -> None:
+        sentences = check_primary_prompts.forbidden_move_sentences(
+            "When a second Project is in another repository, move the session there from this coordinator."
+        )
+        self.assertTrue(any("move the session there" in s for s in sentences))
+
     def test_within_repository_move_is_not_a_crossing(self) -> None:
         sentences = check_primary_prompts.forbidden_move_sentences(
             "In another repository, move between worktrees within that repository."

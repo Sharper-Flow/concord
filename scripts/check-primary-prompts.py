@@ -92,6 +92,12 @@ CLAIM_OR_MOVE_RE = re.compile(
 PROHIBITIVE_RE = re.compile(
     r"\b(?:never|not|no|refuse[sd]?|cannot|stop[s]?|forbid[s]?)\b", re.IGNORECASE
 )
+# A move clause whose target is only a pronoun ('move the session there',
+# 'relocate into it') crosses when the same sentence names another
+# repository; the pronoun carries that reference.
+TARGET_PRONOUN_RE = re.compile(
+    r"\b(?:there|into it|to it)\b", re.IGNORECASE
+)
 
 
 def forbidden_move_sentences(text: str) -> list[str]:
@@ -102,13 +108,24 @@ def forbidden_move_sentences(text: str) -> list[str]:
     not sentences, keeps a prohibitive word in one clause from masking an
     affirmative instruction in another ('Do not wait; claim a worktree in
     the other repository'), and keeps a repository named in one clause from
-    turning a move in a different clause into a crossing.
+    turning a move in a different clause into a crossing. A clause whose
+    action verb carries only a target pronoun ('move the session there') is
+    a crossing when any earlier clause of the same sentence names another
+    repository.
     """
     findings: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+|\n", flatten(text)):
-        for clause in re.split(r"[;:]\s*|,\s+", sentence):
+        sentence_names_other_repository = False
+        for clause in re.split(r"[;:]\s*|,\s+|\s(?:but|and|or|then)\s", sentence):
+            if OTHER_REPOSITORY_RE.search(clause):
+                sentence_names_other_repository = True
+            crossing_named = bool(OTHER_REPOSITORY_RE.search(clause))
+            crossing_by_pronoun = bool(
+                TARGET_PRONOUN_RE.search(clause)
+                and sentence_names_other_repository
+            )
             if (
-                OTHER_REPOSITORY_RE.search(clause)
+                (crossing_named or crossing_by_pronoun)
                 and CLAIM_OR_MOVE_RE.search(clause)
                 and not PROHIBITIVE_RE.search(clause)
             ):

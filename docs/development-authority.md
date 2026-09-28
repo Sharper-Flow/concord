@@ -293,7 +293,8 @@ mechanisms retain their own verification contracts. Those contracts include
 
 - Criterion 1: review the authority table against CD-0121 D1. Runtime routing
   requires separate evidence; this amendment establishes its policy owner.
-  Artifact check: `python3 scripts/check-knowledge-index.py`.
+  The records this section cites resolve with matching digests:
+  `python3 scripts/check-knowledge-index.py`.
 - Criterion 2: a merge claim requires the public pull request and required
   checks. Document-link validation alone is not proof of a particular merge.
   That document-link validation runs as `python3 scripts/check-doc-links.py`.
@@ -305,7 +306,8 @@ mechanisms retain their own verification contracts. Those contracts include
   `python3 scripts/check-knowledge-index.py` validates the declared knowledge graph.
 - Criterion 5: existing session identity evidence remains required. Local and
   Linear planning linkage need mode-specific implementation evidence.
-  Artifact check: `python3 scripts/check-knowledge-index.py`.
+  The records this section cites resolve with matching digests:
+  `python3 scripts/check-knowledge-index.py`.
 - Criterion 6: typed workflow records supply transition and verdict evidence.
   The generated agent contracts and store workflow tests retain that scope.
   `python3 scripts/check-agent-contracts.py` validates the generated contracts,
@@ -332,17 +334,20 @@ mechanisms retain their own verification contracts. Those contracts include
   `internal/store.TestPlanningModeResolutionRefusesAmbiguityAndMissingSetup`.
 - Criterion 13: a migration requires its own approved contract and verified
   identity mapping. This amendment executes no migration.
-  Artifact check: `python3 scripts/check-knowledge-index.py`.
+  The records this section cites resolve with matching digests:
+  `python3 scripts/check-knowledge-index.py`.
 - Criterion 14: review the outside-work boundary against CD-0122 D1. Host
   permissions remain authoritative, and no Concord evidence is created.
-  Artifact check: `python3 scripts/check-knowledge-index.py`.
+  The records this section cites resolve with matching digests:
+  `python3 scripts/check-knowledge-index.py`.
 - Criterion 15: review the defect-repair application against CD-0122 D2.
   Repository isolation and public review evidence remain required. Isolation
   mechanics are exercised by
   `internal/store.TestClaimWorktreeStillRefusesForeignWorkOccupancy`.
 - Criterion 16: review host-role preservation against CD-0122 D3. This policy
   changes no host-owned permission, session, directory, or participation rule.
-  Artifact check: `python3 scripts/check-knowledge-index.py`.
+  The records this section cites resolve with matching digests:
+  `python3 scripts/check-knowledge-index.py`.
 - Criterion 17: review the CD-0155 boundary as amended by CD-0167 and the
   Product boundary above. Runtime routing must separately prove both
   recorded-mode destinations, owning-Product scoping in the store, the

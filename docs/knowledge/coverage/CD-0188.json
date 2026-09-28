@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/linearclient.TestCreateProjectSendsClientUUIDAndContentFields"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/linearclient.TestUpdateProjectAddressesTheRemoteUUID"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0188",
+  "state": "satisfied"
+}

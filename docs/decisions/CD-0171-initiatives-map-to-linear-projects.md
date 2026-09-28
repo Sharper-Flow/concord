@@ -8,6 +8,7 @@
   [Concord (CON) issue 422](https://linear.app/sharper-flow/issue/CON-422), after
   research recorded under [CON-425](https://linear.app/sharper-flow/issue/CON-425).
 - **Related:** CD-0041, CD-0121
+- **Amended by:** [CD-0188](CD-0188-cd-0171-d2-initiative-narrative-maps-to-project-content.md) at D2's third sentence: the Initiative narrative becomes the Project content, and the Project description holds only legacy text a pre-import Project carried.
 
 ## Context
 

@@ -1451,12 +1451,42 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
 async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, abandonInput: { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }, lane: AgentLane, token: string, requestID: string, refusedMessage: string): Promise<HostConcordEnvelope> {
   const steps: string[] = []
   const recoveryNotices = (): Array<Record<string, unknown>> => steps.map((taken) => ({ kind: "worker_abandon_recovery", source_id: "adapter", details: { step: taken } }))
+  // The re-land returns the session to the claimed worktree the vacate moved
+  // it out of, so the recovery leaves it where it started. A refused abandon
+  // retry needs it as much as a closed one: after the vacate the session sits
+  // at the registered main checkout, so stopping there strands the
+  // coordinator — the re-land runs before that stop too, and its outcome
+  // rides the answer as a step either way.
+  const reland = async (): Promise<void> => {
+    const relandWarnings: string[] = []
+    try {
+      const relanded = await executeWorkStart({ work_id: abandonInput.work_id }, context, relandWarnings)
+      if (record(relanded) && relanded.outcome === "ok") {
+        steps.push(`work_start: the session re-landed in ${typeof relanded.worktree_path === "string" ? relanded.worktree_path : "the claimed worktree"}`)
+      } else {
+        const failure = record(relanded) && record(relanded.error) ? relanded.error : null
+        const detail = failure && typeof failure.message === "string" ? failure.message : "no diagnostic"
+        steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
+    }
+    for (const warning of relandWarnings) steps.push(`work_start warning: ${warning}`)
+  }
   // 1. session_vacate: the named release route. The composed route records
   // the release at the core and moves the session to the registered main
   // checkout the core derives, never a destination this adapter names.
   const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-abandon-vacate` } }
+  let vacateCommitted = false
   try {
     const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
+    if (!record(vacated) || vacated.outcome !== "ok") {
+      const failure = record(vacated) && record(vacated.error) ? vacated.error : null
+      const detail = failure && typeof failure.message === "string" ? failure.message : "the core refused the vacate"
+      throw new Error(detail)
+    }
+    vacateCommitted = true
     const moved = await moveSessionToRegisteredMainCheckout(vacateArgs, context, vacated)
     if (!record(moved) || moved.outcome !== "ok") {
       const failure = record(moved) && record(moved.error) ? moved.error : null
@@ -1465,7 +1495,12 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
+    // A committed core vacate released the occupancy row durably even when
+    // its host move or readback failed afterwards, so the stop reports a
+    // possible effect and names the committed release as a step (TS7
+    // durable-outcome honesty); a refusal before the write keeps none.
+    if (vacateCommitted) steps.push("session_vacate: the calling session's occupancy row is released at the core")
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, vacateCommitted ? "possible" : "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("session_vacate: the calling session's occupancy row is released and the session moved to the registered main checkout")
   // 2. one abandon retry. The identity derives from the same idempotency key,
@@ -1483,12 +1518,17 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
   // retry (transport, signing, or a durable gate that still refuses).
   if (!retry.error || retry.error.retry_safe !== false) {
     const retryMessage = retry.error?.message ?? "the abandon retry returned no diagnostic"
+    // The vacate moved this session to the registered main checkout, so the
+    // re-land runs before the stop: a refusal that ended at the main checkout
+    // would strand the coordinator away from its claimed worktree.
+    await reland()
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery released the occupancy row, but the abandon retry still refused: ${retryMessage}`, "none", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("worker_abandon: the retry closed the dispatched attempt")
   // 3. the durable receipt, the same route the direct-accept path records.
   const receipt = await invokeConcordOperation("concord_work_transition", args, context)
   if (receipt.outcome !== "ok") {
+    await reland()
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_receipt", ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
@@ -1496,16 +1536,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
   // 4. work_start re-land: the session returns to the claimed worktree it
   // vacated, so the recovery leaves it where it started. A refusal here
   // leaves the closed attempt standing and rides the answer as a step.
-  const relandWarnings: string[] = []
-  const relanded = await executeWorkStart({ work_id: abandonInput.work_id }, context, relandWarnings)
-  if (record(relanded) && relanded.outcome === "ok") {
-    steps.push(`work_start: the session re-landed in ${typeof relanded.worktree_path === "string" ? relanded.worktree_path : "the claimed worktree"}`)
-  } else {
-    const failure = record(relanded) && record(relanded.error) ? relanded.error : null
-    const detail = failure && typeof failure.message === "string" ? failure.message : "no diagnostic"
-    steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
-  }
-  for (const warning of relandWarnings) steps.push(`work_start warning: ${warning}`)
+  await reland()
   return { ...receipt, warnings: [...(Array.isArray(receipt.warnings) ? receipt.warnings : []), ...recoveryNotices()] } as HostConcordEnvelope
 }
 

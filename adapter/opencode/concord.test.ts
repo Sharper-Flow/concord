@@ -2774,6 +2774,96 @@ test("an own-row recovery stops at session_vacate when the vacate does not land"
   expect(calls.filter((command) => command === "worker-abandon")).toHaveLength(1)
 })
 
+test("an own-row recovery reports a committed vacate when the host move fails", async () => {
+  const sessionID = "session-abandon-own-row-move-fails"
+  const ownRowRefusal = `concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree; its host process 4242 is still live`
+  hostControlPlane().bind({
+    post: async () => { throw new Error("host move failed") },
+    get: async ({ path }) => ({ data: { id: path?.id, directory: WORKTREE, metadata: {} }, response: new Response(null, { status: 200 }) }),
+  })
+  const calls: string[] = []
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      calls.push(argv[1])
+      if (argv[1] === "worker-abandon") return { exitCode: 1, stdout: "", stderr: ownRowRefusal }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke" && (JSON.parse(input) as { operation: string }).operation === "session_vacate") {
+        return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: WORKTREE, destination_directory: "/data/repo-main" }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    } },
+  })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", {
+    work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-move-failed-1",
+  }), { ...landedContextFor(), sessionID }))
+  expect(result.outcome).toBe("error")
+  expect(result.error.effect_state).toBe("possible")
+  expect(result.error.details.recovery_stopped_at).toBe("session_vacate")
+  expect(result.error.details.recovery_steps).toContain("session_vacate: the calling session's occupancy row is released at the core")
+  expect(result.error.message).toContain("host move failed")
+  expect(calls).toEqual(["worker-abandon", "project-resolve", "invoke"])
+})
+
+test("an own-row recovery re-lands before it stops on an abandon retry refusal", async () => {
+  const MAIN_CHECKOUT = "/data/repo-main"
+  const sessionID = "session-abandon-own-row-retry-refuses"
+  let sessionDirectory = WORKTREE
+  let metadata: Record<string, unknown> = {}
+  const moves: string[] = []
+  hostControlPlane().bind({
+    post: async ({ body }) => {
+      const destination = (body as { destination: { directory: string } }).destination.directory
+      moves.push(destination)
+      sessionDirectory = destination
+      return { response: new Response(null, { status: 204 }) }
+    },
+    get: async ({ path }) => ({ data: { id: path?.id, directory: sessionDirectory, metadata }, response: new Response(null, { status: 200 }) }),
+    patch: async ({ body }) => {
+      metadata = (body as { metadata?: Record<string, unknown> }).metadata as Record<string, unknown>
+      return { response: new Response(null, { status: 200 }) }
+    },
+  })
+  const ownRowRefusal = `concord worker-abandon: store: worker_fail: worktree_ownership_conflict: session ${sessionID} still holds the worker attempt worktree; its host process 4242 is still live`
+  const calls: string[] = []
+  let abandonCalls = 0
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv, input) {
+      const command = argv[1]
+      calls.push(command)
+      if (command === "worker-abandon") {
+        abandonCalls++
+        return { exitCode: 1, stdout: "", stderr: ownRowRefusal }
+      }
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "invoke") {
+        const operation = (JSON.parse(input) as { operation: string }).operation
+        if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: WORKTREE, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      }
+      if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    } },
+  })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", {
+    work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-retry-refuses-1",
+  }), { ...landedContextFor(), sessionID }))
+  expect(result.outcome).toBe("error")
+  expect(result.error.details.recovery_stopped_at).toBe("worker_abandon_retry")
+  const steps = result.error.details.recovery_steps as string[]
+  expect(steps[0]).toContain("session_vacate:")
+  expect(steps.some((step) => step.startsWith("work_start: the session re-landed in "))).toBe(true)
+  expect(steps[steps.length - 1]).toMatch(/^work_start:/)
+  expect(moves).toEqual([MAIN_CHECKOUT, WORKTREE])
+  expect(abandonCalls).toBe(2)
+  expect(calls).toEqual([
+    "worker-abandon", "project-resolve", "invoke", "worker-abandon",
+    "project-resolve", "work-resume", "session-prepare", "claim-landing",
+  ])
+})
+
 test("portable continuation posture leaves host protocol names to the host surface", () => {
   for (const hostTerm of [
     "Concord",

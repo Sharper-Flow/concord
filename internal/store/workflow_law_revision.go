@@ -395,6 +395,14 @@ func workflowContractRecoveryStaleness(err error, workID string) bool {
 }
 
 func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	return checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, workID, workflowStalePinAdmitNone)
+}
+
+// checkWorkflowLawRevisionStalenessAdmittingTx is the same staleness boundary
+// with one admission extension the workflow-action surfaces pass. Attempt
+// disposition admits a stale registry pin whose marker names workID itself;
+// a peer's stale pin, a stale law revision, and every other refusal stand.
+func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx *sql.Tx, workID string, admission workflowStalePinAdmission) error {
 	var mandateJSON string
 	// This boundary reads the law revisions that one approved contract pins.
 	// An absent projection pins nothing, and an ambiguous one names no single
@@ -429,7 +437,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 		return mandateErr
 	}
 	if len(mandated) == 0 {
-		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
+		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
 	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 	if err != nil {
@@ -440,7 +448,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 		return err
 	}
 	if stale == nil {
-		return CheckWorkflowDomainOverlapTx(ctx, tx, workID)
+		return checkWorkflowDomainOverlapTxAdmitting(ctx, tx, workID, admission)
 	}
 	failure := newFailure(KindStaleLawRevision, "check_workflow_law_revision", "workflow contract consumes a superseded law revision", false, "request_approval")
 	failure.StaleLawRevision = stale

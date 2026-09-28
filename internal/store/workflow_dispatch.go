@@ -347,7 +347,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 			return result, err
 		}
 	} else if !guards.staleRecovery {
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
+		// CD-0041 D7: the boundary holds every advancing action. Attempt
+		// disposition records facts about attempts made under the pinned
+		// contract, so the subject's own stale pin admits it and the enclosed
+		// item settles its attempt; contract judgment keeps the refusal.
+		if err := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, request.WorkID, workflowActionStalePinAdmission(request.ActionID)); err != nil {
 			return result, err
 		}
 	}

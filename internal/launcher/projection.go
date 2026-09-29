@@ -2,7 +2,6 @@ package launcher
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -68,15 +67,16 @@ func projectPortfolio(snapshot Snapshot) Projection {
 	return Projection{Columns: columns, Rows: rows, Markers: markers}
 }
 
-// projectWorkList renders the Product screen's work list sorted by
-// updated_at descending (the default MRU ordering), one row per work item:
-// number, readiness marker, the linked Linear key when linked, the title,
-// and the blocking ticket reference, with relative updated and live-session
-// columns. The Work cell bounds itself so the Updated and Live cells seat on
-// every row at every supported width.
+// projectWorkList renders the Product screen's work list in the order the
+// store returned, one row per work item: number, readiness marker, the linked
+// Linear key when linked, the title, and the blocking ticket reference, with
+// relative updated and live-session columns. The store alone orders the work
+// list (CD-0048 D3), so the projection never re-sorts and the display order
+// is the stored order by construction. The Work cell bounds itself so the
+// Updated and Live cells seat on every row at every supported width.
 func projectWorkList(snapshot Snapshot, width int, measure CellMeasure) Projection {
 	columns := []string{"Work", "Updated", "Live"}
-	ranked := SortRankedByRecency(snapshot.Ranked)
+	ranked := snapshot.Ranked
 	now := relativeTimeNow()
 	updatedWidth, liveWidth := measure(columns[1]), measure(columns[2])
 	for _, item := range ranked {
@@ -117,28 +117,6 @@ func projectWorkList(snapshot Snapshot, width int, measure CellMeasure) Projecti
 		markers = append(markers, "")
 	}
 	return Projection{Columns: columns, Rows: rows, Markers: markers}
-}
-
-// SortRankedByRecency orders work rows most-recently-updated first and
-// returns the ordered copy: an unparsable or absent updated_at sorts last,
-// and equal keys keep their given order. The read port cuts its bounded page
-// by the same key, so the display order and the page cut agree.
-func SortRankedByRecency(ranked []RankedWork) []RankedWork {
-	out := append([]RankedWork(nil), ranked...)
-	sort.SliceStable(out, func(i, j int) bool {
-		ti, tj := parseTime(out[i].UpdatedAt), parseTime(out[j].UpdatedAt)
-		if ti.Equal(tj) {
-			return false
-		}
-		if ti.IsZero() {
-			return false
-		}
-		if tj.IsZero() {
-			return true
-		}
-		return ti.After(tj)
-	})
-	return out
 }
 
 func parseTime(value string) time.Time {

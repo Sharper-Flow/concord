@@ -118,8 +118,16 @@ func TestLauncherProductAndSearchProjectionsAreBoundedAndScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(limited.Works) != 1 || !containsString(limited.Omissions, "Product work omitted by launcher limit") {
-		t.Fatalf("work limit must remain visible: %#v", limited)
+	// The active segment is the Product's complete set: no limit cuts it and
+	// no omission-by-limit state exists for it. The bounded terminal segment
+	// keeps its visible truncation (TestLauncherProductDrillDownIncludesTerminalWork).
+	if len(limited.Works) != 2 {
+		t.Fatalf("active work must drain completely: %#v", limited.Works)
+	}
+	for _, omission := range limited.Omissions {
+		if strings.Contains(omission, "Product work omitted") {
+			t.Fatalf("active work carried an omission-by-limit state: %v", limited.Omissions)
+		}
 	}
 	search, err := s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocked", Limit: 20})
 	if err != nil {
@@ -706,55 +714,6 @@ func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
 	} {
 		_, err := s.QueryQ4(context.Background(), req)
 		assertFailureKind(t, err, KindInvalidFilter)
-	}
-}
-
-// TestLauncherProductWorkSegmentIsRecencyOrdered proves the default MRU
-// ordering: the active work segment sorts by updated_at descending with id
-// breaking ties, so the bounded page cut and the displayed order agree.
-func TestLauncherProductWorkSegmentIsRecencyOrdered(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	defer s.Close()
-	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
-		INSERT INTO fold_guard(active) VALUES (1);
-		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('rec','Recency','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
-		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('rec-project','Recency project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES ('rec','rec-project','primary');
-		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
-		('rec-old','task','Oldest','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z'),
-		('rec-new','bug','Newest','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-09T00:00:00Z'),
-		('rec-mid','task','Middle','needed',1,1,'2026-08-01T00:00:00Z','2026-08-05T00:00:00Z'),
-		('rec-tie','task','Tied','needed',1,1,'2026-08-01T00:00:00Z','2026-08-05T00:00:00Z');
-		INSERT INTO work_projects(work_id,project_id,role) VALUES
-		('rec-old','rec-project','primary'),('rec-new','rec-project','primary'),
-		('rec-mid','rec-project','primary'),('rec-tie','rec-project','primary');
-	`); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
-		}
-	}()
-	result, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "rec", Limit: 20, Depth: 3})
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantOrder := []string{"rec-new", "rec-mid", "rec-tie", "rec-old"}
-	if len(result.Works) != len(wantOrder) {
-		t.Fatalf("works=%#v", result.Works)
-	}
-	for i, id := range wantOrder {
-		if result.Works[i].ID != id {
-			t.Fatalf("work %d = %s, want %s (most recently updated first)", i, result.Works[i].ID, id)
-		}
-	}
-	for _, key := range result.OrderingKeys {
-		if key != "updated_at" && key != "id" {
-			t.Fatalf("ordering keys = %v, want the recency ordering", result.OrderingKeys)
-		}
 	}
 }
 

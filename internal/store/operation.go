@@ -363,6 +363,52 @@ func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return attributeFailure(err, event, stage)
 	}
+	if err := advanceWorkLastActivity(ctx, tx, prepared.current); err != nil {
+		stage := StageFold
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Stage != "" {
+			stage = failure.Stage
+		}
+		return attributeFailure(err, event, stage)
+	}
+	return nil
+}
+
+// lastActivityLayout is RFC3339 with a fixed nine-digit fraction. Format pads
+// trailing zeros, so equal-width stamps compare in text order exactly as
+// their times order and SQLite can own the work-list ordering directly on the
+// stored column.
+const lastActivityLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// advanceWorkLastActivity moves the subject work item's stored last-activity
+// marker forward to the event's occurrence time. Every work_item-subject
+// event except work.removed advances it — work.removed folds the row away —
+// and an event of any other subject type matches no work_items row, so the
+// identity match bounds the update. The marker carries the newest event time
+// the fold has observed; updated_at keeps its versioned-write meaning.
+//
+// The advance belongs to the fold contract from migration 108 on. A database
+// still below that version folds its historical kinds exactly as its own
+// fold generation did, without the column, and its migration backfills the
+// column from the log when it lands.
+func advanceWorkLastActivity(ctx context.Context, tx *sql.Tx, event Event) error {
+	if event.Kind == WorkRemoved {
+		return nil
+	}
+	present, err := columnPresent(ctx, tx, "work_items", "last_activity_at")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	stamp := event.OccurredAt.UTC().Format(lastActivityLayout)
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE work_items SET last_activity_at=? WHERE id=? AND last_activity_at < ?`,
+		stamp, event.SubjectID, stamp); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot advance the work item's last activity", true,
+			"retry once the database is writable", err)
+	}
 	return nil
 }
 

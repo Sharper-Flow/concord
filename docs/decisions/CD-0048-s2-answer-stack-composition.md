@@ -1,6 +1,6 @@
 # CD-0048: S2 composes the answers the store already materialized
 
-- **Status:** Accepted (amended 2026-09-26)
+- **Status:** Accepted (amended 2026-09-26, 2026-09-28)
 - **Date:** 2026-08-20
 - **Scope:** `docs/terminal-launcher-contract.md` §5 Tab semantics and S2
   composition; issue #228
@@ -55,10 +55,10 @@ Amended 2026-09-26: the launcher no longer renders S2 as a panel stack. Per
 CD-0108 D2 as amended, each Product screen renders one work list; the
 governing Domain and its overlap state surface as a single line only when an
 unresolved overlap exists; blocked and next state carry through the work
-list's readiness markers, blocking ticket references, and `updated_at`-descending
-ordering. The Context table above still holds: every §13 answer remains
-materialized by the store before the launcher renders, and the launcher adds
-no computation over it.
+list's readiness markers, blocking ticket references, and stored
+last-activity ordering. The Context table above still holds: every §13
+answer remains materialized by the store before the launcher renders, and
+the launcher adds no computation over it.
 
 ### D2. Quiet means healthy
 
@@ -69,10 +69,15 @@ state, and redraw over unchanged state stays byte-identical.
 
 ### D3. Ordering stays store-owned
 
-Amended 2026-09-26: the work list orders by stored `updated_at` descending
-with a deterministic tiebreak. Recency is a stored column, not a launcher
-inference; no launcher-side score, weighting, or model-assigned ordering
-exists, and §12.6 applies unchanged.
+Amended 2026-09-26; amended 2026-09-28: the work list orders by stored
+`last_activity_at` descending with a deterministic id tiebreak. The store
+advances `last_activity_at` in the event fold for every work_item-subject
+event except `work.removed`, and stores it fixed width so SQLite's text
+order equals time order. Recency is a stored column, not a launcher
+inference: the launcher re-sorts nothing, renders the Product's complete
+active set with no omission-by-limit state, and `updated_at` keeps its
+versioned-write meaning. No launcher-side score, weighting, or
+model-assigned ordering exists, and §12.6 applies unchanged.
 
 ### D4. §5's Tab row realigns with the successor contract
 
@@ -129,7 +134,11 @@ already narrows the launcher to status plus resume.
 - Rendering after the amendment is proved by
   `TestDomainContextRendersOnlyWhenAbnormal`,
   `TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive`,
-  `TestWorkListProjectionIsRecencyOrdered`, and `TestWorkListRedrawIsByteIdentical`
+  `TestWorkListProjectionKeepsTheStoreOrder`, and `TestWorkListRedrawIsByteIdentical`
   (`internal/launcher`, `internal/launcher/render/bubbletea`): abnormal-only
-  Domain lines, store-materialized row values, recency ordering, and
-  byte-identical redraw over unchanged state.
+  Domain lines, store-materialized row values, the store's last-activity
+  ordering rendered without a launcher-side re-sort, and
+  byte-identical redraw over unchanged state. The store side of the
+  ordering rule is proved by `TestLauncherProductOrdersByLastActivityAcrossPageCut`
+  and `TestWorkItemLastActivityAdvancesOnNonVersionedEvents`
+  (`internal/store`).

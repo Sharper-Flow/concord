@@ -160,39 +160,28 @@ func TestWorkScreenLeavesTheProjection(t *testing.T) {
 	}
 }
 
-func TestWorkListProjectionIsRecencyOrdered(t *testing.T) {
+// TestWorkListProjectionKeepsTheStoreOrder proves the launcher never
+// re-sorts the work list: the store alone orders the rows (CD-0048 D3), so
+// the projection renders the snapshot's order even when updated_at recency
+// would arrange it differently — the row with the newer activity can carry
+// the older updated_at, and the displayed order must stay the stored order.
+func TestWorkListProjectionKeepsTheStoreOrder(t *testing.T) {
 	snapshot := Snapshot{Screen: ScreenProduct, AmbientProduct: "p-1", Coverage: "authoritative", Ranked: []RankedWork{
-		{ID: "work-old", Title: "Old", Lifecycle: "in_progress", UpdatedAt: "2026-09-20T08:00:00Z"},
-		{ID: "work-new", Title: "New", Lifecycle: "in_progress", UpdatedAt: "2026-09-25T08:00:00Z"},
-		{ID: "work-mid", Title: "Mid", Lifecycle: "needed", Ready: true, UpdatedAt: "2026-09-22T08:00:00Z"},
+		{ID: "work-active", Title: "Active by activity", Lifecycle: "in_progress", UpdatedAt: "2026-09-20T08:00:00Z"},
+		{ID: "work-parked", Title: "Parked by version", Lifecycle: "needed", Ready: true, UpdatedAt: "2026-09-25T08:00:00Z"},
 		{ID: "work-unstamped", Title: "No stamp", Lifecycle: "needed"},
 	}}
 	projection := Project(snapshot, 120, fixtureMeasure(nil))
 	// The row carries the title, not the store ID: the number and title
 	// identify the row on screen.
-	wantOrder := []string{"New", "Mid", "Old", "No stamp"}
+	wantOrder := []string{"Active by activity", "Parked by version", "No stamp"}
 	if len(projection.Rows) != len(wantOrder) {
 		t.Fatalf("work list rows=%#v", projection.Rows)
 	}
 	for i, want := range wantOrder {
 		if !strings.Contains(projection.Rows[i][0], want) {
-			t.Fatalf("row %d = %q, want the %q row (most recently updated first)", i, projection.Rows[i][0], want)
+			t.Fatalf("row %d = %q, want the %q row (the store's order, unsorted)", i, projection.Rows[i][0], want)
 		}
-	}
-}
-
-func TestSortRankedByRecencyKeepsEqualKeysAndDoesNotMutate(t *testing.T) {
-	ranked := []RankedWork{
-		{ID: "work-a", UpdatedAt: "2026-09-20T08:00:00Z"},
-		{ID: "work-b", UpdatedAt: "2026-09-20T08:00:00Z"},
-		{ID: "work-unstamped"},
-	}
-	sorted := SortRankedByRecency(ranked)
-	if sorted[0].ID != "work-a" || sorted[1].ID != "work-b" || sorted[2].ID != "work-unstamped" {
-		t.Fatalf("sort order = %v", []string{sorted[0].ID, sorted[1].ID, sorted[2].ID})
-	}
-	if ranked[0].ID != "work-a" {
-		t.Fatal("recency sort mutated the input slice")
 	}
 }
 

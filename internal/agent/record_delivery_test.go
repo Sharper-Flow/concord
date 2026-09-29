@@ -86,6 +86,11 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
 		t.Fatalf("refine artifact binding refused: %v", err)
 	}
+	// CD-0192: the refine exit consumes a green verify run bound in the epoch.
+	proofRef := agentSeedRefineProofRun(t, s, "work-1", strings.Repeat("b", 64))
+	if err := try("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}); err != nil {
+		t.Fatalf("refine verification binding refused: %v", err)
+	}
 	if err := try("record_delivery", delivery); err != nil {
 		t.Fatalf("record_delivery after start_refine refused: %v", err)
 	}

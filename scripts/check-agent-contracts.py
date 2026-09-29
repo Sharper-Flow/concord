@@ -280,7 +280,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "start_downstream": {"payload", "successor_work_id", "relation"},
         "link_and_complete": {"payload", "successor_work_id", "relation"},
         "rebuild": {"payload", "event_stream"}, "reconstruct_subject": {"payload", "event_stream"},
-        "start_execution": {"payload"}, "workflow_action": {"payload"},
+        "start_execution": {"payload"}, "workflow_action": {"payload"}, "record_delivery": {"payload"},
         "concurrent_reads_and_writes": {"payload"}, "repair_and_rebuild": {"payload", "event_stream"},
         "replay": {"payload", "event_stream"},
     }
@@ -543,14 +543,14 @@ def check_workflow_contracts() -> list[str]:
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
             findings.append("scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
-        if len(scenarios) != 56:
-            findings.append(f"scenarios/workflow-engine.v1.json: expected 56 scenarios, got {len(scenarios)}")
+        if len(scenarios) != 57:
+            findings.append(f"scenarios/workflow-engine.v1.json: expected 57 scenarios, got {len(scenarios)}")
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
             findings.append("scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
-        if numbers != list(range(1, 57)):
-            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..56")
+        if numbers != list(range(1, 58)):
+            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57")
         targets = set(contract.get("targets", []))
         ops = set(contract.get("ops", []))
         nested_ids: list[str] = []

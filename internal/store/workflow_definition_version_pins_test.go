@@ -32,6 +32,10 @@ import (
 // implementation 17, break_fix 15, research 10, architecture_spike 11,
 // ops_runbook 12, static_analysis 9, and generic_one_off 10 carry
 // dispatch_worker and accept_worker_evidence on their confirmation steps.
+// CD-0192 ships implementation 18 and break_fix 16, whose refine
+// record_delivery exit demands a green worktree_verify run bound in the
+// current refine epoch; the guard the versions activate lives in the
+// dispatcher, and the definition content keeps its predecessors' shape.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -78,7 +82,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "15"}:     "sha256:e67484ab82967317470b819b1efe8c0af71448fa8a6c1eb1dd0b2989a4b5f996",
 	{"workflow.implementation", "16"}:     "sha256:ac13f85d1e460c3f54be49e3550aeac564e510ed66db524ee10f619bd2ea05cc",
 	{"workflow.implementation", "17"}:     "sha256:a50776df39e5a2a6c961b2a580bf320675eacf15d2d1fa0a9d9723d3911cde80",
+	{"workflow.implementation", "18"}:     "sha256:0f114bc254d375e97f6c8bf702ce89550117e0d7d5b7c5af9a33927f435437db",
 	{"workflow.break_fix", "15"}:          "sha256:dc4b081253f694fdd4383792b762b0b03517fa84256f04219c0a6fa15156162c",
+	{"workflow.break_fix", "16"}:          "sha256:0f9377a09d89983b2d1769d5232eb27a23d8ea5f51d0745ff0a1675275256b37",
 	{"workflow.research", "10"}:           "sha256:a128ff1052e9ccca96ddab042ead8cd323ef9b860ca291e002def58806349229",
 	{"workflow.architecture_spike", "11"}: "sha256:70bc49deec7cc09ae69854822e11b2f4bdac5c58bae80813fb4c3f4e0aed51d5",
 	{"workflow.ops_runbook", "12"}:        "sha256:478dae5af8bb382061e806353d53aa16d0b4047aa151b80ae6a3fb86c7798c25",
@@ -191,8 +197,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          15,
-		"workflow.implementation":     17,
+		"workflow.break_fix":          16,
+		"workflow.implementation":     18,
 		"workflow.generic_one_off":    10,
 		"workflow.research":           10,
 		"workflow.architecture_spike": 11,

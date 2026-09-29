@@ -720,6 +720,16 @@ func implementationCheckpointReviewV17() WorkflowDefinition {
 	return withCheckpointWorkerActions(d)
 }
 
+// implementationRefineProofV18 ships the CD-0192 refine-exit proof. The
+// definition content stays v17's; the guard the new version activates lives
+// in workflow_action_guards.go, gated on this version, so the only content
+// change is the version itself.
+func implementationRefineProofV18() WorkflowDefinition {
+	d := implementationCheckpointReviewV17()
+	d.Version = 18
+	return d
+}
+
 // breakFixDeliveryV13 adds the coordinator-owned delivery gate after the
 // refinement pass. Earlier definitions keep their original graph and payload
 // shape for pinned instances.
@@ -746,6 +756,16 @@ func breakFixCheckpointReviewV15() WorkflowDefinition {
 	d := breakFixDeliveryGateReturnV14()
 	d.Version = 15
 	return withCheckpointWorkerActions(d)
+}
+
+// breakFixRefineProofV16 ships the CD-0192 refine-exit proof. The definition
+// content stays v15's; the guard the new version activates lives in
+// workflow_action_guards.go, gated on this version, so the only content
+// change is the version itself.
+func breakFixRefineProofV16() WorkflowDefinition {
+	d := breakFixCheckpointReviewV15()
+	d.Version = 16
+	return d
 }
 
 func researchDeliveryPayloadV9() WorkflowDefinition {

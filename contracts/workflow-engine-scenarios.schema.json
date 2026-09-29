@@ -76,8 +76,8 @@
     },
     "scenarios": {
       "type": "array",
-      "minItems": 56,
-      "maxItems": 56,
+      "minItems": 57,
+      "maxItems": 57,
       "items": {
         "$ref": "#/$defs/scenario"
       }
@@ -303,6 +303,12 @@
           "$ref": "#/$defs/jsonValue"
         },
         "payload": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "delivery_artifact": {
+          "$ref": "#/$defs/jsonValue"
+        },
+        "delivery_state": {
           "$ref": "#/$defs/jsonValue"
         },
         "worktree_count": {
@@ -2495,7 +2501,7 @@
         "scenario_number": {
           "type": "integer",
           "minimum": 1,
-            "maximum": 56
+            "maximum": 57
         },
         "mechanism": {
           "$ref": "#/$defs/short"

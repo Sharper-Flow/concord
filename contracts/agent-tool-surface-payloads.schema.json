@@ -7225,6 +7225,7 @@
         "branch",
         "path",
         "lease_id",
+        "operation_ref",
         "command",
         "exit_code",
         "output",
@@ -7252,6 +7253,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
+        },
+        "operation_ref": {
+          "description": "CD-0192: the durable operation a green run recorded, so a caller can bind the run as verification evidence at refine.",
+          "$ref": "#/$defs/id"
         },
         "command": {
           "type": "array",

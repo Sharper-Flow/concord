@@ -83,6 +83,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		retainedAtDeliveryContract(implementationDeliveryV15()),
 		implementationDeliveryGateReturnV16(),
 		implementationCheckpointReviewV17(),
+		implementationRefineProofV18(),
 	}
 }
 
@@ -105,6 +106,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		retainedAtDeliveryContract(breakFixDeliveryV13()),
 		breakFixDeliveryGateReturnV14(),
 		breakFixCheckpointReviewV15(),
+		breakFixRefineProofV16(),
 	}
 }
 

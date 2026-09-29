@@ -44,9 +44,10 @@
           "maxLength": 512,
           "allOf": [
             { "pattern": "[^ \\t\\r\\n]" },
-            { "pattern": "^[^\\u0000-\\u001F\\u007F]+$" }
+            { "pattern": "^[^\\u0000-\\u001F\\u007F]+$" },
+            { "pattern": "^[^'\"`\\\\$;|&<>()]+$" }
           ],
-          "description": "The command an agent runs. A fact about the tool, not guidance about when to run it."
+          "description": "The command an agent runs as plain argv. Shell quoting and shell operators are forbidden so the whitespace-split invocation is the exact argv a worktree_verify run must equal (CD-0192). A fact about the tool, not guidance about when to run it."
         },
         "tier": {
           "type": "string",

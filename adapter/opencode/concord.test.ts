@@ -3055,6 +3055,27 @@ test("every result from a stale session carries one bounded staleness notice", a
   })
 })
 
+test("a notice that would push a fitting envelope over the byte cap falls to the output layer", () => {
+  const staleness = { pinnedReleaseRoot: "/d/v11.40.3", installedReleaseRoot: "/d/v11.40.6", pinnedRelease: "v11.40.3", installedRelease: "v11.40.6" }
+  const bare = { schema_version: "1.0", outcome: "ok", warnings: [], filler: "" }
+  const envelope = { ...bare, filler: "x".repeat(51200 - Buffer.byteLength(JSON.stringify(bare)) - 20) }
+  expect(Buffer.byteLength(JSON.stringify(envelope))).toBeLessThan(51200)
+  const settled = adapter.withReleaseStaleness(envelope, staleness)
+  // The carried result stands unchanged and the notice rides the output
+  // layer, so the encoder never degrades a successful result to
+  // malformed_response because of the notice it added.
+  expect(settled.envelope).toBe(envelope)
+  expect((settled.envelope as Record<string, unknown>).warnings).toEqual([])
+  expect(settled.extraWarnings).toHaveLength(1)
+  expect(settled.extraWarnings[0]).toContain("restart this session to load the installed release")
+  // The same envelope with room for the notice carries it in-envelope.
+  const roomy = { ...bare, filler: "x".repeat(1000) }
+  const carried = adapter.withReleaseStaleness(roomy, staleness)
+  expect(carried.extraWarnings).toEqual([])
+  expect((carried.envelope as Record<string, unknown>).warnings).toHaveLength(1)
+  expect(((carried.envelope as Record<string, unknown>).warnings as any[])[0].kind).toBe("release_stale")
+})
+
 test("a stale session's non-dispatch mutation still runs and carries the notice", async () => {
   await withReleaseLayout("v11.40.6", async () => {
     adapter.configureConcordAdapter({ runner: runnerWithContext(approvalSuccess()) })

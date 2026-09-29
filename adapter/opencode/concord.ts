@@ -695,11 +695,17 @@ function stalenessSummary(staleness: ReleaseStaleness): string {
   return `Concord staleness: this session pinned release ${staleness.pinnedRelease} but the host installed ${staleness.installedRelease}; ${STALE_RELEASE_REMEDY}.`
 }
 
-function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: ReleaseStaleness | null): { envelope: HostConcordEnvelope; extraWarnings: string[] } {
+export function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: ReleaseStaleness | null): { envelope: HostConcordEnvelope; extraWarnings: string[] } {
   if (!staleness) return { envelope, extraWarnings: [] }
   const warnings = record(envelope) && Array.isArray(envelope.warnings) ? envelope.warnings : null
   if (warnings && warnings.length < ENVELOPE_WARNINGS_LIMIT) {
-    return { envelope: { ...envelope, warnings: [...warnings, stalenessNotice(staleness)] }, extraWarnings: [] }
+    const carried = { ...envelope, warnings: [...warnings, stalenessNotice(staleness)] }
+    // A notice must never degrade the result it annotates: when the carried
+    // envelope would exceed the byte cap that the encoder enforces, the
+    // notice falls back to the output layer and the core result stands.
+    if (Buffer.byteLength(JSON.stringify(carried)) <= maxEnvelopeBytes) {
+      return { envelope: carried, extraWarnings: [] }
+    }
   }
   return { envelope, extraWarnings: [stalenessSummary(staleness)] }
 }

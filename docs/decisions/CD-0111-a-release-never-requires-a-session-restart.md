@@ -75,6 +75,12 @@ recovery. `manifest_mismatch` remains the refusal for a digest the core does
 not recognize. Under D1 it is reachable only through a defect, and its recovery
 action is `contact_operator` with the two digests.
 
+CD-0191 amends this rule for one refusal: the adapter's `dispatch_worker` gate
+for a stale session names a session restart as its remedy, because the lane
+text a dispatch would run was already replaced on disk by the install. Every
+other refusal, and every non-dispatch operation in a stale session, keeps this
+decision's guarantee unchanged.
+
 ## Acceptance Criteria
 
 ```gherkin

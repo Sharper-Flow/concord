@@ -504,3 +504,73 @@ func workPinIntentForActionID(t *testing.T, pin WorkPin, actionID string) WorkPi
 	t.Fatalf("pin carries no %s intent; intents = %v", actionID, intentActionIDs(pin.NextValidIntents))
 	return WorkPinIntent{}
 }
+
+// A same-pass worker result an accept already dispositioned is not offered for
+// rejection again. The reachable window is a checkpoint step, where
+// accept_worker_evidence holds the step instead of advancing it.
+func TestAcceptedCheckpointReviewIsNotRejectable(t *testing.T) {
+	const workID = "refine-accepted-checkpoint-review"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+	s := fixture.store
+	dispatchVerifyReviewAttempt(t, fixture, workID)
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	attemptID := "attempt:" + workID + ":verify-review"
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
+		t.Fatalf("accept worker evidence: %v", err)
+	}
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	available, err := workflowRejectedWorkerResultAvailable(ctx, s.DatabaseForTesting(), workID, registered.Definition, "verify", "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if available {
+		t.Fatal("reject_worker_result is available for a result accept_worker_evidence already dispositioned")
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workPinContainsAction(pin.NextValidIntents, "reject_worker_result") {
+		t.Fatalf("pin advertises reject_worker_result for an accepted same-pass result; intents = %v", intentActionIDs(pin.NextValidIntents))
+	}
+}
+
+// A retry dispatched after a recorded same-pass failure closes contract
+// correction again while the retry is live: the retry's own fenced start is
+// the pass boundary, so the earlier failure no longer opens the route
+// (CD-0133 D1).
+func TestReturnedRefineSamePassRetryClosesCorrection(t *testing.T) {
+	const workID = "refine-same-pass-retry-correction"
+	ctx := context.Background()
+	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	s, owner, operator := fixture.store, fixture.owner, fixture.operator
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
+		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)
+	}
+	failedAttempt, failedEpoch, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-fail", nil)
+	if err != nil {
+		t.Fatalf("same-pass dispatch with a current design: %v", err)
+	}
+	failReviewWorkerAttempt(t, s, workID, failedAttempt, reviewGateLane(t, "review"))
+	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, verdictItemVersion(t, s, workID), "same-pass-failure:"+workID)
+	if _, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-retry", refineRetryCorrection(t, s, workID)); err != nil {
+		t.Fatalf("same-pass retry dispatch after the recorded failure: %v", err)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+		t.Fatalf("pin advertises supersede_contract during a live same-pass retry; intents = %v", intentActionIDs(pin.NextValidIntents))
+	}
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
+		t.Fatal("supersede_contract discovery admitted during a live same-pass retry")
+	}
+}

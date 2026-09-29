@@ -1924,7 +1924,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -2382,7 +2382,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
-		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
+		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, definition, currentStep, "fold_event", event.Seq)
 		if recoveryErr != nil {
 			return recoveryErr
 		}

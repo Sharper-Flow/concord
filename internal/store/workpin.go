@@ -309,7 +309,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		}
 	}
 	if stepDeclaresAction(registered.Definition, pin.Step, "dispatch_worker") {
-		rejected, rejectionErr := workflowRejectedWorkerResultAvailable(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+		rejected, rejectionErr := workflowRejectedWorkerResultAvailable(ctx, tx, workID, registered.Definition, pin.Step, "work_pin", 0)
 		if rejectionErr != nil {
 			return pin, rejectionErr
 		}

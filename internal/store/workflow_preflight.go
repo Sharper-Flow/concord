@@ -131,7 +131,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	}
 	correctionRecovery := false
 	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
 		if err != nil {
 			return err
 		}
@@ -442,7 +442,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}

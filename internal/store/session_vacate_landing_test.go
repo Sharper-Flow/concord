@@ -56,6 +56,160 @@ func TestSessionVacateRequestLeavesOccupancyStanding(t *testing.T) {
 	}
 }
 
+func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-replay", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var target SessionVacateReplayTarget
+	err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		var resolveErr error
+		target, resolveErr = ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", "ses-x")
+		return resolveErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.WorkID != "work-w" || target.ProjectID != "project-w" || target.DestinationDirectory != "/data/repo-main" || target.SourceDirectory != claimPath(s) {
+		t.Fatalf("replay target=%+v", target)
+	}
+	err = s.Transact(context.Background(), func(transaction *Transaction) error {
+		_, resolveErr := ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/elsewhere", "ses-x")
+		return resolveErr
+	})
+	if failureKind(err) != KindProjectionNotFound {
+		t.Fatalf("err=%v, want projection_not_found off the committed destination", err)
+	}
+}
+
+// The replay resolves a pending request (CD-0190 D3/D4): a version 2
+// request with no recorded landing after it. A request its recorded landing
+// already completed resolves too while the session holds no occupancy rows,
+// so an uncertain landing result recovers as a completed replay, and refuses
+// once a later claim's rows stand: those rows belong to the later claim. A
+// version 1 request that released on fold refuses at its payload version. No
+// resolved or refused replay appends a landing.
+func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-completes", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(session string) (SessionVacateReplayTarget, error) {
+		var target SessionVacateReplayTarget
+		err := s.Transact(context.Background(), func(transaction *Transaction) error {
+			var resolveErr error
+			target, resolveErr = ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", session)
+			return resolveErr
+		})
+		return target, err
+	}
+	// The recorded landing completed the request and the session holds no
+	// rows, so the replay resolves as a completed replay with the committed
+	// target and appends nothing.
+	target, err := resolve("ses-x")
+	if err != nil {
+		t.Fatalf("completed replay err=%v, want a resolved target", err)
+	}
+	if target.WorkID != "work-w" || target.ProjectID != "project-w" || target.SourceDirectory != claimPath(s) || target.DestinationDirectory != "/data/repo-main" {
+		t.Fatalf("completed replay target=%+v", target)
+	}
+	// Once a later claim's rows stand, the completed request refuses so the
+	// replay cannot resolve to a landing that releases them.
+	auditWork(t, s, git, "work-b", true)
+	setWorktreeOccupant(t, s, "work-b", "ses-x")
+	_, err = resolve("ses-x")
+	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the completed request with later-claim rows", err)
+	}
+	// A recorded version 1 request released on fold, so the replay refuses
+	// it at the payload version.
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
+		EventID: "vacate-v1-completed", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "ses-old", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + claimPath(s) + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolve("ses-old"); failureKind(err) != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
+	}
+	var landings int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+}
+
+// A landing binds to the pending relocation request it completes (CD-0190
+// D2). Once the recorded landing completed the latest request, the rows a
+// later claim holds belong to that claim: a delayed or repeated landing call
+// refuses and releases nothing, so the later claim's occupancy row stands.
+func TestSessionVacateLandingRefusesACompletedRequestWithLaterClaimRows(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-completes-then-claim", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The session then claims a new worktree, whose occupancy row stands.
+	auditWork(t, s, git, "work-b", true)
+	setWorktreeOccupant(t, s, "work-b", "ses-x")
+
+	// A delayed or repeated landing call against the completed request
+	// refuses and releases nothing.
+	_, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(70, 0).UTC(),
+	})
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the completed request", err)
+	}
+	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-b"), "project-w", "wt-work-b"); got != "ses-x" {
+		t.Fatalf("the repeated landing released the later claim's row: %q", got)
+	}
+	var landings int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+}
+
 func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)

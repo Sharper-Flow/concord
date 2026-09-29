@@ -38,6 +38,13 @@ var mainCheckoutAllowedCapabilities = map[Capability]struct{}{
 var mainCheckoutAllowedOperations = map[Capability]map[string]struct{}{
 	Capability("work_transition"): {
 		"lifecycle": {},
+		// session_vacate resolves from the registered main checkout only to
+		// complete the landing of its own committed relocation request: the
+		// replay from the verified destination resolves the pending request
+		// and writes nothing here, and the adapter-only vacate-landing verb
+		// owns the release (CD-0190). It claims no worktree and touches no
+		// checkout path.
+		"session_vacate": {},
 	},
 }
 

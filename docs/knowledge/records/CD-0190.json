@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 2,
+    "legislated_by": "work-b8f69d65034a1207dd2b40cf",
+    "tier": "legislated"
+  },
+  "date": "2026-09-28T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0190",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0179"
+    }
+  ],
+  "path": "docs/decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md",
+  "product_wide_rationale": "Governs when a session's worktree occupancy rows release across the durable store, the agent transport surface, and the main-checkout authority boundary, so no single runtime Domain owns it.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:45eb4dfd31d4f5af6d1d27527626206ddcb7a7f05233c547aa2783c9a1803dc9",
+  "status": "accepted",
+  "summary": "CD-0179 D1 and D4 released a session's occupancy rows inside the session_vacate commit, before the adapter moved the host session, so a refused move, a destination mismatch, or an unreadable landing left a live session in a worktree whose rows stood released. Amends both clauses: the vacate commit records the relocation request and releases nothing, the adapter-only vacate-landing verb records the readback-verified landing and releases the session's rows in one transaction, every refusal past the commit reports effect_state possible with a recovery that works — the adapter keeps the committed destination so the replay runs from wherever the host session sits, and a completed request's replay resolves with no event while no rows stand — and the replay resolves from the registered main checkout because it writes nothing there. A recorded version 1 vacate event still releases on fold.",
+  "tags": [
+    "worktrees",
+    "occupancy",
+    "session-vacate"
+  ],
+  "title": "CD-0179 D1 and D4 release at the verified vacate landing"
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -105,20 +106,369 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	}
 }
 
+// TestSessionVacateReplayRefusesAfterLaterClaim pins the state-driven replay
+// against the landing binding (CD-0190 D2/D3). The same-key vacate retry
+// re-reads the committed request's state instead of returning the cached
+// success, so a completed request whose session holds a later claim's
+// occupancy rows refuses with effect none: no host move follows the refusal,
+// the later claim's row stands, and no landing records.
+func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+
+	secondWork := []store.Event{
+		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
+		{EventID: "wt-cached-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claim := func(workID, worktreePath, branch, key string) {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+			"work_id": workID, "project_id": "project-1",
+			"base_sha":         baseSHA,
+			"expected_version": 2, "idempotency_key": key,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
+		}
+	}
+	vacate := func(env CallEnvelope, key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	second := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+	inMainCheckout := mutationEnvelope(grant, scopeVersion)
+	inMainCheckout.Worktree, inMainCheckout.Directory = repoRoot, repoRoot
+
+	claim("work-1", first, "work/cached-1", "claim-cached-1")
+	if response := vacate(inWorktree, "vacate-cached-1"); response.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
+	}
+	// The verified landing completes the request the way the adapter-only
+	// verb records it.
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A later claim records the occupancy row the session holds now.
+	claim("work-2", second, "work/cached-2", "claim-cached-2")
+
+	// The same-key vacate retry re-reads the committed request's state from
+	// the verified destination: the request's landing already completed and
+	// the session holds a later claim's occupancy rows, so the replay refuses
+	// with effect none. No host move follows a refusal, so the session keeps
+	// the later claim's worktree, the row stands, and no landing records.
+	retry := vacate(inMainCheckout, "vacate-cached-1")
+	if retry.Outcome != OutcomeError {
+		t.Fatalf("same-key vacate retry response=%+v error=%+v, want the later-claim refusal", retry, retry.Result)
+	}
+	if retry.Error == nil || retry.Error.Kind != "invalid_input" || retry.Error.EffectState != EffectNone {
+		t.Fatalf("same-key vacate retry error=%+v, want invalid_input with effect none", retry.Error)
+	}
+	if !strings.Contains(retry.Error.Message, "belong to a later claim") {
+		t.Fatalf("same-key vacate retry message=%q, want the later-claim recovery", retry.Error.Message)
+	}
+
+	// The later claim's row stands after the refusal, no landing recorded,
+	// and the committed request keeps its single event.
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 1 {
+		t.Fatalf("occupancy rows after the refused replay=%d, want the later claim's row standing", occupied)
+	}
+	var landings int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+	var vacates int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("vacate events=%d, want only the one committed request", vacates)
+	}
+}
+
+// TestSessionVacateReplayResolvesPendingFromSource pins the replay that
+// arrives while the session still runs in the worktree the committed request
+// asks it to leave: a commit whose host move never ran, or an adapter restart
+// that lost the remembered destination. The replay re-reads the committed
+// state, resolves the pending request from its source worktree, appends
+// nothing, and answers with the derived destination the adapter owes the move
+// to (CD-0190 D3).
+func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := func(workID, worktreePath, branch, key string) {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+			"work_id": workID, "project_id": "project-1",
+			"base_sha":         baseSHA,
+			"expected_version": 2, "idempotency_key": key,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
+		}
+	}
+	vacate := func(env CallEnvelope, key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+
+	claim("work-1", first, "work/source-replay-1", "claim-source-replay-1")
+	firstVacate := vacate(inWorktree, "vacate-source-replay-1")
+	if firstVacate.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", firstVacate, firstVacate.Error)
+	}
+
+	// The same-key replay from the source worktree resolves the pending
+	// request and appends nothing: the answer carries the committed source
+	// and the derived destination, so the adapter can perform the move and
+	// record the verified landing from wherever the session sits.
+	replay := vacate(inWorktree, "vacate-source-replay-1")
+	if replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("source replay response=%+v error=%+v", replay, replay.Error)
+	}
+	var result struct {
+		WorkID               string `json:"work_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(replay.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkID != "work-1" || result.SourceDirectory != first || result.DestinationDirectory != repoRoot {
+		t.Fatalf("source replay result=%+v, want the committed request's source and destination", result)
+	}
+	var vacates int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("vacate events=%d, want the replay to append nothing", vacates)
+	}
+	// The source occupancy the replay resolves still stands until the
+	// adapter's verified landing releases it.
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 1 {
+		t.Fatalf("occupancy rows after the source replay=%d, want the source row standing", occupied)
+	}
+}
+
+// TestSessionVacateNewKeyRetryResolvesPendingFromSource pins the retry that
+// arrives under a new idempotency key while the committed request's host
+// move never ran: the first session_vacate committed the relocation request
+// and left the source row standing, and the adapter died before it moved the
+// session. session_vacate called again re-reads the committed request's
+// state whatever key the retry carries, resolves the pending request from
+// its source worktree, and appends nothing (CD-0190 D3). The verified
+// landing then releases the row, so no second request and no stale row
+// stand between the session and its recovery.
+func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := func(workID, worktreePath, branch, key string) {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+			"work_id": workID, "project_id": "project-1",
+			"base_sha":         baseSHA,
+			"expected_version": 2, "idempotency_key": key,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
+		}
+	}
+	vacate := func(env CallEnvelope, key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+
+	claim("work-1", first, "work/new-key-retry-1", "claim-new-key-retry-1")
+	firstVacate := vacate(inWorktree, "vacate-new-key-retry-1")
+	if firstVacate.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", firstVacate, firstVacate.Error)
+	}
+
+	// The retry under a new key from the source worktree resolves the
+	// pending request and appends nothing: the answer carries the committed
+	// source and the derived destination, so the adapter performs the move
+	// and records the verified landing from wherever the session sits.
+	retry := vacate(inWorktree, "vacate-new-key-retry-2")
+	if retry.Outcome != OutcomeOK {
+		t.Fatalf("new-key retry response=%+v error=%+v", retry, retry.Error)
+	}
+	if retry.Replayed {
+		t.Fatalf("new-key retry response=%+v, want a resolved answer, not a cached replay", retry)
+	}
+	var result struct {
+		WorkID               string `json:"work_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(retry.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkID != "work-1" || result.SourceDirectory != first || result.DestinationDirectory != repoRoot {
+		t.Fatalf("new-key retry result=%+v, want the committed request's source and destination", result)
+	}
+	var vacates int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("vacate events=%d, want the new-key retry to append nothing", vacates)
+	}
+
+	// The verified landing releases the source row, so the recovered session
+	// holds no stale row against its next claim.
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 0 {
+		t.Fatalf("occupancy rows after the verified landing=%d, want the row released", occupied)
+	}
+}
+
+// TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest pins the
+// pending-request lookup as a decision, not a hint: a pending request the
+// core cannot decode refuses the new-key retry and appends nothing. Only a
+// confirmed absence of a pending request reaches the fresh-request path, so a
+// failed lookup never records a second relocation request for one move.
+func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA,
+		"expected_version": 2, "idempotency_key": "claim-unreadable-pending-1",
+	})
+	if response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion)); dispatchErr != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("claim response=%+v error=%+v err=%v", response, response.Error, dispatchErr)
+	}
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+	vacate := func(key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, inWorktree)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+	if response := vacate("vacate-unreadable-pending-1"); response.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
+	}
+
+	// Simulate a recorded request the core can no longer decode. The event
+	// log is append-only, so the test lifts the update guard on its own
+	// fixture database to damage the committed payload.
+	db := s.DatabaseForTesting()
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER domain_events_no_update`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE domain_events SET payload=json_remove(payload,'$.destination_directory') WHERE kind='work.session_vacated'`); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := vacate("vacate-unreadable-pending-2")
+	if retry.Outcome == OutcomeOK || retry.Error == nil {
+		t.Fatalf("new-key retry response=%+v, want a refusal for the unreadable pending request", retry)
+	}
+	var vacates int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("vacate events=%d, want the refused retry to append nothing", vacates)
+	}
+}
+
 // TestSessionVacateReoccupiesSameWorktree pins the vacate event identity at
 // the core boundary. One session claims one cross-Project work item in its
-// primary Project, vacates toward the registered main checkout, resumes the
-// same claimed worktree, and vacates again. This is a core-only test: Dispatch
-// receives envelopes whose Directory and Worktree fields the test reassigns by
-// hand, so no host move runs here and no event proves a landing. Work resume
-// is read-only, and the replayed claim that stands in for it writes no event
-// and no occupancy, so the worktree entry is active with an empty occupant
-// before both vacates. The recorded vacate history is the only store
-// projection that orders the two operations, so the event identity carries
-// the ordinal of the relocation request: one relocation request of one work
-// item by one session is the unit of identity, a same-key retry replays
-// before the effect runs, and each payload records the derived destination
-// the core wrote before the adapter's host move, never proof of landing.
+// primary Project, vacates toward the registered main checkout, records the
+// verified landing, resumes the same claimed worktree, and vacates again.
+// This is a core-only test: Dispatch receives envelopes whose Directory and
+// Worktree fields the test reassigns by hand, so no host move runs here. The
+// landing between the relocations stands in for the readback-verified
+// landing the adapter's host move earns: it completes the first request, so
+// the second vacate records its own relocation request instead of resolving
+// the first (CD-0190 D2/D3). Work resume is read-only, and the replayed
+// claim that stands in for it writes no event and no occupancy. The recorded
+// vacate history is the only store projection that orders the two
+// operations, so the event identity carries the ordinal of the relocation
+// request: one relocation request of one work item by one session is the
+// unit of identity, a same-key retry replays before the effect runs, and
+// each payload records the derived destination the core wrote before the
+// adapter's host move, never proof of landing.
 func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -215,6 +565,16 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		t.Fatalf("same-key vacate retry response=%+v error=%+v", retry, retry.Error)
 	}
 
+	// The verified landing completes the first request the way the
+	// adapter-only verb records it after the host move readback: the session
+	// holds no rows from it, so the second relocation records its own new
+	// request instead of resolving the first.
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repo1, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Work resume stands in as the replayed claim that returns the session
 	// to the claimed worktree. The core writes no event and no occupancy
 	// for it; the host move the adapter would perform is outside Dispatch.
@@ -278,8 +638,10 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 		}
 	}
 
-	// Both vacates leave the original claim active with an empty occupant:
-	// the worktree projection is identical before the two vacates.
+	// Both vacates leave the original claim active and unoccupied: the
+	// verified landing released the session's rows, the resume replay wrote
+	// none, and the second vacate records a request without an occupancy
+	// change.
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil {
 		t.Fatal(err)

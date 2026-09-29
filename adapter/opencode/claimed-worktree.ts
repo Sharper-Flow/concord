@@ -19,6 +19,8 @@ const armedClaims = new Map<string, string>()
 
 const unlandedClaims = new Map<string, string>()
 
+const pendingVacateDestinations = new Map<string, string>()
+
 // recordUnlandedClaimedWorktree records the claimed worktree of a work_start
 // move that refused as metadata-only, whose tool context has not landed.
 // A later confirmed landing for the same session replaces the record.
@@ -56,12 +58,40 @@ export function armClaimedWorktree(sessionID: string, directory: string): void {
   }
 }
 
+// recordPendingVacateDestination records the registered main checkout of the
+// relocation request a session_vacate committed for one session, so a later
+// session_vacate from that session first moves the host session there and
+// resolves the core call from it (CD-0190 D3). A newer committed request for
+// the same session replaces the recorded destination.
+//
+// The map carries no cap eviction. An entry is the pending state of a
+// committed relocation request, and its only exits are the verified landing
+// (clearClaimedWorktree) or a host process restart. Evicting one by cap would
+// forget a committed request and leave its occupancy rows without a reachable
+// recovery, so the map is lifecycle-bounded instead: one entry per session
+// with a committed request outstanding.
+export function recordPendingVacateDestination(sessionID: string, directory: string): void {
+  if (!sessionID || !directory) return
+  pendingVacateDestinations.delete(sessionID)
+  pendingVacateDestinations.set(sessionID, directory)
+}
+
+// pendingVacateDestination answers the recorded registered main checkout for
+// one session, or null when the adapter holds no remembered destination. Null
+// is also the state after a host process restart.
+export function pendingVacateDestination(sessionID: string): string | null {
+  return sessionID ? pendingVacateDestinations.get(sessionID) ?? null : null
+}
+
 // clearClaimedWorktree drops the records when session_vacate has returned the
-// session to the registered main checkout.
+// session to the registered main checkout. The verified landing completes the
+// pending relocation request, so its remembered destination goes with the
+// armed claim.
 export function clearClaimedWorktree(sessionID: string): void {
   if (sessionID) {
     armedClaims.delete(sessionID)
     unlandedClaims.delete(sessionID)
+    pendingVacateDestinations.delete(sessionID)
   }
 }
 
@@ -72,6 +102,7 @@ export function clearClaimedWorktree(sessionID: string): void {
 export function resetClaimedWorktrees(): void {
   armedClaims.clear()
   unlandedClaims.clear()
+  pendingVacateDestinations.clear()
 }
 
 // armedClaimedWorktree answers the armed directory for one session, or null

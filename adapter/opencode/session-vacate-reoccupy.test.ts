@@ -17,7 +17,7 @@ import { configureConcordAdapter, invokeConcordOperation, work_start, work_trans
 import { configureCoreBinary } from "./dispatch"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, MOVE_SESSION_ROUTE, SESSION_ROUTE } from "./move-session"
 import { configureHostLease } from "./host-lease"
-import { clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
+import { clearClaimedWorktree, pendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 
 // The cycle drives the real core through its own runner, so argv[0] is
@@ -318,17 +318,20 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     ])
     expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
-    // A retry of one unchanged vacate after the landing holds moves nothing
-    // and changes nothing: the host readback now reports the main checkout,
-    // whose refusal the core answers before any move or occupancy write,
-    // and the durable vacate history still holds exactly one operation with
-    // the occupancy row standing until a landing records.
+    // A retry of one unchanged vacate after the landed-but-unconfirmed move
+    // recovers: the replay resolves to the recorded relocation request and
+    // moves nothing, and the verified landing the readback earns records
+    // through the adapter-only vacate-landing verb, releasing the session's
+    // row so no stale row strands the session from claiming other work.
     const replay = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-1" }, worktree1)
-    expect(replay.outcome, JSON.stringify(replay)).toBe("error")
-    expect((replay.error as any).kind).toBe("unauthorized")
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    expect(replay.replayed).toBe(true)
     expect(moves).toHaveLength(2)
     expect(vacateEvents()).toHaveLength(1)
-    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
+    expect(worktreeEntries()[0].occupant).toBe("")
+    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    expect(recoveries).toHaveLength(1)
+    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
 
     // Work resume's read remains read-only. A move back from main refuses
     // while the tool context still reports main; next-turn replay from the
@@ -368,11 +371,14 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
         destination_directory: repo1.repo,
       })
     }
-    // The verified landing recorded its own event and released the
-    // session's rows in one transaction.
+    // Both landings recorded their own event and each released the
+    // session's rows in one transaction: the recovery landing, then the
+    // second vacate's landing.
     const landings = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
-    expect(landings).toHaveLength(1)
-    expect(JSON.parse(landings[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(landings).toHaveLength(2)
+    for (const landing of landings) {
+      expect(JSON.parse(landing.payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    }
 
     // Both vacates preserve the original Project claim, active and
     // unoccupied. The vacated session then claims the same work item in the
@@ -385,6 +391,588 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     expect(entries).toHaveLength(2)
     expect(entries[0]).toMatchObject({ project_id: PROJECT_1, path: worktree1, state: "active", occupant: "" })
     expect(entries[1]).toMatchObject({ project_id: PROJECT_2, path: worktree2, state: "active", occupant: SESSION_ID })
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    clearClaimedWorktree(SESSION_ID)
+    resetClaimedWorktrees()
+    resetTurnMoveBoundaries()
+    if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
+    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
+    else process.env.ZELLIJ_PANE_ID = previousZellijPane
+    await rm(root, { recursive: true, force: true })
+  }
+}, 300_000)
+
+// Connected regression for the committed-refusal recovery (CD-0190 D3). A
+// vacate whose host readback names a directory outside every registered
+// Project leaves the committed request and the occupancy rows standing: a
+// plain retry resolves its Project from that directory and refuses before the
+// pending-request replay can run. The adapter keeps the committed destination
+// for the session, so the retry first moves the host session to the
+// registered main checkout and resolves the core call from it, and the
+// readback-verified landing releases the rows.
+connected("a readback outside every Project recovers through the remembered destination", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-vacate-outside-"))
+  const dbPath = join(root, "concord.db")
+  const binRoot = join(root, "bin")
+  const homeRoot = join(root, "home")
+  const repoCheckout = join(root, "checkout")
+  const outside = join(root, "outside")
+  let binary = process.env.CONCORD_BIN ?? ""
+  const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
+  delete process.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousZellijPane = process.env.ZELLIJ_PANE_ID
+  delete process.env.ZELLIJ_PANE_ID
+  try {
+    if (!binary) {
+      await mkdir(binRoot, { recursive: true })
+      binary = join(binRoot, "concord-core")
+      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    }
+    const repo1 = await repositoryFixture(root, "repo-1")
+    await mkdir(repoCheckout, { recursive: true })
+    await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
+    for (const lane of LANE_AGENTS) {
+      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
+    }
+    const probe = join(binRoot, "opencode")
+    await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+    await chmod(probe, 0o755)
+    const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}`, CONCORD_DB_PATH: dbPath }
+    const runCLI = (command: string, value: Record<string, unknown>, cwd?: string) => runProcess([binary, command], JSON.stringify(value), cwd, childEnv).then((result) => {
+      expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
+      return JSON.parse(result.stdout.trim().split("\n").filter(Boolean).pop() as string)
+    })
+    await runCLI("product-create", {
+      product_id: PRODUCT_ID,
+      display_name: "Synthetic Outside Product",
+      stage_maturity: "prototype",
+      stage_audience_commitment: "operator_only",
+      project_id: PROJECT_1,
+      project_display_name: "Synthetic Outside Project",
+      role: "primary",
+    })
+    await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    await runCLI("client-register", {
+      client_ref: "opencode",
+      key_id: "outside-key",
+      principal_ref: "operator-1",
+      public_key: publicKeyBase64(),
+      capabilities: ["product_read", "work_define", "work_transition"],
+      product_scope: [PRODUCT_ID],
+      project_scope: [PROJECT_1],
+      agent_scope: [AGENT],
+    })
+
+    // The fake host holds one live session. moveRegresses models the host
+    // that performs the relocation and then leaves the session outside every
+    // registered Project, so the readback names that directory.
+    let sessionDirectory = repo1.repo
+    let sessionMetadata: Record<string, unknown> = {}
+    let moveRegresses = false
+    const moves: Array<{ from: string; to: string }> = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: SESSION_ID, directory: sessionDirectory, metadata: sessionMetadata }, response: new Response(null, { status: 200 }) }),
+      patch: async ({ body }) => {
+        const patch = body as { metadata?: Record<string, unknown> }
+        if (patch.metadata !== undefined) sessionMetadata = patch.metadata
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async ({ body }) => {
+        const destination = (body as { destination: { directory: string } }).destination.directory
+        if (sessionDirectory !== destination) moves.push({ from: sessionDirectory, to: destination })
+        sessionDirectory = moveRegresses ? outside : destination
+        return { data: null, response: new Response(null, { status: 204 }) }
+      },
+    })
+    const runner = {
+      async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
+        const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+        if (signal?.aborted) child.kill()
+        await child.stdin.write(input)
+        await child.stdin.end()
+        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+        return { exitCode, stdout, stderr }
+      },
+    }
+    configureConcordAdapter({ runner })
+    configureHostLease({ reset: true })
+
+    const parseToolResult = (result: any) => {
+      try {
+        return JSON.parse(String(result.output).split("\n")[0])
+      } catch {
+        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+      }
+    }
+    const invoke = (toolName: string, operation: string, input: Record<string, unknown>, directory: string) =>
+      invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
+    const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
+      parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
+    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? ORDER BY seq", workID)
+    const worktreeEntries = () => dbRows(dbPath, "SELECT c.project_id AS project_id, e.path AS path, e.state AS state, COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? ORDER BY c.project_id", workID)
+
+    const captured = await invoke("concord_work_define", "capture", {
+      title: "Synthetic outside readback",
+      value_statement: "One vacate readback lands outside every Project and recovers.",
+      kind: "bug",
+      project_ids: [PROJECT_1],
+      idempotency_key: "outside-capture",
+    }, repo1.repo)
+    expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
+    const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
+
+    // Entry into work: the resume read durably creates the worktree and the
+    // mover lands the session in it on the next-turn replay.
+    const unlandedEntry = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(repo1.repo)))
+    expect(unlandedEntry.outcome, JSON.stringify(unlandedEntry)).toBe("error")
+    expect(unlandedEntry.error.kind, JSON.stringify(unlandedEntry)).toBe("session_directory_mismatch")
+    const worktree1 = unlandedEntry.worktree_path as string
+    const entered = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(worktree1)))
+    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
+    expect(worktreeEntries()).toEqual([{ project_id: PROJECT_1, path: worktree1, state: "active", occupant: SESSION_ID }])
+
+    // The vacate commits its relocation request, the host performs the move,
+    // and the readback names the directory outside every Project: the typed
+    // refusal reports the possible effect, and the adapter remembers the
+    // committed destination for the retry.
+    moveRegresses = true
+    const first = await transition("session_vacate", { idempotency_key: "outside-vacate-1" }, worktree1)
+    expect(first.outcome, JSON.stringify(first)).toBe("error")
+    expect((first.error as any).adapter_reason).toBe("vacate_destination_mismatch")
+    expect((first.error as any).effect_state).toBe("possible")
+    expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+    ])
+    expect(vacateEvents()).toHaveLength(1)
+    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
+
+    // The retry from the stale tool context first moves the host session to
+    // the remembered destination and resolves the core call from it: the
+    // pending-request replay appends nothing, and the readback-verified
+    // landing records through the vacate-landing verb and releases the rows.
+    moveRegresses = false
+    const replay = await transition("session_vacate", { idempotency_key: "outside-vacate-2" }, worktree1)
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+      { from: outside, to: repo1.repo },
+    ])
+    expect(vacateEvents()).toHaveLength(1)
+    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    expect(recoveries).toHaveLength(1)
+    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(worktreeEntries()[0].occupant).toBe("")
+
+    // The completed request replays as an idempotent completed replay: a
+    // further session_vacate from the verified destination appends nothing
+    // and reports ok, so the uncertain landing result has a working recovery.
+    const confirm = await transition("session_vacate", { idempotency_key: "outside-vacate-3" }, repo1.repo)
+    expect(confirm.outcome, JSON.stringify(confirm)).toBe("ok")
+    expect(vacateEvents()).toHaveLength(1)
+    expect(dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=?", workID)).toHaveLength(1)
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    clearClaimedWorktree(SESSION_ID)
+    resetClaimedWorktrees()
+    resetTurnMoveBoundaries()
+    if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
+    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
+    else process.env.ZELLIJ_PANE_ID = previousZellijPane
+    await rm(root, { recursive: true, force: true })
+  }
+}, 300_000)
+
+// Connected regression for the unreadable post-commit answer (CD-0190 D3).
+// The core commits the relocation request before it answers, so a successful
+// response the adapter cannot read classifies with the state-driven replay as
+// the recovery — session_vacate has no work id, so no generic reconciliation
+// can drive — and the adapter remembers nothing the core did not return. The
+// same-key retry then resolves the pending request from the source worktree
+// the session still runs in, and the verified landing records and releases.
+connected("an unreadable ok answer recovers through the same-key replay from the source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-vacate-unreadable-"))
+  const dbPath = join(root, "concord.db")
+  const binRoot = join(root, "bin")
+  const homeRoot = join(root, "home")
+  const repoCheckout = join(root, "checkout")
+  let binary = process.env.CONCORD_BIN ?? ""
+  const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
+  delete process.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousZellijPane = process.env.ZELLIJ_PANE_ID
+  delete process.env.ZELLIJ_PANE_ID
+  try {
+    if (!binary) {
+      await mkdir(binRoot, { recursive: true })
+      binary = join(binRoot, "concord-core")
+      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    }
+    const repo1 = await repositoryFixture(root, "repo-1")
+    await mkdir(repoCheckout, { recursive: true })
+    await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
+    for (const lane of LANE_AGENTS) {
+      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
+    }
+    const probe = join(binRoot, "opencode")
+    await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+    await chmod(probe, 0o755)
+    const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}`, CONCORD_DB_PATH: dbPath }
+    const runCLI = (command: string, value: Record<string, unknown>, cwd?: string) => runProcess([binary, command], JSON.stringify(value), cwd, childEnv).then((result) => {
+      expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
+      return JSON.parse(result.stdout.trim().split("\n").filter(Boolean).pop() as string)
+    })
+    await runCLI("product-create", {
+      product_id: PRODUCT_ID,
+      display_name: "Synthetic Unreadable Product",
+      stage_maturity: "prototype",
+      stage_audience_commitment: "operator_only",
+      project_id: PROJECT_1,
+      project_display_name: "Synthetic Unreadable Project",
+      role: "primary",
+    })
+    await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    await runCLI("client-register", {
+      client_ref: "opencode",
+      key_id: "unreadable-key",
+      principal_ref: "operator-1",
+      public_key: publicKeyBase64(),
+      capabilities: ["product_read", "work_define", "work_transition"],
+      product_scope: [PRODUCT_ID],
+      project_scope: [PROJECT_1],
+      agent_scope: [AGENT],
+    })
+
+    const sessionDirectory = { value: repo1.repo }
+    let sessionMetadata: Record<string, unknown> = {}
+    const moves: Array<{ from: string; to: string }> = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: SESSION_ID, directory: sessionDirectory.value, metadata: sessionMetadata }, response: new Response(null, { status: 200 }) }),
+      patch: async ({ body }) => {
+        const patch = body as { metadata?: Record<string, unknown> }
+        if (patch.metadata !== undefined) sessionMetadata = patch.metadata
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async ({ body }) => {
+        const destination = (body as { destination: { directory: string } }).destination.directory
+        if (sessionDirectory.value !== destination) moves.push({ from: sessionDirectory.value, to: destination })
+        sessionDirectory.value = destination
+        return { data: null, response: new Response(null, { status: 204 }) }
+      },
+    })
+    // The first session_vacate answer is lost in transit: the real core runs,
+    // commits, and answers ok, and the runner returns an unparsable success.
+    let dropNextVacateAnswer = false
+    const spawnCore = async (argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) => {
+      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      if (signal?.aborted) child.kill()
+      await child.stdin.write(input)
+      await child.stdin.end()
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+      return { exitCode, stdout, stderr }
+    }
+    const runner = {
+      async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
+        if (dropNextVacateAnswer && argv[1] === "invoke") {
+          const parsed = JSON.parse(input) as { operation?: string }
+          if (parsed?.operation === "session_vacate") {
+            dropNextVacateAnswer = false
+            const real = await spawnCore(argv, input, signal, options)
+            if (real.exitCode === 0) return { exitCode: 0, stdout: "concord core answer lost in transit\n", stderr: "" }
+            return real
+          }
+        }
+        return spawnCore(argv, input, signal, options)
+      },
+    }
+    configureConcordAdapter({ runner })
+    configureHostLease({ reset: true })
+
+    const parseToolResult = (result: any) => {
+      try {
+        return JSON.parse(String(result.output).split("\n")[0])
+      } catch {
+        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+      }
+    }
+    const invoke = (toolName: string, operation: string, input: Record<string, unknown>, directory: string) =>
+      invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
+    const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
+      parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
+    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq")
+    const landings = () => dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' ORDER BY seq")
+    const occupants = () => dbRows(dbPath, "SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e WHERE e.state='active' ORDER BY e.path").map((row: any) => row.occupant as string)
+
+    const captured = await invoke("concord_work_define", "capture", {
+      title: "Synthetic unreadable answer",
+      value_statement: "One vacate answer is lost in transit and the replay recovers.",
+      kind: "bug",
+      project_ids: [PROJECT_1],
+      idempotency_key: "unreadable-capture",
+    }, repo1.repo)
+    expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
+    const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
+    const resume = async (directory: string) => parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(directory)))
+
+    const unlandedEntry = await resume(repo1.repo)
+    expect(unlandedEntry.outcome, JSON.stringify(unlandedEntry)).toBe("error")
+    const worktree1 = unlandedEntry.worktree_path as string
+    const entered = await resume(worktree1)
+    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
+    expect(occupants()).toEqual([SESSION_ID])
+
+    // The vacate commits, and its successful answer is lost in transit: the
+    // refusal classifies with the state-driven replay recovery, reports the
+    // possible effect, and remembers nothing the core did not return.
+    dropNextVacateAnswer = true
+    const first = await transition("session_vacate", { idempotency_key: "unreadable-vacate-1" }, worktree1)
+    expect(first.outcome, JSON.stringify(first)).toBe("error")
+    expect((first.error as any).kind).toBe("malformed_response")
+    expect((first.error as any).effect_state).toBe("possible")
+    expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
+    expect((first.error as any).message).toContain("replay session_vacate")
+    expect(pendingVacateDestination(SESSION_ID)).toBeNull()
+    expect(vacateEvents()).toHaveLength(1)
+    expect(landings()).toHaveLength(0)
+    expect(occupants()).toEqual([SESSION_ID])
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+    ])
+
+    // The same-key retry from the source worktree resolves the pending
+    // request state-driven, appends nothing, and the move the answer drives
+    // earns the verified landing that releases the row.
+    const replay = await transition("session_vacate", { idempotency_key: "unreadable-vacate-1" }, worktree1)
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    expect(replay.replayed).toBe(true)
+    expect(vacateEvents()).toHaveLength(1)
+    expect(landings()).toHaveLength(1)
+    expect(JSON.parse(landings()[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(occupants()).toEqual([""])
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+    ])
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    clearClaimedWorktree(SESSION_ID)
+    resetClaimedWorktrees()
+    resetTurnMoveBoundaries()
+    if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
+    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
+    else process.env.ZELLIJ_PANE_ID = previousZellijPane
+    await rm(root, { recursive: true, force: true })
+  }
+}, 300_000)
+
+// Connected regression for the state-driven vacate replay (CD-0190 D2/D3).
+// A committed vacate whose landing recorded, followed by a later claim of
+// other work, must refuse a same-key replay with effect none: the adapter
+// never moves the host session out of claimed work for a request that cannot
+// complete, the later claim's occupancy row stands, and the refusal's
+// recovery — the later claim's own verified landing or vacate — works.
+connected("a same-key replay after a later claim refuses without moving the host", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-vacate-later-claim-"))
+  const dbPath = join(root, "concord.db")
+  const binRoot = join(root, "bin")
+  const homeRoot = join(root, "home")
+  const repoCheckout = join(root, "checkout")
+  let binary = process.env.CONCORD_BIN ?? ""
+  const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
+  delete process.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousZellijPane = process.env.ZELLIJ_PANE_ID
+  delete process.env.ZELLIJ_PANE_ID
+  try {
+    if (!binary) {
+      await mkdir(binRoot, { recursive: true })
+      binary = join(binRoot, "concord-core")
+      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    }
+    const repo1 = await repositoryFixture(root, "repo-1")
+    await mkdir(repoCheckout, { recursive: true })
+    await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
+    for (const lane of LANE_AGENTS) {
+      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
+    }
+    const probe = join(binRoot, "opencode")
+    await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+    await chmod(probe, 0o755)
+    const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}`, CONCORD_DB_PATH: dbPath }
+    const runCLI = (command: string, value: Record<string, unknown>, cwd?: string) => runProcess([binary, command], JSON.stringify(value), cwd, childEnv).then((result) => {
+      expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
+      return JSON.parse(result.stdout.trim().split("\n").filter(Boolean).pop() as string)
+    })
+    await runCLI("product-create", {
+      product_id: PRODUCT_ID,
+      display_name: "Synthetic Later Claim Product",
+      stage_maturity: "prototype",
+      stage_audience_commitment: "operator_only",
+      project_id: PROJECT_1,
+      project_display_name: "Synthetic Later Claim Project",
+      role: "primary",
+    })
+    await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    await runCLI("client-register", {
+      client_ref: "opencode",
+      key_id: "later-claim-key",
+      principal_ref: "operator-1",
+      public_key: publicKeyBase64(),
+      capabilities: ["product_read", "work_define", "work_transition"],
+      product_scope: [PRODUCT_ID],
+      project_scope: [PROJECT_1],
+      agent_scope: [AGENT],
+    })
+
+    const sessionDirectory = { value: repo1.repo }
+    let sessionMetadata: Record<string, unknown> = {}
+    const moves: Array<{ from: string; to: string }> = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: SESSION_ID, directory: sessionDirectory.value, metadata: sessionMetadata }, response: new Response(null, { status: 200 }) }),
+      patch: async ({ body }) => {
+        const patch = body as { metadata?: Record<string, unknown> }
+        if (patch.metadata !== undefined) sessionMetadata = patch.metadata
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async ({ body }) => {
+        const destination = (body as { destination: { directory: string } }).destination.directory
+        if (sessionDirectory.value !== destination) moves.push({ from: sessionDirectory.value, to: destination })
+        sessionDirectory.value = destination
+        return { data: null, response: new Response(null, { status: 204 }) }
+      },
+    })
+    // The first vacate's landing commits in the real core and then fails to
+    // answer, so the refusal keeps the remembered destination and the armed
+    // record while the rows are already released: the exact state a later
+    // claim grows out of.
+    let failNextLandingAnswer = false
+    const spawnCore = async (argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) => {
+      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      if (signal?.aborted) child.kill()
+      await child.stdin.write(input)
+      await child.stdin.end()
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+      return { exitCode, stdout, stderr }
+    }
+    const runner = {
+      async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
+        const real = await spawnCore(argv, input, signal, options)
+        if (failNextLandingAnswer && argv[1] === "vacate-landing" && real.exitCode === 0) {
+          failNextLandingAnswer = false
+          return { exitCode: 1, stdout: "", stderr: "concord vacate-landing: write failed after commit: broken pipe" }
+        }
+        return real
+      },
+    }
+    configureConcordAdapter({ runner })
+    configureHostLease({ reset: true })
+
+    const parseToolResult = (result: any) => {
+      try {
+        return JSON.parse(String(result.output).split("\n")[0])
+      } catch {
+        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+      }
+    }
+    const invoke = (toolName: string, operation: string, input: Record<string, unknown>, directory: string) =>
+      invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
+    const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
+      parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
+    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' ORDER BY seq")
+    const landings = () => dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' ORDER BY seq")
+    const occupants = () => dbRows(dbPath, "SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e WHERE e.state='active' ORDER BY e.path").map((row: any) => row.occupant as string)
+
+    for (const [index, key] of ["later-claim-capture-1", "later-claim-capture-2"].entries()) {
+      const captured = await invoke("concord_work_define", "capture", {
+        title: `Synthetic later claim ${index + 1}`,
+        value_statement: "One session claims other work after a vacate whose landing recorded.",
+        kind: "bug",
+        project_ids: [PROJECT_1],
+        idempotency_key: key,
+      }, repo1.repo)
+      expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
+    }
+    const works = dbRows(dbPath, "SELECT id FROM work_items ORDER BY id")
+    const work1 = works[0].id as string
+    const work2 = works[1].id as string
+    const resume = (workID: string) => async (directory: string) => parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(directory)))
+    const resumeWork1 = resume(work1)
+    const resumeWork2 = resume(work2)
+
+    const unlandedEntry = await resumeWork1(repo1.repo)
+    expect(unlandedEntry.outcome, JSON.stringify(unlandedEntry)).toBe("error")
+    const worktree1 = unlandedEntry.worktree_path as string
+    const entered = await resumeWork1(worktree1)
+    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
+    expect(occupants()).toEqual([SESSION_ID])
+
+    // The vacate commits, the host move lands, and the verified landing
+    // records and releases — but its answer is lost, so the refusal reports
+    // the possible effect and the adapter keeps the remembered destination.
+    failNextLandingAnswer = true
+    const first = await transition("session_vacate", { idempotency_key: "later-claim-vacate-1" }, worktree1)
+    expect(first.outcome, JSON.stringify(first)).toBe("error")
+    expect((first.error as any).adapter_reason).toBe("vacate_landing_refused")
+    expect((first.error as any).effect_state).toBe("possible")
+    expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
+    expect(vacateEvents()).toHaveLength(1)
+    expect(landings()).toHaveLength(1)
+    expect(occupants()).toEqual([""])
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+    ])
+
+    // The session claims other work in the same Project and lands there.
+    const unlandedSecond = await resumeWork2(repo1.repo)
+    expect(unlandedSecond.outcome, JSON.stringify(unlandedSecond)).toBe("error")
+    const worktree2 = unlandedSecond.worktree_path as string
+    const enteredSecond = await resumeWork2(worktree2)
+    expect(enteredSecond.outcome, JSON.stringify(enteredSecond)).toBe("ok")
+    expect(occupants().sort()).toEqual(["", SESSION_ID])
+
+    // The same-key replay of the first vacate re-reads the committed state:
+    // the request's landing already completed and the session holds the later
+    // claim's row, so the replay refuses with effect none, and the adapter
+    // never moves the host session out of claimed work to hear the refusal.
+    const replay = await transition("session_vacate", { idempotency_key: "later-claim-vacate-1" }, worktree2)
+    expect(replay.outcome, JSON.stringify(replay)).toBe("error")
+    expect((replay.error as any).kind).toBe("invalid_input")
+    expect((replay.error as any).effect_state).toBe("none")
+    expect((replay.error as any).message).toContain("belong to a later claim")
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+      { from: repo1.repo, to: worktree2 },
+    ])
+    expect(vacateEvents()).toHaveLength(1)
+    expect(landings()).toHaveLength(1)
+    expect(occupants().sort()).toEqual(["", SESSION_ID])
+
+    // The refusal's recovery works: the later claim's own vacate moves the
+    // session to the registered main checkout, records its verified landing,
+    // and releases the later claim's row.
+    const leave = await transition("session_vacate", { idempotency_key: "later-claim-vacate-2" }, worktree2)
+    expect(leave.outcome, JSON.stringify(leave)).toBe("ok")
+    expect(vacateEvents()).toHaveLength(2)
+    expect(landings()).toHaveLength(2)
+    expect(occupants().sort()).toEqual(["", ""])
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+      { from: repo1.repo, to: worktree2 },
+      { from: worktree2, to: repo1.repo },
+    ])
   } finally {
     configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)

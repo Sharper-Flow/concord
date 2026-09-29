@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1097,10 +1098,6 @@ func readOccupantSession(t *testing.T, s *store.Store, entry store.WorktreeEntry
 // repository refuses with cross_repository_claim before any worktree exists,
 // and the refusal is not retryable — the host refuses the move, so the only
 // route is a second coordinator session in the target repository. Two
-// CD-0178 D2: a worktree_claim whose target Project lives in another git
-// repository refuses with cross_repository_claim before any worktree exists,
-// and the refusal is not retryable — the host refuses the move, so the only
-// route is a second coordinator session in the target repository. Two
 // Projects in one repository keep the within-repository move.
 func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	t.Parallel()
@@ -1146,6 +1143,20 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	// CD-0182: the remedy names the resume route with both identities.
 	if !strings.Contains(response.Error.Message, "concord_work_start carrying work_id work-1 and project_id project-1x") {
 		t.Fatalf("error.message=%q, want the concord_work_start resume remedy with the work and Project identities", response.Error.Message)
+	}
+	// The refusal must reach the caller as itself. The kind once sat outside
+	// the envelope contract's typedError enum, so MarshalJSON failed and the
+	// adapter downgraded the typed refusal into an unknown-effect
+	// operation_conflict (CON-512).
+	marshaled, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("the cross_repository_claim refusal cannot marshal: %v", err)
+	}
+	if !strings.Contains(string(marshaled), "\"cross_repository_claim\"") {
+		t.Fatalf("marshaled envelope %s drops the typed kind", marshaled)
+	}
+	if action := response.Error.RecoveryAction; action.Kind != "use_declared_route" || !slices.Equal(action.RequiredRefs, []string{"concord_work_start"}) {
+		t.Fatalf("recovery action=%+v, want the declared concord_work_start route", action)
 	}
 	entries, err := s.WorktreeEntries(ctx, "work-1")
 	if err != nil || len(entries) != 0 {

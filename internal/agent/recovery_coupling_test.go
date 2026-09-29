@@ -13,6 +13,8 @@ func companionFields(err *TypedError) {
 	switch err.Kind {
 	case "ambiguous_scope":
 		err.Candidates = []string{"prod-alpha", "prod-beta"}
+	case "cross_repository_claim":
+		err.RecoveryAction.RequiredRefs = []string{"concord_work_start"}
 	case "version_conflict":
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":

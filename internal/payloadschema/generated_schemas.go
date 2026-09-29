@@ -13432,6 +13432,7 @@ const GeneratedPayloadSchemaDocument = `{
             "idempotency_conflict",
             "operation_conflict",
             "resource_busy",
+            "cross_repository_claim",
             "invalid_transition",
             "invalid_relation",
             "invariant_violation",

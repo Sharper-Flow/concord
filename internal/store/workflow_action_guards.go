@@ -228,6 +228,10 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	return recorded == 0, nil
 }
 
+// workflowFailedWorkerAttempt reports a failed worker attempt dispatched after
+// the step's latest action start. The step-start bound is the failure
+// recovery bound: a fresh fenced attempt at the step supersedes every earlier
+// failure there.
 func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, currentStep, subject string, excludeRecorded bool) (bool, error) {
 	if currentStep == "" {
 		return false, nil
@@ -239,8 +243,17 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 	if !startSeq.Valid {
 		return false, nil
 	}
+	return workflowFailedWorkerAttemptSince(ctx, q, workID, startSeq.Int64, subject, excludeRecorded)
+}
+
+// workflowFailedWorkerAttemptSince reports a failed worker attempt whose
+// dispatch event follows sinceSeq. Callers pass the bound that defines their
+// attempt window: contract correction passes the step's pass boundary, so a
+// failure recorded in a previous pass cannot open correction in the pass that
+// returned to the step (CD-0133 D1).
+func workflowFailedWorkerAttemptSince(ctx context.Context, q queryer, workID string, sinceSeq int64, subject string, excludeRecorded bool) (bool, error) {
 	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?)`
-	args := []any{string(SubjectWorkItem), WorkerDispatched, workID, startSeq.Int64}
+	args := []any{string(SubjectWorkItem), WorkerDispatched, workID, sinceSeq}
 	if excludeRecorded {
 		query = `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>? AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id))`
 		args = append(args, string(SubjectWorkItem), WorkflowActionCompleted)
@@ -287,7 +300,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if correction != nil && correction.Disposition == "rejected" {
 		return true, nil
 	}
-	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
+	boundary, started, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)
 	if err != nil {
 		return false, err
 	}
@@ -299,17 +312,21 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 		SELECT 1 FROM domain_events
 		WHERE subject_type=? AND subject_id=? AND seq>=?
 		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
-	)`, string(SubjectWorkItem), workID, startSeq, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
+	)`, string(SubjectWorkItem), workID, boundary, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
 	}
 	if dispatched == 0 {
 		return true, nil
 	}
-	failed, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, false)
+	// The failure check reads the same pass boundary as the dispatch check,
+	// so both answers describe one pass: a failure recorded before the
+	// return edge cannot reopen correction while the new pass's worker is
+	// live (CD-0133 D1).
+	failed, err := workflowFailedWorkerAttemptSince(ctx, q, workID, boundary, subject, false)
 	if err != nil || !failed {
 		return false, err
 	}
-	unrecorded, err := workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, true)
+	unrecorded, err := workflowFailedWorkerAttemptSince(ctx, q, workID, boundary, subject, true)
 	if err != nil {
 		return false, err
 	}

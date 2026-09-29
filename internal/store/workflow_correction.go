@@ -950,11 +950,15 @@ func dispositionForCorrection(actionID string) string {
 	return "failed"
 }
 
-func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workID, currentStep, subject string) (bool, error) {
+// workflowRejectedWorkerResultAvailable reports whether a completed worker
+// result at the step is still open to rejection. excludeSeq names the fold's
+// own in-flight event, whose payload names the same attempt; read surfaces
+// pass 0 because every settled event counts.
+func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (bool, error) {
 	if currentStep == "" {
 		return false, nil
 	}
-	startSeq, _, found, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
+	boundary, found, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)
 	if err != nil {
 		return false, err
 	}
@@ -962,7 +966,7 @@ func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workI
 		return false, nil
 	}
 	var attemptID, lifecycle string
-	if err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='completed' AND d.seq>? AND NOT EXISTS (SELECT 1 FROM domain_events r WHERE r.subject_type=d.subject_type AND r.subject_id=d.subject_id AND r.kind=? AND r.seq<d.seq AND json_extract(r.payload,'$.worker_attempt_id')=a.attempt_id AND json_extract(r.payload,'$.action_id') IN ('accept_worker_result','reject_worker_result')) ORDER BY d.seq DESC LIMIT 1`, string(SubjectWorkItem), WorkerDispatched, workID, startSeq, WorkflowActionCompleted).Scan(&attemptID, &lifecycle); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='completed' AND d.seq>? AND NOT EXISTS (SELECT 1 FROM domain_events r WHERE r.subject_type=d.subject_type AND r.subject_id=d.subject_id AND r.kind=? AND json_extract(r.payload,'$.worker_attempt_id')=a.attempt_id AND json_extract(r.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result') AND r.seq<>?) ORDER BY d.seq DESC LIMIT 1`, string(SubjectWorkItem), WorkerDispatched, workID, boundary, WorkflowActionCompleted, excludeSeq).Scan(&attemptID, &lifecycle); err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
 		}

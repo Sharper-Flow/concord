@@ -113,6 +113,38 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(pendingVacateDestination("session-1")).toBe("/main")
   })
 
+  // An unreadable successful core answer leaves the committed relocation
+  // request standing (CD-0190 D3): the refusal classifies with the
+  // state-driven replay as the recovery — session_vacate names no work id,
+  // so no generic reconciliation can drive — reports the possible effect,
+  // and remembers nothing the core did not return.
+  test("classifies an unreadable ok answer with the state-driven replay recovery", async () => {
+    await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/worktree" } }), {
+      async run(argv: string[], input: string) {
+        if (argv[1] === "project-resolve") {
+          return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "sv-1", main_worktree: false, product_ids: ["product-1"] }) + "\n", stderr: "" }
+        }
+        if (argv[1] === "invoke") {
+          const parsed = JSON.parse(input) as { operation?: string }
+          if (parsed?.operation === "session_vacate") return { exitCode: 0, stdout: "concord core answer lost in transit\n", stderr: "" }
+        }
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as never)
+    configureHostLease({ reset: true })
+    const envelope = JSON.parse(String((await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-unreadable" } } } as never, context())).output).split("\n")[0])
+    expect(envelope.outcome).toBe("error")
+    if (envelope.outcome === "error") {
+      const error = envelope.error as { kind?: string; effect_state?: string; recovery_action?: { kind?: string }; message?: string }
+      expect(error.kind).toBe("malformed_response")
+      expect(error.effect_state).toBe("possible")
+      expect(error.recovery_action?.kind).toBe("retry_same_request")
+      expect(error.message).toContain("replay session_vacate")
+    }
+    expect(pendingVacateDestination("session-1")).toBeNull()
+    expect(landingCalls).toEqual([])
+  })
+
   // After an adapter restart the adapter holds no remembered destination, so
   // the retry's core call resolves its Project from the landed directory and
   // refuses before the pending-request replay can run. That refusal must not

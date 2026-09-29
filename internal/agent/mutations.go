@@ -565,6 +565,15 @@ type compactReconcileInput struct {
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
+	// session_vacate replays state-driven: its recorded success goes stale
+	// the moment a later claim's occupancy rows stand, so every replay must
+	// reach the planner and re-read the committed request's state inside the
+	// transaction instead of returning the cached payload here (CD-0190
+	// D2/D3). The cached answer would otherwise send the adapter's host mover
+	// after a request that must refuse.
+	if op.ID == "concord_work_transition.session_vacate" {
+		return Envelope{}, false, nil
+	}
 	key := idempotencyKey(raw)
 	if key == "" {
 		return Envelope{}, false, nil
@@ -2554,7 +2563,48 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 	}
 	plan.scope["project_ids"] = []string{project}
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "verify_session_vacated", RequiredFields: []string{"work_id"}}}
+	resolvePayload := func(target store.SessionVacateReplayTarget) (json.RawMessage, error) {
+		return json.Marshal(map[string]any{
+			"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
+			"next_valid_intents":    mutationResultIntents(plan.intents),
+			"work_id":               target.WorkID,
+			"project_id":            target.ProjectID,
+			"source_directory":      target.SourceDirectory,
+			"destination_directory": target.DestinationDirectory,
+		})
+	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		// The replay decision reads the idempotency record inside this
+		// transaction: the caller's own commit is the state the replay must
+		// re-read, and a read outside the transaction could miss it.
+		key := idempotencyKey(raw)
+		prior, replayed, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if replayed && prior.CanonicalDigest != digest {
+			return nil, nil, nil, storeIdempotencyConflict(r.Operation, key)
+		}
+		if replayed {
+			// A same-key replay never appends and never answers from the
+			// cached success: it re-reads the committed request's state and
+			// resolves or refuses from it. A pending request resolves from
+			// the verified destination or from its source worktree, a
+			// completed request resolves while the session holds no rows,
+			// and a later claim's rows refuse with effect none — the host
+			// mover never runs on the refusal, so the session stays where it
+			// sits (CD-0190 D2/D3).
+			var recorded struct {
+				WorkID string `json:"work_id"`
+			}
+			_ = json.Unmarshal([]byte(prior.ResultPayload), &recorded)
+			target, rerr := store.ResolveSessionVacateReplayTx(ctx, tx, project, grant.Worktree, grant.SessionRef, recorded.WorkID)
+			if rerr != nil {
+				return nil, nil, nil, rerr
+			}
+			payload, merr := resolvePayload(target)
+			return payload, nil, []ChangedRef{}, merr
+		}
 		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 		if err != nil {
 			// A vacate whose host move landed without a recorded landing
@@ -2569,14 +2619,7 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
 				pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 				if perr == nil {
-					result, merr := json.Marshal(map[string]any{
-						"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
-						"next_valid_intents":    mutationResultIntents(plan.intents),
-						"work_id":               pending.WorkID,
-						"project_id":            pending.ProjectID,
-						"source_directory":      pending.SourceDirectory,
-						"destination_directory": pending.DestinationDirectory,
-					})
+					result, merr := resolvePayload(pending)
 					return result, nil, []ChangedRef{}, merr
 				}
 				// The replay resolves a pending request, and a committed
@@ -4652,27 +4695,36 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return err
 		}
+		replay := false
 		if found {
 			if prior.CanonicalDigest != digest {
 				return storeIdempotencyConflict(r.Operation, key)
 			}
-			var changed []ChangedRef
-			_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
-			base.Replayed = true
-			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-			replayedPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
-			if enrichErr != nil {
-				return enrichErr
+			if r.Operation != "session_vacate" {
+				var changed []ChangedRef
+				_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+				base.Replayed = true
+				base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+				replayedPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+				if enrichErr != nil {
+					return enrichErr
+				}
+				if derivedIntents != nil {
+					intents = derivedIntents
+				}
+				response = r.mutationResult(base, replayedPayload, changed, intents)
+				if response.Outcome == OutcomeError {
+					resultRejected = true
+					return errors.New("mutation result rejected")
+				}
+				return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 			}
-			if derivedIntents != nil {
-				intents = derivedIntents
-			}
-			response = r.mutationResult(base, replayedPayload, changed, intents)
-			if response.Outcome == OutcomeError {
-				resultRejected = true
-				return errors.New("mutation result rejected")
-			}
-			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+			// session_vacate replays state-driven: the cached payload is
+			// stale the moment a later claim's occupancy rows stand, so the
+			// effect below re-reads the committed request and resolves or
+			// refuses from its state (CD-0190 D2/D3). The key stays recorded,
+			// so the tail touches instead of inserting.
+			replay = true
 		}
 		// CD-0041 D7: every consequential boundary validates the contract's law
 		// revision pins and its active Domain overlaps. The guarded set is the
@@ -4750,10 +4802,16 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if base.ResolvedScope == nil {
 			base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
 		}
+		if replay {
+			base.Replayed = true
+		}
 		response = r.mutationResult(base, payload, changed, intents)
 		if response.Outcome == OutcomeError {
 			resultRejected = true
 			return errors.New("mutation result rejected")
+		}
+		if replay {
+			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
 		changedJSON, _ := json.Marshal(changed)
 		authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))

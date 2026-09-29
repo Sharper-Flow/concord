@@ -14,7 +14,7 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
-import { armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree } from "./claimed-worktree"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 
 type ToolContext = {
@@ -422,6 +422,17 @@ function operationIsMutation(toolName: string, operation: string): boolean {
 // readback reconciles it.
 function unknownOutcomeClassification(toolName: string, operation: string, transportFailure: boolean): [string, string, "none" | "possible", "retry_same_request" | "reconcile_operation"] {
   if (operationIsMutation(toolName, operation)) {
+    // session_vacate carries no work id, so the generic reconciliation has
+    // no read to drive, and the core commits the relocation request before
+    // it answers. The state-driven replay resolves or refuses the committed
+    // request from wherever the session sits (CD-0190 D3), so the recovery
+    // is the same request again — the adapter remembers nothing the core
+    // did not return, and the retry needs no remembered destination.
+    if (toolName === "concord_work_transition" && operation === "session_vacate") {
+      return transportFailure
+        ? ["operation_conflict", "unknown_effect", "possible", "retry_same_request"]
+        : ["malformed_response", "malformed_core_response", "possible", "retry_same_request"]
+    }
     return transportFailure
       ? ["operation_conflict", "unknown_effect", "possible", "reconcile_operation"]
       : ["malformed_response", "malformed_core_response", "possible", "reconcile_operation"]
@@ -429,6 +440,13 @@ function unknownOutcomeClassification(toolName: string, operation: string, trans
   return transportFailure
     ? ["transport_failure", "io_failure", "none", "retry_same_request"]
     : ["malformed_response", "malformed_core_response", "none", "retry_same_request"]
+}
+
+// The vacate-specific answer for an unreadable post-commit response: the
+// core may have committed the relocation request, and the state-driven
+// replay resolves it from wherever the session sits.
+function vacateReplayRecovery(message: string): string {
+  return `${message}; the core commits the relocation request before it answers, so replay session_vacate — the state-driven replay resolves the committed request from wherever the session sits and the verified landing releases the rows`
 }
 
 
@@ -483,16 +501,20 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
+  // An unreadable session_vacate answer leaves the committed relocation
+  // request's state to the replay, so the refusal names that recovery
+  // instead of a reconciliation the operation cannot drive.
+  const outcomeMessage = (message: string) => toolName === "concord_work_transition" && operation === "session_vacate" ? vacateReplayRecovery(message) : message
   let result: any
   try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
-    return adapterError(toolName, operation, requestID, kind, reason, result.stderr.slice(0, MAX_STDERR), effect, recovery)
+    return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
   }
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-    return adapterError(toolName, operation, requestID, kind, reason, String(error), effect, recovery, salvageDetails(result.stdout))
+    return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(String(error)), effect, recovery, salvageDetails(result.stdout))
   }
   const skewRefusal = () => {
     const disk = resolveDiskManifestDigest()
@@ -520,12 +542,12 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       try { retryResult = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
-        return adapterError(toolName, operation, requestID, kind, reason, retryResult.stderr.slice(0, MAX_STDERR), effect, recovery)
+        return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
       }
       let retryResponse: any
       try { retryResponse = singleJSON(retryResult.stdout) } catch (error) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-        return adapterError(toolName, operation, requestID, kind, reason, String(error), effect, recovery, salvageDetails(retryResult.stdout))
+        return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(String(error)), effect, recovery, salvageDetails(retryResult.stdout))
       }
       if (!coreResponseFailure(retryResponse, toolName, operation)) {
         response = retryResponse
@@ -538,7 +560,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
   } else if (contractFailure) {
     const [, , effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", `core response failed the generated TS7 contract: ${contractFailure}`, effect, recovery, salvageDetails(result.stdout))
+    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", outcomeMessage(`core response failed the generated TS7 contract: ${contractFailure}`), effect, recovery, salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
@@ -1958,7 +1980,19 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     const requestID = `${context.sessionID}-${context.messageID}`
     const startedIn = context.directory
     const remembered = pendingVacateDestination(context.sessionID)
-    const movedToRemembered = typeof remembered === "string" && !(typeof startedIn === "string" && samePath(startedIn, remembered))
+    // The host's own readback names where the session sits now. When that
+    // directory is the claimed worktree a confirmed or refused move armed,
+    // the session genuinely occupies claimed work: the state-driven replay
+    // must hear the call from there and refuse with the later-claim
+    // recovery, so the host never leaves claimed work for a request that
+    // cannot complete (CD-0190 D3). Every other state — a stale tool
+    // context, a post-commit refusal that left the session outside its
+    // claimed worktree — keeps the remembered-destination pre-move.
+    let hostDirectory: string | null = null
+    try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
+    const claimed = armedClaimedWorktree(context.sessionID) ?? unlandedClaimedWorktree(context.sessionID)
+    const occupiesClaimedWork = claimed !== null && hostDirectory !== null && samePath(claimed, hostDirectory)
+    const movedToRemembered = typeof remembered === "string" && !occupiesClaimedWork && !(typeof startedIn === "string" && samePath(startedIn, remembered))
     if (movedToRemembered) {
       // A post-commit refusal left this session's relocation request
       // standing and this adapter remembers its registered main checkout.

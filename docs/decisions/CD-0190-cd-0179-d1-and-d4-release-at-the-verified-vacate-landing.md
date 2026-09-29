@@ -79,22 +79,36 @@ vacate releases them.
 
 The relocation request stands once the core commits it, so every adapter
 refusal past the commit reports an `effect_state` of possible. The recovery is
-the replay: session_vacate called again from the verified destination resolves
-to the committed request, appends nothing, and the readback-verified landing
-records through the same verb. A move that landed without a confirmed landing
-recovers this way, so no stale row strands the session from claiming other
-work.
+the replay: session_vacate called again re-reads the committed request's
+state and resolves it, appends nothing, and the readback-verified landing
+records through the same verb. The replay resolves from the verified
+destination, or from the source worktree the pending request names while the
+session still runs there, so a commit whose host move never ran and a retry
+after an adapter restart recover the same way. A move that landed without a
+confirmed landing recovers this way, so no stale row strands the session from
+claiming other work. A successful core answer the adapter cannot read
+classifies with the same recovery: the request stands, and the state-driven
+replay resolves it from wherever the session sits. session_vacate names no
+work item, so no generic reconciliation can drive; the adapter remembers
+nothing the core did not return.
 
 The adapter keeps the committed destination of a post-commit refusal for the
 session: a later session_vacate first moves the host session to the remembered
 destination and resolves the core call from it, so the replay and the
-readback-verified landing run from wherever the host session sits. A retry
-without the remembered destination (an adapter restart) resolves its Project
-from the directory the session sits in and refuses before the replay; that
-refusal reports contact_operator, never a retry the session cannot reach.
+readback-verified landing run from wherever the host session sits. The
+pre-move runs only while the session holds no claimed worktree: when the host
+readback names the claimed worktree a confirmed or refused move armed, the
+session genuinely occupies claimed work, the adapter leaves it there, and the
+state-driven replay refuses with the later-claim recovery instead of moving
+the host out of work it holds. A retry without the remembered destination (an
+adapter restart) resolves its Project from the directory the session sits in
+and refuses before the replay; that refusal reports contact_operator, never a
+retry the session cannot reach.
 
 The replay resolves a pending request only: a payload version 2 request with
-no recorded landing after it. A request its recorded landing already completed
+no recorded landing after it. The replay re-reads the committed state on every
+call, so the idempotency response cache never answers a vacate replay from the
+recorded success. A request its recorded landing already completed
 resolves as a completed replay with no event while the session holds no
 occupancy rows, so an uncertain landing result recovers; once a later claim's
 occupancy rows stand, the same replay refuses and appends nothing, because the
@@ -169,20 +183,28 @@ still releases on fold.
   verified destination resolves the pending request and appends nothing, and
   a main-checkout vacate with no committed request still refuses. The same
   run proves a replay of a completed request resolves with no event while no
-  rows stand and refuses once a later claim's rows stand, the cached same-key
-  replay reaches the landing verb after a later claim, and that landing
-  refuses and leaves the later claim's row standing.
+  rows stand and refuses once a later claim's rows stand, the same-key
+  replay after a later claim refuses with effect none and leaves the later
+  claim's row standing with no landing recorded, and the replay from a
+  pending request's source worktree resolves the request and appends
+  nothing.
 - `bun test adapter/opencode/session-vacate-move.test.ts` proves every
   refusal past the commit reports `effect_state` possible, a replay whose
   session already sits at the destination skips the move and records the
   landing, a landing output failure never asserts the landing is not
-  recorded, and a retry with no remembered destination reports
-  contact_operator instead of the unreachable retry.
+  recorded, a retry with no remembered destination reports
+  contact_operator instead of the unreachable retry, and an unreadable
+  successful core answer classifies with the state-driven replay recovery
+  and remembers nothing the core did not return.
 - `bun test adapter/opencode/session-vacate-reoccupy.test.ts` proves the
   landed-but-unconfirmed move recovers on replay and releases the row, and a
   readback outside every registered Project recovers through the remembered
   destination: the retry moves the host session there, the replay appends
-  nothing, and the verified landing releases the row.
+  nothing, and the verified landing releases the row. The same run proves an
+  unreadable ok answer recovers through the same-key replay from the source
+  worktree, and a same-key replay after a later claim refuses with effect
+  none without moving the host session out of claimed work, while the later
+  claim's own vacate releases its row.
 - `python3 scripts/check-doc-contract.py` proves this record carries the
   current decision outline and passes the writing rules.
 - `python3 scripts/check-knowledge-index.py` and

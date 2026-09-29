@@ -102,6 +102,57 @@ describe("version-skew self-heal", () => {
     expect(result.error.message).not.toContain("restart")
   })
 
+  test("a healed retry whose runner dies reports the mutation's possible effect", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
+    writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)
+    setManifestSourceForTesting(join(dir, "generated-contracts.ts"))
+
+    let invokeCalls = 0
+    adapter.configureConcordAdapter({ runner: { async run(_argv: string[], input: string) {
+      invokeCalls++
+      const parsed = JSON.parse(input)
+      if (parsed.directory !== undefined) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (invokeCalls === 2) return { exitCode: 0, stdout: JSON.stringify({ ...coreEnvelope("concord_work_define", "capture", "ok", { changed_refs: [] }), manifest_digest: foreignDigest }), stderr: "" }
+      throw Object.assign(new Error("core invocation timed out"), { name: "TimeoutError" })
+    } } })
+
+    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor())
+    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose child died
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("operation_conflict")
+    expect(result.error.adapter_reason).toBe("unknown_effect")
+    expect(result.error.effect_state).toBe("possible")
+    expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  })
+
+  // The skew response proves the first invoke's child ran, so a missing
+  // binary on the healed retry cannot report a no-effect refusal: the
+  // mutation keeps its possible effect and the reconcile recovery.
+  test("a healed retry whose binary is missing still reports the mutation's possible effect", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
+    writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)
+    setManifestSourceForTesting(join(dir, "generated-contracts.ts"))
+
+    let invokeCalls = 0
+    adapter.configureConcordAdapter({ runner: { async run(_argv: string[], input: string) {
+      invokeCalls++
+      const parsed = JSON.parse(input)
+      if (parsed.directory !== undefined) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (invokeCalls === 2) return { exitCode: 0, stdout: JSON.stringify({ ...coreEnvelope("concord_work_define", "capture", "ok", { changed_refs: [] }), manifest_digest: foreignDigest }), stderr: "" }
+      throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
+    } } })
+
+    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor())
+    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose binary is gone
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("operation_conflict")
+    expect(result.error.adapter_reason).toBe("unknown_effect")
+    expect(result.error.effect_state).toBe("possible")
+    expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+  })
+
   test("a healed retry that skews again refuses rather than looping", async () => {
     const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
     writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)

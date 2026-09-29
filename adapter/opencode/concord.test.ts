@@ -10,6 +10,7 @@ import { claimHostLease, configureHostLease, releaseDisplayName, releaseStalenes
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE } from "./move-session"
+import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -514,6 +515,119 @@ test("post-approval runner failures reconcile the request work ID", async () => 
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.recovery_action.kind).toBe("reconcile_operation")
   expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+})
+
+// A mutation's core child can commit its transaction before an abort, a
+// timeout, or a crash kills it, so a runner failure after the invoke started
+// reports a possible effect and reconciles the request work ID. A missing
+// binary started nothing and keeps the no-effect refusal.
+test("mutation runner failures after the invoke started report a possible effect", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "completed", version: 3 }] },
+  })
+  const failures: Array<[string, () => unknown]> = [
+    ["timeout", () => Object.assign(new Error("core invocation timed out"), { name: "TimeoutError" })],
+    ["cancelled", () => Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["spawn_failure", () => new Error("core child died")],
+  ]
+  for (const [label, failure] of failures) {
+    let calls = 0
+    const result: any = await runTransition({ async run() {
+      calls++
+      if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (calls === 2) throw failure()
+      return { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+    } })
+    assertAdapterEnvelope(result)
+    expect(result.error.kind, label).toBe("operation_conflict")
+    expect(result.error.adapter_reason, label).toBe("unknown_effect")
+    expect(result.error.effect_state, label).toBe("possible")
+    expect(result.error.recovery_action.kind, label).toBe("reconcile_operation")
+    expect(result.error.details.reconciled, label).toEqual({ found: true, lifecycle: "completed", version: 3 })
+  }
+
+  let calls = 0
+  const missing: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
+  } })
+  assertAdapterEnvelope(missing)
+  expect(calls).toBe(2)
+  expect(missing.error.adapter_reason).toBe("missing_binary")
+  expect(missing.error.effect_state).toBe("none")
+})
+
+// ENOENT is the spawn's own failure: the binary never resolved and no child
+// started, so the refusal keeps effect none whatever the abort signal's
+// state. A healed skew retry keeps the possible effect: its first invoke's
+// child already ran, so the retry's ENOENT proves nothing about the commit.
+test("an aborted signal does not mask a missing binary on a mutation", async () => {
+  const controller = new AbortController()
+  controller.abort()
+  let calls = 0
+  adapter.configureConcordAdapter({ runner: { async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
+  } } })
+  const missing: any = await rawHostResult(adapter.work_transition.execute(
+    hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }),
+    contextFor(undefined, controller),
+  ))
+  assertAdapterEnvelope(missing)
+  expect(calls).toBe(2)
+  expect(missing.error.kind).toBe("transport_failure")
+  expect(missing.error.adapter_reason).toBe("missing_binary")
+  expect(missing.error.effect_state).toBe("none")
+  expect(missing.error.recovery_action.kind).toBe("contact_operator")
+  expect(missing.error.details?.reconciled).toBeUndefined()
+
+  const skewPin = "sha256:" + "2".repeat(64)
+  try {
+    expect(adoptManifestDigest(skewPin)).toBe(true)
+    let retryCalls = 0
+    adapter.configureConcordAdapter({ runner: { async run() {
+      retryCalls++
+      if (retryCalls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (retryCalls === 2) return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "lifecycle", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      if (retryCalls === 3) throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
+      // The reconcile readback: context resolution, then the work read.
+      if (retryCalls === 4) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })), stderr: "" }
+    } } })
+    const retried: any = await rawHostResult(adapter.work_transition.execute(
+      hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-2" }),
+      contextFor(undefined, controller),
+    ))
+    assertAdapterEnvelope(retried)
+    expect(retryCalls).toBe(5) // context, skewed invoke whose child ran, healed retry whose binary is gone, readback context, readback read
+    expect(retried.error.kind).toBe("operation_conflict")
+    expect(retried.error.adapter_reason).toBe("unknown_effect")
+    expect(retried.error.effect_state).toBe("possible")
+    expect(retried.error.recovery_action.kind).toBe("reconcile_operation")
+    expect(retried.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
+  } finally {
+    resetManifestPinForTesting()
+  }
+})
+
+// A read's thrown runner failure keeps the no-effect refusal: the child's
+// death names the transport event, and a read cannot have written, so the
+// refusal never reports a possible effect and never reconciles.
+test("a read's thrown runner failure at the invoke keeps the no-effect refusal", async () => {
+  let calls = 0
+  const result: any = await runProduct({ async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    throw Object.assign(new Error("aborted"), { name: "AbortError" })
+  } })
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("cancelled")
+  expect(result.error.adapter_reason).toBe("cancelled_no_effect")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+  expect(result.error.details?.reconciled).toBeUndefined()
 })
 
 test("oversized mutation envelopes reconcile the request work ID", async () => {

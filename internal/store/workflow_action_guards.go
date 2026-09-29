@@ -254,7 +254,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	if correction != nil && correction.Disposition == "rejected" {
 		return true, nil
 	}
-	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, currentStep)
+	boundary, started, err := workflowStepPassBoundary(ctx, q, definition, workID, currentStep, subject)
 	if err != nil {
 		return false, err
 	}
@@ -266,7 +266,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 		SELECT 1 FROM domain_events
 		WHERE subject_type=? AND subject_id=? AND seq>=?
 		AND (kind=? OR (kind IN (?,?) AND json_extract(payload,'$.action_id')='dispatch_worker'))
-	)`, string(SubjectWorkItem), workID, startSeq, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
+	)`, string(SubjectWorkItem), workID, boundary, WorkerDispatched, WorkflowActionStarted, WorkflowActionCompleted).Scan(&dispatched); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect worker dispatch authorization", true, "retry once the workflow event log is readable", err)
 	}
 	if dispatched == 0 {

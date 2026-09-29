@@ -200,7 +200,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if !stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable outside a worker-dispatch step", false, "reread_entities")
 		}
-		available, correctionErr := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, currentStep, "workflow_action")
+		available, correctionErr := workflowRejectedWorkerResultAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
 		if correctionErr != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
@@ -299,7 +299,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		guards.correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, currentStep, "workflow_action")
+		guards.correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 		if err != nil {
 			return result, err
 		}

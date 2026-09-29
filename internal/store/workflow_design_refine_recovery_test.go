@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -58,8 +59,12 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 	return attemptID, epoch, nil
 }
 
-func TestReproAcceptanceCorrectionWithoutDesignStrandsRefineDispatch(t *testing.T) {
-	const workID = "refine-design-recovery"
+// seedReturnedRefineCorrection drives an implementation item through a first
+// pass that dispatches and accepts a review lane at refine, corrects the
+// contract at acceptance without design_record, and returns to refine through
+// the confirm_premise failure edge. It returns the accepted first-pass review.
+func seedReturnedRefineCorrection(t *testing.T, workID string) (workflowReturnRouteFixture, string, int64) {
+	t.Helper()
 	ctx := context.Background()
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
@@ -124,39 +129,151 @@ func TestReproAcceptanceCorrectionWithoutDesignStrandsRefineDispatch(t *testing.
 		t.Fatalf("first pass ended at %q, want acceptance", step)
 	}
 
-	// Step 1: correction at acceptance without design_record.
+	// Correction at acceptance without design_record.
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(2, ""), owner, operator); err != nil {
-		t.Fatalf("step 1: supersede_contract without design_record at acceptance: %v", err)
+		t.Fatalf("supersede_contract without design_record at acceptance: %v", err)
 	}
-	_, stale, _ := readCurrentWorkflowDesign(ctx, s.DatabaseForTesting(), workID)
-	t.Logf("step 1: supersede at acceptance admitted; design stale=%v", stale)
+	_, stale, err := readCurrentWorkflowDesign(ctx, s.DatabaseForTesting(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stale {
+		t.Fatal("design is current after the acceptance supersede, want stale")
+	}
 
-	// Step 2: non-ok verdict and premise confirmation return to refine.
+	// A non-ok verdict and premise confirmation return to refine.
 	verdict := json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
-		t.Fatalf("step 2: record_verdict: %v", err)
+		t.Fatalf("record_verdict: %v", err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner, operator); err != nil {
-		t.Fatalf("step 2: confirm_premise: %v", err)
+		t.Fatalf("confirm_premise: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "refine" {
-		t.Fatalf("step 2: step = %q, want refine", step)
+		t.Fatalf("step = %q, want refine", step)
 	}
 
-	_, _, discovered := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	t.Logf("refine: supersede_contract discovery: %v", discovered)
+	return fixture, reviewAttempt, reviewEpoch
+}
+
+func refineRecoveryStepSeq(t *testing.T, s *Store, workID, kind, stepID, actionID string) int64 {
+	t.Helper()
+	var seq int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.action_id')=?`, workID, kind, stepID, actionID).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	return seq
+}
+
+// A return edge re-enters refine without a start event, so the pass boundary
+// is the confirm_premise completion, not the previous pass's start_refine.
+func TestReturnedRefinePassBoundaryStartsNewPass(t *testing.T) {
+	const workID = "refine-pass-boundary"
+	ctx := context.Background()
+	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	s := fixture.store
+	var definitionRef string
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		t.Fatal(err)
+	}
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok {
+		t.Fatalf("pinned definition %s@%d is not registered", definitionRef, definitionVersion)
+	}
+	startSeq := refineRecoveryStepSeq(t, s, workID, WorkflowActionStarted, "refine", "start_refine")
+	if startSeq == 0 {
+		t.Fatal("no start_refine recorded at refine")
+	}
+	entrySeq := refineRecoveryStepSeq(t, s, workID, WorkflowActionCompleted, "acceptance", "confirm_premise")
+	if entrySeq <= startSeq {
+		t.Fatalf("latest confirm_premise entry seq %d does not follow the previous pass start %d", entrySeq, startSeq)
+	}
+	boundary, started, err := workflowStepPassBoundary(ctx, s.DatabaseForTesting(), registered.Definition, workID, "refine", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started {
+		t.Fatal("refine reports no pass activity")
+	}
+	if boundary != entrySeq {
+		t.Fatalf("pass boundary = %d, want the latest entry %d", boundary, entrySeq)
+	}
+}
+
+// A contract corrected at acceptance without design_record leaves the design
+// stale. At the returned refine the stale-design dispatch refusal names
+// supersede_contract, the pin advertises it, and a correction that carries the
+// replacement design restores dispatch. The accepted first-pass review is not
+// offered for rejection.
+func TestReturnedRefineRecordsReplacementDesignAndDispatches(t *testing.T) {
+	const workID = "refine-design-recovery"
+	ctx := context.Background()
+	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	_, _, dispatchErr := dispatchRefineAttempt(t, fixture, workID, "refine-stale")
-	t.Logf("step 3: dispatch_worker at refine: %v", dispatchErr)
-	t.Logf("step 4: supersede_contract with design_record at refine: %v", runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator))
-	t.Logf("step 5: reject_worker_result on the accepted review: %v", runVerdictActionAs(t, s, workID, "reject_worker_result", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`,"diagnosis":"d","strategy":"s","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`), 0, owner))
-	t.Logf("step 6: start_refine with design_record: %v", runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{"design_record":`+refineRecoveryDesign+`}`), 0, owner))
-
-	t.Logf("probe: plain start_refine: %v", runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, owner))
-	_, _, discovered = WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
-	t.Logf("probe: supersede_contract discovery after start_refine: %v", discovered)
-	t.Logf("probe: supersede_contract with design_record after start_refine: %v", runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator))
-	_, _, final := dispatchRefineAttempt(t, fixture, workID, "refine-after")
-	if final != nil {
-		t.Fatalf("no admitted dispatch at refine: %v", final)
+	if dispatchErr == nil {
+		t.Fatal("dispatch_worker admitted at the returned refine with a stale design")
 	}
+	var staleDispatchFailure *Failure
+	if !errors.As(dispatchErr, &staleDispatchFailure) {
+		t.Fatalf("stale-design dispatch refusal is not a typed failure: %v", dispatchErr)
+	}
+	if staleDispatchFailure.RecoveryAction != "use supersede_contract with design_record before worker dispatch" {
+		t.Fatalf("stale-design dispatch refusal does not name the supersede route: %q", staleDispatchFailure.RecoveryAction)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+		t.Fatalf("pin does not advertise supersede_contract at the returned refine; intents = %v", intentActionIDs(pin.NextValidIntents))
+	}
+	supersedeIntent := workPinIntentForActionID(t, pin, "supersede_contract")
+	if supersedeIntent.ReasonCode != "operator_contract_correction" {
+		t.Fatalf("supersede_contract reason code = %q, want operator_contract_correction", supersedeIntent.ReasonCode)
+	}
+	if workPinContainsAction(pin.NextValidIntents, "reject_worker_result") {
+		t.Fatal("pin advertises reject_worker_result for a worker result an accept already dispositioned")
+	}
+	if workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		t.Fatal("pin advertises dispatch_worker while the recorded design is stale")
+	}
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
+		t.Fatalf("supersede_contract discovery refused at the returned refine: %v", err)
+	}
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "reject_worker_result"); err == nil {
+		t.Fatal("reject_worker_result discovery admitted for a worker result an accept already dispositioned")
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
+		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)
+	}
+	_, stale, err := readCurrentWorkflowDesign(ctx, s.DatabaseForTesting(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale {
+		t.Fatal("design is still stale after the returned-refine supersede with design_record")
+	}
+	if _, _, err := dispatchRefineAttempt(t, fixture, workID, "refine-after-recovery"); err != nil {
+		t.Fatalf("dispatch_worker refused at the returned refine after the replacement design: %v", err)
+	}
+	var contractVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contractVersion); err != nil {
+		t.Fatal(err)
+	}
+	if contractVersion != 3 {
+		t.Fatalf("latest contract version = %d, want 3", contractVersion)
+	}
+}
+
+func workPinIntentForActionID(t *testing.T, pin WorkPin, actionID string) WorkPinIntent {
+	t.Helper()
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == actionID {
+			return intent
+		}
+	}
+	t.Fatalf("pin carries no %s intent; intents = %v", actionID, intentActionIDs(pin.NextValidIntents))
+	return WorkPinIntent{}
 }

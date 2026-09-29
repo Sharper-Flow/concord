@@ -1924,7 +1924,7 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
+		correctionRecovery, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
 		}
@@ -2165,6 +2165,59 @@ func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID st
 	return latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
 }
 
+// workflowStepPassBoundary reports the event seq that opens the current pass
+// at a step, and whether the step has any pass activity. A step re-entered
+// through a return edge starts a new pass: the latest entry is the advancing
+// action completion whose fold moved the instance back onto the step, and a
+// WorkflowActionStarted that precedes that entry belongs to the previous pass.
+// The step's latest start bounds the entry search, so the query only sees
+// advancing completions recorded after the step's last observed start, and the
+// later of the two opens the pass. Contract correction and worker-result
+// recovery read this boundary, which keeps the work pin, action discovery,
+// preflight, and the fold on one answer. Non-advancing step moves (a
+// correction request's return) are outside this rule and keep their own
+// recovery semantics.
+func workflowStepPassBoundary(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID, subject string) (int64, bool, error) {
+	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, stepID)
+	if err != nil {
+		return 0, false, err
+	}
+	if !started {
+		return 0, false, nil
+	}
+	advancing := advancingWorkflowActions(definition)
+	if len(advancing) == 0 {
+		return startSeq, true, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
+	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, startSeq}
+	for _, action := range advancing {
+		args = append(args, action)
+	}
+	var entrySeq int64
+	query := `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id') IN (` + placeholders + `)`
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
+		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
+	}
+	if entrySeq > startSeq {
+		return entrySeq, true, nil
+	}
+	return startSeq, true, nil
+}
+
+// advancingWorkflowActions lists the pinned actions whose completed fold moves
+// the instance between steps — the same mode test the completed-action fold
+// applies — so the pass boundary reads the fold's own step-transition rule.
+func advancingWorkflowActions(definition WorkflowDefinition) []string {
+	var advancing []string
+	for _, action := range definition.ActionDefinitions {
+		if action.ExecutionMode == ActionAdvance {
+			advancing = append(advancing, action.ID)
+		}
+	}
+	return advancing
+}
+
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
 	_, epoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
 	return epoch, found, err
@@ -2329,7 +2382,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
-		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, currentStep, "fold_event")
+		allowed, recoveryErr = workflowRejectedWorkerResultAvailable(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
 		}

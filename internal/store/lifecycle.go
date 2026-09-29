@@ -1026,7 +1026,8 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		}
 	}
 	// A Linear configuration gap never fails the local transition: the
-	// capture fold absorbs the same refusals, and the explicit enqueue verb
+	// capture fold absorbs the same refusals, the fold marks the linked
+	// work item's confirmed issue degraded, and the explicit enqueue verb
 	// and the drain keep reporting them.
 	if err := enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, lifecycle, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
 		return err

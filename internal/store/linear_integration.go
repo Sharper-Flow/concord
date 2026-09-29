@@ -784,9 +784,11 @@ func (s *Store) ReadLinearIntegrationHealth(ctx context.Context, productID strin
 		// CD-0171 D3/D5: enqueue refuses when a member Project lacks its
 		// project:<id> mapping or a non-required Initiative entry lacks the
 		// optional mapping, and the capture and lifecycle folds absorb that
-		// refusal as a configuration no-op. Health names the missing keys so
-		// the silent no-op is visible to the operator without reading the
-		// connection resource.
+		// refusal as a configuration no-op. The lifecycle fold also marks
+		// the linked work item's confirmed issue degraded, so link_counts
+		// carries the standing sync loss. Health names the missing keys and
+		// counts degraded links so the gap is visible to the operator
+		// without reading the connection resource.
 		projectRows, err := s.db.QueryContext(ctx, linearHealthProductProjectsQuery, productID)
 		if err != nil {
 			return LinearIntegrationHealth{}, wrapFailure(KindUnavailable, "linear_health_read", "cannot read the Product's member Projects", true, "retry once the database is readable", err)
@@ -1800,7 +1802,8 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 	// member Project needs its project:<id> mapping. A missing mapping
 	// refuses with the typed failure the former repository mapping used,
 	// matching that refusal's surface: the capture path absorbs it as a
-	// configuration no-op, and an explicit enqueue reports it.
+	// configuration no-op, the lifecycle fold marks the work item's
+	// confirmed link degraded, and an explicit enqueue reports it.
 	for _, projectID := range projectIDs {
 		if connection.LabelIDs[LinearLabelProjectPrefix+projectID] == "" {
 			return linearIssueSyncState{}, newFailure(KindInvalidRelation, "linear_issue_enqueue", fmt.Sprintf("Concord project %q has no project:<id> Linear label mapping", projectID), false, "map label_ids.project:<concord project id> on the Linear connection resource before enqueueing Linear issues")
@@ -1821,7 +1824,8 @@ func buildLinearIssueSyncStateCore(ctx context.Context, q queryer, expectedProdu
 	// CD-0171 D5: a non-required entry carries the optional label, so the
 	// key needs its mapping before any issue of this Product syncs. The
 	// refusal matches the repository label's surface exactly: the same typed
-	// failure, the capture path absorbs it as a configuration no-op, and an
+	// failure, the capture path absorbs it as a configuration no-op, the
+	// lifecycle fold marks the work item's confirmed link degraded, and an
 	// explicit enqueue reports it. linearIssueLabelIDs never decides a
 	// mandated label's presence.
 	if optionalEntry && connection.LabelIDs[LinearLabelOptionalKey] == "" {
@@ -2411,8 +2415,8 @@ func enqueueLinearProjectUpdateForNarrativeTx(ctx context.Context, tx *sql.Tx, i
 // the child work item and re-points its Linear Project after its Initiative
 // membership changed: an entry added, removed, or re-required can change the
 // owning Initiative (CD-0171 D6) and the optional label (D5). It reuses the
-// lifecycle update path, so the same confirmed-link and declared-mapping
-// guards decide whether an operation is queued.
+// lifecycle update path, so the same confirmed-or-degraded link and
+// declared-mapping guards decide whether an operation is queued.
 func enqueueLinearIssueUpdateForEntryTx(ctx context.Context, tx *sql.Tx, childWorkID string, at time.Time) error {
 	if isWorkflowReplay(ctx) {
 		return nil
@@ -2665,7 +2669,7 @@ func persistLinearAuditCommentEnqueueTx(ctx context.Context, tx *sql.Tx, entry C
 	return entry, nil
 }
 
-func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) error {
+func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, lifecycle string, at time.Time) (err error) {
 	if isWorkflowReplay(ctx) {
 		// The outbox is direct authority the log never carries, and the
 		// Linear mapping is current configuration. Replay records no enqueue.
@@ -2678,16 +2682,24 @@ func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, l
 		return wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect Linear link schema", true, "retry once the database is readable", err)
 	}
 	var linkState string
-	err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
+	err = tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil
 		}
 		return wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
 	}
-	if linkState != LinearLinkConfirmed {
+	if linkState != LinearLinkConfirmed && linkState != LinearLinkDegraded {
 		return nil
 	}
+	// Absorb the configuration refusals the fold callers would absorb, but
+	// only past the link guard above, so the marking moves an existing
+	// confirmed or degraded link and the callers still read a nil error.
+	defer func() {
+		if err != nil && linearCaptureConfigurationRefusal(err) {
+			err = moveLinearLinkStateTx(ctx, tx, workID, LinearLinkDegraded, at)
+		}
+	}()
 	productID, err := resolveLinearProductCore(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -2710,8 +2722,13 @@ func enqueueLinearIssueForLifecycleTx(ctx context.Context, tx *sql.Tx, workID, l
 	if err != nil {
 		return err
 	}
-	_, err = persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano))
-	return err
+	if _, err = persistLinearIssueEnqueueTx(ctx, tx, plan, at.UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if linkState == LinearLinkDegraded {
+		return moveLinearLinkStateTx(ctx, tx, workID, LinearLinkConfirmed, at)
+	}
+	return nil
 }
 
 var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
@@ -2747,8 +2764,11 @@ func normalizeLinearIssueExternalRef(value string) (string, bool) {
 
 // linearCaptureConfigurationRefusal reports whether a typed failure names a
 // Linear configuration shape the capture enqueue treats as a silent no-op
-// rather than a capture failure. Only availability failures propagate: a
-// misconfigured Linear connection can never fail a capture.
+// rather than a capture failure. The lifecycle fold absorbs the same class
+// and marks the work item's confirmed link degraded first, so link_counts
+// carries the standing sync loss. Only availability failures propagate: a
+// misconfigured Linear connection can never fail a capture or a local
+// transition.
 func linearCaptureConfigurationRefusal(err error) bool {
 	f, ok := err.(*Failure)
 	if !ok {
@@ -3563,4 +3583,30 @@ func importLinearInitiativeTx(ctx context.Context, transaction *Transaction, ope
 		return wrapFailure(KindUnavailable, "linear_initiative_import", "cannot record the imported Linear Project link", true, "retry the import", err)
 	}
 	return leaveFold(ctx, tx)
+}
+
+// moveLinearLinkStateTx advances one work item's issue link to targetState
+// through the closed transition map inside the caller's transaction. An
+// absorbed Linear configuration refusal lands here for a confirmed link, so
+// link_counts.degraded carries the standing sync loss, and the next fold
+// enqueue the repaired configuration admits lands here for a degraded link
+// to restore confirmed. A missing link, or a transition the map does not
+// admit, stays a no-op: the refusal surface never invents or regresses link
+// state.
+func moveLinearLinkStateTx(ctx context.Context, tx *sql.Tx, workID, targetState string, at time.Time) error {
+	var currentState string
+	err := tx.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&currentState)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_record", "cannot read link", true, "retry once the database is readable", err)
+	}
+	if !linearLinkTransitions[currentState][targetState] {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE linear_issue_links SET link_state=?, updated_at=? WHERE work_id=?`, targetState, at.UTC().Format(time.RFC3339Nano), workID); err != nil {
+		return wrapFailure(KindUnavailable, "linear_link_record", "cannot update link state", true, "retry once the database is writable", err)
+	}
+	return nil
 }

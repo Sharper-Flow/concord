@@ -9,7 +9,8 @@ import (
 // Linear health mirrors the enqueue refusals of the label mappings: a declared
 // connection with an incomplete label_ids map must read as unhealthy, because
 // the capture and lifecycle folds absorb the enqueue refusal as a
-// configuration no-op and nothing else surfaces the gap.
+// configuration no-op, health names the missing keys, and the lifecycle fold
+// marks the linked work item's confirmed issue degraded.
 
 func TestLinearHealthReportsUnmappedProjectLabels(t *testing.T) {
 	t.Parallel()

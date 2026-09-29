@@ -502,7 +502,14 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, work
 		if allowed := (overlap.ResolutionState == "current" || overlap.ResolutionState == "sequenced") && overlapAllowsWork(overlap, workID); allowed {
 			continue
 		}
-		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, other); err != nil {
+		// The peer's registry check never answers for the subject: a stale
+		// pin there marks the peer's own contract (CD-0041 D7), and its
+		// recovery route stays the peer's re-pin, so the marker's staleness
+		// falls through and the unresolved overlap below carries the four
+		// closed recovery routes instead. A peer footprint naming an unknown
+		// Domain or an unreadable projection is no pin state and still
+		// refuses here.
+		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, other); err != nil && !staleRegistryPinRefusalNamesWork(err, other.WorkID) {
 			return err
 		}
 		failures = append(failures, overlap)

@@ -358,10 +358,13 @@ func seedStaleRegistryRescanPeer(t *testing.T, s *Store, peerID, approverRef str
 	setWorkLifecycleForTesting(t, s, peerID, "in_progress")
 }
 
-// TestStaleRegistryRePinRefusesAPeerStalePin proves the admission is
-// structural: the marker names the item whose own pin is stale, so a peer's
-// stale pin never opens the subject's recovery route.
-func TestStaleRegistryRePinRefusesAPeerStalePin(t *testing.T) {
+// TestStaleRegistryOverlapRefusalBesideAPeerStalePin proves the boundary's
+// answer beside a stranded peer is the subject's own: the unresolved-overlap
+// refusal with its four closed recovery routes, never the peer's stale pin.
+// supersede_contract is one of those routes, so the subject's recovery re-pin
+// beside the peer is admitted, while the stale pin's marker keeps naming the
+// peer whose own contract re-pins through it (CD-0041 D7).
+func TestStaleRegistryOverlapRefusalBesideAPeerStalePin(t *testing.T) {
 	const workID = "stale-registry-repin-peer"
 	const peerID = "stale-registry-repin-peer-other"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -379,22 +382,24 @@ func TestStaleRegistryRePinRefusesAPeerStalePin(t *testing.T) {
 	}
 	seedStaleRegistryRescanPeer(t, s, peerID, ownerRef)
 
-	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("resolver admitted supersede_contract on a peer's stale pin")
+	// supersede_contract is one of the four closed recovery routes the
+	// unresolved-overlap refusal carries, so the resolver exposes the
+	// operator-approved recovery action beside the stranded peer.
+	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
+		t.Fatalf("resolver of the overlap recovery route beside a stale peer pin: %v", err)
 	}
-	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(3, rescanned, workID, 2, "root"), owner, operator)
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.StaleDomainRegistryPin == nil || failure.StaleDomainRegistryPin.WorkID != peerID {
-		t.Fatalf("supersede beside a stale peer pin error=%v, want the stale_requires_review refusal whose marker names the peer", err)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(3, rescanned, workID, 2, "root"), owner, operator); err != nil {
+		t.Fatalf("supersede_contract beside a stale peer pin: %v", err)
 	}
-	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
-		t.Fatalf("peer refusal changed the subject contract to version %d (active %d), want version 2", version, active)
+	if version, active := activeStaleRegistryContract(t, s, workID); version != 3 || active != 1 {
+		t.Fatalf("subject contract after the recovery re-pin = version %d (active %d), want exactly version 3", version, active)
 	}
 
 	// The same structural rule holds the attempt disposition. The subject's
-	// own stale pin would admit it, but the marker here names the peer, and a
-	// peer's stale pin must open the peer's recovery route, not the subject's
-	// admission.
+	// own stale pin would admit it, and the peer's stale pin never answers
+	// for the subject: the refusal here is the unresolved overlap with its
+	// four closed recovery routes, and the marker keeps the peer's recovery
+	// route on the peer's own contract.
 	attemptID, attemptEpoch := seedStaleRegistryWorkerAttempt(t, s, workID, owner)
 	disposer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/peer-disposer", SessionRef: "session/" + workID + "-disposer", ActorClass: ActorAgent}
 	err = runVerdictActionAs(t, s, workID, "reject_worker_result", mustJSONValue(map[string]any{
@@ -402,8 +407,18 @@ func TestStaleRegistryRePinRefusesAPeerStalePin(t *testing.T) {
 		"diagnosis": "the delivered repair predates the registry rescan", "strategy": "settle the attempt, then route the peer's recovery",
 		"predicate_ids": []string{"predicate:return-route"}, "evidence_refs": []string{"evidence:return-route-verification"},
 	}), 0, disposer)
-	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.StaleDomainRegistryPin == nil || failure.StaleDomainRegistryPin.WorkID != peerID {
-		t.Fatalf("reject_worker_result beside a stale peer pin error=%v, want the stale_requires_review refusal whose marker names the peer", err)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil {
+		t.Fatalf("reject_worker_result beside a stale peer pin error=%v, want the unresolved-overlap refusal", err)
+	}
+	if len(failure.DomainOverlap.Overlaps) != 1 || failure.DomainOverlap.Overlaps[0].FromWorkID != workID || failure.DomainOverlap.Overlaps[0].ToWorkID != peerID {
+		t.Fatalf("overlap refusal = %#v, want one overlap naming the pair", failure.DomainOverlap)
+	}
+	if got := failure.DomainOverlap.Overlaps[0].RecoveryActions; len(got) != 4 || got[0] != "wait" || got[1] != "resolve_overlap" || got[2] != "terminal_work" || got[3] != "supersede_contract" {
+		t.Fatalf("overlap recovery actions = %v, want the four closed routes", got)
+	}
+	if failure.StaleDomainRegistryPin != nil && failure.StaleDomainRegistryPin.WorkID == workID {
+		t.Fatalf("overlap refusal carries a stale-pin marker naming the subject: %#v", failure.StaleDomainRegistryPin)
 	}
 }
 
@@ -555,12 +570,13 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 	accept := mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch})
 
 	// The subject's own stale pin no longer decides the attempt disposition,
-	// so the refusal that remains is the peer's, and its marker names the
-	// peer whose recovery route it opens.
+	// and the peer's stale pin never answers for the subject: the refusal
+	// that remains is the unresolved overlap, and the peer's marker keeps the
+	// peer's own re-pin route.
 	err = runVerdictActionAs(t, s, workID, "accept_worker_result", accept, 0, acceptor)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.StaleDomainRegistryPin == nil || failure.StaleDomainRegistryPin.WorkID != peerID {
-		t.Fatalf("accept_worker_result beside a stale peer pin error=%v, want the stale_requires_review refusal whose marker names the peer", err)
+	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil {
+		t.Fatalf("accept_worker_result beside a stale peer pin error=%v, want the unresolved-overlap refusal", err)
 	}
 
 	// Recording while the declarer's own pin is stale still refuses: the
@@ -591,11 +607,12 @@ func TestStaleRegistryRescanSequencesAroundAPeerStalePin(t *testing.T) {
 		t.Fatalf("subject re-pin beside the stale peer footprint: %v", err)
 	}
 
-	// With no recorded resolution the unresolved overlap still vetoes through
-	// the peer check, and the marker still names the peer.
+	// With no recorded resolution the unresolved overlap still vetoes the
+	// subject's admission, and the peer's stale pin never becomes the
+	// subject's answer.
 	err = runVerdictActionAs(t, s, workID, "accept_worker_result", accept, 0, acceptor)
-	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.StaleDomainRegistryPin == nil || failure.StaleDomainRegistryPin.WorkID != peerID {
-		t.Fatalf("accept_worker_result with an unresolved overlap beside the stale peer error=%v, want the refusal whose marker names the peer", err)
+	if !errors.As(err, &failure) || failure.Kind != KindDomainOverlap || failure.DomainOverlap == nil {
+		t.Fatalf("accept_worker_result with an unresolved overlap beside the stale peer error=%v, want the unresolved-overlap refusal", err)
 	}
 
 	// Recording succeeds while a peer is stale, matching the invocation

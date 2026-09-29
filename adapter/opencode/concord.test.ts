@@ -557,6 +557,24 @@ test("mutation runner failures after the invoke started report a possible effect
   expect(missing.error.effect_state).toBe("none")
 })
 
+// A read's thrown runner failure keeps the no-effect refusal: the child's
+// death names the transport event, and a read cannot have written, so the
+// refusal never reports a possible effect and never reconciles.
+test("a read's thrown runner failure at the invoke keeps the no-effect refusal", async () => {
+  let calls = 0
+  const result: any = await runProduct({ async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    throw Object.assign(new Error("aborted"), { name: "AbortError" })
+  } })
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("cancelled")
+  expect(result.error.adapter_reason).toBe("cancelled_no_effect")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+  expect(result.error.details?.reconciled).toBeUndefined()
+})
+
 test("oversized mutation envelopes reconcile the request work ID", async () => {
   const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],

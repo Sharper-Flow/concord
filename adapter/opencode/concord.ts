@@ -319,9 +319,9 @@ class AdapterFailure extends Error {
   constructor(readonly kind: string, readonly reason: string, message: string, readonly effect: "none" | "possible" | "partial" = "none", readonly recovery = effect === "none" ? "contact_operator" : "reconcile_operation") { super(message) }
 }
 
-function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackReason: string, effect: "none" | "possible" | "partial" = "none", forcedEffect?: "none" | "possible" | "partial", forcedRecovery?: string) {
-  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.kind, error.reason, error.message, forcedEffect ?? error.effect, forcedRecovery ?? error.recovery)
-  return adapterError(toolName, operation, requestID, "transport_failure", fallbackReason, String(error), effect, effect === "none" ? "contact_operator" : "reconcile_operation")
+function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackReason: string) {
+  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.kind, error.reason, error.message, error.effect, error.recovery)
+  return adapterError(toolName, operation, requestID, "transport_failure", fallbackReason, String(error), "none", "contact_operator")
 }
 
 function runnerFailure(error: unknown, aborted: boolean) {
@@ -449,20 +449,23 @@ function vacateReplayRecovery(message: string): string {
   return `${message}; the core commits the relocation request before it answers, so replay session_vacate — the state-driven replay resolves the committed request from wherever the session sits and the verified landing releases the rows`
 }
 
-// A thrown runner error on session_vacate leaves the committed relocation
-// request's state unreadable once the core process started: an abort or a
-// timeout kills a running core, and a spawn failure names a process that
-// started, so the core may have committed before it died and the refusal
-// reports the possible effect and the state-driven replay instead of a
-// proved absence (CD-0190 D3). A missing binary started nothing, so it
-// keeps the no-effect refusal. Every other operation keeps its runner
-// classification.
-function vacateRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean) {
+// One classifier for a thrown runner error at any invoke stage: the first
+// invoke, the version-skew retry, and the post-approval run. A missing
+// binary started no child, so its no-effect refusal stands. A read cannot
+// have written, so it keeps the transport event the error names. A mutation
+// whose child started may have committed before the abort, the timeout, or
+// the crash killed it, so the refusal takes the operation's unknown-outcome
+// classification: a possible effect with the reconcile recovery, or the
+// session_vacate state-driven replay where no work id can drive a
+// reconciliation (CD-0190 D3).
+function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean) {
   const failure = runnerFailure(error, aborted)
-  if (toolName === "concord_work_transition" && operation === "session_vacate" && failure instanceof AdapterFailure && failure.reason !== "missing_binary") {
-    return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(failure.message), "possible", "retry_same_request")
+  if (failure.reason === "missing_binary" || !operationIsMutation(toolName, operation)) {
+    return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
   }
-  return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
+  const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
+  const replay = toolName === "concord_work_transition" && operation === "session_vacate"
+  return adapterError(toolName, operation, requestID, kind, reason, replay ? vacateReplayRecovery(failure.message) : failure.message, effect, recovery)
 }
 
 function selectedProductID() {
@@ -522,7 +525,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const vacateOperation = toolName === "concord_work_transition" && operation === "session_vacate"
   const outcomeMessage = (message: string) => (vacateOperation ? vacateReplayRecovery(message) : message)
   let result: any
-  try { result = await run(args.input) } catch (error) { return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
+  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -560,7 +563,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
-      try { retryResult = await run(args.input) } catch (error) { return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
+      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -650,13 +653,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     try {
       result = await run(approvedInput)
     } catch (error) {
-      // CD-0190 D3: session_vacate routes a post-approval unreadable outcome
-      // to the state-driven replay, the same as every other refusal past the
-      // commit — a reconcile_operation recovery cannot drive without a work
-      // id. A missing binary started nothing, so it keeps the no-effect
-      // refusal.
-      if (vacateOperation) return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted)
-      return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation")
+      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted)
     }
     try { response = singleJSON(result.stdout) } catch (error) {
       if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(String(error)), "possible", "retry_same_request", salvageDetails(result.stdout))

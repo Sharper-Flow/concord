@@ -97,7 +97,10 @@ launcher remains read-only by construction (§2, §12.1).
   record.
 - S2's renderer composition changes inside the Bubble Tea adapter; the
   framework-independent model gains panel-focus state. No store, schema,
-  contract, digest, or generated-file change.
+  contract, digest, or generated-file change. Amended 2026-09-28: D3's
+  last-activity ordering adds the `work_items.last_activity_at` column and
+  its migration; the amended ordering is the one schema change this record
+  carries.
 - The implementation issue opens only after this record is accepted, and
   depends on #231 (navigation-stack restore) landing first.
 - The `relations.kind = 'implements'` no-consumer finding stays outside this

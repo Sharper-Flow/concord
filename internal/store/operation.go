@@ -381,18 +381,20 @@ func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
 const lastActivityLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
 // advanceWorkLastActivity moves the subject work item's stored last-activity
-// marker forward to the event's occurrence time. Every work_item-subject
-// event except work.removed advances it — work.removed folds the row away —
-// and an event of any other subject type matches no work_items row, so the
-// identity match bounds the update. The marker carries the newest event time
-// the fold has observed; updated_at keeps its versioned-write meaning.
+// marker forward to the event's occurrence time. Only a work_item-subject
+// event advances it — IDs are unique per entity table, not across tables, so
+// a product, project, or session event whose ID equals a work ID must not
+// touch the marker — and work.removed folds the row away. The marker carries
+// the newest work_item event time the fold has observed; updated_at keeps
+// its versioned-write meaning.
 //
-// The advance belongs to the fold contract from migration 108 on. A database
-// still below that version folds its historical kinds exactly as its own
-// fold generation did, without the column, and its migration backfills the
-// column from the log when it lands.
+// The advance belongs to the fold contract from migration 108 on, and the
+// migration backfills from work_item-subject events only, so a replay of the
+// log reproduces the same values. A database still below that version folds
+// its historical kinds exactly as its own fold generation did, without the
+// column, and its migration backfills the column from the log when it lands.
 func advanceWorkLastActivity(ctx context.Context, tx *sql.Tx, event Event) error {
-	if event.Kind == WorkRemoved {
+	if event.SubjectType != SubjectWorkItem || event.Kind == WorkRemoved {
 		return nil
 	}
 	present, err := columnPresent(ctx, tx, "work_items", "last_activity_at")

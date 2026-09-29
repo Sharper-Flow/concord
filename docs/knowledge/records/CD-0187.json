@@ -30,9 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:831d3bf80ef5418eb96760a481d7e90ce410e2a39029df8ef9b1f03b0fef7f25",
+  "sha256": "sha256:169530758753a2fd88f49e9ef355116ceb769fd3509479fa4af03b4ed25fa691",
   "status": "accepted",
-  "summary": "The review capability-class binding gains human_checkpoint, so a confirmation step that enforces review evidence can dispatch the review lane and bind its report; the promoted definitions carry the checkpoint pair (dispatch_worker and the hold-mode accept_worker_evidence), the dispatch hold releases when an accept resolves the attempt, older versions reach the amended steps by repin, and no other class gains the step kind. Amends CD-0140's preserved human-checkpoint exclusion and refines CD-0133 D3/D4 on the confirmation-step surface.",
+  "summary": "The review capability-class binding gains human_checkpoint, so a confirmation step that enforces review evidence can dispatch the review lane and bind its report; the promoted definitions carry the checkpoint pair (dispatch_worker and the hold-mode accept_worker_evidence), the dispatch hold releases when an accept resolves the attempt, older versions reach the amended steps by repin, and no other class gains the step kind. The engine admits the failure record at a confirmation step as a hold-mode recovery of a failed, unrecorded attempt, and the checkpoint hold keys on attempts a worker actually dispatched, so an unused dispatch window dispositions nothing (CD-0193). Amends CD-0140's preserved human-checkpoint exclusion and refines CD-0133 D3/D4 on the confirmation-step surface.",
   "tags": [
     "workflow",
     "lanes",

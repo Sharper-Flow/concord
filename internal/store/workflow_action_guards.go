@@ -185,14 +185,47 @@ func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) 
 	return false
 }
 
-// workflowWorkerFailureRecovery reports whether a failed worker attempt is
-// still held by the current step. The recovery action is not added to the
-// pinned definition, so this query preserves the definition digest.
+// workflowWorkerFailureRecovery reports whether the engine admits the
+// hold-mode record_worker_failure recovery at the current step.
+//
+// A frozen definition that predates record_worker_failure (version 4 and
+// earlier) admits it wherever a failed dispatched attempt stands. The
+// recovery action is not added to the pinned definition, so the query
+// preserves the definition digest.
+//
+// CD-0193 D1: the checkpoint pair keeps record_worker_failure off the
+// human_checkpoint steps' declared actions, so a failed attempt there admits
+// the same hold-mode record as an engine recovery. The record leaves the
+// pinned definition digest unchanged, dispositions the attempt, and the
+// checkpoint stops holding, so the operator's own gate opens.
 func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeRecorded bool) (bool, error) {
-	if containsString(definition.AvailableActions, "record_worker_failure") || currentStep == "" {
+	if currentStep == "" {
 		return false, nil
 	}
-	return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
+	if !containsString(definition.AvailableActions, "record_worker_failure") {
+		return workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, excludeRecorded)
+	}
+	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
+		return false, nil
+	}
+	if step := workflowStep(definition, currentStep); step == nil || step.Kind != WorkflowStepHumanCheckpoint {
+		return false, nil
+	}
+	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, currentStep, 0)
+	if err != nil || !found {
+		return false, err
+	}
+	if lifecycle != "failed" {
+		return false, nil
+	}
+	if !excludeRecorded {
+		return true, nil
+	}
+	var recorded int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&recorded); err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot inspect recorded worker failures", true, "retry once the workflow event log is readable", err)
+	}
+	return recorded == 0, nil
 }
 
 func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, currentStep, subject string, excludeRecorded bool) (bool, error) {

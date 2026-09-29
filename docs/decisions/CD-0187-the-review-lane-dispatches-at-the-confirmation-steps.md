@@ -9,6 +9,7 @@
   work record that carries it.
 - **Related:** CD-0059, CD-0133, CD-0140, CD-0166
 - **Amends:** CD-0140, which preserved the human-checkpoint exclusion
+- **Amended by:** [CD-0193](CD-0193-cd-0187-d2-and-d3-release-the-checkpoint-gate-at-the-recorded-failure.md) at D2's composed action set and D3's hold release: the engine admits the failure record at a confirmation step as a hold-mode recovery, and the hold keys on attempts a worker actually dispatched.
 - **Refines:** CD-0133 D3 and D4 on the confirmation-step surface this record
   opens
 

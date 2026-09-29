@@ -1,0 +1,42 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCheckpointFailedReviewRecordsAndReleasesTheGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCheckpointFailedReviewPinMatchesTheFoldGate"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCheckpointRetryDispatchSupersedesTheFailedReview"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIssue1013ContractCorrectionAtFailedWorkerDispatch"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0193",
+  "state": "satisfied"
+}

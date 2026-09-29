@@ -980,9 +980,11 @@ func withWorkerActionsForVersion(definition WorkflowDefinition, payloadContracts
 // the join admits there can open an attempt at the operator's confirmation
 // step, and accept_worker_evidence, so the completed attempt's report binds
 // as evidence while the step holds. The advancing accept and the failure
-// record stay off these steps: the operator's own gate remains the step's
-// only advancing exit. Definitions promoted before CD-0187 keep the shape
-// they were pinned under and never call this composer.
+// record stay off these steps' declared actions: the operator's own gate
+// remains the step's only advancing exit, and CD-0193 admits the failure
+// record as a hold-mode engine recovery when a failed attempt stands, so a
+// failed review cannot wedge the gate. Definitions promoted before CD-0187
+// keep the shape they were pinned under and never call this composer.
 func withCheckpointWorkerActions(definition WorkflowDefinition) WorkflowDefinition {
 	definition = cloneWorkflowDefinition(definition)
 	acceptEvidence := currentActionDefinition("accept_worker_evidence", true)

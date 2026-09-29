@@ -2046,7 +2046,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		}
 		advancesStep = ok && executionMode == ActionAdvance
 		if advancesStep {
-			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
+			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
 				return err
 			}
 		}
@@ -2111,17 +2111,29 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	return err
 }
 
-// workflowDispatchHoldsStepAdvance reports whether a worker dispatch in the
-// current attempt holds every advancing exit except accept_worker_result,
-// plus CD-0187's confirmation-step accept: an attempt whose completed report
-// an accept has dispositioned no longer holds the step, because the accept
-// resolved it rather than bypassing it. A rejected or failed attempt keeps
-// holding, so the effect-step recovery routes are unchanged. The same rule
-// feeds the work pin, so the pin never offers an advance the fold will refuse
-// (CD-0133 D4). One owner keeps the two surfaces from drifting apart.
-// beforeSeq bounds the start search at the caller's own sequence position, so
+// workflowDispatchHoldsStepAdvance reports whether a dispatched worker
+// attempt holds every advancing exit except accept_worker_result, and is the
+// one hold rule the fold and the work pin both read (CD-0133 D4, CD-0193).
+//
+// At a human_checkpoint step the hold keys on attempts a worker actually
+// dispatched: the latest attempt a worker dispatched there stops holding only
+// when an accept dispositions its completed report, a failure record
+// dispositions it at the checkpoint, or a later worker actually dispatches on
+// the step. An authorized dispatch window no worker used is not a
+// disposition, so a failed review keeps holding the operator's own gate until
+// a worker uses a window or a failure record releases it.
+//
+// Every other step keeps the CD-0133 timing: an attempt dispatched after the
+// latest workflow action start holds the step, so the effect-step recovery
+// route that records the failed attempt and starts a fresh fenced attempt
+// reopens the exits exactly as CD-0133 recorded it.
+//
+// beforeSeq bounds every search at the caller's own sequence position, so
 // a replay fold sees only the attempts that preceded its event.
-func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (bool, error) {
+func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string, beforeSeq int64) (bool, error) {
+	if step := workflowStep(definition, stepID); step != nil && step.Kind == WorkflowStepHumanCheckpoint {
+		return workflowCheckpointDispatchHoldsStepAdvance(ctx, q, workID, stepID, beforeSeq)
+	}
 	startSeq, _, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, beforeSeq)
 	if err != nil {
 		return false, err
@@ -2150,15 +2162,79 @@ func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, st
 	return held != 0, nil
 }
 
-func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string, beforeSeq int64) error {
-	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, workID, stepID, beforeSeq)
+// workflowCheckpointDispatchHoldsStepAdvance is the checkpoint branch of the
+// one hold rule: the latest attempt a worker actually dispatched at the
+// checkpoint holds it until an accept or a checkpoint failure record
+// dispositions it, or a later worker actually dispatches there. A window no
+// worker used appears nowhere in that history, so it releases nothing.
+func workflowCheckpointDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (bool, error) {
+	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, stepID, beforeSeq)
+	if err != nil || !found {
+		return false, err
+	}
+	if lifecycle == "completed" {
+		var accepted int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&accepted); err != nil {
+			return false, workflowProjectionError(err, "cannot inspect worker attempt accepts for the current workflow attempt")
+		}
+		if accepted != 0 {
+			return false, nil
+		}
+	}
+	var recorded int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&recorded); err != nil {
+		return false, workflowProjectionError(err, "cannot inspect recorded worker failures for the current workflow attempt")
+	}
+	return recorded == 0, nil
+}
+
+// latestDispatchedAttemptAtStep resolves the latest attempt a worker actually
+// dispatched at the step. The dispatch_worker completion names the attempt
+// and its step, and the worker.dispatched event proves a worker used the
+// window, so a window no worker spawned for never appears here. beforeSeq
+// bounds every search at the caller's own sequence position; zero reads the
+// whole recorded history.
+func latestDispatchedAttemptAtStep(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (string, string, bool, error) {
+	dispatchedBound, windowBound := "", ""
+	args := []any{WorkerDispatched}
+	if beforeSeq > 0 {
+		dispatchedBound = " AND d.seq<?"
+		args = append(args, beforeSeq)
+	}
+	args = append(args, workID, WorkflowActionCompleted, stepID)
+	if beforeSeq > 0 {
+		windowBound = " AND c.seq<?"
+		args = append(args, beforeSeq)
+	}
+	query := `SELECT a.attempt_id,a.lifecycle_state,d.seq FROM worker_attempts a
+ JOIN domain_events d ON d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=?
+   AND json_extract(d.payload,'$.attempt_id')=a.attempt_id` + dispatchedBound + `
+ WHERE a.work_id=? AND EXISTS (
+   SELECT 1 FROM domain_events c WHERE c.subject_type='work_item' AND c.subject_id=a.work_id AND c.kind=?
+     AND json_extract(c.payload,'$.action_id')='dispatch_worker'
+     AND json_extract(c.payload,'$.worker_attempt_id')=a.attempt_id
+     AND json_extract(c.payload,'$.step_id')=?` + windowBound + `
+ ) ORDER BY d.seq DESC LIMIT 1`
+	var attemptID, lifecycle string
+	var seq int64
+	if err := q.QueryRowContext(ctx, query, args...).Scan(&attemptID, &lifecycle, &seq); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", false, nil
+		}
+		return "", "", false, workflowProjectionError(err, "cannot inspect worker dispatches for the current workflow attempt")
+	}
+	return attemptID, lifecycle, true, nil
+}
+
+func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, beforeSeq int64) error {
+	held, err := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, stepID, beforeSeq)
 	if err != nil {
 		return err
 	}
 	if !held || actionID == "accept_worker_result" {
 		return nil
 	}
-	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, or record the failed attempt and start a fresh one")
+	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
 }
 
 func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID string) (int64, int64, bool, error) {
@@ -2349,13 +2425,6 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
-	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, event.Seq)
-	if err != nil {
-		return err
-	}
-	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the current workflow attempt")
-	}
 	var attemptWorkID, lifecycle, readback string
 	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
 		if err == sql.ErrNoRows {
@@ -2372,6 +2441,24 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before recording its result")
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
+	}
+	// The epoch fence (CD-0133, CD-0148). At a human_checkpoint step the
+	// attempt anchors to the dispatch window that opened it (CD-0193): an
+	// authorized window no worker used must not orphan the failed attempt the
+	// operator records there. Every other step keeps the prior rule: the
+	// epoch must match the latest workflow action start on the step, and the
+	// dispatch must follow that start, so a stale completed attempt cannot
+	// advance the step past the current one.
+	anchorSeq := event.Seq
+	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
+		anchorSeq = dispatchedSeq
+	}
+	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, anchorSeq)
+	if err != nil {
+		return err
+	}
+	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
+		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the attempt with the epoch of the workflow action start that dispatched it")
 	}
 	if dispatchedSeq <= startSeq {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")

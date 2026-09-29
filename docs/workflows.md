@@ -218,6 +218,15 @@ Implementation version 8 and break-fix version 7 insert a mandatory `refine` pas
 between the producing step and the verdict step. The pass records an artifact
 from the external analysis authority. Concord does not implement the scanner.
 
+Implementation version 18 and break-fix version 16 prove the pass ran on the
+change. Leaving `refine` through `record_delivery` requires, in the current
+refine epoch, a bound verification evidence naming a green `worktree_verify`
+run whose lease completed after the refine start. When the Project's default
+ref declares a tooling manifest, the run's command must equal one declared
+tool's invocation; a Project that declares none passes on any green run. The
+rule is [CD-0192](./decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
+which amends [CD-0138 D3](./decisions/CD-0138-mandatory-refinement-pass.md).
+
 ---
 
 ## 5. Coordinating external analysis tools

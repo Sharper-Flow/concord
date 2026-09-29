@@ -1319,6 +1319,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
 	actionRequest.ApprovalConsequence = approvalConsequence
+	// CD-0192: the refine-exit proof guard reads the Project's declared
+	// tooling from its default ref, so the manifest resolves here, outside
+	// the action's transaction, and rides the request into the guard. Git
+	// never runs inside the store transaction (store connection invariant).
+	if in.ActionID == "record_delivery" {
+		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID)
+		if toolingErr != nil {
+			return failureEnvelope(base, toolingErr), nil
+		}
+		actionRequest.ProjectTooling = tooling
+	}
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if retryApproval {
 			if err := retryApprovalFenceTx(ctx, tx, in.WorkID, scope, versions, r.Envelope.HostApproval); err != nil {
@@ -1392,6 +1403,22 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 	return result, nil
+}
+
+// refineProofToolingForAction resolves the Project tooling manifest the
+// record_delivery refine-exit proof consumes (CD-0192). The resolution reads
+// git outside the store transaction, so the caller runs it before the
+// action's transaction opens; nil reports that the Project declares no
+// manifest on its default ref.
+func (r runtime) refineProofToolingForAction(ctx context.Context, workID string) (*store.ProjectToolingManifest, error) {
+	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID)
+	if requiredErr != nil {
+		return nil, requiredErr
+	}
+	if !required {
+		return nil, nil
+	}
+	return store.ResolveWorkProjectTooling(ctx, r.Store, workID)
 }
 
 func workKindMutationRefusal(kind string, allowed bool, fallback string) (string, bool) {
@@ -2834,7 +2861,7 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"work_id": result.WorkID, "project_id": result.ProjectID, "branch": result.Branch, "path": result.Path,
-		"lease_id": result.LeaseID, "command": result.Command, "exit_code": result.ExitCode,
+		"lease_id": result.LeaseID, "operation_ref": result.OperationRef, "command": result.Command, "exit_code": result.ExitCode,
 		"output": result.Output, "output_truncated": result.OutputTruncated, "tracked_files_changed": result.TrackedFilesChanged,
 		"changed_refs":       mutationResultChangedRefs([]ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}),
 		"next_valid_intents": mutationResultIntents(intents),

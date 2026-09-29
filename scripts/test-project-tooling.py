@@ -192,6 +192,30 @@ class ProjectToolingTests(unittest.TestCase):
                 findings = checker.check(root=self.root)
                 self.assertTrue(any("invocation must be a single line" in finding for finding in findings))
 
+    def test_invocation_must_be_plain_argv(self) -> None:
+        for invocation in (
+            "go vet ./... && gofmt -l .",
+            "go test ./...; echo done",
+            "make 'lint'",
+            'sh -c "go vet ./..."',
+            "echo `date`",
+            "go run $(go env GOPATH)/bin/tool",
+            "a | b",
+            "a > out",
+            "a < in",
+            "sub(a)",
+            "path\\ with\\ spaces",
+        ):
+            with self.subTest(invocation=repr(invocation)):
+                self.manifest([tool(invocation=invocation)])
+                findings = checker.check(root=self.root)
+                self.assertTrue(any("invocation must be plain argv" in finding for finding in findings))
+
+    def test_plain_argv_invocations_pass(self) -> None:
+        self.manifest([tool("flagged", invocation="go test -race -timeout=20m ./..."), tool("dotted", invocation="bin/oc-test conformance")])
+
+        self.assertEqual(checker.check(root=self.root), [])
+
     def test_cost_hint_is_bounded_and_single_line(self) -> None:
         for cost_hint in ("abc", "x" * 129, "four\nlines"):
             with self.subTest(cost_hint=repr(cost_hint)):
@@ -249,6 +273,8 @@ class ProjectToolingTests(unittest.TestCase):
             patterns = properties[key]["allOf"] if "allOf" in properties[key] else [{"pattern": properties[key]["pattern"]}]
             self.assertIn({"pattern": checker.NON_WHITESPACE_PATTERN}, patterns)
             self.assertEqual({"pattern": checker.SINGLE_LINE_PATTERN} in patterns, single_line)
+        invocation_patterns = properties["invocation"]["allOf"]
+        self.assertIn({"pattern": checker.PLAIN_ARGV_PATTERN}, invocation_patterns)
 
     def test_dogfood_carries_no_selection_policy(self) -> None:
         repository = Path(__file__).resolve().parents[1]

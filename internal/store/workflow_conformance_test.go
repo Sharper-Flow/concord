@@ -437,6 +437,7 @@ const (
 	corpusActionReconstruct           workflowCorpusAction = "reconstruct_subject"
 	corpusActionStartExecution        workflowCorpusAction = "start_execution"
 	corpusActionAcceptWorkerResult    workflowCorpusAction = "accept_worker_result"
+	corpusActionRecordDelivery        workflowCorpusAction = "record_delivery"
 	corpusActionWorkflowAction        workflowCorpusAction = "workflow_action"
 	corpusActionConcurrent            workflowCorpusAction = "concurrent_reads_and_writes"
 	corpusActionRepair                workflowCorpusAction = "repair_and_rebuild"
@@ -444,7 +445,7 @@ const (
 )
 
 var workflowCorpusActions = map[workflowCorpusAction]struct{}{
-	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionResolveConditions: {}, corpusActionDeriveReady: {}, corpusActionExplicitResolve: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
+	corpusActionCapture: {}, corpusActionApproveContract: {}, corpusActionComplete: {}, corpusActionReviseCandidates: {}, corpusActionSupersedeContract: {}, corpusActionReplaceOutcome: {}, corpusActionLinkSuccessor: {}, corpusActionReplaceCheck: {}, corpusActionRecordVerdict: {}, corpusActionCompleteExternal: {}, corpusActionRebuildAfterInterrupt: {}, corpusActionRetry: {}, corpusActionTakeover: {}, corpusActionResolveConditions: {}, corpusActionDeriveReady: {}, corpusActionExplicitResolve: {}, corpusActionStartDownstream: {}, corpusActionLinkAndComplete: {}, corpusActionRebuild: {}, corpusActionReconstruct: {}, corpusActionStartExecution: {}, corpusActionAcceptWorkerResult: {}, corpusActionRecordDelivery: {}, corpusActionWorkflowAction: {}, corpusActionConcurrent: {}, corpusActionRepair: {}, corpusActionReplay: {},
 }
 
 func TestWorkflowScenarioCorpusExecutesExactProductionActions(t *testing.T) {
@@ -729,8 +730,8 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	if len(corpus.Scenarios) != 56 {
-		t.Fatalf("scenario count=%d, want 56", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 57 {
+		t.Fatalf("scenario count=%d, want 57", len(corpus.Scenarios))
 	}
 	return corpus
 }
@@ -738,7 +739,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 func workflowScenarioIDs() []string {
 	return []string{
 		"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF03-vacuous-end-state", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF06-absence-removal", "WF07-candidate-revision", "WF08-premise-supersession", "WF09-execution-write-outcome", "WF10-forward-link-discovery", "WF11-end-state-supersession-audit", "WF12-self-authored-check", "WF13-verdict-actor-distinctness", "WF14-undeclared-route-convention", "WF15-lowest-rigor-floor", "WF16-research-no-change", "WF17-spike-insufficient-evidence", "WF18-premise-unconfirmed", "WF19-completion-one-transaction", "WF20-internal-inline", "WF21-attempt-epoch-winner", "WF22-checkpoint-resume", "WF23-idempotent-retry", "WF24-stale-attempt", "WF25-operator-takeover-approval", "WF26-closed-condition-resolvers", "WF27-condition-block-relation", "WF28-no-polling-authority", "WF29-impact-notice-identity", "WF30-breaking-dependent-block", "WF31-end-state-revision-impact", "WF32-forward-successor-completes", "WF33-forbid-nested-composition", "WF34-generic-forward-any-family", "WF35-rebuild-byte-equal", "WF36-point-in-time-reconstruction", "WF37-action-availability-before-register", "WF38-action-payload-step-actor", "WF39-action-error-envelope", "WF40-staleness-block", "WF41-staleness-warning-recorded", "WF42-ten-worktrees-one-truth", "WF43-unreadable-possible-blocker", "WF44-unrelated-unreadable", "WF45-corruption-versus-poison", "WF46-event-version-fail-closed", "WF47-evidence-commit-binding", "WF48-lane-pipeline-typed-evidence", "WF49-conjunctive-end-state", "WF50-one-conjunct-weaker", "WF51-uncovered-conjunct", "WF52-vacuous-conjunct", "WF53-unapproved-delivered",
-		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate",
+		"WF54-verification-obligation-discharged", "WF55-verification-obligation-missing", "WF56-session-vacate-then-reclaim-passes-gate", "WF57-refine-exit-needs-green-verify-run",
 	}
 }
 
@@ -1281,6 +1282,19 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		nested, ok := request.Fields["payload"].(map[string]any)
 		if !ok {
 			return workflowObservation{}, workflowScenarioGap{"accept_worker_result requires a nested action payload"}
+		}
+		payload, err = json.Marshal(nested)
+		if err != nil {
+			return workflowObservation{}, err
+		}
+	}
+	// record_delivery declares exactly delivery_artifact and delivery_state,
+	// so it takes the nested action payload rather than the whole corpus
+	// field bag.
+	if action == string(corpusActionRecordDelivery) {
+		nested, ok := request.Fields["payload"].(map[string]any)
+		if !ok {
+			return workflowObservation{}, workflowScenarioGap{"record_delivery requires a nested action payload"}
 		}
 		payload, err = json.Marshal(nested)
 		if err != nil {

@@ -329,9 +329,12 @@ function runnerFailure(error: unknown, aborted: boolean) {
   if (error instanceof CoreBinaryUnavailable) return new AdapterFailure("transport_failure", "missing_binary", error.message)
   const name = error instanceof Error ? error.name : ""
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as any).code) : ""
+  // ENOENT names the spawn's own failure: the binary never resolved and no
+  // child started, whatever the abort signal's state, so it outranks the
+  // abort and timeout names.
+  if (code === "ENOENT") return new AdapterFailure("transport_failure", "missing_binary", String(error))
   if (aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
   if (name === "TimeoutError") return new AdapterFailure("timeout", "timeout_no_effect", String(error), "none", "retry_same_request")
-  if (code === "ENOENT") return new AdapterFailure("transport_failure", "missing_binary", String(error))
   return new AdapterFailure("transport_failure", "spawn_failure", String(error))
 }
 

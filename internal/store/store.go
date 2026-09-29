@@ -386,8 +386,20 @@ func refuseStrandedFoldGuard(ctx context.Context, db *sql.DB) error {
 }
 
 // ensureInstallationKey creates the one authority-owned cursor signing key.
-// INSERT is idempotent so concurrent short-lived opens converge on one key.
+// The read runs first so an open of an established database never needs the
+// write lock: an INSERT statement opens a write transaction even when
+// INSERT OR IGNORE ends up inserting nothing, which made every open compete
+// for the lock and fail with SQLITE_BUSY under a long foreign write. The
+// INSERT stays idempotent so concurrent first opens converge on one key.
 func ensureInstallationKey(ctx context.Context, db *sql.DB, createdAt ...time.Time) error {
+	var exists int
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_installation_keys WHERE key_name='cursor')`).Scan(&exists); err != nil {
+		return wrapFailure(KindUnavailable, "open", "cannot inspect the installation cursor key", true,
+			"confirm the database is readable", err)
+	}
+	if exists == 1 {
+		return nil
+	}
 	when := nowFromClock(nil)
 	if len(createdAt) > 0 {
 		when = createdAt[0]

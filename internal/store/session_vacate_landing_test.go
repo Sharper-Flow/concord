@@ -148,6 +148,53 @@ func TestSessionVacateReplayRefusesACompletedRequest(t *testing.T) {
 	}
 }
 
+// A landing binds to the pending relocation request it completes (CD-0190
+// D2). Once the recorded landing completed the latest request, the rows a
+// later claim holds belong to that claim: a delayed or repeated landing call
+// refuses and releases nothing, so the later claim's occupancy row stands.
+func TestSessionVacateLandingRefusesACompletedRequestWithLaterClaimRows(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-completes-then-claim", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The session then claims a new worktree, whose occupancy row stands.
+	auditWork(t, s, git, "work-b", true)
+	setWorktreeOccupant(t, s, "work-b", "ses-x")
+
+	// A delayed or repeated landing call against the completed request
+	// refuses and releases nothing.
+	_, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(70, 0).UTC(),
+	})
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the completed request", err)
+	}
+	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-b"), "project-w", "wt-work-b"); got != "ses-x" {
+		t.Fatalf("the repeated landing released the later claim's row: %q", got)
+	}
+	var landings int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND json_extract(payload,'$.session_ref')='ses-x'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+}
+
 func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)

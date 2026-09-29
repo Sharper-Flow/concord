@@ -105,6 +105,105 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 	}
 }
 
+// TestSessionVacateCachedReplayReachesLandingAfterLaterClaim pins the cached
+// idempotency replay path against the landing binding (CD-0190 D2/D3). The
+// same-key vacate retry replays the recorded result before the pending check
+// runs, so an adapter holding that result can reach the vacate-landing verb
+// after a later claim: the landing must then refuse against the completed
+// request and leave the later claim's occupancy row standing.
+func TestSessionVacateCachedReplayReachesLandingAfterLaterClaim(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+
+	secondWork := []store.Event{
+		{EventID: "wt-cached-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Cached Replay Worktree","priority":1}`)},
+		{EventID: "wt-cached-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claim := func(workID, worktreePath, branch, key string) {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+			"work_id": workID, "project_id": "project-1",
+			"base_sha":         baseSHA,
+			"expected_version": 2, "idempotency_key": key,
+		})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: input}, mutationEnvelope(grant, scopeVersion))
+		if dispatchErr != nil || response.Outcome != OutcomeOK {
+			t.Fatalf("claim %s response=%+v error=%+v err=%v", workID, response, response.Error, dispatchErr)
+		}
+	}
+	vacate := func(env CallEnvelope, key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, env)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	second := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+	inMainCheckout := mutationEnvelope(grant, scopeVersion)
+	inMainCheckout.Worktree, inMainCheckout.Directory = repoRoot, repoRoot
+
+	claim("work-1", first, "work/cached-1", "claim-cached-1")
+	if response := vacate(inWorktree, "vacate-cached-1"); response.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
+	}
+	// The verified landing completes the request the way the adapter-only
+	// verb records it.
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A later claim records the occupancy row the session holds now.
+	claim("work-2", second, "work/cached-2", "claim-cached-2")
+
+	// The same-key vacate retry replays the cached result from the verified
+	// destination before the pending check runs: the adapter holding that
+	// result reaches the vacate-landing verb.
+	retry := vacate(inMainCheckout, "vacate-cached-1")
+	if retry.Outcome != OutcomeOK || !retry.Replayed {
+		t.Fatalf("same-key vacate retry response=%+v error=%+v", retry, retry.Error)
+	}
+
+	// The landing the cached replay reaches refuses against the completed
+	// request: the row the later claim holds must stand.
+	_, landingErr := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	})
+	failure, ok := landingErr.(*store.Failure)
+	if !ok || failure.Kind != store.KindInvalidOperation {
+		t.Fatalf("landing err=%v, want invalid_operation for the completed request", landingErr)
+	}
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 1 {
+		t.Fatalf("occupancy rows after the refused landing=%d, want the later claim's row standing", occupied)
+	}
+	var landings int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+}
+
 // TestSessionVacateReoccupiesSameWorktree pins the vacate event identity at
 // the core boundary. One session claims one cross-Project work item in its
 // primary Project, vacates toward the registered main checkout, resumes the

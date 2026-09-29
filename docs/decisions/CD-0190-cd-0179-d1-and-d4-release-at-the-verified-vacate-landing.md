@@ -66,6 +66,15 @@ row of that session, in any work item, in the transaction that records the
 landing. A landing anywhere else refuses, records nothing, and leaves the
 source occupancy standing.
 
+The landing binds to the pending request it completes. The core records a
+landing only while the latest committed request for that work item and session
+stands with no recorded landing after it, and only a version 2 request can
+stand pending. A request its recorded landing already completed replays as
+already recorded with no event while the session holds no rows. Once a later
+claim's occupancy rows stand, the same landing call refuses and releases
+nothing: those rows belong to the later claim, whose own verified landing or
+vacate releases them.
+
 ### D3. Every refusal after the committed request reports a possible effect with a working recovery
 
 The relocation request stands once the core commits it, so every adapter
@@ -142,10 +151,14 @@ still releases on fold.
   event still releases on fold, the landing releases the session's rows in
   one transaction, and the replay target resolves to the committed request.
   The same run proves the replay of a completed or version 1 request refuses
-  with no new landing.
+  with no new landing, and a landing call against a completed request refuses
+  while a later claim's occupancy row stands.
 - `go test ./internal/agent/ -run SessionVacate` proves the replay from the
   verified destination resolves the pending request and appends nothing, and
-  a main-checkout vacate with no committed request still refuses.
+  a main-checkout vacate with no committed request still refuses. The same
+  run proves the cached same-key replay reaches the landing verb after a
+  later claim, and that landing refuses and leaves the later claim's row
+  standing.
 - `bun test adapter/opencode/session-vacate-move.test.ts` proves every
   refusal past the commit reports `effect_state` possible, and a replay whose
   session already sits at the destination skips the move and records the

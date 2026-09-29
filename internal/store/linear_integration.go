@@ -889,6 +889,50 @@ func (s *Store) ReadLinearLink(ctx context.Context, workID string) (LinearIssueL
 	return link, nil
 }
 
+// LinearResumeLink is one work item's confirmed Linear link with the recorded
+// remote freshness and the local title and lifecycle the resume-time remote
+// check compares the remote issue against. It is a read surface: resume
+// records nothing (CD-0104 D1).
+type LinearResumeLink struct {
+	// ProductID is the Product that owns the work item's Linear identity:
+	// for a work item shared across Products, the Product holding its
+	// primary project, which need not be the Product it resumes from.
+	ProductID       string
+	WorkID          string
+	RemoteIssueUUID string
+	HumanKey        string
+	URL             string
+	RemoteUpdatedAt string
+	Title           string
+	Lifecycle       string
+}
+
+// ReadConfirmedLinearResumeLink returns one work item's confirmed link with
+// its owning Product, recorded remote freshness, local title, and lifecycle.
+// found is false with a nil error only when the work item holds no confirmed
+// link; every other failure, including an unresolvable owning Product,
+// returns an error so the caller never mistakes a failed read for "no remote
+// check applies".
+func (s *Store) ReadConfirmedLinearResumeLink(ctx context.Context, workID string) (link LinearResumeLink, found bool, err error) {
+	err = s.db.QueryRowContext(ctx, `
+SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.remote_updated_at, w.title, w.lifecycle
+FROM linear_issue_links l
+JOIN work_items w ON w.id=l.work_id
+WHERE l.work_id=? AND l.link_state=?`, workID, LinearLinkConfirmed).Scan(
+		&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL, &link.RemoteUpdatedAt, &link.Title, &link.Lifecycle)
+	if err == sql.ErrNoRows {
+		return LinearResumeLink{}, false, nil
+	} else if err != nil {
+		return LinearResumeLink{}, false, wrapFailure(KindUnavailable, "linear_resume_link_read", "cannot read confirmed Linear link", true, "retry once the database is readable", err)
+	}
+	productID, err := resolveLinearProductCore(ctx, s.db, workID)
+	if err != nil {
+		return LinearResumeLink{}, false, err
+	}
+	link.ProductID = productID
+	return link, true, nil
+}
+
 // ReadConfirmedLinearLinkedWorkForProduct returns confirmed links and the
 // authoritative local lifecycle for one Product.
 func (s *Store) ReadConfirmedLinearLinkedWorkForProduct(ctx context.Context, productID string) ([]LinearLinkedWork, error) {

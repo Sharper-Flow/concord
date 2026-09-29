@@ -1266,6 +1266,15 @@ func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command st
 	return writeJSON(out, map[string]any{"ok": true, "health": health}, errOut)
 }
 
+// linearStatusDiverged is the one lifecycle-to-status comparison: the remote
+// state id disagrees with the lifecycle-mapped expected status id exactly
+// when the two ids differ. The operator divergence report and the
+// resume-time remote check both apply this rule so the mapping cannot drift
+// into two copies.
+func linearStatusDiverged(expectedStatusID, actualStatusID string) bool {
+	return expectedStatusID != actualStatusID
+}
+
 type linearDivergenceResult struct {
 	WorkID          string `json:"work_id"`
 	RemoteIssueUUID string `json:"remote_issue_uuid"`
@@ -1358,7 +1367,7 @@ func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, comman
 			}
 			result.ActualStatus = issue.StateID
 			result.RemoteStateType = issue.StateType
-			if issue.StateID != result.ExpectedStatus {
+			if linearStatusDiverged(result.ExpectedStatus, issue.StateID) {
 				result.Outcome = "diverged"
 				diverged++
 			} else {

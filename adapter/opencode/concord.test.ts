@@ -1768,11 +1768,15 @@ test("work start resume succeeds with a warning when the core refuses the landin
 })
 
 // CD-0182: a resume whose named member Project lives in another repository
-// never reaches the host move. The registered session opener runs the core
-// launch argv without a shell and the answer reports its exit status and
-// argv without claiming the new session is running; with no opener, or an
-// invalid one, the exact launch command and directory still return.
-const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: number; stdout: string; stderr: string } | null) => ({
+// never reaches the host move. The registered session opener probes that the
+// target canonical path resolves, then runs the core launch argv without a
+// shell and the answer reports its exit status and argv without claiming the
+// new session is running; with no opener, an invalid one, or a canonical
+// path that no longer resolves, the exact launch command and directory still
+// return. selectedPath names project-2's registered canonical path: tests
+// that reach the opener run pass a real directory, because the fail-closed
+// probe refuses a path the filesystem cannot resolve.
+const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: number; stdout: string; stderr: string } | null, selectedPath = "/other-repo") => ({
   async run(argv: string[], input: string, _signal: AbortSignal, _options?: any) {
     calls.push({ argv, input })
     if (argv[0] === "tab-opener") {
@@ -1783,7 +1787,7 @@ const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: numbe
     if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (argv[1] === "project-canonical-path") {
       const parsed = JSON.parse(input) as { project_id: string }
-      return { exitCode: 0, stdout: JSON.stringify({ project_id: parsed.project_id, canonical_path: parsed.project_id === "project-2" ? "/other-repo" : "/repo-1" }), stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify({ project_id: parsed.project_id, canonical_path: parsed.project_id === "project-2" ? selectedPath : "/repo-1" }), stderr: "" }
     }
     // The routing decision needs only canonical paths: worktree-locate, which
     // resolves a default branch ref and a commit, must never run on this route.
@@ -1793,10 +1797,11 @@ const secondRepoRunner = (calls: RetargetCall[], opener: () => { exitCode: numbe
 })
 
 test("work start resume routes a second repository through the registered session opener", async () => {
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
-  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" })) })
+  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
   try {
+    const calls: RetargetCall[] = []
+    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
+    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), selectedRepo) })
     const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("second_session_opened")
@@ -1804,11 +1809,11 @@ test("work start resume routes a second repository through the registered sessio
     expect(result.error.effect_state).toBe("none")
     expect(result.work_id).toBe("work-1")
     expect(result.project_id).toBe("project-2")
-    expect(result.launch.directory).toBe("/other-repo")
+    expect(result.launch.directory).toBe(selectedRepo)
     expect(result.launch.argv).toEqual(["concord", "zl", "work-1", "--project", "project-2"])
     expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
     expect(result.opener.exit_code).toBe(0)
-    expect(result.opener.argv).toEqual(["tab-opener", "--cwd", "/other-repo", "--title", "work-1", "--", "concord", "zl", "work-1", "--project", "project-2"])
+    expect(result.opener.argv).toEqual(["tab-opener", "--cwd", selectedRepo, "--title", "work-1", "--", "concord", "zl", "work-1", "--project", "project-2"])
     expect(result.error.message).toContain("does not claim the new session is running")
     expect(result.error.message).toContain("concord_work_start with work_id work-1 and project_id project-2")
     // The branch runs before the probe, the resume read, and the move, so a
@@ -1816,6 +1821,7 @@ test("work start resume routes a second repository through the registered sessio
     expect(calls.some(({ argv }) => argv[1] === "work-resume" || argv[1] === "session-prepare" || argv[1] === "work-bootstrap")).toBe(false)
   } finally {
     adapter.configureSessionOpener(undefined)
+    await rm(selectedRepo, { recursive: true, force: true })
   }
 })
 
@@ -1825,13 +1831,14 @@ test("work start resume routes a second repository through the registered sessio
 // only each Project's canonical repository path and must still reach both
 // the opener run and the no-opener command through the canonical-path read.
 test("a second-repository route with no resolvable default ref opens through the canonical-path read", async () => {
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
-  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" })) })
+  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
   try {
+    const calls: RetargetCall[] = []
+    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
+    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), selectedRepo) })
     const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
     expect(result.error.kind).toBe("second_session_opened")
-    expect(result.launch.directory).toBe("/other-repo")
+    expect(result.launch.directory).toBe(selectedRepo)
     const selectedReads = calls.filter(({ argv, input }) => argv[1] === "project-canonical-path" && (JSON.parse(input) as { project_id: string }).project_id === "project-2")
     expect(selectedReads).toHaveLength(1)
     // The mock refuses worktree-locate outright, so reaching this point with
@@ -1839,6 +1846,7 @@ test("a second-repository route with no resolvable default ref opens through the
     expect(calls.some(({ argv }) => argv[1] === "worktree-locate")).toBe(false)
   } finally {
     adapter.configureSessionOpener(undefined)
+    await rm(selectedRepo, { recursive: true, force: true })
   }
 })
 
@@ -1875,10 +1883,11 @@ test("an invalid registered opener refuses naming the invalid field and still re
 })
 
 test("a failed opener run reports the exit status and the launch command", async () => {
-  const calls: RetargetCall[] = []
-  adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "{command}"])
-  adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 1, stdout: "", stderr: "no display server" })) })
+  const selectedRepo = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
   try {
+    const calls: RetargetCall[] = []
+    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "{command}"])
+    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 1, stdout: "", stderr: "no display server" }), selectedRepo) })
     const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
     expect(result.error.kind).toBe("session_opener_failed")
     expect(result.error.message).toContain("exited 1")
@@ -1887,6 +1896,37 @@ test("a failed opener run reports the exit status and the launch command", async
     expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
   } finally {
     adapter.configureSessionOpener(undefined)
+    await rm(selectedRepo, { recursive: true, force: true })
+  }
+})
+
+// CD-0093 D3's fail-closed rule rides into the opener route (CD-0182 D2): a
+// member Project whose registered canonical path no longer resolves must
+// never spawn the opener against a directory that is gone. The probe refuses
+// before the run and the answer falls back to the no-opener launch command.
+test("a canonical path removed after registration refuses the opener and returns the launch command", async () => {
+  const repoRoot = await mkdtemp(join(tmpdir(), "concord-second-repo-"))
+  const removedRepo = join(repoRoot, "removed")
+  try {
+    await mkdir(removedRepo)
+    await rm(removedRepo, { recursive: true })
+    const calls: RetargetCall[] = []
+    adapter.configureSessionOpener(["tab-opener", "--cwd", "{directory}", "--title", "{title}", "--", "{command}"])
+    adapter.configureConcordAdapter({ runner: secondRepoRunner(calls, () => ({ exitCode: 0, stdout: "", stderr: "" }), removedRepo) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1", project_id: "project-2" }, contextFor()))
+    expect(result.outcome).toBe("error")
+    expect(result.error.kind).toBe("canonical_path_unresolved")
+    expect(result.error.retry_safe).toBe(false)
+    expect(result.error.effect_state).toBe("none")
+    expect(result.error.message).toContain(removedRepo)
+    expect(result.error.message).toContain("concord zl work-1 --project project-2")
+    expect(result.launch.directory).toBe(removedRepo)
+    expect(result.launch.runnable).toBe("concord zl work-1 --project project-2")
+    expect(result.opener).toBeUndefined()
+    expect(calls.some(({ argv }) => argv[0] === "tab-opener")).toBe(false)
+  } finally {
+    adapter.configureSessionOpener(undefined)
+    await rm(repoRoot, { recursive: true, force: true })
   }
 })
 

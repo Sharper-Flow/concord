@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import fs from "node:fs"
 import { clientRef, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
@@ -975,13 +976,24 @@ async function projectCanonicalRepository(projectID: string, context: ToolContex
   return parsed.canonical_path
 }
 
+// canonicalPathResolves probes that a registered canonical path still
+// resolves to an existing directory on this filesystem. The core's
+// project-canonical-path verb answers stored Product truth unprobed, so the
+// adapter — which owns the host placement decision — probes here, before any
+// opener runs (CD-0182 D2; CD-0093 D3's fail-closed rule). statSync follows
+// symlinks and throws on a missing entry, so every failure refuses.
+function canonicalPathResolves(directory: string): boolean {
+  try { return fs.statSync(directory).isDirectory() } catch { return false }
+}
+
 // openSecondCoordinatorSession routes a resume whose named Project lives in
 // another repository (CD-0178 D2, CD-0182). Concord never claims the new
-// session is running: with a registered opener it runs the substituted argv
-// without a shell and reports the exit status and argv; with none registered
-// it returns the exact launch command and directory for the operator. An
-// invalid opener refuses naming the invalid field and still returns the
-// command. Every answer leaves this session un-moved, so the refusal names
+// session is running: with a registered opener it probes that the target
+// directory resolves, then runs the substituted argv without a shell and
+// reports the exit status and argv; with none registered, with an invalid
+// one, or with a canonical path that no longer resolves, it returns the
+// exact launch command and directory for the operator without running
+// anything. Every answer leaves this session un-moved, so the refusal names
 // contact_operator: the operator or the new session owns the next step.
 async function openSecondCoordinatorSession(workID: string, projectID: string, directory: string, context: ToolContext): Promise<WorkStartEnvelope> {
   const launch = secondSessionLaunch(workID, projectID, directory)
@@ -994,6 +1006,9 @@ async function openSecondCoordinatorSession(workID: string, projectID: string, d
   const opener = sessionOpenerTemplate(registered)
   if (!opener.ok) {
     return workStartError("invalid_session_opener", `The host-registered session opener is invalid: ${opener.detail}. ${command}`, identity, "contact_operator", false, { launch })
+  }
+  if (!canonicalPathResolves(directory)) {
+    return workStartError("canonical_path_unresolved", `The canonical path ${directory} does not resolve on this filesystem, so Concord refuses to run the session opener against it. ${command}`, identity, "contact_operator", false, { launch })
   }
   const argv = spliceOpener(opener.argv, { directory, title: workID, command: launch.argv })
   let result

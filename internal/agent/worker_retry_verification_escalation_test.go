@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -241,6 +242,14 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
+	// The refine exit resolves the Project's tooling manifest from the
+	// canonical path's default ref (CD-0192); point the fixture locator at a
+	// real repository so the resolution reads a resolvable ref. The locator
+	// table is fold-only, so the update runs under the fold guard.
+	repo := fixtureRepoWithOrigin(t)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM fold_guard`, repo); err != nil {
+		t.Fatalf("point the fixture locator at the repository: %v", err)
+	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ownerRef, err := store.WorkflowActorRef(owner)
 	if err != nil {
@@ -311,6 +320,14 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		refineStart := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_refine","idempotency_key":"verification-refine-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, env)
 		if refineStart.Outcome != OutcomeOK {
 			t.Fatalf("seed verification refine start %d: %+v", cycle, refineStart.Error)
+		}
+		// The refine exit consumes a green verify run bound in the epoch
+		// (CD-0192); the seed supplies one and binds its operation ref.
+		proofRef := agentSeedRefineProofRun(t, s, "work-1", fmt.Sprintf("%064x", cycle))
+		version = workVersion(t, s, "work-1")
+		proofBind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}, "idempotency_key": "verification-proof-" + strconv.FormatInt(cycle, 10)})}, env)
+		if proofBind.Outcome != OutcomeOK {
+			t.Fatalf("seed verification proof bind %d: %+v", cycle, proofBind.Error)
 		}
 		for _, deliveryStep := range []string{"refine", "delivery"} {
 			version = workVersion(t, s, "work-1")

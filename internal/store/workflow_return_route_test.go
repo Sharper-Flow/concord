@@ -440,6 +440,9 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refinement: %v", err)
 	}
+	// The current definitions gate the refine exit on a green verify run
+	// bound in the epoch (CD-0192); the witness supplies one.
+	refineProofSeedGreenRun(t, s, workID, strings.Repeat("e", 64))
 	deliveryPayload := json.RawMessage(`{}`)
 	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
 	if !ok {

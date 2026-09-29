@@ -71,6 +71,13 @@ type WorkflowActionExecutionRequest struct {
 	// standalone binding operation, because reliance declared outside the
 	// boundary that consumes it is unproven reliance.
 	ResearchBindings []ResearchBindingDeclaration
+	// ProjectTooling carries the tooling manifest resolved from the work
+	// item's primary Project default ref before this action's transaction
+	// opened (CD-0192). The refine-exit proof guard compares the bound
+	// worktree-verify run's argv against it; nil reports that the Project
+	// declares no tooling manifest on its default ref. It is never decoded
+	// from request input.
+	ProjectTooling *ProjectToolingManifest
 }
 
 type WorkflowActionExecutionResult struct {

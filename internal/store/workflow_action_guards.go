@@ -795,12 +795,200 @@ func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
 }
 
 // guardDeliveryAdmission composes the delivery admission order: the fenced
-// start fact first, then the post-rejection review gate.
+// start fact first, then the refine-exit proof, then the post-rejection
+// review gate.
 func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	if err := guardDeliveryFollowsStart(g); err != nil {
 		return err
 	}
+	if err := guardRefineProofAtDelivery(g); err != nil {
+		return err
+	}
 	return guardPostRejectionReviewGate(g)
+}
+
+// workflowRefineProofGateActive reports whether the refine-exit proof guard
+// governs record_delivery on this step. The guard is active only for
+// workflow.implementation v18+ and workflow.break_fix v16+ at their
+// refinement step; earlier definition versions keep the behavior and digest
+// they shipped with.
+func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep string) bool {
+	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
+		return false
+	}
+	switch definition.Ref {
+	case "workflow.implementation":
+		return definition.Version >= 18
+	case "workflow.break_fix":
+		return definition.Version >= 16
+	default:
+		return false
+	}
+}
+
+// guardRefineProofAtDelivery refuses the refine step's record_delivery exit
+// unless, in the current refine epoch, a bound verification evidence names a
+// completed worktree.verify durable operation for this work item whose lease
+// recorded outcome completed, exit code 0, no tracked-file change, and an
+// acquire after the current refine start (CD-0138 D3 as amended by CD-0192).
+// When the Project's default ref declares a tooling manifest, the run's argv
+// must equal the whitespace-split invocation of at least one declared tool;
+// the manifest itself was resolved outside this transaction and arrives on
+// the request.
+func guardRefineProofAtDelivery(g *workflowActionGuardContext) error {
+	if !workflowRefineProofGateActive(g.entry.Definition, g.currentStep) {
+		return nil
+	}
+	startSeq, _, started, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, g.currentStep)
+	if err != nil {
+		return err
+	}
+	if !started {
+		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
+	}
+	startedAt, err := workflowActionOccurredAt(g.ctx, g.tx, g.request.WorkID, startSeq)
+	if err != nil {
+		return err
+	}
+	qualifying, why, err := workflowRefineProofRun(g.ctx, g.tx, g.request.WorkID, startSeq, startedAt, g.request.ProjectTooling, "workflow_action")
+	if err != nil {
+		return err
+	}
+	if qualifying {
+		return nil
+	}
+	return newFailure(KindMissingEvidence, "workflow_action",
+		"leaving refine requires a verification binding in the current refine epoch that names a green worktree_verify run for this work item: "+why+" "+ProjectToolingDeclaredText(g.request.ProjectTooling),
+		false, "run worktree_verify on the refined work, then bind_evidence with evidence_kind verification and the run's worktree_verify operation ref before record_delivery")
+}
+
+// workflowRefineProofRun reports whether one verification binding in the
+// current refine epoch names a qualifying worktree-verify run, and carries
+// the first binding's disqualifier back for the refusal to name.
+func workflowRefineProofRun(ctx context.Context, q queryer, workID string, startSeq int64, startedAt time.Time, tooling *ProjectToolingManifest, subject string) (bool, string, error) {
+	boundRefs, err := workflowVerificationBindingsAfter(ctx, q, workID, startSeq, subject)
+	if err != nil {
+		return false, "", err
+	}
+	if len(boundRefs) == 0 {
+		return false, "no verification evidence is bound in the current refine epoch", nil
+	}
+	disqualifier := ""
+	for _, ref := range boundRefs {
+		qualifies, why, err := worktreeVerifyRunQualifies(ctx, q, workID, ref, startedAt, tooling, subject)
+		if err != nil {
+			return false, "", err
+		}
+		if qualifies {
+			return true, "", nil
+		}
+		if disqualifier == "" {
+			disqualifier = why
+		}
+	}
+	return false, disqualifier, nil
+}
+
+// workflowVerificationBindingsAfter lists the immutable subject refs bound as
+// verification evidence after afterSeq, the current refine epoch's start, in
+// binding order.
+func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID string, afterSeq int64, subject string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events
+		WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?
+		AND json_extract(payload,'$.evidence_kind')='verification'
+		ORDER BY seq`, workID, WorkflowEvidenceBound, afterSeq)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
+	}
+	defer rows.Close()
+	refs := make([]string, 0, 4)
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
+		}
+		if !contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot enumerate the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
+	}
+	return refs, nil
+}
+
+// worktreeVerifyRunQualifies reports whether one bound evidence reference
+// names a completed worktree.verify durable operation for this work item
+// whose lease ran green after startedAt, and whose argv is a declared tool
+// when the Project declares one.
+func worktreeVerifyRunQualifies(ctx context.Context, q queryer, workID, reference string, startedAt time.Time, tooling *ProjectToolingManifest, subject string) (bool, string, error) {
+	var resultPayload string
+	err := q.QueryRowContext(ctx, `SELECT result_payload FROM durable_operations
+		WHERE op_id=? AND work_id=? AND workflow_type_ref='worktree.verify' AND result_kind='completed'`, reference, workID).Scan(&resultPayload)
+	if err == sql.ErrNoRows {
+		return false, "bound evidence " + reference + " names no completed worktree.verify durable operation", nil
+	}
+	if err != nil {
+		return false, "", wrapFailure(KindUnavailable, subject, "cannot read the bound worktree verify operation", true, "retry once the durable operation projection is readable", err)
+	}
+	var result struct {
+		LeaseID             string `json:"lease_id"`
+		TrackedFilesChanged bool   `json:"tracked_files_changed"`
+	}
+	if err := json.Unmarshal([]byte(resultPayload), &result); err != nil || result.LeaseID == "" {
+		return false, "", newFailure(KindInvariantViolation, subject, "the bound worktree verify operation's result is malformed", false, "rebuild projections from the event log")
+	}
+	var outcome string
+	var exitCode sql.NullInt64
+	var acquiredAt string
+	var commandJSON string
+	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON)
+	if err == sql.ErrNoRows {
+		return false, "the bound worktree.verify run names no verify lease for this work item", nil
+	}
+	if err != nil {
+		return false, "", wrapFailure(KindUnavailable, subject, "cannot read the bound verify lease", true, "retry once the verify lease record is readable", err)
+	}
+	if outcome != "completed" {
+		return false, "the bound verify lease recorded outcome " + outcome, nil
+	}
+	if !exitCode.Valid || exitCode.Int64 != 0 {
+		return false, "the bound verify lease did not record exit code 0", nil
+	}
+	if result.TrackedFilesChanged {
+		return false, "the bound verify run changed tracked files", nil
+	}
+	acquired, parseErr := time.Parse(time.RFC3339Nano, acquiredAt)
+	if parseErr != nil {
+		return false, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable acquire time", false, "rebuild projections from the event log")
+	}
+	if !acquired.After(startedAt) {
+		// A replayed lease keeps its original acquired_at, so a lease held in
+		// an earlier refine epoch cannot prove this one.
+		return false, "the bound verify run was acquired at or before the current refine start", nil
+	}
+	var command []string
+	if err := json.Unmarshal([]byte(commandJSON), &command); err != nil {
+		return false, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable command", false, "rebuild projections from the event log")
+	}
+	if tooling != nil && !ProjectToolingInvocationDeclared(tooling, command) {
+		return false, "the bound verify run's command is not a tool the Project declares", nil
+	}
+	return true, "", nil
+}
+
+// workflowActionOccurredAt reads one workflow event's occurred_at, the wall
+// clock the refine-exit proof bounds the verify lease against.
+func workflowActionOccurredAt(ctx context.Context, q queryer, workID string, seq int64) (time.Time, error) {
+	var occurred string
+	if err := q.QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, seq).Scan(&occurred); err != nil {
+		return time.Time{}, wrapFailure(KindUnavailable, "workflow_action", "cannot read the refine step's start time", true, "retry once the workflow projection is readable", err)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
+	if err != nil {
+		return time.Time{}, newFailure(KindInvariantViolation, "workflow_action", "the refine step's start event records an unreadable time", false, "rebuild projections from the event log")
+	}
+	return startedAt, nil
 }
 
 // guardPostRejectionReviewGate refuses an advance toward delivery whose

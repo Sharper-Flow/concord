@@ -2225,6 +2225,7 @@
           ],
           "exit_code": -1,
           "lease_id": "id-1",
+          "operation_ref": "id-1",
           "output": "id-1",
           "output_truncated": false,
           "path": "id-1",
@@ -2240,6 +2241,7 @@
           ],
           "exit_code": -1,
           "lease_id": "id-1",
+          "operation_ref": "id-1",
           "output": "id-1",
           "output_truncated": false,
           "path": "id-1",
@@ -2256,6 +2258,7 @@
         ],
         "exit_code": -1,
         "lease_id": "id-1",
+        "operation_ref": "id-1",
         "output": "id-1",
         "output_truncated": false,
         "path": "id-1",
@@ -3525,5 +3528,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:4f06064eb8b6377ddac43c01c66cd75a1191b2521613e0112596208b492dd74e"
+  "manifest_digest": "sha256:ddabd48d3f2f6886c55bb725a0a3fbb01c6608e48339f676f96d3f8f37f81b6f"
 }

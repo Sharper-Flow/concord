@@ -624,6 +624,22 @@ producing step and its verdict step. The refine step requires an artifact
 evidence binding and records the scope, report, and evidence supplied by an
 external analysis authority. Concord does not implement the scanner.
 
+Implementation version 18 and break-fix version 16 gate the refine exit
+(CD-0192, amending CD-0138 D3). `record_delivery` at the refine step admits the
+advance only when, in the current refine epoch, a bound verification evidence
+names a completed `worktree.verify` durable operation for the work item whose
+lease recorded outcome `completed`, exit code 0, no tracked-file change, and an
+acquire after the current refine start. When the work item's Project declares
+`.concord/tooling.v1.json` on its default ref, the run's argv must equal the
+whitespace-split invocation of at least one declared tool; the manifest is read
+from the default ref outside the store transaction, never from the working
+tree. A Project that declares no manifest passes on any green run. The refusal
+names the declared tool ids and invocations, or states that the Project
+declares none. Items pinned to earlier definition versions keep their behavior
+and digests. The tooling schema and `scripts/check-project-tooling.py` forbid
+shell quoting and shell operators in an invocation, so the whitespace split is
+the exact argv.
+
 | Family and source | Ordered graph and family actions at each step |
 |---|---|
 | **Implementation** — [`workflows.md` §1](./workflows.md#1-the-shift-from-one-workflow-to-a-plurality) and [`feature-inventory.md` §1.6](./feature-inventory.md#16-durable-execution-safety-substrate) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, declare_impact, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Version 8 makes refine mandatory and requires artifact evidence at that step. Version 13 splices the CD-0156 alignment step after proposal: record_alignment is the step's only advance exit, so the backlog search cannot be skipped, and the worker-action set stays off the step so no dispatched attempt can accept its way past the search. |

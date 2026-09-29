@@ -13937,6 +13937,10 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "operation_ref": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0192: the durable operation a green run recorded, so a caller can bind the run as verification evidence at refine."
+        },
         "output": {
           "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",
           "maxLength": 16384,
@@ -13967,6 +13971,7 @@ const GeneratedPayloadSchemaDocument = `{
         "branch",
         "path",
         "lease_id",
+        "operation_ref",
         "command",
         "exit_code",
         "output",

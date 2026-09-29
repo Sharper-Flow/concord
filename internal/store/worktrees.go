@@ -2979,13 +2979,16 @@ type WorktreeVerifyRequest struct {
 	MaxOutputBytes int
 }
 
-// WorktreeVerifyResult is the bounded record of one leased run.
+// WorktreeVerifyResult is the bounded record of one leased run. OperationRef
+// names the durable operation a green run recorded, so a caller can bind the
+// run as verification evidence (CD-0192).
 type WorktreeVerifyResult struct {
 	WorkID              string   `json:"work_id"`
 	ProjectID           string   `json:"project_id"`
 	Branch              string   `json:"branch"`
 	Path                string   `json:"path"`
 	LeaseID             string   `json:"lease_id"`
+	OperationRef        string   `json:"operation_ref"`
 	Command             []string `json:"command"`
 	ExitCode            int      `json:"exit_code"`
 	Output              string   `json:"output"`
@@ -3095,7 +3098,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if outputTruncated {
 		truncated = true
 	}
-	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
+	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
 	resultJSON, _ := json.Marshal(result)
 	releasedAt := nowFromClock(nil)
 	if _, err := releaseTx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,

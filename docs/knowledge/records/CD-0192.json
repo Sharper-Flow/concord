@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-a5d1329eeca3022135d1873e",
+    "tier": "legislated"
+  },
+  "date": "2026-09-29T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0192",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0138"
+    }
+  ],
+  "path": "docs/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:411725c09f51a4f6def18bbdc8c2a57cdfc86aa8e92ee7ea06969e80a7f4ad63",
+  "status": "accepted",
+  "summary": "Leaving refine on workflow.implementation v18+ and workflow.break_fix v16+ requires, in the current refine epoch, a bound verification evidence naming a completed worktree.verify durable operation whose lease ran green after the refine start. When the Project's default ref declares .concord/tooling.v1.json, the run's argv must equal one declared tool's whitespace-split invocation; the manifest is read from the default ref outside the store transaction, never from the working tree. A Project that declares no manifest passes on any green run, and refusals name the declared checks or state that none are declared. Earlier definition versions keep their behavior and digests. Amends CD-0138 D3; CD-0138 D1, D2, D4, and the agent-judgment rule of D3 stay in force.",
+  "tags": [
+    "workflow",
+    "refine",
+    "verification",
+    "tooling"
+  ],
+  "title": "The refine pass proves a declared analysis ran"
+}

@@ -528,6 +528,9 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
 			t.Fatalf("cycle %d start refinement: %v", cycle, err)
 		}
+		// The current definitions gate the refine exit on a green verify run
+		// bound in the epoch (CD-0192); the loop supplies one each cycle.
+		refineProofSeedGreenRun(t, s, workID, fmt.Sprintf("%064x", cycle))
 		for _, deliveryStep := range []string{"refine", "delivery"} {
 			if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:return-route-`+deliveryStep+`-`+fmt.Sprint(cycle)+`","delivery_state":"asserted"}`), 0, acceptor); err != nil {
 				t.Fatalf("cycle %d record %s delivery: %v", cycle, deliveryStep, err)

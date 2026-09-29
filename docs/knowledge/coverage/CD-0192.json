@@ -1,0 +1,66 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineExitRefusesWithoutGreenVerifyRunInEpoch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineExitRefusesAStaleVerifyRun"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineExitRefusesWithoutGreenVerifyRunOnBreakFix"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDeclaredToolInvocationAdmitsRefineExitAndUndeclaredArgvRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineProofGateKeepsEarlierVersionsOpen"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineToolingResolutionReadsTheDefaultRefOnly"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    },
+    {
+      "kind": "scenario",
+      "value": "WF57-refine-exit-needs-green-verify-run"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-project-tooling.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-project-tooling.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0192",
+  "state": "satisfied"
+}

@@ -272,6 +272,19 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 					continue
 				}
+				// The current implementation and break-fix definitions gate the
+				// refine exit on a green verify run bound in the epoch
+				// (CD-0192); the witness supplies one before the refine
+				// delivery exits.
+				if actionID == "record_delivery" {
+					var witnessStep string
+					if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&witnessStep); err != nil {
+						t.Fatal(err)
+					}
+					if workflowRefineProofGateActive(definition, witnessStep) {
+						refineProofSeedGreenRun(t, s, workID, strings.Repeat("f", 64))
+					}
+				}
 				apply(actionID, map[string]string{})
 			}
 			state, events, err := livenessCompletion(ctx, s, workID)

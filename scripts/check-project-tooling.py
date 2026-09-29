@@ -43,6 +43,12 @@ IDENTIFIER_PATTERN = r"^(?!.*[\r\n])[a-z][a-z0-9-]{1,63}$"
 SAFE_PATH_PATTERN = r"^(?!/)(?!.*//)(?!\.{1,2}(?:/|$))(?!.*\/\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
 NON_WHITESPACE_PATTERN = r"[^ \t\r\n]"
 SINGLE_LINE_PATTERN = r"^[^\u0000-\u001F\u007F]+$"
+# CD-0192: the refine-exit proof compares a worktree_verify run's argv against
+# the whitespace-split invocation, so the invocation must be plain argv.
+# Shell quoting and shell operators would make a shell re-tokenize the
+# command and break the exact equality. The pattern is byte-identical to the
+# one contracts/project-tooling.v1.schema.json declares for invocation.
+PLAIN_ARGV_PATTERN = r'''^[^'"`\\$;|&<>()]+$'''
 TEXT_CONSTRAINTS = {
     "purpose": (4, 256, False),
     "invocation": (1, 512, True),
@@ -52,6 +58,7 @@ TEXT_CONSTRAINTS = {
 JSON_WHITESPACE = {" ", "\t", "\r", "\n"}
 IDENTIFIER = re.compile(IDENTIFIER_PATTERN)
 SAFE_PATH = re.compile(SAFE_PATH_PATTERN)
+PLAIN_ARGV = re.compile(PLAIN_ARGV_PATTERN)
 
 
 def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -174,6 +181,8 @@ def check(*, root: Path = ROOT) -> list[str]:
         for key, (minimum, maximum, single_line) in TEXT_CONSTRAINTS.items():
             if key in tool:
                 bounded_text(label, key, tool[key], minimum, maximum, findings, single_line=single_line)
+        if "invocation" in tool and isinstance(tool["invocation"], str) and not PLAIN_ARGV.fullmatch(tool["invocation"]):
+            findings.append(f"{label}: invocation must be plain argv without shell quoting or shell operators")
         tier = tool["tier"]
         if not isinstance(tier, str) or tier not in TIERS:
             findings.append(f"{label}: tier must be one of: {', '.join(sorted(TIERS))}")

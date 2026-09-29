@@ -36,6 +36,12 @@ import (
 // record_delivery exit demands a green worktree_verify run bound in the
 // current refine epoch; the guard the versions activate lives in the
 // dispatcher, and the definition content keeps its predecessors' shape.
+// The current versions ship the confirm_premise declaration:
+// implementation 19, break_fix 17, research 11, architecture_spike 12,
+// ops_runbook 13, static_analysis 10, and generic_one_off 11 declare
+// selected_choice and decision_context_digest on the action payload, so the
+// work pin, the generated envelope, and the store validator read one
+// declaration.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -127,6 +133,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.static_analysis", "6"}:     "sha256:bb4eeec6f44116e19b47b1f910f19d5407c3964651be9595a1e519f9b9a54663",
 	{"workflow.static_analysis", "7"}:     "sha256:e028a8ff55dd0517046c9620868506ba7ceb401e3ac0757a29cbbfe229782fd9",
 	{"workflow.static_analysis", "8"}:     "sha256:b49180f83820b36f622e0e2426515f60a1d136e2c8ff0711609d6baa2cf4e462",
+	{"workflow.implementation", "19"}:     "sha256:60bbb73777f24c3367c88b7fcdfb44cdd3e15b1a7ff6dd385ead60f522d38cb5",
+	{"workflow.break_fix", "17"}:          "sha256:c8e15e64059f7cab5b619302ab8b398cd531974cbe56f2c36bc96d76d662c4fb",
+	{"workflow.research", "11"}:           "sha256:71faedbac05a1b87d384fc1e965545c7877f4a47c86888ce090a2e41c6a6d03a",
+	{"workflow.architecture_spike", "12"}: "sha256:c999ff5de3728335360220a83f2762dfbc31920d65c9d0c2d8ec22b749f84f5c",
+	{"workflow.ops_runbook", "13"}:        "sha256:01546927bf054a86f869e2e597c33809c5e121d9d6e2e480032d52d83069ed28",
+	{"workflow.static_analysis", "10"}:    "sha256:68089d6961fe7060beab9b853f8d6b40d63dea5aff22cce49d61d776ab9592af",
+	{"workflow.generic_one_off", "11"}:    "sha256:9e70765c76ae2c95500de5ed712bb5997e074d17f17d3119e32618c970683840",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -197,13 +210,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          16,
-		"workflow.implementation":     18,
-		"workflow.generic_one_off":    10,
-		"workflow.research":           10,
-		"workflow.architecture_spike": 11,
-		"workflow.ops_runbook":        12,
-		"workflow.static_analysis":    9,
+		"workflow.break_fix":          17,
+		"workflow.implementation":     19,
+		"workflow.generic_one_off":    11,
+		"workflow.research":           11,
+		"workflow.architecture_spike": 12,
+		"workflow.ops_runbook":        13,
+		"workflow.static_analysis":    10,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

@@ -238,7 +238,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return err
 		}
-	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
 		return err
 	}
 	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
@@ -540,7 +540,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return RegisteredDefinition{}, err
 		}
-	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
@@ -578,6 +578,76 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// See the note in the non-transactional preflight: recording a new actor is
 	// the action guard's job, and refusing here would prevent it.
 	return entry, nil
+}
+
+// workflowEnvelopeProjectedPayload merges the envelope-carried values of
+// declared envelope fields into the payload map the preflight and the fold
+// validate. The generated envelope schema projects the declared envelope
+// fields to the envelope outer level, so the same declaration is read here: a
+// supplied envelope value is validated against the declared type, and the
+// fields object carries only what the envelope does not project. Absent
+// values are left to the operator-selection guard, which owns presence
+// enforcement at the agent boundary; the fold consumes the operator approval
+// instead. The merged copy is validation input only; the recorded payload
+// stays what the caller supplied.
+func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage, selectedChoice, decisionContextDigest string) json.RawMessage {
+	var payloadDefinition WorkflowPayloadDefinition
+	found := false
+	for _, action := range definition.ActionDefinitions {
+		if action.ID == actionID {
+			payloadDefinition = action.Payload
+			found = true
+			break
+		}
+	}
+	if !found {
+		return payload
+	}
+	envelopeValues := map[string]string{"selected_choice": selectedChoice, "decision_context_digest": decisionContextDigest}
+	projected := map[string]string{}
+	for _, field := range payloadDefinition.Fields {
+		if !field.Envelope {
+			continue
+		}
+		if value, ok := envelopeValues[field.Name]; ok && value != "" {
+			projected[field.Name] = value
+		}
+	}
+	if len(projected) == 0 {
+		return payload
+	}
+	fields := map[string]json.RawMessage{}
+	if len(payload) != 0 {
+		// A payload that is not one JSON object is reported by
+		// validateWorkflowActionPayload with its own message; validate it
+		// unmerged so the refusal matches the unprojected shape.
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			return payload
+		}
+	}
+	for name, value := range projected {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return payload
+		}
+		fields[name] = encoded
+	}
+	// encoding/json sorts map keys, so the merged validation payload is
+	// deterministic for a given input.
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return payload
+	}
+	return merged
+}
+
+// validateWorkflowActionEnvelopePayload validates the declared action payload
+// the way the envelope carries it, projecting the envelope-level
+// operator-decision values into the validation map when the declaration names
+// them.
+func validateWorkflowActionEnvelopePayload(definition WorkflowDefinition, request WorkflowActionPreflightRequest) error {
+	payload := workflowEnvelopeProjectedPayload(definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)
+	return validateWorkflowActionPayload(definition, request.ActionID, payload)
 }
 
 func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
@@ -641,8 +711,11 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	// required-field scan walks it and reports the first declared field that
 	// is absent. A map walk here names whichever field the runtime yields
 	// first, so the same empty payload reports a different field per run.
+	// Envelope fields are exempt: the envelope carries them at the outer
+	// level, the generated envelope schema requires them there, and the
+	// operator-selection guard owns their presence at the agent boundary.
 	for _, field := range definitionFields {
-		if field.Required {
+		if field.Required && !field.Envelope {
 			if _, ok := fields[field.Name]; !ok {
 				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", field.Name, actionID), false, "supply every required registered action field")
 			}

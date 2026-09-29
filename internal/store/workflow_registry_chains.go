@@ -84,6 +84,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationDeliveryGateReturnV16(),
 		implementationCheckpointReviewV17(),
 		implementationRefineProofV18(),
+		implementationConfirmPremiseV19(),
 	}
 }
 
@@ -107,6 +108,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		breakFixDeliveryGateReturnV14(),
 		breakFixCheckpointReviewV15(),
 		breakFixRefineProofV16(),
+		breakFixConfirmPremiseV17(),
 	}
 }
 
@@ -124,6 +126,7 @@ func researchVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(researchPreDeliveryV8()),
 		researchDeliveryPayloadV9(),
 		researchCheckpointReviewV10(),
+		researchConfirmPremiseV11(),
 	}
 }
 
@@ -142,6 +145,7 @@ func architectureSpikeVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(architecturePreDeliveryV9()),
 		architectureDeliveryPayloadV10(),
 		architectureCheckpointReviewV11(),
+		architectureConfirmPremiseV12(),
 	}
 }
 
@@ -161,6 +165,7 @@ func opsRunbookVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(opsRunbookPreDeliveryV10()),
 		opsRunbookDeliveryPayloadV11(),
 		opsRunbookCheckpointReviewV12(),
+		opsRunbookConfirmPremiseV13(),
 	}
 }
 
@@ -177,6 +182,7 @@ func staticAnalysisVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(staticAnalysisPreDeliveryV7()),
 		staticAnalysisDeliveryPayloadV8(),
 		staticAnalysisCheckpointReviewV9(),
+		staticAnalysisConfirmPremiseV10(),
 	}
 }
 
@@ -194,5 +200,6 @@ func genericOneOffVersionChain() []WorkflowDefinition {
 		retainedBeforeDeliveryContract(genericOneOffPreDeliveryV8()),
 		genericOneOffDeliveryPayloadV9(),
 		genericOneOffCheckpointReviewV10(),
+		genericOneOffConfirmPremiseV11(),
 	}
 }

@@ -369,7 +369,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
 			return result, err
 		}
-	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
+	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {
 		return result, err
 	}
 	subject := "workflow_action"

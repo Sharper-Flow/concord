@@ -884,3 +884,76 @@ func breakFixAlignmentV12() WorkflowDefinition {
 	d.Version = 12
 	return withAlignmentStep(d, "reproduce", "diagnose")
 }
+
+// confirmPremiseOperatorFields declares the operator-decision fields the
+// confirm_premise action carries once a definition ships the declaration: the
+// work pin lists the required ones as required_fields, the generated envelope
+// schema projects the envelope-marked fields to the envelope outer level, and
+// the action preflight validates the envelope-carried values against this one
+// declaration, so the surfaces cannot drift.
+func confirmPremiseOperatorFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		{Name: "selected_choice", ValueType: PayloadString, Required: true, Envelope: true, Enum: []string{"confirm", "revise", "stop"}},
+		{Name: "decision_context_digest", ValueType: PayloadDigest, Required: true, Envelope: true},
+		actionIntegerField("contract_version", false, 1, 2147483647),
+	}
+}
+
+// withCurrentConfirmPremise restates confirm_premise's payload as the declared
+// operator-decision contract. Released versions keep the payload they were
+// pinned under.
+func withCurrentConfirmPremise(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "confirm_premise" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: confirmPremiseOperatorFields()}
+	}
+	return definition
+}
+
+// Each builder below ships the confirm_premise declaration at its family's
+// next version. The definition content stays the predecessor's; the only
+// content change is confirm_premise's declared payload.
+func implementationConfirmPremiseV19() WorkflowDefinition {
+	d := implementationRefineProofV18()
+	d.Version = 19
+	return withCurrentConfirmPremise(d)
+}
+
+func breakFixConfirmPremiseV17() WorkflowDefinition {
+	d := breakFixRefineProofV16()
+	d.Version = 17
+	return withCurrentConfirmPremise(d)
+}
+
+func researchConfirmPremiseV11() WorkflowDefinition {
+	d := researchCheckpointReviewV10()
+	d.Version = 11
+	return withCurrentConfirmPremise(d)
+}
+
+func architectureConfirmPremiseV12() WorkflowDefinition {
+	d := architectureCheckpointReviewV11()
+	d.Version = 12
+	return withCurrentConfirmPremise(d)
+}
+
+func opsRunbookConfirmPremiseV13() WorkflowDefinition {
+	d := opsRunbookCheckpointReviewV12()
+	d.Version = 13
+	return withCurrentConfirmPremise(d)
+}
+
+func staticAnalysisConfirmPremiseV10() WorkflowDefinition {
+	d := staticAnalysisCheckpointReviewV9()
+	d.Version = 10
+	return withCurrentConfirmPremise(d)
+}
+
+func genericOneOffConfirmPremiseV11() WorkflowDefinition {
+	d := genericOneOffCheckpointReviewV10()
+	d.Version = 11
+	return withCurrentConfirmPremise(d)
+}

@@ -413,14 +413,22 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_design_content"] = workflow_payload_object_schema(design_action["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
-    outer_properties["selected_choice"] = {"type": "string", "enum": ["confirm", "revise", "stop"]}
-    outer_properties["decision_context_digest"] = {"$ref": "#/$defs/digest"}
+    # The registry declares the envelope-carried fields once: the generator
+    # projects the action's declared envelope fields to the envelope outer
+    # level, so the work pin (required_fields), this envelope schema, and the
+    # store validator read one declaration and cannot drift.
+    confirm_action = next(action for action in actions if action["id"] == "confirm_premise")
+    for field in confirm_action["payload"]["fields"]:
+        if not field.get("envelope"):
+            continue
+        outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
     outer_properties["fields"] = {}
 
     def action_condition(action: dict, payload_key: str) -> dict:
         action_id = action["id"]
         if action_id == "confirm_premise":
-            then = {"required": ["selected_choice", "decision_context_digest"], "not": {"required": ["fields"]}}
+            projected = [field["name"] for field in action[payload_key]["fields"] if field.get("envelope") and field.get("required")]
+            then = {"required": projected, "not": {"required": ["fields"]}}
         else:
             def payload_branch(payload: dict) -> dict:
                 field_object = workflow_payload_object_schema(payload, defs)

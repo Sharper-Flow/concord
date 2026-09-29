@@ -697,8 +697,10 @@ function stalenessSummary(staleness: ReleaseStaleness): string {
 
 function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: ReleaseStaleness | null): { envelope: HostConcordEnvelope; extraWarnings: string[] } {
   if (!staleness) return { envelope, extraWarnings: [] }
-  const carried = record(envelope) && Array.isArray(envelope.warnings) && envelope.warnings.length < ENVELOPE_WARNINGS_LIMIT
-  if (carried) return { envelope: { ...envelope, warnings: [...envelope.warnings, stalenessNotice(staleness)] }, extraWarnings: [] }
+  const warnings = record(envelope) && Array.isArray(envelope.warnings) ? envelope.warnings : null
+  if (warnings && warnings.length < ENVELOPE_WARNINGS_LIMIT) {
+    return { envelope: { ...envelope, warnings: [...warnings, stalenessNotice(staleness)] }, extraWarnings: [] }
+  }
   return { envelope, extraWarnings: [stalenessSummary(staleness)] }
 }
 

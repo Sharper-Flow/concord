@@ -305,9 +305,9 @@ func requireRecordedInvestigationArtifact(ctx context.Context, q queryer, workID
 		}
 	}
 	if comparisonRequired {
-		return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item", false, "record an observation whose refs resolve to a current Product Domain and another work item")
+		return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product and another work item; its refs must hold the bare domain_id of the current Domain and the id of another work item", false, "record an observation whose refs hold the bare domain_id of a current Product Domain and the id of another work item")
 	}
-	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product", false, "record an observation whose refs resolve to a current Product Domain")
+	return newFailure(KindMissingEvidence, "workflow_operator_question", "operator question requires a recorded investigation artifact naming a current Domain of the Product; its ref must hold the bare domain_id of the current Domain", false, "record an observation whose ref holds the bare domain_id of a current Product Domain")
 }
 
 // productHoldsAnotherWorkItem reports whether the work item's Product holds a

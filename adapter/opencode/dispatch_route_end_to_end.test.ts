@@ -454,7 +454,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(16)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(17)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
@@ -493,6 +493,12 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const continuity = await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)
     const continuityResult = continuity.result as JSONRecord
     const decisionDigest = (((continuityResult.pinned as JSONRecord).pending_operator_decision as JSONRecord).decision_context_digest) as string
+    // The work pin is the discovery surface: a caller that prepares the call
+    // from the pin sees the two required fields the store validator demands.
+    const pinIntents = ((((continuityResult.pinned as JSONRecord).work_pin as JSONRecord).next_valid_intents ?? []) as JSONRecord[])
+    const confirmIntent = pinIntents.find((intent) => intent.action_id === "confirm_premise")
+    expect(confirmIntent, JSON.stringify(pinIntents)).toBeDefined()
+    expect((confirmIntent as JSONRecord).required_fields).toEqual(["selected_choice", "decision_context_digest"])
     response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verdictVersion, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: decisionDigest, idempotency_key: "e2e-confirm" } }, context)
     expect(response.outcome).toBe("ok")
     const completeVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number

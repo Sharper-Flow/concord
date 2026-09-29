@@ -450,17 +450,19 @@ function vacateReplayRecovery(message: string): string {
 }
 
 // One classifier for a thrown runner error at any invoke stage: the first
-// invoke, the version-skew retry, and the post-approval run. A missing
-// binary started no child, so its no-effect refusal stands. A read cannot
+// invoke, the version-skew retry, and the post-approval run. invokeRan marks
+// the version-skew retry: its first child already ran and may have committed,
+// so a missing binary on the retry no longer proves an absent effect and
+// every mutation throw there takes the mutation classification. A read cannot
 // have written, so it keeps the transport event the error names. A mutation
 // whose child started may have committed before the abort, the timeout, or
 // the crash killed it, so the refusal takes the operation's unknown-outcome
 // classification: a possible effect with the reconcile recovery, or the
 // session_vacate state-driven replay where no work id can drive a
 // reconciliation (CD-0190 D3).
-function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean) {
+function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean, invokeRan: boolean) {
   const failure = runnerFailure(error, aborted)
-  if (failure.reason === "missing_binary" || !operationIsMutation(toolName, operation)) {
+  if ((failure.reason === "missing_binary" && !invokeRan) || !operationIsMutation(toolName, operation)) {
     return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
   }
   const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
@@ -525,7 +527,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const vacateOperation = toolName === "concord_work_transition" && operation === "session_vacate"
   const outcomeMessage = (message: string) => (vacateOperation ? vacateReplayRecovery(message) : message)
   let result: any
-  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
+  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -563,7 +565,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
-      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
+      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -653,7 +655,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     try {
       result = await run(approvedInput)
     } catch (error) {
-      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted)
+      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, false)
     }
     try { response = singleJSON(result.stdout) } catch (error) {
       if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(String(error)), "possible", "retry_same_request", salvageDetails(result.stdout))

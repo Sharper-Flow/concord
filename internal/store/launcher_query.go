@@ -52,9 +52,12 @@ type LauncherWork struct {
 
 type LauncherProductResult struct {
 	ResultMeta
-	// Works is the active work segment ordered most-recently-updated first
-	// (updated_at DESC, id), the default ordering the launcher work list
-	// renders. TerminalWorks is the completed-history segment ordered by
+	// Works is the active work segment ordered by stored last activity
+	// (last_activity_at DESC, id), the default ordering the launcher work
+	// list renders. The store alone orders the rows and returns the
+	// Product's complete active set: no limit cuts the segment and no
+	// omission-by-limit state exists for it. TerminalWorks is the
+	// completed-history segment bounded by Limit and ordered by
 	// terminal_time DESC, id, so the list renders active work first and
 	// reaches terminal history by scrolling.
 	Works         []LauncherWork
@@ -232,8 +235,8 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
-		ORDER BY w.updated_at DESC,w.id LIMIT ?`
-	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product, limit+1)
+		ORDER BY w.last_activity_at DESC,w.id`
+	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product work", true, "retry once the database is readable", err)
 	}
@@ -251,10 +254,6 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	}
 	if err := rows.Err(); err != nil {
 		return out, err
-	}
-	if len(out.Works) > limit {
-		out.Works = out.Works[:limit]
-		out.Omissions = append(out.Omissions, "Product work omitted by launcher limit")
 	}
 	// The completed-history drill-down segment. It is one grouped read in the
 	// same transaction, not a per-work fan-out, and readiness is not computed
@@ -351,7 +350,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 		out.Edges = []RelationEdge{}
 	}
 	omissions := append([]string(nil), out.Omissions...)
-	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"updated_at", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "launcher.product", ResolvedScope{ProductID: req.Product}, []string{"last_activity_at", "id"})
 	out.Omissions = append(out.Omissions, omissions...)
 	return out, err
 }

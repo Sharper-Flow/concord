@@ -35,11 +35,11 @@ func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 		('proj-b','Other product project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES
 		('scope-a','proj-a1','primary'),('scope-a','proj-a2','secondary'),('scope-b','proj-b','primary');
-		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
-		('scope-live','task','Linked live work','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL),
-		('scope-done','bug','Finished work','completed',1,1,'2026-08-01T00:00:00Z','2026-08-04T00:00:00Z','2026-08-04T00:00:00Z'),
-		('scope-ref','task','Externally referenced work','needed',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z',NULL),
-		('other-live','task','Other product work','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL);
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,last_activity_at,terminal_time) VALUES
+		('scope-live','task','Linked live work','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00.000000000Z',NULL),
+		('scope-done','bug','Finished work','completed',1,1,'2026-08-01T00:00:00Z','2026-08-04T00:00:00Z','2026-08-04T00:00:00.000000000Z','2026-08-04T00:00:00Z'),
+		('scope-ref','task','Externally referenced work','needed',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z','2026-08-06T00:00:00.000000000Z',NULL),
+		('other-live','task','Other product work','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00.000000000Z',NULL);
 		UPDATE work_items SET intent_json='{"external_ref":"GH-42"}' WHERE id='scope-ref';
 		INSERT INTO work_projects(work_id,project_id,role) VALUES
 		('scope-live','proj-a1','primary'),('scope-done','proj-a1','primary'),
@@ -93,10 +93,10 @@ func TestProductReadScopesWorkToProductAndActiveLifeCycle(t *testing.T) {
 	if !snapshot.ActiveWorkOnly {
 		t.Fatal("Product snapshot must set ActiveWorkOnly so the picker drops terminal rows")
 	}
-	// The active segment is recency ordered: scope-ref carries the latest
-	// updated_at, so it leads the segment the picker displays.
+	// The active segment is last-activity ordered: scope-ref carries the
+	// newest activity, so it leads the segment the picker displays.
 	if len(snapshot.Ranked) < 2 || snapshot.Ranked[0].ID != "scope-ref" || snapshot.Ranked[1].ID != "scope-live" {
-		t.Fatalf("active segment is not recency ordered: %#v", snapshot.Ranked)
+		t.Fatalf("active segment is not last-activity ordered: %#v", snapshot.Ranked)
 	}
 }
 

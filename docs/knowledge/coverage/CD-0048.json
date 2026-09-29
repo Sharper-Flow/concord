@@ -22,7 +22,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestWorkListProjectionIsRecencyOrdered"
+      "value": "internal/launcher.TestWorkListProjectionKeepsTheStoreOrder"
     },
     {
       "kind": "go_test",

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d8db06261b660e143c05c95b976216689fbccc6de47a181e759632fc00f7b64d",
+  "sha256": "sha256:7a219d5e0686508085018641306b7503a0371401ad89522edbb2cdd646667bbb",
   "status": "accepted",
   "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
   "tags": [

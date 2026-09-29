@@ -5294,6 +5294,48 @@ SET execution_started_at = (
 DELETE FROM fold_guard;
 `,
 	},
+	{
+		// The launcher work list orders by stored last activity, so the
+		// projection carries the fact the fold advances: every
+		// work_item-subject event except work.removed moves
+		// work_items.last_activity_at forward (advanceWorkLastActivity in
+		// internal/store/operation.go). The backfill reconstructs the column
+		// from the retained log, taking each row's newest event time, and
+		// falls back to the fixed-width form of updated_at when the log
+		// retains nothing for the row. Both sources are RFC3339Nano UTC
+		// strings whose fraction may be trimmed, so the substr transform
+		// pads it to nine digits: equal-width stamps whose text order equals
+		// their time order.
+		Version:  108,
+		Name:     "work_items_carry_last_activity",
+		Breaking: false,
+		SQL: `
+ALTER TABLE work_items ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT '';
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+UPDATE work_items
+SET last_activity_at = (
+    SELECT MAX(substr(e.occurred_at, 1, 19) || '.' ||
+               substr(CASE WHEN substr(e.occurred_at, 20, 1) = '.'
+                           THEN substr(e.occurred_at, 21, length(e.occurred_at) - 21)
+                           ELSE '' END || '000000000', 1, 9) || 'Z')
+      FROM domain_events e
+     WHERE e.subject_type = 'work_item'
+       AND e.subject_id = work_items.id
+       AND e.kind <> 'work.removed')
+WHERE last_activity_at = ''
+  AND EXISTS (SELECT 1 FROM domain_events e
+               WHERE e.subject_type = 'work_item'
+                 AND e.subject_id = work_items.id
+                 AND e.kind <> 'work.removed');
+UPDATE work_items
+SET last_activity_at = substr(updated_at, 1, 19) || '.' ||
+    substr(CASE WHEN substr(updated_at, 20, 1) = '.'
+                THEN substr(updated_at, 21, length(updated_at) - 21)
+                ELSE '' END || '000000000', 1, 9) || 'Z'
+WHERE last_activity_at = '';
+DELETE FROM fold_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

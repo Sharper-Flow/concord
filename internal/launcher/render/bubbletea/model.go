@@ -74,24 +74,28 @@ func (k keyMap) FullHelp() [][]key.Binding {
 }
 
 type Model struct {
-	core                     *launcher.Model
-	ctx                      context.Context
-	input                    textinput.Model
-	help                     help.Model
-	profile                  Profile
-	projection               launcher.Projection
-	snapshot                 launcher.Snapshot
-	filterMode               bool
-	queryMode                bool
-	issueMode                bool
-	confirmWork              bool
-	queryDisplayed           bool
-	filterValue, queryValue  string
-	queryBase                launcher.Snapshot
-	showHelp                 bool
-	keys                     keyMap
-	cursor                   int
-	scroll                   int
+	core                    *launcher.Model
+	ctx                     context.Context
+	input                   textinput.Model
+	help                    help.Model
+	profile                 Profile
+	projection              launcher.Projection
+	snapshot                launcher.Snapshot
+	filterMode              bool
+	queryMode               bool
+	issueMode               bool
+	confirmWork             bool
+	queryDisplayed          bool
+	filterValue, queryValue string
+	queryBase               launcher.Snapshot
+	showHelp                bool
+	keys                    keyMap
+	cursor                  int
+	scroll                  int
+	// selectedWorkID is the work ID under the cursor. A refresh that
+	// reorders rows keeps the cursor on this ID, not on the index the row
+	// used to occupy.
+	selectedWorkID           string
 	width                    int
 	height                   int
 	launch                   func(launcher.SessionHandoff) tea.Cmd
@@ -134,7 +138,13 @@ func New(core *launcher.Model, ctx context.Context, profile Profile) *Model {
 // Sync projects the latest in-memory launcher snapshot after an explicit read
 // or UI event. Render never reads the core or its read port.
 func (m *Model) Sync() {
+	previous := m.snapshot.Screen
 	m.snapshot = m.core.Snapshot()
+	if m.snapshot.Screen != previous {
+		// The selection belongs to one screen's rows; it never carries
+		// across a screen change.
+		m.selectedWorkID = ""
+	}
 	// The renderer prices cells with the measurement library it renders
 	// with and hands it to the projection: the core keeps column priority
 	// without carrying width logic of its own.
@@ -330,6 +340,7 @@ func (m *Model) updateInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if wasQuery {
 			m.core.RestoreSnapshot(m.queryBase)
 			m.cursor, m.scroll = m.queryCursor, m.queryScroll
+			m.selectedWorkID = m.rowIDAt(m.cursor)
 			m.queryDisplayed = m.queryBase.QueryResult
 			m.queryValue = ""
 			m.Sync()
@@ -408,9 +419,11 @@ func (m *Model) updateCommandKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.move(-1)
 	case "g":
 		m.cursor, m.scroll = 0, 0
+		m.selectedWorkID = m.rowIDAt(0)
 	case "G":
 		m.cursor = max(0, m.rowCount()-1)
 		m.adjustScroll()
+		m.selectedWorkID = m.rowIDAt(m.cursor)
 	case "ctrl+d":
 		m.move(m.pageSize() / 2)
 	case "n":
@@ -576,6 +589,7 @@ func (m *Model) escapeKey() (tea.Model, tea.Cmd) {
 	if m.queryDisplayed {
 		m.core.RestoreSnapshot(m.queryBase)
 		m.cursor, m.scroll = m.queryCursor, m.queryScroll
+		m.selectedWorkID = m.rowIDAt(m.cursor)
 		m.queryDisplayed = m.queryBase.QueryResult
 		m.queryValue = ""
 		m.input.Reset()
@@ -600,6 +614,7 @@ func (m *Model) back() {
 	position := m.navigation[last]
 	m.navigation = m.navigation[:last]
 	m.cursor, m.scroll = position.cursor, position.scroll
+	m.selectedWorkID = m.rowIDAt(m.cursor)
 	m.clampCursor()
 }
 
@@ -672,11 +687,12 @@ func (m *Model) filteredRows() []launcher.ProductRow {
 
 // filterRanked is the active-only picker: terminal work stays in the read
 // projection but never lands on the list, the needle keeps the rows whose
-// rendered facts match, and the New/Backlog picker row ends the list.
+// rendered facts match, and the New/Backlog picker row ends the list. The
+// rows keep the store's order: the launcher never re-sorts.
 func filterRanked(snapshot launcher.Snapshot, needle string) []launcher.RankedWork {
 	needle = strings.ToLower(needle)
 	out := make([]launcher.RankedWork, 0, len(snapshot.Ranked)+1)
-	for _, row := range launcher.SortRankedByRecency(snapshot.Ranked) {
+	for _, row := range snapshot.Ranked {
 		if snapshot.ActiveWorkOnly && row.Terminal {
 			continue
 		}
@@ -697,7 +713,7 @@ func (m *Model) filteredRanked() []launcher.RankedWork {
 func (m *Model) move(delta int) {
 	count := m.rowCount()
 	if count == 0 {
-		m.cursor, m.scroll = 0, 0
+		m.cursor, m.scroll, m.selectedWorkID = 0, 0, ""
 		return
 	}
 	m.cursor += delta
@@ -708,6 +724,7 @@ func (m *Model) move(delta int) {
 		m.cursor = count - 1
 	}
 	m.adjustScroll()
+	m.selectedWorkID = m.rowIDAt(m.cursor)
 }
 
 func (m *Model) pageSize() int {
@@ -738,16 +755,51 @@ func (m *Model) adjustScroll() {
 	}
 }
 
+// rowIDAt is the ID of the displayed row at an index, or "" beyond the list.
+// The ID is what the cursor preserves across refreshes.
+func (m *Model) rowIDAt(index int) string {
+	count := m.rowCount()
+	if index < 0 || index >= count {
+		return ""
+	}
+	s := m.snapshot
+	if s.ProjectSelect {
+		return s.Projects[index].ID
+	}
+	if s.Screen == launcher.ScreenProduct {
+		return m.filteredRanked()[index].ID
+	}
+	displayed := m.displayedPortfolio()
+	if displayed.candidates != nil {
+		return displayed.candidates[index].ID
+	}
+	return displayed.products[index].ID
+}
+
 func (m *Model) clampCursor() {
 	count := m.rowCount()
 	if count == 0 {
-		m.cursor, m.scroll = 0, 0
+		m.cursor, m.scroll, m.selectedWorkID = 0, 0, ""
 		return
+	}
+	// Selection preservation: when the row the operator selected still
+	// exists, the cursor moves back to it, however the refresh reordered
+	// the rows. Otherwise the index clamps as before, and the selection
+	// rebinds to the row the clamped index lands on.
+	if m.selectedWorkID != "" {
+		for i := 0; i < count; i++ {
+			if m.rowIDAt(i) == m.selectedWorkID {
+				m.cursor = i
+				m.adjustScroll()
+				return
+			}
+		}
 	}
 	if m.cursor >= count {
 		m.cursor = count - 1
 	}
 	m.adjustScroll()
+	m.selectedWorkID = m.rowIDAt(m.cursor)
 }
 
 func (m *Model) rowCount() int {
@@ -872,7 +924,7 @@ func (m *Model) displayedRows(snapshot launcher.Snapshot) (rows [][]string, seve
 			allowed[item.ID] = true
 		}
 		ids := make([]string, 0, len(snapshot.Ranked)+1)
-		for _, item := range launcher.SortRankedByRecency(snapshot.Ranked) {
+		for _, item := range snapshot.Ranked {
 			ids = append(ids, item.ID)
 		}
 		if snapshot.Backlog {

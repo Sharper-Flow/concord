@@ -1,6 +1,8 @@
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract, amended by CD-0041.
+**Status:** Accepted C17 contract, amended by CD-0041; §5.2 amended
+2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
+amended.
 **Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
 work projection. The replacement-ready floor is satisfied; see
 [`floor-readiness.v1.json`](./floor-readiness.v1.json).
@@ -118,7 +120,7 @@ The view inherits the reliance discipline C14 already established:
 | CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the launcher is the primary operator surface and owns session bootstrap | Unchanged. This is a view inside the accepted launcher. |
 | C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
 | C14 exclusion of the raw blocker graph from the row | Honored. The graph appears only after selection. |
-| C14 finding that activity is not value or priority | Honored. Activity time is not a ranking input and is not a default column. |
+| C14 finding that activity is not value or priority | Honored. Activity is not value and not priority: the work list's stored last-activity order (CD-0048 D3 as amended) is a display order, not a priority or value ranking, and activity is not a default column. |
 | Query-contract deferral of cross-Product prioritization pending PM2 authority and portability | Honored. This view is single-Product only. |
 | R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
 | [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored. The view navigates and explains; it takes no substantive workflow action. |
@@ -131,8 +133,12 @@ unstable across runs.
 
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
-2. **No activity-derived priority.** Last-update recency may appear on explicit
-   drill-down with a non-priority label, never as an ordering input.
+2. **No activity-derived priority.** Computed importance and activity-derived
+   priority stay prohibited. **Amendment 2026-09-28:** the work list's display
+   order is the stored ordering rule of CD-0048 D3 as amended: stored
+   `last_activity_at` descending with an id tiebreak — a stored column the
+   event fold advances, ordered by the store alone, never a computed score
+   and never a priority or value ranking.
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders

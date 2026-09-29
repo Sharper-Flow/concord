@@ -516,6 +516,47 @@ test("post-approval runner failures reconcile the request work ID", async () => 
   expect(result.error.details.reconciled).toEqual({ found: false, lifecycle: null, version: null })
 })
 
+// A mutation's core child can commit its transaction before an abort, a
+// timeout, or a crash kills it, so a runner failure after the invoke started
+// reports a possible effect and reconciles the request work ID. A missing
+// binary started nothing and keeps the no-effect refusal.
+test("mutation runner failures after the invoke started report a possible effect", async () => {
+  const readback = coreEnvelope("concord_work_browse", "list", "ok", {
+    result: { items: [{ id: "work-1", kind: "task", title: "Task", lifecycle: "completed", version: 3 }] },
+  })
+  const failures: Array<[string, () => unknown]> = [
+    ["timeout", () => Object.assign(new Error("core invocation timed out"), { name: "TimeoutError" })],
+    ["cancelled", () => Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["spawn_failure", () => new Error("core child died")],
+  ]
+  for (const [label, failure] of failures) {
+    let calls = 0
+    const result: any = await runTransition({ async run() {
+      calls++
+      if (calls === 1 || calls === 3) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (calls === 2) throw failure()
+      return { exitCode: 0, stdout: JSON.stringify(readback), stderr: "" }
+    } })
+    assertAdapterEnvelope(result)
+    expect(result.error.kind, label).toBe("operation_conflict")
+    expect(result.error.adapter_reason, label).toBe("unknown_effect")
+    expect(result.error.effect_state, label).toBe("possible")
+    expect(result.error.recovery_action.kind, label).toBe("reconcile_operation")
+    expect(result.error.details.reconciled, label).toEqual({ found: true, lifecycle: "completed", version: 3 })
+  }
+
+  let calls = 0
+  const missing: any = await runTransition({ async run() {
+    calls++
+    if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+    throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
+  } })
+  assertAdapterEnvelope(missing)
+  expect(calls).toBe(2)
+  expect(missing.error.adapter_reason).toBe("missing_binary")
+  expect(missing.error.effect_state).toBe("none")
+})
+
 test("oversized mutation envelopes reconcile the request work ID", async () => {
   const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],

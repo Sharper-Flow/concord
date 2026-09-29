@@ -1262,11 +1262,6 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the workflow exits", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	type workflowExitRecord struct {
-		seq      int64
-		stepID   string
-		actionID string
-	}
 	var exits []workflowExitRecord
 	for rows.Next() {
 		var exit workflowExitRecord
@@ -1286,9 +1281,32 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 	// A carried-forward instance keeps the exits it recorded under the
 	// definition pin in effect when each exit completed. The carry forward
 	// splices steps between a recorded exit and the verdict step, so the
-	// current graph alone cannot vouch for them: resolve the pin each exit
-	// completed under and accept the exit when it advanced out of a step that
-	// directly preceded the verdict step under that pin.
+	// current graph alone cannot vouch for them.
+	satisfied, err := carriedExitSatisfiedItsPinnedDefinition(ctx, tx, workID, verdictStep, exits)
+	if err != nil {
+		return err
+	}
+	if satisfied {
+		return nil
+	}
+	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
+}
+
+// workflowExitRecord names one recorded workflow action completion: the
+// sequence it completed at and the step and action it recorded.
+type workflowExitRecord struct {
+	seq      int64
+	stepID   string
+	actionID string
+}
+
+// carriedExitSatisfiedItsPinnedDefinition accepts a recorded exit that
+// advanced out of a step directly preceding the verdict step under the
+// definition pin in effect when that exit completed. Each exit resolves its
+// own pin (latest definition_selected at or before the exit sequence) in the
+// immutable registry; an exit no pinned definition satisfies is refused by
+// the caller.
+func carriedExitSatisfiedItsPinnedDefinition(ctx context.Context, tx *sql.Tx, workID, verdictStep string, exits []workflowExitRecord) (bool, error) {
 	historical := make(map[string]map[string]bool)
 	for _, exit := range exits {
 		var pinRef string
@@ -1298,34 +1316,45 @@ func requireOperatorVerdictExit(ctx context.Context, tx *sql.Tx, workID string) 
 			continue
 		}
 		if err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action", "cannot resolve the workflow pin in effect at an exit", true, "retry once the database is readable", err)
+			return false, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve the workflow pin in effect at an exit", true, "retry once the database is readable", err)
 		}
 		key := registryKey(pinRef, pinVersion)
 		advancing, resolved := historical[key]
 		if !resolved {
 			advancing = nil
 			if entry, ok := BuiltinWorkflowRegistry().Lookup(pinRef, pinVersion); ok {
-				advancing = map[string]bool{}
-				if verdict := workflowStep(entry.Definition, verdictStep); verdict != nil && containsString(verdict.Actions, "record_verdict") {
-					for _, edge := range entry.Definition.StepGraph.Edges {
-						if edge.To != verdictStep || edge.Kind != WorkflowEdgeForward {
-							continue
-						}
-						if step := workflowStep(entry.Definition, edge.From); step != nil {
-							for _, actionID := range step.Actions {
-								if mode, ok := workflowActionExecutionMode(entry.Definition, actionID); ok && mode == ActionAdvance {
-									advancing[edge.From+"\x00"+actionID] = true
-								}
-							}
-						}
-					}
-				}
+				advancing = workflowVerdictPredecessorAdvancingExits(entry.Definition, verdictStep)
 			}
 			historical[key] = advancing
 		}
 		if advancing[exit.stepID+"\x00"+exit.actionID] {
-			return nil
+			return true, nil
 		}
 	}
-	return newFailure(KindInvalidOperation, "workflow_action", "operator verdict identity requires a record_delivery or accept_worker_result exit or another definition-backed advancing exit", false, "complete the pinned workflow step before requesting operator evaluation")
+	return false, nil
+}
+
+// workflowVerdictPredecessorAdvancingExits returns the advancing exits out of
+// the verdict step's direct forward predecessors under one definition, keyed
+// as stepID plus action ID. A definition that does not declare the verdict
+// step as a record_verdict step contributes nothing.
+func workflowVerdictPredecessorAdvancingExits(definition WorkflowDefinition, verdictStep string) map[string]bool {
+	verdict := workflowStep(definition, verdictStep)
+	if verdict == nil || !containsString(verdict.Actions, "record_verdict") {
+		return nil
+	}
+	advancing := map[string]bool{}
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.To != verdictStep || edge.Kind != WorkflowEdgeForward {
+			continue
+		}
+		if step := workflowStep(definition, edge.From); step != nil {
+			for _, actionID := range step.Actions {
+				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
+					advancing[edge.From+"\x00"+actionID] = true
+				}
+			}
+		}
+	}
+	return advancing
 }

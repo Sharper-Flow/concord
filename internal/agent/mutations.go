@@ -2450,10 +2450,15 @@ func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base E
 	if pathsEquivalent(callingRepo, targetRepo) {
 		return nil
 	}
-	refused := coreError(base, string(store.KindCrossRepositoryClaim),
+	// The remedy is a declared route, not a context refresh: the claim is
+	// refused for the session's repository, so replaying it after a refresh
+	// fails the same way. CD-0182 names the route — a second coordinator
+	// session opened through concord_work_start with the work and Project
+	// identities the message carries.
+	refused := coreErrorAction(base, string(store.KindCrossRepositoryClaim),
 		fmt.Sprintf("worktree_claim target Project %s lives in %s, but the calling session runs in %s; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository. Start a coordinator session in %s and resume this work there with concord_work_start carrying work_id %s and project_id %s",
 			projectID, targetRepo, callingRepo, targetRepo, workID, projectID),
-		"refresh_context", false)
+		RecoveryAction{Kind: "use_declared_route", RequiredRefs: []string{"concord_work_start"}}, false, nil)
 	return &refused
 }
 

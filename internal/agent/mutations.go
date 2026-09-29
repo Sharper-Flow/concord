@@ -2614,9 +2614,17 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 		// recorded landing already completed resolves no pending request
 		// here, so the fresh-request path below still records a re-occupied
 		// worktree's own new relocation (CD-0190 D2).
-		if pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef); perr == nil {
+		// Only a confirmed absence falls through to a fresh request: an
+		// unreadable or undecodable pending request refuses, so a failed
+		// lookup never records a second relocation request for one move.
+		pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+		if perr == nil {
 			result, merr := resolvePayload(pending)
 			return result, nil, []ChangedRef{}, merr
+		}
+		var pendingFailure *store.Failure
+		if !errors.As(perr, &pendingFailure) || pendingFailure.Kind != store.KindProjectionNotFound {
+			return nil, nil, nil, perr
 		}
 		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 		if err != nil {

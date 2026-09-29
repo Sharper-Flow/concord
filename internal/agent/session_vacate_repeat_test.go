@@ -392,6 +392,66 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 	}
 }
 
+// TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest pins the
+// pending-request lookup as a decision, not a hint: a pending request the
+// core cannot decode refuses the new-key retry and appends nothing. Only a
+// confirmed absence of a pending request reaches the fresh-request path, so a
+// failed lookup never records a second relocation request for one move.
+func TestSessionVacateNewKeyRetryRefusesUnreadablePendingRequest(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _, baseSHA := worktreeDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+		"work_id": "work-1", "project_id": "project-1", "base_sha": baseSHA,
+		"expected_version": 2, "idempotency_key": "claim-unreadable-pending-1",
+	})
+	if response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion)); dispatchErr != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("claim response=%+v error=%+v err=%v", response, response.Error, dispatchErr)
+	}
+	first := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	inWorktree := mutationEnvelope(grant, scopeVersion)
+	inWorktree.Worktree, inWorktree.Directory = first, first
+	vacate := func(key string) Envelope {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"idempotency_key": key})
+		response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: input}, inWorktree)
+		if dispatchErr != nil {
+			t.Fatalf("vacate dispatch err=%v", dispatchErr)
+		}
+		return response
+	}
+	if response := vacate("vacate-unreadable-pending-1"); response.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v", response, response.Error)
+	}
+
+	// Simulate a recorded request the core can no longer decode. The event
+	// log is append-only, so the test lifts the update guard on its own
+	// fixture database to damage the committed payload.
+	db := s.DatabaseForTesting()
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER domain_events_no_update`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE domain_events SET payload=json_remove(payload,'$.destination_directory') WHERE kind='work.session_vacated'`); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := vacate("vacate-unreadable-pending-2")
+	if retry.Outcome == OutcomeOK || retry.Error == nil {
+		t.Fatalf("new-key retry response=%+v, want a refusal for the unreadable pending request", retry)
+	}
+	var vacates int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("vacate events=%d, want the refused retry to append nothing", vacates)
+	}
+}
+
 // TestSessionVacateReoccupiesSameWorktree pins the vacate event identity at
 // the core boundary. One session claims one cross-Project work item in its
 // primary Project, vacates toward the registered main checkout, records the

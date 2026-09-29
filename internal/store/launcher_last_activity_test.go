@@ -188,3 +188,47 @@ func TestWorkItemLastActivityAdvancesOnNonVersionedEvents(t *testing.T) {
 		t.Fatalf("work.removed advanced last_activity_at to %q", lastActivity)
 	}
 }
+
+// TestNonWorkSubjectEventsDoNotAdvanceLastActivity proves the subject-type
+// gate: IDs are unique per entity table, not across tables, so a product,
+// project, or session event whose subject ID equals a work item's ID leaves
+// the work item's last_activity_at untouched. Without the gate, such an
+// event would move the row in the launcher work list and a log rebuild would
+// disagree with migration 108's work_item-only backfill.
+func TestNonWorkSubjectEventsDoNotAdvanceLastActivity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	db := s.DatabaseForTesting()
+	if _, err := db.Exec(`
+		INSERT INTO fold_guard(active) VALUES (1);
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,last_activity_at) VALUES
+		('cx-work','task','Collision','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00.000000000Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	const seeded = "2026-08-01T00:00:00.000000000Z"
+	later := time.Date(2026, 8, 20, 8, 0, 0, 0, time.UTC)
+	for _, subject := range []SubjectType{SubjectProduct, SubjectProject, SubjectSession} {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		event := Event{EventID: "cx-" + string(subject), Kind: "product.updated", SubjectType: subject, SubjectID: "cx-work", Actor: "operator", OccurredAt: later, PayloadVersion: 1}
+		if err := advanceWorkLastActivity(ctx, tx, event); err != nil {
+			t.Fatal(err)
+		}
+		var lastActivity string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT last_activity_at FROM work_items WHERE id='cx-work'`).Scan(&lastActivity); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if lastActivity != seeded {
+			t.Fatalf("subject %s advanced last_activity_at to %q", subject, lastActivity)
+		}
+	}
+}

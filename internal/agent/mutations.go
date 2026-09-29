@@ -4722,23 +4722,9 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return storeIdempotencyConflict(r.Operation, key)
 			}
 			if r.Operation != "session_vacate" {
-				var changed []ChangedRef
-				_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
-				base.Replayed = true
-				base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-				replayedPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
-				if enrichErr != nil {
-					return enrichErr
-				}
-				if derivedIntents != nil {
-					intents = derivedIntents
-				}
-				response = r.mutationResult(base, replayedPayload, changed, intents)
-				if response.Outcome == OutcomeError {
-					resultRejected = true
-					return errors.New("mutation result rejected")
-				}
-				return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
+				var replayErr error
+				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
+				return replayErr
 			}
 			// session_vacate replays state-driven: the cached payload is
 			// stale the moment a later claim's occupancy rows stand, so the
@@ -4858,6 +4844,28 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		return failureEnvelope(base, err), nil
 	}
 	return response, nil
+}
+
+// replayCachedMutationTx answers a same-key, same-digest retry from the
+// recorded result without applying the effect again. The bool reports that the
+// replayed result is an error envelope the caller must return as the response.
+func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transaction, base Envelope, prior store.MutationIdempotencyRecord, intents []NextIntent, key store.MutationIdempotencyKey) (Envelope, bool, error) {
+	var changed []ChangedRef
+	_ = json.Unmarshal([]byte(prior.ChangedRefs), &changed)
+	base.Replayed = true
+	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
+	replayedPayload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+	if err != nil {
+		return Envelope{}, false, err
+	}
+	if derivedIntents != nil {
+		intents = derivedIntents
+	}
+	response := r.mutationResult(base, replayedPayload, changed, intents)
+	if response.Outcome == OutcomeError {
+		return response, true, errors.New("mutation result rejected")
+	}
+	return response, false, store.TouchMutationIdempotencyTx(ctx, tx, key, r.Authority.now())
 }
 
 func mutationScopeWorkIDs(scope map[string]any) []string {

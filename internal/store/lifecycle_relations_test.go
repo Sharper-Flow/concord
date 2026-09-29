@@ -556,7 +556,7 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		query string
 		work  bool
 	}{
-		{`SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, last_activity_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
+		{`SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
 		{`SELECT id, work_id_from, work_id_to, kind, created_at FROM relations ORDER BY id`, false},
 	} {
 		rows, err := s.DatabaseForTesting().Query(tc.query)
@@ -565,13 +565,13 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var id, from, to, kind, title, lifecycle, createdAt, updatedAt, lastActivity, terminal string
+			var id, from, to, kind, title, lifecycle, createdAt, updatedAt, terminal string
 			var priority, version int64
 			if tc.work {
-				if err := rows.Scan(&id, &kind, &title, &lifecycle, &priority, &version, &createdAt, &updatedAt, &lastActivity, &terminal); err != nil {
+				if err := rows.Scan(&id, &kind, &title, &lifecycle, &priority, &version, &createdAt, &updatedAt, &terminal); err != nil {
 					t.Fatal(err)
 				}
-				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%d|%s|%s|%s|%s\n", id, kind, title, lifecycle, priority, version, createdAt, updatedAt, lastActivity, terminal)
+				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%d|%s|%s|%s\n", id, kind, title, lifecycle, priority, version, createdAt, updatedAt, terminal)
 			} else {
 				if err := rows.Scan(&id, &from, &to, &kind, &createdAt); err != nil {
 					t.Fatal(err)

@@ -5295,17 +5295,20 @@ DELETE FROM fold_guard;
 `,
 	},
 	{
-		// The launcher work list orders by stored last activity, so the
-		// projection carries the fact the fold advances: every
-		// work_item-subject event except work.removed moves
-		// work_items.last_activity_at forward (advanceWorkLastActivity in
-		// internal/store/operation.go). The backfill reconstructs the column
-		// from the retained log, taking each row's newest event time, and
-		// falls back to the fixed-width form of updated_at when the log
-		// retains nothing for the row. Both sources are RFC3339Nano UTC
-		// strings whose fraction may be trimmed, so the substr transform
-		// pads it to nine digits: equal-width stamps whose text order equals
-		// their time order.
+		// The launcher work list orders by last activity, which this
+		// migration carried as the work_items.last_activity_at column: the
+		// fold advanced the column for every work_item-subject event except
+		// work.removed. The backfill reconstructs the column from the
+		// retained log, taking each row's newest event time, and falls back
+		// to the fixed-width form of updated_at when the log retains nothing
+		// for the row. Both sources are RFC3339Nano UTC strings whose
+		// fraction may be trimmed, so the substr transform pads it to nine
+		// digits: equal-width stamps whose text order equals their time
+		// order. A fold generation from before this migration never advances
+		// the column, so under a rolling upgrade (CD-0111) it drifts behind
+		// the log; migration 109 drops the column and the launcher derives
+		// last activity from the log at read time instead
+		// (internal/store/launcher_query.go).
 		Version:  108,
 		Name:     "work_items_carry_last_activity",
 		Breaking: false,
@@ -5334,6 +5337,24 @@ SET last_activity_at = substr(updated_at, 1, 19) || '.' ||
                 ELSE '' END || '000000000', 1, 9) || 'Z'
 WHERE last_activity_at = '';
 DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:  109,
+		Name:     "work_items_drop_last_activity",
+		Breaking: true,
+		SQL: `
+-- work_items.last_activity_at was a fold-maintained projection, and a fold
+-- generation from before migration 108 never advances it, so a rolling
+-- upgrade left the stored stamp behind the log until a current writer
+-- touched the row again. The launcher now derives last activity from the
+-- event log at read time (internal/store/launcher_query.go), so no release's
+-- writes can drift the ordering and no fold-side writer remains. The drop is
+-- Breaking because 108-era binaries still name the column in their launcher
+-- query; the compatibility floor keeps them off a store that applied this
+-- step, and CD-0111 D3 applies the step only through concord upgrade once no
+-- live session holds an older release.
+ALTER TABLE work_items DROP COLUMN last_activity_at;
 `,
 	},
 }

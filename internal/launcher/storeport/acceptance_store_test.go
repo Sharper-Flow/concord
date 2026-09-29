@@ -13,7 +13,9 @@ import (
 // seedLauncherStoreFixture seeds two Products with Projects, works in both,
 // one terminal work, one confirmed Linear link, one intent external_ref
 // fallback, and one active occupied worktree entry. The fold guard is active
-// only while the fold-only fixture rows are inserted.
+// only while the fold-only fixture rows are inserted. Work activity lives in
+// the retained log as work_item-subject events, so the launcher derives the
+// work-list order from it: scope-ref carries the newest event time.
 func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -35,11 +37,16 @@ func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 		('proj-b','Other product project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES
 		('scope-a','proj-a1','primary'),('scope-a','proj-a2','secondary'),('scope-b','proj-b','primary');
-		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,last_activity_at,terminal_time) VALUES
-		('scope-live','task','Linked live work','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00.000000000Z',NULL),
-		('scope-done','bug','Finished work','completed',1,1,'2026-08-01T00:00:00Z','2026-08-04T00:00:00Z','2026-08-04T00:00:00.000000000Z','2026-08-04T00:00:00Z'),
-		('scope-ref','task','Externally referenced work','needed',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z','2026-08-06T00:00:00.000000000Z',NULL),
-		('other-live','task','Other product work','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','2026-08-01T00:00:00.000000000Z',NULL);
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
+		('scope-live','task','Linked live work','in_progress',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL),
+		('scope-done','bug','Finished work','completed',1,1,'2026-08-01T00:00:00Z','2026-08-04T00:00:00Z','2026-08-04T00:00:00Z'),
+		('scope-ref','task','Externally referenced work','needed',2,1,'2026-08-02T00:00:00Z','2026-08-02T00:00:00Z',NULL),
+		('other-live','task','Other product work','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL);
+		INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
+		('scope-live-ev','work.created','work_item','scope-live','operator','2026-08-01T00:00:00Z',1,'{}'),
+		('scope-done-ev','work.created','work_item','scope-done','operator','2026-08-04T00:00:00Z',1,'{}'),
+		('scope-ref-ev','work.created','work_item','scope-ref','operator','2026-08-06T00:00:00Z',1,'{}'),
+		('other-live-ev','work.created','work_item','other-live','operator','2026-08-01T00:00:00Z',1,'{}');
 		UPDATE work_items SET intent_json='{"external_ref":"GH-42"}' WHERE id='scope-ref';
 		INSERT INTO work_projects(work_id,project_id,role) VALUES
 		('scope-live','proj-a1','primary'),('scope-done','proj-a1','primary'),

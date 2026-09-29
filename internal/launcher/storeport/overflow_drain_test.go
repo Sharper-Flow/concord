@@ -12,9 +12,9 @@ import (
 )
 
 // seedBeyondLimitFixture seeds one Product with more active work than the
-// launcher's hundred-item request bound, each row stamped with a distinct
-// fixed-width last-activity time, so the read must drain past the cut the
-// old limit imposed.
+// launcher's hundred-item request bound, each row carrying a work_item-subject
+// log event at a distinct time, so the launcher's log-derived order must drain
+// past the cut the old limit imposed.
 func seedBeyondLimitFixture(t *testing.T, s *store.Store, count int) {
 	t.Helper()
 	ctx := context.Background()
@@ -27,18 +27,21 @@ func seedBeyondLimitFixture(t *testing.T, s *store.Store, count int) {
 		}
 	}()
 	rows := make([]string, 0, count)
+	events := make([]string, 0, count)
 	members := make([]string, 0, count)
 	for i := 0; i < count; i++ {
 		id := fmt.Sprintf("overflow-%03d", i)
 		stamp := fmt.Sprintf("2026-08-05T00:00:%02d.%09dZ", i/60, i%60)
-		rows = append(rows, fmt.Sprintf("(%q,'task','Overflow work %03d','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z','%s',NULL)", id, i, stamp))
+		rows = append(rows, fmt.Sprintf("(%q,'task','Overflow work %03d','needed',1,1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z',NULL)", id, i))
+		events = append(events, fmt.Sprintf("(%q,'work.created','work_item',%q,'operator',%q,1,'{}')", id+"-ev", id, stamp))
 		members = append(members, fmt.Sprintf("(%q,'overflow-project','primary')", id))
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES ('overflow','Overflow','prototype','operator_only',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('overflow-project','Overflow project',1,'2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO product_projects(product_id,project_id,role) VALUES ('overflow','overflow-project','primary');
-		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,last_activity_at,terminal_time) VALUES `+strings.Join(rows, ",")+`;
+		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES `+strings.Join(rows, ",")+`;
+		INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES `+strings.Join(events, ",")+`;
 		INSERT INTO work_projects(work_id,project_id,role) VALUES `+strings.Join(members, ",")+`;
 	`); err != nil {
 		t.Fatal(err)

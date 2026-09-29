@@ -52,14 +52,14 @@ type LauncherWork struct {
 
 type LauncherProductResult struct {
 	ResultMeta
-	// Works is the active work segment ordered by stored last activity
-	// (last_activity_at DESC, id), the default ordering the launcher work
-	// list renders. The store alone orders the rows and returns the
-	// Product's complete active set: no limit cuts the segment and no
-	// omission-by-limit state exists for it. TerminalWorks is the
-	// completed-history segment bounded by Limit and ordered by
-	// terminal_time DESC, id, so the list renders active work first and
-	// reaches terminal history by scrolling.
+	// Works is the active work segment ordered by last activity derived
+	// from the event log (newest work_item-subject event time DESC, id),
+	// the default ordering the launcher work list renders. The store alone
+	// orders the rows and returns the Product's complete active set: no
+	// limit cuts the segment and no omission-by-limit state exists for it.
+	// TerminalWorks is the completed-history segment bounded by Limit and
+	// ordered by terminal_time DESC, id, so the list renders active work
+	// first and reaches terminal history by scrolling.
 	Works         []LauncherWork
 	TerminalWorks []LauncherWork
 	Edges         []RelationEdge
@@ -231,11 +231,21 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	if _, err := readProduct(ctx, tx, req.Product); err != nil {
 		return out, err
 	}
+	// The work list orders by last activity derived from the event log, so
+	// the ordering is correct whatever release wrote the events: a fold
+	// generation that predates a stored marker cannot drift it (CD-0111
+	// rolling upgrade). The derivation is migration 108's read-side twin:
+	// the newest work_item-subject event time except work.removed, with
+	// each RFC3339Nano stamp normalized to the fixed nine-digit fraction
+	// form, so equal-width text order equals time order, falling back to
+	// the same normalization of updated_at when the log retains nothing
+	// for the row. domain_events_subject (subject_type, subject_id, seq)
+	// serves the per-row scan.
 	q := `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
 		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
-		ORDER BY w.last_activity_at DESC,w.id`
+		ORDER BY (COALESCE((SELECT MAX(substr(e.occurred_at, 1, 19) || '.' || substr(CASE WHEN substr(e.occurred_at, 20, 1) = '.' THEN substr(e.occurred_at, 21, length(e.occurred_at) - 21) ELSE '' END || '000000000', 1, 9) || 'Z') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=w.id AND e.kind<>'work.removed'), substr(w.updated_at, 1, 19) || '.' || substr(CASE WHEN substr(w.updated_at, 20, 1) = '.' THEN substr(w.updated_at, 21, length(w.updated_at) - 21) ELSE '' END || '000000000', 1, 9) || 'Z')) DESC,w.id`
 	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product work", true, "retry once the database is readable", err)

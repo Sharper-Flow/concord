@@ -1888,6 +1888,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // rows wait for the landing.
   let hostDirectory: string | null = null
   try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
+  let moved = false
   if (hostDirectory === null || !samePath(hostDirectory, destination)) {
     try {
       await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
@@ -1898,6 +1899,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
       const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
       return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`, "possible", recovery)
     }
+    moved = true
   }
   let landed: string
   try {
@@ -1944,7 +1946,10 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // The verified landing released the occupancy rows, so no claimed worktree
   // is armed for this session any more.
   clearClaimedWorktree(context.sessionID)
-  if (!samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
+  // A move the host readback decided completed in this turn even when a
+  // stale tool context already names the destination, so the move fact, not
+  // the tool context, arms the boundary.
+  if (moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   return envelope
 }
 
@@ -2000,7 +2005,6 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
       return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
     }
     const requestID = `${context.sessionID}-${context.messageID}`
-    const startedIn = context.directory
     const remembered = pendingVacateDestination(context.sessionID)
     // The host's own readback names where the session sits now. When that
     // directory is the claimed worktree a confirmed or refused move armed,
@@ -2014,8 +2018,15 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
     const claimed = armedClaimedWorktree(context.sessionID) ?? unlandedClaimedWorktree(context.sessionID)
     const occupiesClaimedWork = claimed !== null && hostDirectory !== null && samePath(claimed, hostDirectory)
-    const movedToRemembered = typeof remembered === "string" && !occupiesClaimedWork && !(typeof startedIn === "string" && samePath(startedIn, remembered))
-    if (movedToRemembered) {
+    // The host readback, not the tool context, decides the pre-move — the
+    // same authority the in-route move applies. A stale tool context can
+    // name the remembered destination while the host session still sits in
+    // a directory that resolves to no Project, and a move skipped on that
+    // name strands the standing request behind the context-resolution
+    // refusal every retry repeats (CD-0190 D3). A failed readback moves.
+    const atRemembered = typeof remembered === "string" && hostDirectory !== null && samePath(hostDirectory, remembered)
+    const movedToRemembered = typeof remembered === "string" && !occupiesClaimedWork && !atRemembered
+    if (movedToRemembered && typeof remembered === "string") {
       // A post-commit refusal left this session's relocation request
       // standing and this adapter remembers its registered main checkout.
       // The retry moves the host session there first and resolves the core
@@ -2031,6 +2042,10 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
         const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
         return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`, "possible", recovery)
       }
+    }
+    if ((movedToRemembered || atRemembered) && typeof remembered === "string") {
+      // The host session sits at the remembered destination, so the stale
+      // tool context must not name anything else.
       context.directory = remembered
     }
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)

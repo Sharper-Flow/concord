@@ -2,8 +2,9 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { moveSessionToRegisteredMainCheckout, work_transition, configureConcordAdapter } from "./concord"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
-import { resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
+import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { manifestDigest } from "./generated-contracts"
 import { HostControlPlane } from "./move-session"
 import { configureCoreBinary } from "./dispatch"
 
@@ -244,7 +245,86 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     }
   })
 
-  // A thrown runner error on session_vacate leaves the committed relocation
+  // The full retry route: the tool context names the remembered destination
+  // while the host readback names a directory outside every registered
+  // Project. The pre-move decides from the host readback, so the retry moves
+  // the host session to the remembered destination, the core call resolves
+  // its Project there, the replay appends nothing, and the verified landing
+  // releases the row. Under the previous tool-context gate the move was
+  // skipped, Project resolution refused before the replay could run with a
+  // no-effect classification, and no retry could ever reach the replay
+  // (CD-0190 D3).
+  test("reaches the replay when a stale tool context names the destination and the readback sits outside every Project", async () => {
+    let sitting = "/outside"
+    const moves: string[] = []
+    await fakeHost((body) => {
+      moves.push(body.destination.directory)
+      sitting = body.destination.directory
+      return { status: 204, body: null }
+    }, () => ({ status: 200, body: { directory: sitting } }), {
+      async run(argv: string[], input: string) {
+        if (argv[1] === "project-resolve") {
+          const asked = JSON.parse(input) as { directory?: string }
+          if (asked.directory === "/main") {
+            return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "sv-1", main_worktree: true, product_ids: ["product-1"] }) + "\n", stderr: "" }
+          }
+          return { exitCode: 1, stdout: "", stderr: "concord project-resolve: git_unreachable: signed directory/worktree is not a git repository" }
+        }
+        if (argv[1] === "invoke") {
+          const parsed = JSON.parse(input) as { operation?: string }
+          if (parsed?.operation === "session_vacate") {
+            return {
+              exitCode: 0,
+              stdout: JSON.stringify({
+                schema_version: "1.0",
+                request_id: "session-1-message-1",
+                origin: "core",
+                tool: "concord_work_transition",
+                operation: "session_vacate",
+                outcome: "ok",
+                resolved_scope: null,
+                authority: "authoritative",
+                freshness: null,
+                manifest_digest: manifestDigest,
+                source_version_watermark: [],
+                ordering_keys: [],
+                next_cursor: null,
+                omissions: [],
+                warnings: [],
+                evidence_refs: [],
+                replayed: false,
+                result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/outside", destination_directory: "/main" },
+                changed_refs: [],
+                next_valid_intents: [],
+              }) + "\n",
+              stderr: "",
+            }
+          }
+        }
+        if (argv[1] === "vacate-landing") {
+          landingCalls.push((JSON.parse(input) as { landed_directory: string }).landed_directory)
+          return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+        }
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as never)
+    configureHostLease({ reset: true })
+    recordPendingVacateDestination("session-1", "/main")
+    armClaimedWorktree("session-1", "/worktree")
+    try {
+      const stale = { ...context(), directory: "/main" } as Parameters<typeof work_transition.execute>[1]
+      const result = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-outside-retry" } } } as never, stale)
+      const envelope = JSON.parse((typeof result === "string" ? result : result.output).split("\n")[0])
+      expect(envelope.outcome, result.output).toBe("ok")
+      expect(moves).toEqual(["/main"])
+      expect(landingCalls).toEqual(["/main"])
+      expect(pendingVacateDestination("session-1")).toBeNull()
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+      expect(dispatchRequiresNextTurn("session-1")).toBe(true)
+    } finally {
+      clearClaimedWorktree("session-1")
+    }
+  })
   // request's state unreadable once the core process started: a timeout
   // kills a running core, so the core may have committed before it died.
   // The refusal reports the possible effect with the state-driven replay

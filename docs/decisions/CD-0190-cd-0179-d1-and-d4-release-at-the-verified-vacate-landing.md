@@ -210,7 +210,11 @@ still releases on fold.
   and remembers nothing the core did not return. The same run proves a
   stale tool context that names the registered main checkout while the
   host readback names the source worktree still moves, records the
-  landing, and releases the row, on the first call and on its retry. It
+  landing, and releases the row, on the first call and on its retry. The
+  same run proves the same stale context against a readback outside every
+  registered Project: the retry moves the host session to the remembered
+  destination, the replay appends nothing, and the verified landing
+  releases the row. It
   also proves a thrown runner timeout on session_vacate reports the
   possible effect with the same replay recovery.
 - `bun test adapter/opencode/session-vacate-reoccupy.test.ts` proves the

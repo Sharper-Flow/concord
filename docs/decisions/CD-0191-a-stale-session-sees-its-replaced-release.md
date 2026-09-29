@@ -1,4 +1,4 @@
-# CD-0190: A stale session sees its replaced release and cannot dispatch a worker
+# CD-0191: A stale session sees its replaced release and cannot dispatch a worker
 
 - **Status:** Accepted
 - **Date:** 2026-09-28

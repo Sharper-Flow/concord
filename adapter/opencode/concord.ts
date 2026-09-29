@@ -668,7 +668,7 @@ function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
   return { ...result, output: `${result.output}${suffix}` }
 }
 
-// CD-0190: release staleness rides the result a stale session already gets.
+// CD-0191: release staleness rides the result a stale session already gets.
 // The notice lives in the envelope's bounded warnings channel — the TS7
 // notice shape, no schema change — and names both versions and the restart
 // remedy. The warnings array holds at most 16 notices, so a result whose
@@ -723,7 +723,7 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
 }
 
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
-  // One staleness observation per tool call (CD-0190): the same reading
+  // One staleness observation per tool call (CD-0191): the same reading
   // feeds the dispatch gate and the result notice.
   const staleness = releaseStaleness()
   const envelope = await invokeConcordOperation(toolName, args, context)
@@ -1336,7 +1336,7 @@ export const work_start = tool({ description: `${hostToolDescriptions.concord_wo
   const staleness = releaseStaleness()
   // The work_start result envelope is the adapter's own closed shape with no
   // warnings member, so the staleness notice rides the output layer the
-  // start already uses for best-effort warnings (CD-0190).
+  // start already uses for best-effort warnings (CD-0191).
   const warnings: string[] = staleness ? [stalenessSummary(staleness)] : []
   const envelope = await executeWorkStart(args as WorkStartArgs, context, warnings)
   let output = JSON.stringify(envelope)
@@ -1756,7 +1756,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     return envelope
   }
   if (args?.operation === "workflow_action") {
-    // CD-0190: the stale-release dispatch gate. A dispatch_worker action from
+    // CD-0191: the stale-release dispatch gate. A dispatch_worker action from
     // a session whose pinned release differs from the installed release
     // refuses here, before any core call, so no worker attempt opens on lane
     // text the install replaced. Every other action keeps working. The

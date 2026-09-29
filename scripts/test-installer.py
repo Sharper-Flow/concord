@@ -617,7 +617,7 @@ esac''',
         self.assertEqual(manifest["retained_releases"], {})
 
     def test_retention_output_lists_holder_sessions(self) -> None:
-        """CD-0190: the retention output names the holder sessions per
+        """CD-0191: the retention output names the holder sessions per
         retained release, so the operator knows exactly which sessions to
         restart after the install makes them stale."""
         self.make_release("v1.0.0", "old")

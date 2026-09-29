@@ -58,7 +58,7 @@ let claimedReleaseRoot: string = releaseRoot
  * point the operator at the exact terminal to end. */
 export type LeaseLocation = { directory?: string; worktree?: string }
 
-// CD-0190: installed-versus-session release staleness. The adapter is the
+// CD-0191: installed-versus-session release staleness. The adapter is the
 // only component that sees both facts: the pinned releaseRoot it is stamped
 // against and the host's installed release, which the installer repoints by
 // rewriting the `current` symlink beside the pinned root (the pinned root's

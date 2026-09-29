@@ -31,7 +31,7 @@ const LANE_AGENT_PREFIX = "concord-"
 
 export class DispatchWindowError extends Error {}
 
-// CD-0190: the stale-release dispatch gate. OpenCode loads lane agent
+// CD-0191: the stale-release dispatch gate. OpenCode loads lane agent
 // definitions once at process start and never hot-reloads, while the
 // installer rewrites them in place on every install, so a session whose
 // pinned release differs from the installed release would dispatch workers

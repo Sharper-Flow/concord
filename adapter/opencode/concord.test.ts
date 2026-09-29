@@ -2905,7 +2905,7 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(continuationSource.match(/When you stop,/g)?.length).toBe(1)
 })
 
-// CD-0190: installed-versus-session release staleness. The installer
+// CD-0191: installed-versus-session release staleness. The installer
 // repoints the `current` symlink beside the pinned releaseRoot on every
 // install, and OpenCode never hot-reloads lane definitions, so a session
 // whose pinned release differs from the installed release holds replaced

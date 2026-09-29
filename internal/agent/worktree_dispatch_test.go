@@ -1144,10 +1144,8 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if !strings.Contains(response.Error.Message, "concord_work_start carrying work_id work-1 and project_id project-1x") {
 		t.Fatalf("error.message=%q, want the concord_work_start resume remedy with the work and Project identities", response.Error.Message)
 	}
-	// The refusal must reach the caller as itself. The kind once sat outside
-	// the envelope contract's typedError enum, so MarshalJSON failed and the
-	// adapter downgraded the typed refusal into an unknown-effect
-	// operation_conflict (CON-512).
+	// The refusal must reach the caller as itself: the envelope serializes only
+	// kinds the contract's typedError enum admits, so this kind must marshal.
 	marshaled, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("the cross_repository_claim refusal cannot marshal: %v", err)

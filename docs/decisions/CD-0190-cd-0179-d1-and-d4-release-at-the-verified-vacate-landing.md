@@ -85,12 +85,22 @@ records through the same verb. A move that landed without a confirmed landing
 recovers this way, so no stale row strands the session from claiming other
 work.
 
+The adapter keeps the committed destination of a post-commit refusal for the
+session: a later session_vacate first moves the host session to the remembered
+destination and resolves the core call from it, so the replay and the
+readback-verified landing run from wherever the host session sits. A retry
+without the remembered destination (an adapter restart) resolves its Project
+from the directory the session sits in and refuses before the replay; that
+refusal reports contact_operator, never a retry the session cannot reach.
+
 The replay resolves a pending request only: a payload version 2 request with
-no recorded landing after it. A request its recorded landing already
-completed, or a version 1 request that released on fold, refuses the replay
-and appends nothing. The session holds no stale row from such a request. A
-replay that resolved one could append a landing that releases rows a later
-claim still holds.
+no recorded landing after it. A request its recorded landing already completed
+resolves as a completed replay with no event while the session holds no
+occupancy rows, so an uncertain landing result recovers; once a later claim's
+occupancy rows stand, the same replay refuses and appends nothing, because the
+rows belong to the later claim, whose own verified landing or vacate releases
+them. A version 1 request that released on fold refuses the replay and appends
+nothing.
 
 ### D4. The replay resolves from the registered main checkout
 
@@ -98,8 +108,9 @@ CD-0092 D1 refuses an operation on the main checkout when its operations can
 write into the repository checkout or claim implementation worktrees. The
 replayed session_vacate writes neither: it resolves the pending request,
 returns the committed target, and appends no event, and the landing verb owns
-the release. A replay of a completed request refuses, appends no event, and
-leaves the landing verb the only release owner.
+the release. A replay of a completed request appends no event and leaves the
+landing verb the only release owner: it resolves while the session holds no
+rows, and refuses once a later claim's rows stand.
 
 CD-0179 D4 says: "The adapter then runs session_vacate, which releases the
 occupancy rows, and moves the session to the derived destination." That
@@ -150,21 +161,28 @@ still releases on fold.
   records no landing and leaves occupancy standing, a recorded version 1
   event still releases on fold, the landing releases the session's rows in
   one transaction, and the replay target resolves to the committed request.
-  The same run proves the replay of a completed or version 1 request refuses
-  with no new landing, and a landing call against a completed request refuses
-  while a later claim's occupancy row stands.
+  The same run proves the replay of a completed request resolves while the
+  session holds no rows and refuses once a later claim's occupancy row
+  stands, a landing call against a completed request refuses while that row
+  stands, and a version 1 request refuses the replay.
 - `go test ./internal/agent/ -run SessionVacate` proves the replay from the
   verified destination resolves the pending request and appends nothing, and
   a main-checkout vacate with no committed request still refuses. The same
-  run proves the cached same-key replay reaches the landing verb after a
-  later claim, and that landing refuses and leaves the later claim's row
-  standing.
+  run proves a replay of a completed request resolves with no event while no
+  rows stand and refuses once a later claim's rows stand, the cached same-key
+  replay reaches the landing verb after a later claim, and that landing
+  refuses and leaves the later claim's row standing.
 - `bun test adapter/opencode/session-vacate-move.test.ts` proves every
-  refusal past the commit reports `effect_state` possible, and a replay whose
+  refusal past the commit reports `effect_state` possible, a replay whose
   session already sits at the destination skips the move and records the
-  landing.
+  landing, a landing output failure never asserts the landing is not
+  recorded, and a retry with no remembered destination reports
+  contact_operator instead of the unreachable retry.
 - `bun test adapter/opencode/session-vacate-reoccupy.test.ts` proves the
-  landed-but-unconfirmed move recovers on replay and releases the row.
+  landed-but-unconfirmed move recovers on replay and releases the row, and a
+  readback outside every registered Project recovers through the remembered
+  destination: the retry moves the host session there, the replay appends
+  nothing, and the verified landing releases the row.
 - `python3 scripts/check-doc-contract.py` proves this record carries the
   current decision outline and passes the writing rules.
 - `python3 scripts/check-knowledge-index.py` and

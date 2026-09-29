@@ -2579,11 +2579,15 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 					})
 					return result, nil, []ChangedRef{}, merr
 				}
-				// The replay resolves a pending request only. A committed
-				// request the recorded landing already completed refuses
-				// with its completed state, not the generic
+				// The replay resolves a pending request, and a committed
+				// request whose recorded landing already completed resolves
+				// too while the session holds no rows: the caller's
+				// readback-verified landing call then replays idempotently
+				// with no event, so an uncertain landing result recovers
+				// (CD-0190 D3). Once a later claim's rows stand the completed
+				// request refuses with its completed state, not the generic
 				// no-active-worktree error, so the session learns its rows
-				// are already released; no event appends either way.
+				// belong to that claim; no event appends either way.
 				var replayFailure *store.Failure
 				if errors.As(perr, &replayFailure) && replayFailure.Kind == store.KindInvalidOperation {
 					return nil, nil, nil, perr

@@ -330,10 +330,14 @@ type SessionVacateReplayTarget struct {
 // every active worktree, so the replay from the verified destination is the
 // recovery: the core resolves it to the pending request and appends nothing,
 // and the adapter-only vacate-landing verb records the landing and releases
-// the session's rows. A request the recorded landing already completed, or a
-// version 1 request that released its rows on fold, refuses with no event:
-// the session holds no stale row from it, so replaying it could only append
-// a landing that releases rows a later claim still holds. It runs inside the
+// the session's rows. A request the recorded landing already completed
+// resolves the same way while the session holds no occupancy rows: the
+// caller's readback-verified landing call then replays idempotently with no
+// event, so an uncertain landing result recovers (CD-0190 D3). Once a later
+// claim's rows stand, the completed request refuses with no event, because
+// resolving it could append a landing that releases rows the later claim
+// still holds (CD-0190 D2). A version 1 request that released its rows on
+// fold refuses with no event for the same reason. It runs inside the
 // caller's transaction so the read observes the caller's own uncommitted
 // events.
 func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transaction, projectID, directory, sessionRef string) (SessionVacateReplayTarget, error) {
@@ -369,7 +373,18 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 		return target, err
 	}
 	if landed {
-		return target, newFailure(KindInvalidOperation, "session_vacate", fmt.Sprintf("the committed session vacate of %s already completed its verified landing, so no pending request replays here", p.WorkID), false, "no recovery: the landing already released the session's occupancy rows")
+		// The request's own landing already stands. The session holds no
+		// stale row from it, so the replay resolves as a completed replay
+		// while every row is gone, and refuses once a later claim's rows
+		// stand: those rows belong to the later claim, whose own verified
+		// landing or vacate releases them (CD-0190 D2).
+		rows, err := sessionOccupiedSourcesTx(ctx, tx, p.WorkID, sessionRef, "", "")
+		if err != nil {
+			return target, err
+		}
+		if len(rows) > 0 {
+			return target, newFailure(KindInvalidOperation, "session_vacate", fmt.Sprintf("the committed session vacate of %s already completed its verified landing; the occupancy rows the session holds belong to a later claim", p.WorkID), false, "release the later claim's rows through their own verified landing or vacate")
+		}
 	}
 	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: p.SourceDirectory, DestinationDirectory: filepath.Clean(directory)}, nil
 }

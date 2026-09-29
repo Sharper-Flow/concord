@@ -792,13 +792,11 @@ func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *tes
 	}
 }
 
-// The replay resolves a pending request only (CD-0190 D3/D4). A request its
-// recorded landing already completed refuses from the verified destination,
-// appends no landing, and releases nothing: the session holds no stale row
-// from it, and a second landing could release rows a later claim still
-// holds. The refusal names the completed state instead of the generic
-// no-active-worktree error.
-func TestSessionVacateReplayOfCompletedRequestRefuses(t *testing.T) {
+// A replay of a completed request resolves as an idempotent completed replay
+// while the session holds no occupancy rows (CD-0190 D3): the uncertain
+// landing result recovers, the replay appends nothing, and the readback the
+// caller earns reaches the landing verb, which replays already recorded.
+func TestSessionVacateReplayOfCompletedRequestResolvesWithoutRows(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
@@ -833,11 +831,106 @@ func TestSessionVacateReplayOfCompletedRequestRefuses(t *testing.T) {
 	replayEnv.Worktree = repoRoot
 	replayEnv.Directory = repoRoot
 	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-done-2"}`)}, replayEnv)
+	if err != nil || replay.Outcome != OutcomeOK {
+		t.Fatalf("replay response=%+v error=%+v err=%v, want a resolved completed replay", replay, replay.Error, err)
+	}
+	var result struct {
+		WorkID               string `json:"work_id"`
+		ProjectID            string `json:"project_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(replay.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkID != "work-1" || result.ProjectID != "project-1" || result.SourceDirectory != worktreePath || result.DestinationDirectory != repoRoot {
+		t.Fatalf("replay result=%+v", result)
+	}
+	var vacates, landings int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 || landings != 1 {
+		t.Fatalf("events: vacates=%d landings=%d, want one of each and no replay event", vacates, landings)
+	}
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 0 {
+		t.Fatalf("occupancy rows=%d, want 0 after the completed landing", occupied)
+	}
+	// The landing the replay's readback earns replays already recorded: the
+	// completed request's landing call appends no second landing.
+	again, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	})
+	if err != nil || !again.AlreadyRecorded {
+		t.Fatalf("landing replay result=%+v err=%v, want already recorded", again, err)
+	}
+}
+
+// Once a later claim's occupancy rows stand, the replay of a completed
+// request refuses (CD-0190 D2): the rows belong to the later claim, whose own
+// verified landing or vacate releases them, and the refusal appends nothing.
+func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/vacate", "claim-vacate")
+	secondWork := []store.Event{
+		{EventID: "wt-completed-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Later Claim","priority":1}`)},
+		{EventID: "wt-completed-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: secondWork, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.Worktree = worktreePath
+	env.Directory = worktreePath
+	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-later-1"}`)}, env)
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The later claim records the occupancy row the session holds now.
+	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
+		"work_id": "work-2", "project_id": "project-1",
+		"base_sha":         baseSHA,
+		"expected_version": 2, "idempotency_key": "claim-later-2",
+	})
+	claim, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
+	if err != nil || claim.Outcome != OutcomeOK {
+		t.Fatalf("claim work-2 response=%+v err=%v", claim, err)
+	}
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayEnv := mutationEnvelope(grant, scopeVersion)
+	replayEnv.Worktree = repoRoot
+	replayEnv.Directory = repoRoot
+	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-later-2"}`)}, replayEnv)
 	if err != nil || replay.Outcome != OutcomeError || replay.Error == nil {
 		t.Fatalf("replay response=%+v err=%v, want a refusal", replay, err)
 	}
-	if replay.Error.Kind != "invalid_input" || !strings.Contains(replay.Error.Message, "already completed its verified landing") {
-		t.Fatalf("replay error=%+v, want the completed-request refusal", replay.Error)
+	if replay.Error.Kind != "invalid_input" || !strings.Contains(replay.Error.Message, "belong to a later claim") {
+		t.Fatalf("replay error=%+v, want the later-claim refusal", replay.Error)
 	}
 	var vacates, landings int
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
@@ -853,8 +946,8 @@ func TestSessionVacateReplayOfCompletedRequestRefuses(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
 		t.Fatal(err)
 	}
-	if occupied != 0 {
-		t.Fatalf("occupancy rows=%d, want 0 after the completed landing", occupied)
+	if occupied != 1 {
+		t.Fatalf("occupancy rows=%d, want the later claim's row standing", occupied)
 	}
 }
 

@@ -14,7 +14,7 @@ import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
 import { armTurnMoveBoundary } from "./turn-move-boundary"
-import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree } from "./claimed-worktree"
+import { armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 
 type ToolContext = {
@@ -1831,6 +1831,13 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (typeof destination !== "string" || !destination.startsWith("/")) {
     return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", "core session_vacate response did not carry an absolute derived destination", "possible", "retry_same_request")
   }
+  // The core committed the relocation request (a fresh request or a replay
+  // resolution), so the adapter keeps its registered main checkout for this
+  // session: a later session_vacate first moves the host session there and
+  // resolves the core call from it, so the pending-request replay and the
+  // readback-verified landing run from wherever the host session sits
+  // (CD-0190 D3). The verified landing clears it with the claimed worktree.
+  recordPendingVacateDestination(context.sessionID, destination)
   // A replay that resolves a pending landing arrives with the session already
   // at the registered main checkout, so the move is skipped and the readback
   // below still verifies the landing before the vacate-landing verb records
@@ -1845,7 +1852,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
       const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
       const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
       const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
-      return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, message, "possible", recovery)
+      return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`, "possible", recovery)
     }
   }
   let landed: string
@@ -1855,17 +1862,26 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
     return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", error instanceof Error ? error.message : String(error), "possible", "retry_same_request")
   }
   if (!samePath(landed, destination)) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "possible", "retry_same_request")
+    // The relocation request stands, so the effect is possible. When the
+    // adapter remembers this request's destination, a retry is reachable
+    // from wherever the host session sits: it first moves the session to
+    // the remembered destination and resolves the core call from there. A
+    // retry without that memory (an adapter restart) resolves its Project
+    // from the landed directory and refuses before the pending-request
+    // replay can run, so only the remembered request offers the retry and
+    // every other state reports contact_operator (CD-0190 D3).
+    const reachable = pendingVacateDestination(context.sessionID) === destination
+    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "possible", reachable ? "retry_same_request" : "contact_operator")
   }
   // The host readback names the registered main checkout, so the verified
   // landing records itself through the same adapter-only landing owner the
   // claim route uses. The core vacate committed only the relocation request
   // and left every occupancy row standing; the landing releases the
-  // session's rows in one transaction. A landing the core refuses records
+  // session's rows in one transaction. The landing verb commits before it
+  // answers, so a failed call reports the possible effect and the replay
+  // confirms or completes the record; a landing the core refuses records
   // nothing, so the source occupancy stands and the removal gate never sees
-  // a live session's worktree as empty; replaying session_vacate from the
-  // verified destination resolves the pending request and retries the
-  // landing record.
+  // a live session's worktree as empty.
   const workID = record(result) ? result.work_id : undefined
   if (typeof workID !== "string" || workID === "") {
     return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_landing_unattributable", "the vacate's landing verified by readback carries no work id to record it under", "possible", "retry_same_request")
@@ -1874,7 +1890,12 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
     await recordVacateLanding(workID, context.sessionID, destination, context.abort)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay session_vacate from the verified destination to record the landing`, "possible", "retry_same_request")
+    // The vacate-landing verb commits before it answers, so a failed call
+    // may have recorded the landing and released the rows. The refusal
+    // never asserts the landing is not recorded: it reports the possible
+    // effect and the replay that confirms or completes the record
+    // (CD-0190 D3).
+    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the landing may be recorded because the verb commits before it answers, so replay session_vacate from the verified destination to confirm or complete the landing record`, "possible", "retry_same_request")
   }
   // The verified landing released the occupancy rows, so no claimed worktree
   // is armed for this session any more.
@@ -1934,8 +1955,35 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
       return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
     }
+    const requestID = `${context.sessionID}-${context.messageID}`
+    const startedIn = context.directory
+    const remembered = pendingVacateDestination(context.sessionID)
+    const movedToRemembered = typeof remembered === "string" && !(typeof startedIn === "string" && samePath(startedIn, remembered))
+    if (movedToRemembered) {
+      // A post-commit refusal left this session's relocation request
+      // standing and this adapter remembers its registered main checkout.
+      // The retry moves the host session there first and resolves the core
+      // call from it, so the pending-request replay runs from wherever the
+      // host session sits; from a directory that resolves to no Project the
+      // core call would refuse before the replay could run (CD-0190 D3).
+      try {
+        await hostControlPlane().moveSession(context.sessionID, remembered, context.abort)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
+        const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
+        const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
+        return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`, "possible", recovery)
+      }
+      context.directory = remembered
+    }
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-    return moveSessionToRegisteredMainCheckout(args, context, envelope)
+    const settled = await moveSessionToRegisteredMainCheckout(args, context, envelope)
+    // The pre-move relocated the session during this turn, so the turn move
+    // boundary arms exactly as it does for the in-route move once the
+    // verified landing confirms the destination.
+    if (movedToRemembered && settled.outcome === "ok") armTurnMoveBoundary(context.sessionID)
+    return settled
   }
   if (args?.operation === "worktree_claim") {
     // The claimed worktree's occupancy row records the recording host's
@@ -1990,10 +2038,13 @@ export async function vacateTerminalWorktree(toolName: string, args: HostToolArg
       // The relocation request stands recorded (CD-0190 D3), so the effect
       // is possible and the session may already sit at the registered main
       // checkout: the move landed but the landing record failed, or the
-      // move itself was refused. The recovery that works from the verified
-      // destination is the replay; from the worktree a retry commits a new
-      // request and retries the move. Both run plain session_vacate again.
-      enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, and its relocation request stands recorded with the occupancy rows not yet released (effect_state possible): ${message} Run session_vacate again — from the verified destination ${target.destination_directory} when the session sits there, otherwise from the worktree — to record the verified landing and release the rows.`)
+      // move itself was refused. The recovery is plain session_vacate
+      // again: the adapter remembers the committed destination, so the
+      // retry first moves the host session there and replays the pending
+      // request wherever the session sits; without the remembered
+      // destination a retry from the worktree commits a new request and
+      // retries the move.
+      enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, and its relocation request stands recorded with the occupancy rows waiting on the verified landing (effect_state possible): ${message} Run session_vacate again — from the verified destination ${target.destination_directory} when the session sits there, otherwise from the worktree — to confirm or complete the verified landing and release the rows.`)
       return envelope
     }
     enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, but the session could not return to the registered main checkout: ${message} Run session_vacate from the worktree to retry the move.`)

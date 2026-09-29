@@ -90,13 +90,14 @@ func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
 	}
 }
 
-// The replay resolves a pending request only (CD-0190 D3/D4): a version 2
+// The replay resolves a pending request (CD-0190 D3/D4): a version 2
 // request with no recorded landing after it. A request its recorded landing
-// already completed, or a version 1 request that released on fold, refuses
-// the replay and appends no new landing: the session holds no stale row from
-// such a request, and resolving one could append a landing that releases
-// rows a later claim still holds.
-func TestSessionVacateReplayRefusesACompletedRequest(t *testing.T) {
+// already completed resolves too while the session holds no occupancy rows,
+// so an uncertain landing result recovers as a completed replay, and refuses
+// once a later claim's rows stand: those rows belong to the later claim. A
+// version 1 request that released on fold refuses at its payload version. No
+// resolved or refused replay appends a landing.
+func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	req := baseClaim(git)
@@ -114,17 +115,32 @@ func TestSessionVacateReplayRefusesACompletedRequest(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	resolve := func(session string) error {
-		return s.Transact(context.Background(), func(transaction *Transaction) error {
-			_, resolveErr := ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", session)
+	resolve := func(session string) (SessionVacateReplayTarget, error) {
+		var target SessionVacateReplayTarget
+		err := s.Transact(context.Background(), func(transaction *Transaction) error {
+			var resolveErr error
+			target, resolveErr = ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", session)
 			return resolveErr
 		})
+		return target, err
 	}
-	// The recorded landing completed the request, so the replay from the
-	// verified destination refuses with the completed state.
-	err := resolve("ses-x")
+	// The recorded landing completed the request and the session holds no
+	// rows, so the replay resolves as a completed replay with the committed
+	// target and appends nothing.
+	target, err := resolve("ses-x")
+	if err != nil {
+		t.Fatalf("completed replay err=%v, want a resolved target", err)
+	}
+	if target.WorkID != "work-w" || target.ProjectID != "project-w" || target.SourceDirectory != claimPath(s) || target.DestinationDirectory != "/data/repo-main" {
+		t.Fatalf("completed replay target=%+v", target)
+	}
+	// Once a later claim's rows stand, the completed request refuses so the
+	// replay cannot resolve to a landing that releases them.
+	auditWork(t, s, git, "work-b", true)
+	setWorktreeOccupant(t, s, "work-b", "ses-x")
+	_, err = resolve("ses-x")
 	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
-		t.Fatalf("err=%v, want invalid_operation for the completed request", err)
+		t.Fatalf("err=%v, want invalid_operation for the completed request with later-claim rows", err)
 	}
 	// A recorded version 1 request released on fold, so the replay refuses
 	// it at the payload version.
@@ -135,8 +151,7 @@ func TestSessionVacateReplayRefusesACompletedRequest(t *testing.T) {
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	err = resolve("ses-old")
-	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
+	if _, err := resolve("ses-old"); failureKind(err) != KindInvalidOperation {
 		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
 	}
 	var landings int

@@ -1,8 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
-import { moveSessionToRegisteredMainCheckout, configureConcordAdapter } from "./concord"
-import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees } from "./claimed-worktree"
+import { moveSessionToRegisteredMainCheckout, work_transition, configureConcordAdapter } from "./concord"
+import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
 import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { HostControlPlane } from "./move-session"
 import { configureCoreBinary } from "./dispatch"
@@ -98,22 +98,53 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-3" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
-      const error = envelope.error as { adapter_reason?: string; effect_state?: string }
+      const error = envelope.error as { adapter_reason?: string; effect_state?: string; recovery_action?: { kind?: string } }
       expect(error.adapter_reason).toBe("vacate_destination_mismatch")
       // The relocation request committed, so the refusal reports a possible
-      // effect and the occupancy stands.
+      // effect and the occupancy stands. The adapter remembers the committed
+      // destination, so the retry is reachable from wherever the host
+      // session sits.
       expect(error.effect_state).toBe("possible")
+      expect(error.recovery_action?.kind).toBe("retry_same_request")
     }
-    // The refused move leaves the occupancy standing: no landing runs.
+    // The refused move leaves the occupancy standing: no landing runs, and
+    // the committed destination stays remembered for the retry.
+    expect(landingCalls).toEqual([])
+    expect(pendingVacateDestination("session-1")).toBe("/main")
+  })
+
+  // After an adapter restart the adapter holds no remembered destination, so
+  // the retry's core call resolves its Project from the landed directory and
+  // refuses before the pending-request replay can run. That refusal must not
+  // promise the unreachable retry: it reports contact_operator (CD-0190 D3).
+  test("reports contact_operator when a restart left no remembered destination", async () => {
+    await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/other" } }), {
+      async run(argv: string[]) {
+        if (argv[1] === "project-resolve") return { exitCode: 1, stdout: "", stderr: "concord project-resolve: git_unreachable: signed directory/worktree is not a git repository" }
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as never)
+    configureHostLease({ reset: true })
+    const envelope = JSON.parse(String((await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-restart" } } } as never, context())).output).split("\n")[0])
+    expect(envelope.outcome).toBe("error")
+    if (envelope.outcome === "error") {
+      const error = envelope.error as { kind?: string; adapter_reason?: string; effect_state?: string; recovery_action?: { kind?: string } }
+      expect(error.kind).toBe("transport_failure")
+      expect(error.adapter_reason).toBe("io_failure")
+      expect(error.effect_state).toBe("none")
+      expect(error.recovery_action?.kind).toBe("contact_operator")
+    }
     expect(landingCalls).toEqual([])
   })
 
-  // A landing the core refuses records nothing, so the source occupancy
-  // stands and the typed refusal names the replay route.
-  test("refuses when the vacate landing does not record", async () => {
+  // A vacate-landing call that fails without a structured core refusal may
+  // have committed before its output failed, so the typed refusal reports
+  // the possible effect and never asserts the landing is not recorded: the
+  // replay confirms or completes the record.
+  test("reports a possible landing on a vacate-landing output failure", async () => {
     await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/main" } }), {
       async run() {
-        return { exitCode: 1, stdout: "", stderr: "concord vacate-landing: projection_not_found: the committed session vacate names /main as its registered main checkout, not /main" }
+        return { exitCode: 1, stdout: "", stderr: "concord vacate-landing: write failed after commit: broken pipe" }
       },
     } as never)
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-refused" }), context(), okEnvelope())
@@ -122,7 +153,8 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       const error = envelope.error as { adapter_reason?: string; effect_state?: string; message: string }
       expect(error.adapter_reason).toBe("vacate_landing_refused")
       expect(error.effect_state).toBe("possible")
-      expect(error.message).toContain("the source occupancy stands")
+      expect(error.message).toContain("may be recorded")
+      expect(error.message).not.toContain("is not recorded")
       expect(error.message).toContain("replay session_vacate from the verified destination")
     }
   })

@@ -404,3 +404,189 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     await rm(root, { recursive: true, force: true })
   }
 }, 300_000)
+
+// Connected regression for the committed-refusal recovery (CD-0190 D3). A
+// vacate whose host readback names a directory outside every registered
+// Project leaves the committed request and the occupancy rows standing: a
+// plain retry resolves its Project from that directory and refuses before the
+// pending-request replay can run. The adapter keeps the committed destination
+// for the session, so the retry first moves the host session to the
+// registered main checkout and resolves the core call from it, and the
+// readback-verified landing releases the rows.
+connected("a readback outside every Project recovers through the remembered destination", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-vacate-outside-"))
+  const dbPath = join(root, "concord.db")
+  const binRoot = join(root, "bin")
+  const homeRoot = join(root, "home")
+  const repoCheckout = join(root, "checkout")
+  const outside = join(root, "outside")
+  let binary = process.env.CONCORD_BIN ?? ""
+  const previousSelectedProduct = process.env.CONCORD_SELECTED_PRODUCT_ID
+  delete process.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousZellijPane = process.env.ZELLIJ_PANE_ID
+  delete process.env.ZELLIJ_PANE_ID
+  try {
+    if (!binary) {
+      await mkdir(binRoot, { recursive: true })
+      binary = join(binRoot, "concord-core")
+      const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
+      expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
+    }
+    const repo1 = await repositoryFixture(root, "repo-1")
+    await mkdir(repoCheckout, { recursive: true })
+    await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
+    for (const lane of LANE_AGENTS) {
+      await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
+    }
+    const probe = join(binRoot, "opencode")
+    await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+    await chmod(probe, 0o755)
+    const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}`, CONCORD_DB_PATH: dbPath }
+    const runCLI = (command: string, value: Record<string, unknown>, cwd?: string) => runProcess([binary, command], JSON.stringify(value), cwd, childEnv).then((result) => {
+      expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
+      return JSON.parse(result.stdout.trim().split("\n").filter(Boolean).pop() as string)
+    })
+    await runCLI("product-create", {
+      product_id: PRODUCT_ID,
+      display_name: "Synthetic Outside Product",
+      stage_maturity: "prototype",
+      stage_audience_commitment: "operator_only",
+      project_id: PROJECT_1,
+      project_display_name: "Synthetic Outside Project",
+      role: "primary",
+    })
+    await runCLI("project-locator-add", { project_id: PROJECT_1, locator_id: "repo-1", kind: "canonical_path", value: repo1.repo, expected_version: 1 })
+    await runCLI("client-register", {
+      client_ref: "opencode",
+      key_id: "outside-key",
+      principal_ref: "operator-1",
+      public_key: publicKeyBase64(),
+      capabilities: ["product_read", "work_define", "work_transition"],
+      product_scope: [PRODUCT_ID],
+      project_scope: [PROJECT_1],
+      agent_scope: [AGENT],
+    })
+
+    // The fake host holds one live session. moveRegresses models the host
+    // that performs the relocation and then leaves the session outside every
+    // registered Project, so the readback names that directory.
+    let sessionDirectory = repo1.repo
+    let sessionMetadata: Record<string, unknown> = {}
+    let moveRegresses = false
+    const moves: Array<{ from: string; to: string }> = []
+    hostControlPlane().bind({
+      get: async () => ({ data: { id: SESSION_ID, directory: sessionDirectory, metadata: sessionMetadata }, response: new Response(null, { status: 200 }) }),
+      patch: async ({ body }) => {
+        const patch = body as { metadata?: Record<string, unknown> }
+        if (patch.metadata !== undefined) sessionMetadata = patch.metadata
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async ({ body }) => {
+        const destination = (body as { destination: { directory: string } }).destination.directory
+        if (sessionDirectory !== destination) moves.push({ from: sessionDirectory, to: destination })
+        sessionDirectory = moveRegresses ? outside : destination
+        return { data: null, response: new Response(null, { status: 204 }) }
+      },
+    })
+    const runner = {
+      async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
+        const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+        if (signal?.aborted) child.kill()
+        await child.stdin.write(input)
+        await child.stdin.end()
+        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+        return { exitCode, stdout, stderr }
+      },
+    }
+    configureConcordAdapter({ runner })
+    configureHostLease({ reset: true })
+
+    const parseToolResult = (result: any) => {
+      try {
+        return JSON.parse(String(result.output).split("\n")[0])
+      } catch {
+        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+      }
+    }
+    const invoke = (toolName: string, operation: string, input: Record<string, unknown>, directory: string) =>
+      invokeConcordOperation(toolName, { operation, input } as any, contextFor(directory))
+    const transition = async (operation: string, input: Record<string, unknown>, directory: string) =>
+      parseToolResult(await work_transition.execute({ request: { operation, input } } as any, contextFor(directory)))
+    const vacateEvents = () => dbRows(dbPath, "SELECT event_id, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? ORDER BY seq", workID)
+    const worktreeEntries = () => dbRows(dbPath, "SELECT c.project_id AS project_id, e.path AS path, e.state AS state, COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? ORDER BY c.project_id", workID)
+
+    const captured = await invoke("concord_work_define", "capture", {
+      title: "Synthetic outside readback",
+      value_statement: "One vacate readback lands outside every Project and recovers.",
+      kind: "bug",
+      project_ids: [PROJECT_1],
+      idempotency_key: "outside-capture",
+    }, repo1.repo)
+    expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
+    const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
+
+    // Entry into work: the resume read durably creates the worktree and the
+    // mover lands the session in it on the next-turn replay.
+    const unlandedEntry = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(repo1.repo)))
+    expect(unlandedEntry.outcome, JSON.stringify(unlandedEntry)).toBe("error")
+    expect(unlandedEntry.error.kind, JSON.stringify(unlandedEntry)).toBe("session_directory_mismatch")
+    const worktree1 = unlandedEntry.worktree_path as string
+    const entered = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(worktree1)))
+    expect(entered.outcome, JSON.stringify(entered)).toBe("ok")
+    expect(worktreeEntries()).toEqual([{ project_id: PROJECT_1, path: worktree1, state: "active", occupant: SESSION_ID }])
+
+    // The vacate commits its relocation request, the host performs the move,
+    // and the readback names the directory outside every Project: the typed
+    // refusal reports the possible effect, and the adapter remembers the
+    // committed destination for the retry.
+    moveRegresses = true
+    const first = await transition("session_vacate", { idempotency_key: "outside-vacate-1" }, worktree1)
+    expect(first.outcome, JSON.stringify(first)).toBe("error")
+    expect((first.error as any).adapter_reason).toBe("vacate_destination_mismatch")
+    expect((first.error as any).effect_state).toBe("possible")
+    expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+    ])
+    expect(vacateEvents()).toHaveLength(1)
+    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
+
+    // The retry from the stale tool context first moves the host session to
+    // the remembered destination and resolves the core call from it: the
+    // pending-request replay appends nothing, and the readback-verified
+    // landing records through the vacate-landing verb and releases the rows.
+    moveRegresses = false
+    const replay = await transition("session_vacate", { idempotency_key: "outside-vacate-2" }, worktree1)
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    expect(moves).toEqual([
+      { from: repo1.repo, to: worktree1 },
+      { from: worktree1, to: repo1.repo },
+      { from: outside, to: repo1.repo },
+    ])
+    expect(vacateEvents()).toHaveLength(1)
+    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    expect(recoveries).toHaveLength(1)
+    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(worktreeEntries()[0].occupant).toBe("")
+
+    // The completed request replays as an idempotent completed replay: a
+    // further session_vacate from the verified destination appends nothing
+    // and reports ok, so the uncertain landing result has a working recovery.
+    const confirm = await transition("session_vacate", { idempotency_key: "outside-vacate-3" }, repo1.repo)
+    expect(confirm.outcome, JSON.stringify(confirm)).toBe("ok")
+    expect(vacateEvents()).toHaveLength(1)
+    expect(dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=?", workID)).toHaveLength(1)
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    clearClaimedWorktree(SESSION_ID)
+    resetClaimedWorktrees()
+    resetTurnMoveBoundaries()
+    if (previousSelectedProduct === undefined) delete process.env.CONCORD_SELECTED_PRODUCT_ID
+    else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
+    if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
+    else process.env.ZELLIJ_PANE_ID = previousZellijPane
+    await rm(root, { recursive: true, force: true })
+  }
+}, 300_000)

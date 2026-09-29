@@ -8,6 +8,7 @@
 - **Approval:** The operator approved this decision for issue #841 on work item
   `work-c128cbe6b07ea2d61c7d105a`.
 - **Related:** CD-0005, CD-0027, CD-0096, CD-0105, issue #841, issue #722
+- **Amended by:** [CD-0191](CD-0191-a-stale-session-sees-its-replaced-release.md) adds the lane-surface staleness rule beside D1 and D2. The adapter marks a session stale when the installed release differs from its pinned release. Every result then carries one bounded notice, the dispatch_worker action refuses before any core call, and the installer's retention output names the holder sessions. D1 and D2 stand unchanged.
 - **Amends:** `docs/agent-tool-surface-evolution.md`, acceptance criterion 3
 
 ## Context
@@ -73,6 +74,12 @@ No core refusal and no adapter refusal names a session restart as its
 recovery. `manifest_mismatch` remains the refusal for a digest the core does
 not recognize. Under D1 it is reachable only through a defect, and its recovery
 action is `contact_operator` with the two digests.
+
+CD-0191 amends this rule for one refusal: the adapter's `dispatch_worker` gate
+for a stale session names a session restart as its remedy, because the lane
+text a dispatch would run was already replaced on disk by the install. Every
+other refusal, and every non-dispatch operation in a stale session, keeps this
+decision's guarantee unchanged.
 
 ## Acceptance Criteria
 

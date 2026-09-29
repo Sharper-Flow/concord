@@ -11,6 +11,8 @@
 // the failure reaches the operator instead of a release directory quietly
 // disappearing under a live session.
 
+import fs from "node:fs"
+import path from "node:path"
 import { concordBinaryPath, defaultRunner, type DispatchRunner } from "./dispatch"
 import { coreBinary, releaseRoot } from "./generated-release"
 import { manifestDigest } from "./generated-contracts"
@@ -55,6 +57,64 @@ let claimedReleaseRoot: string = releaseRoot
 /** Session location named in the lease so a breaking-migration refusal can
  * point the operator at the exact terminal to end. */
 export type LeaseLocation = { directory?: string; worktree?: string }
+
+// CD-0191: installed-versus-session release staleness. The adapter is the
+// only component that sees both facts: the pinned releaseRoot it is stamped
+// against and the host's installed release, which the installer repoints by
+// rewriting the `current` symlink beside the pinned root (the pinned root's
+// parent directory is the data root). A session whose pinned release differs
+// from the installed release still runs (CD-0111 D1 keeps the pair it started
+// with), but the lane definitions its process holds were rewritten on disk,
+// so staleness is visible on every result and lane dispatch refuses.
+export type ReleaseStaleness = {
+  pinnedReleaseRoot: string
+  installedReleaseRoot: string
+  pinnedRelease: string
+  installedRelease: string
+}
+
+/** releaseDisplayName names a release by its directory, which the installer
+ * derives from the version. A root without a basename falls back to the root
+ * itself so the display never empties. */
+export function releaseDisplayName(root: string): string {
+  const base = path.basename(root)
+  return base === "" || base === "/" || base === "." ? root : base
+}
+
+/** resolveInstalledReleaseRoot reads the host's installed release through the
+ * `current` symlink beside the pinned releaseRoot. One readlink per call. It
+ * returns null when this adapter copy is unstamped or the link is absent or
+ * unreadable: staleness is never guessed from a missing observation. */
+export function resolveInstalledReleaseRoot(): string | null {
+  const pinned = claimedReleaseRoot
+  if (!pinned) return null
+  const dataRoot = path.dirname(pinned)
+  let target: string
+  try {
+    target = fs.readlinkSync(path.join(dataRoot, "current"))
+  } catch {
+    return null
+  }
+  return path.resolve(dataRoot, target)
+}
+
+/** releaseStaleness compares the pinned releaseRoot with the installed
+ * release once. Any difference is stale, in both directions: an upgrade and
+ * a rollback both rewrite the lane files a running process still holds in
+ * memory. Returns null when the session is fresh or staleness cannot be
+ * determined. */
+export function releaseStaleness(): ReleaseStaleness | null {
+  const pinned = claimedReleaseRoot
+  if (!pinned) return null
+  const installed = resolveInstalledReleaseRoot()
+  if (installed === null || installed === path.resolve(pinned)) return null
+  return {
+    pinnedReleaseRoot: pinned,
+    installedReleaseRoot: installed,
+    pinnedRelease: releaseDisplayName(pinned),
+    installedRelease: releaseDisplayName(installed),
+  }
+}
 
 export async function claimHostLease(pid: number, location: LeaseLocation = {}): Promise<void> {
   try {

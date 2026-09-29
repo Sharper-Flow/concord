@@ -1,0 +1,5 @@
+{
+  "id": "lesson-stalled-record-wrong-route",
+  "reason": "This lesson records route-reading guidance from completed incidents. It does not define required Product behavior.",
+  "state": "out_of_scope"
+}

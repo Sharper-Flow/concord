@@ -1960,7 +1960,11 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
 // releases the session's occupancy rows. A failed vacate or move queues a
 // notice and keeps the transition result: the transition is durable, the
 // occupancy rows stand, and the release is replayable by an explicit
-// session_vacate.
+// session_vacate. A vacate that committed the relocation request before the
+// failure reports an effect_state possible in its notice and names the
+// verified-destination replay as the recovery, because the session may
+// already sit at the registered main checkout where a worktree retry cannot
+// reach it; a vacate refused before the commit keeps the worktree retry.
 export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
   const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"
@@ -1970,8 +1974,10 @@ export async function vacateTerminalWorktree(toolName: string, args: HostToolArg
   if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope
   const requestID = `${context.sessionID}-${context.messageID}`
   const vacateArgs: HostToolArgs = { operation: "session_vacate", input: { idempotency_key: `${requestID}-terminal-vacate` } }
+  let committed = false
   try {
     const vacated = await invokeConcordOperation("concord_work_transition", vacateArgs, context)
+    committed = Boolean(record(vacated) && vacated.outcome === "ok")
     const moved = await moveSessionToRegisteredMainCheckout(vacateArgs, context, vacated)
     const failure = record(moved) && record(moved.error) ? moved.error : undefined
     const reason = failure && typeof failure.kind === "string" && typeof failure.message === "string"
@@ -1980,6 +1986,16 @@ export async function vacateTerminalWorktree(toolName: string, args: HostToolArg
     if (!record(moved) || moved.outcome !== "ok") throw new Error(reason)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    if (committed) {
+      // The relocation request stands recorded (CD-0190 D3), so the effect
+      // is possible and the session may already sit at the registered main
+      // checkout: the move landed but the landing record failed, or the
+      // move itself was refused. The recovery that works from the verified
+      // destination is the replay; from the worktree a retry commits a new
+      // request and retries the move. Both run plain session_vacate again.
+      enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, and its relocation request stands recorded with the occupancy rows not yet released (effect_state possible): ${message} Run session_vacate again — from the verified destination ${target.destination_directory} when the session sits there, otherwise from the worktree — to record the verified landing and release the rows.`)
+      return envelope
+    }
     enqueueWorkNotice(context.sessionID, `Concord finished ${target.work_id}, but the session could not return to the registered main checkout: ${message} Run session_vacate from the worktree to retry the move.`)
   }
   return envelope

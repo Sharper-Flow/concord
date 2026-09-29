@@ -90,6 +90,64 @@ func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
 	}
 }
 
+// The replay resolves a pending request only (CD-0190 D3/D4): a version 2
+// request with no recorded landing after it. A request its recorded landing
+// already completed, or a version 1 request that released on fold, refuses
+// the replay and appends no new landing: the session holds no stale row from
+// such a request, and resolving one could append a landing that releases
+// rows a later claim still holds.
+func TestSessionVacateReplayRefusesACompletedRequest(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-completes", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RecordSessionVacateLanding(context.Background(), SessionVacateLandingRequest{
+		WorkID: "work-w", SessionRef: "ses-x", LandedDirectory: "/data/repo-main", HostPID: os.Getpid(), Now: time.Unix(60, 0).UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(session string) error {
+		return s.Transact(context.Background(), func(transaction *Transaction) error {
+			_, resolveErr := ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", session)
+			return resolveErr
+		})
+	}
+	// The recorded landing completed the request, so the replay from the
+	// verified destination refuses with the completed state.
+	err := resolve("ses-x")
+	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the completed request", err)
+	}
+	// A recorded version 1 request released on fold, so the replay refuses
+	// it at the payload version.
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
+		EventID: "vacate-v1-completed", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
+		Actor: "ses-old", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-old","source_directory":"` + claimPath(s) + `","destination_directory":"/data/repo-main","landed_directory":"/data/repo-main"}`),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	err = resolve("ses-old")
+	if failure, ok := err.(*Failure); !ok || failure.Kind != KindInvalidOperation {
+		t.Fatalf("err=%v, want invalid_operation for the version 1 request", err)
+	}
+	var landings int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='work-w'`).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 1 {
+		t.Fatalf("landing events=%d, want only the one recorded landing", landings)
+	}
+}
+
 func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)

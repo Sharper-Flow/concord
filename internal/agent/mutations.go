@@ -2567,7 +2567,8 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			// the session from claiming other work.
 			var failure *store.Failure
 			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-				if pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef); perr == nil {
+				pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
+				if perr == nil {
 					result, merr := json.Marshal(map[string]any{
 						"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
 						"next_valid_intents":    mutationResultIntents(plan.intents),
@@ -2577,6 +2578,15 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 						"destination_directory": pending.DestinationDirectory,
 					})
 					return result, nil, []ChangedRef{}, merr
+				}
+				// The replay resolves a pending request only. A committed
+				// request the recorded landing already completed refuses
+				// with its completed state, not the generic
+				// no-active-worktree error, so the session learns its rows
+				// are already released; no event appends either way.
+				var replayFailure *store.Failure
+				if errors.As(perr, &replayFailure) && replayFailure.Kind == store.KindInvalidOperation {
+					return nil, nil, nil, perr
 				}
 			}
 			return nil, nil, nil, err

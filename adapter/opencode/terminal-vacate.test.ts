@@ -45,7 +45,7 @@ const coreEnvelope = (operation: string, fields: Record<string, unknown>) => ({
   warnings: [], evidence_refs: [], replayed: false, changed_refs: [], next_valid_intents: [], ...fields,
 })
 
-function vacateRunner() {
+function vacateRunner(opts: { landingFails?: boolean } = {}) {
   return {
     async run(argv: string[], input: string) {
       // The invoke path resolves the call context before the operation, so
@@ -62,6 +62,9 @@ function vacateRunner() {
       }
       if (argv[1] === "vacate-landing") {
         landingCalls.push((JSON.parse(input) as { landed_directory: string }).landed_directory)
+        if (opts.landingFails) {
+          return { exitCode: 1, stdout: "", stderr: "vacate-landing refused: the committed request is not pending\n" }
+        }
         return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
       }
       throw new Error("unexpected CLI invocation: " + argv.join(" "))
@@ -69,7 +72,7 @@ function vacateRunner() {
   }
 }
 
-async function fakeHost(getDirectory: string) {
+async function fakeHost(getDirectory: string, runnerOpts?: { landingFails?: boolean }) {
   // The plugin factory claims the host lease at init and records a fault
   // when the claim fails; every later invoke then refuses with
   // host_lease_missing. Binding the release and the lease runner first lets
@@ -78,7 +81,7 @@ async function fakeHost(getDirectory: string) {
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: { async run() { return { exitCode: 0, stdout: JSON.stringify({ pid: 4242, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest }), stderr: "" } } } as never,
   })
-  configureConcordAdapter({ runner: vacateRunner() as never })
+  configureConcordAdapter({ runner: vacateRunner(runnerOpts) as never })
   await ConcordAdapterPlugin({
     client: {
       _client: {
@@ -165,6 +168,22 @@ describe("terminal transitions vacate the worktree after success", () => {
     const notices = takeWorkNotices("session-1")
     expect(notices).toHaveLength(1)
     expect(notices[0]).toContain("work-1")
+    expect(notices[0]).toContain("session_vacate")
+  })
+
+  // A move that landed but recorded no landing leaves the session at the
+  // registered main checkout with the relocation request standing, so a
+  // worktree retry cannot recover it. The notice reports the possible
+  // effect and names the verified-destination replay instead (CD-0190 D3).
+  test("a landing record failure after the move landed reports the possible effect and the verified-destination replay", async () => {
+    await fakeHost("/main", { landingFails: true })
+    const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), context(), okEnvelope())
+    expect(envelope.outcome).toBe("ok")
+    expect(vacateCalls).toEqual(["session_vacate"])
+    const notices = takeWorkNotices("session-1")
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toContain("effect_state possible")
+    expect(notices[0]).toContain("/main")
     expect(notices[0]).toContain("session_vacate")
   })
 })

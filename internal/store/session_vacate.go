@@ -306,13 +306,18 @@ type SessionVacateReplayTarget struct {
 
 // ResolveSessionVacateReplayTargetTx resolves the newest committed vacate
 // request of one session whose registered main checkout is the caller's
-// current directory. A host move that landed without a recorded landing
-// leaves the request standing and the session outside every active worktree,
-// so the replay from the verified destination is the recovery: the core
-// resolves it to the pending request and appends nothing, and the
-// adapter-only vacate-landing verb records the landing and releases the
-// session's rows. It runs inside the caller's transaction so the read
-// observes the caller's own uncommitted events.
+// current directory, and only while that request is pending: a version 2
+// request with no recorded landing after it. A host move that landed without
+// a recorded landing leaves such a request standing and the session outside
+// every active worktree, so the replay from the verified destination is the
+// recovery: the core resolves it to the pending request and appends nothing,
+// and the adapter-only vacate-landing verb records the landing and releases
+// the session's rows. A request the recorded landing already completed, or a
+// version 1 request that released its rows on fold, refuses with no event:
+// the session holds no stale row from it, so replaying it could only append
+// a landing that releases rows a later claim still holds. It runs inside the
+// caller's transaction so the read observes the caller's own uncommitted
+// events.
 func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transaction, projectID, directory, sessionRef string) (SessionVacateReplayTarget, error) {
 	var target SessionVacateReplayTarget
 	tx, err := transactionSQL(transaction, "session_vacate")
@@ -323,7 +328,8 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 		return target, newFailure(KindInvalidOperation, "session_vacate", "the vacate replay requires the resolved Project, session, and directory", false, "run the operation from a linked worktree or the verified destination")
 	}
 	var raw string
-	err = tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE kind='work.session_vacated' AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.destination_directory')=? ORDER BY seq DESC LIMIT 1`, sessionRef, projectID, filepath.Clean(directory)).Scan(&raw)
+	var seq, payloadVersion int
+	err = tx.QueryRowContext(ctx, `SELECT seq, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.destination_directory')=? ORDER BY seq DESC LIMIT 1`, sessionRef, projectID, filepath.Clean(directory)).Scan(&seq, &payloadVersion, &raw)
 	if err == sql.ErrNoRows {
 		return target, newFailure(KindProjectionNotFound, "session_vacate", "no committed session vacate names this directory as its registered main checkout", false, "run session_vacate from a linked worktree")
 	}
@@ -337,7 +343,31 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 	if p.WorkID == "" || p.SourceDirectory == "" {
 		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload is missing required fields", false, "repair the recorded event")
 	}
+	if payloadVersion != 2 {
+		return target, newFailure(KindInvalidOperation, "session_vacate", fmt.Sprintf("the committed session vacate of %s predates the landing-verified release and already released on fold, so no pending request replays here", p.WorkID), false, "no recovery: the session holds no occupancy row from that request")
+	}
+	landed, err := sessionVacateLandedAfterTx(ctx, tx, p.WorkID, sessionRef, seq)
+	if err != nil {
+		return target, err
+	}
+	if landed {
+		return target, newFailure(KindInvalidOperation, "session_vacate", fmt.Sprintf("the committed session vacate of %s already completed its verified landing, so no pending request replays here", p.WorkID), false, "no recovery: the landing already released the session's occupancy rows")
+	}
 	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: p.SourceDirectory, DestinationDirectory: filepath.Clean(directory)}, nil
+}
+
+// sessionVacateLandedAfterTx reports whether a verified vacate landing of
+// one work item and session stands recorded after the given event sequence.
+// A landing recorded after a vacate request is the landing that completed it,
+// so the request is no longer pending. It runs inside the caller's
+// transaction so the read observes the caller's own uncommitted events.
+func sessionVacateLandedAfterTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string, afterSeq int) (bool, error) {
+	var landed int
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND seq>?)`, workID, sessionRef, afterSeq).Scan(&landed)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "session_vacate", "cannot read the recorded landing events", true, "retry once the database is readable", err)
+	}
+	return landed == 1, nil
 }
 
 // latestSessionVacateRequestTx reads the newest vacate event of one work item

@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f73c9f1d872e6cc4f8d0e7e74b9ba04df5490bffac8cb0ff0b5be09e23f16f5c",
+  "sha256": "sha256:aa214a5511ba92da0708198dcae2c608817345c39d0c75354befb15ec6b5aba8",
   "status": "accepted",
   "summary": "CD-0179 D1 and D4 released a session's occupancy rows inside the session_vacate commit, before the adapter moved the host session, so a refused move, a destination mismatch, or an unreadable landing left a live session in a worktree whose rows stood released. Amends both clauses: the vacate commit records the relocation request and releases nothing, the adapter-only vacate-landing verb records the readback-verified landing and releases the session's rows in one transaction, every refusal past the commit reports effect_state possible with the replay recovery, and the replay resolves from the registered main checkout because it writes nothing there. A recorded version 1 vacate event still releases on fold.",
   "tags": [

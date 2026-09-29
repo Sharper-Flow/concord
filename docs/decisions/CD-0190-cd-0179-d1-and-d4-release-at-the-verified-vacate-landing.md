@@ -76,13 +76,21 @@ records through the same verb. A move that landed without a confirmed landing
 recovers this way, so no stale row strands the session from claiming other
 work.
 
+The replay resolves a pending request only: a payload version 2 request with
+no recorded landing after it. A request its recorded landing already
+completed, or a version 1 request that released on fold, refuses the replay
+and appends nothing. The session holds no stale row from such a request. A
+replay that resolved one could append a landing that releases rows a later
+claim still holds.
+
 ### D4. The replay resolves from the registered main checkout
 
 CD-0092 D1 refuses an operation on the main checkout when its operations can
 write into the repository checkout or claim implementation worktrees. The
 replayed session_vacate writes neither: it resolves the pending request,
 returns the committed target, and appends no event, and the landing verb owns
-the release.
+the release. A replay of a completed request refuses, appends no event, and
+leaves the landing verb the only release owner.
 
 CD-0179 D4 says: "The adapter then runs session_vacate, which releases the
 occupancy rows, and moves the session to the derived destination." That
@@ -133,6 +141,8 @@ still releases on fold.
   records no landing and leaves occupancy standing, a recorded version 1
   event still releases on fold, the landing releases the session's rows in
   one transaction, and the replay target resolves to the committed request.
+  The same run proves the replay of a completed or version 1 request refuses
+  with no new landing.
 - `go test ./internal/agent/ -run SessionVacate` proves the replay from the
   verified destination resolves the pending request and appends nothing, and
   a main-checkout vacate with no committed request still refuses.

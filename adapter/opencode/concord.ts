@@ -721,12 +721,33 @@ type WorkStartCaptureArgs = {
 // session's Project.
 type WorkStartArgs = WorkStartCaptureArgs | { work_id: string; project_id?: string }
 
+// LinearRemoteComment is one remote comment created after the recorded
+// remote freshness, with its body already bounded by the core.
+type LinearRemoteComment = { author: string; created_at: string; body: string }
+
+// LinearRemoteSection mirrors the resume-time remote Linear check the core
+// attaches to a work-resume result. Degraded authority carries only the
+// typed reason; ok carries the full comparison. The core writes nothing on
+// this path, so the section is information the resuming session reads.
+type LinearRemoteSection = {
+  authority: "ok" | "degraded"
+  reason?: string
+  changed_since_recorded?: boolean
+  updated_at?: string
+  status?: { expected: string; actual: string; remote_state_type: string; mismatch: boolean }
+  title?: { remote: string; differs: boolean }
+  description?: string
+  description_truncated?: boolean
+  comments?: { items: LinearRemoteComment[]; truncated: boolean; reason?: string }
+}
+
 type WorkStartResume = {
   schema_version: "1.0"
   product_id: string
   project_id: string
   work_id: string
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
+  linear_remote?: LinearRemoteSection
 }
 
 type WorkStartBootstrap = {
@@ -763,6 +784,7 @@ type WorkStartEnvelope = {
   agent?: string
   session_id?: string | null
   output?: string
+  linear_remote?: LinearRemoteSection
   launch?: WorkStartLaunch
   opener?: { argv: string[]; exit_code: number }
   error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none"; message: string }
@@ -834,15 +856,55 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // child. It mirrors validateWorkStartBootstrap minus the capture-only fields
 // (operation id, replay flag, work version): the active-entry read records
 // nothing, while missing-entry bootstrap keeps those fields outside this
-// shared resume response.
+// shared resume response. linear_remote is the optional remote Linear check
+// section: absent exactly when the resume applies no remote check.
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
-  if (!record(value) || !exactKeys(value, ["schema_version", "product_id", "project_id", "work_id", "worktree"])) return false
+  if (!record(value)) return false
+  const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree"]
+  if (!baseKeys.every((key) => key in value)) return false
+  const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
+  if (extraKeys.length > 1 || (extraKeys.length === 1 && extraKeys[0] !== "linear_remote")) return false
   if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
   const worktree = value.worktree
-  return exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
+  const worktreeOk = exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
     && nonEmptyString(worktree.set_id)
     && typeof worktree.path === "string" && worktree.path.startsWith("/")
     && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
+  if (!worktreeOk) return false
+  return !("linear_remote" in value) || validateLinearRemoteSection(value.linear_remote)
+}
+
+const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found"])
+
+function validateLinearRemoteComment(value: unknown): value is LinearRemoteComment {
+  return record(value) && exactKeys(value, ["author", "created_at", "body"])
+    && typeof value.author === "string" && typeof value.created_at === "string" && typeof value.body === "string"
+}
+
+// validateLinearRemoteSection is the strict shape for the remote Linear
+// check section. Degraded authority carries only its typed reason; ok
+// carries the full comparison with the comments reason as the one optional
+// key. Exact keys keep the contract closed on both sides.
+function validateLinearRemoteSection(value: unknown): boolean {
+  if (!record(value)) return false
+  if (value.authority === "degraded") {
+    return exactKeys(value, ["authority", "reason"]) && typeof value.reason === "string" && linearRemoteReasons.has(value.reason)
+  }
+  if (value.authority !== "ok") return false
+  if (!exactKeys(value, ["authority", "changed_since_recorded", "updated_at", "status", "title", "description", "description_truncated", "comments"])) return false
+  if (typeof value.changed_since_recorded !== "boolean" || typeof value.updated_at !== "string" || typeof value.description !== "string" || typeof value.description_truncated !== "boolean") return false
+  const status = value.status
+  if (!record(status) || !exactKeys(status, ["expected", "actual", "remote_state_type", "mismatch"])) return false
+  if (typeof status.expected !== "string" || typeof status.actual !== "string" || typeof status.remote_state_type !== "string" || typeof status.mismatch !== "boolean") return false
+  const title = value.title
+  if (!record(title) || !exactKeys(title, ["remote", "differs"]) || typeof title.remote !== "string" || typeof title.differs !== "boolean") return false
+  const comments = value.comments
+  if (!record(comments)) return false
+  const commentKeys = Object.keys(comments)
+  if (commentKeys.length !== 2 && commentKeys.length !== 3) return false
+  if (typeof comments.truncated !== "boolean" || !Array.isArray(comments.items) || !comments.items.every(validateLinearRemoteComment)) return false
+  if (!("reason" in comments)) return commentKeys.length === 2
+  return commentKeys.length === 3 && typeof comments.reason === "string" && linearRemoteReasons.has(comments.reason)
 }
 
 function boundedUTF8(value: string, maxBytes: number): string {
@@ -1134,6 +1196,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       throw new AdapterFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
     }
     let prepareTask: string
+    let resumeRemote: LinearRemoteSection | undefined
     if (resume) {
       const workID = (args as { work_id: string }).work_id
       // An explicit project_id names the Project the resume claims in; the
@@ -1145,6 +1208,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
       if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
+      resumeRemote = resumedValue.linear_remote
       prepareTask = ""
     } else {
       const capture = args as WorkStartCaptureArgs
@@ -1263,6 +1327,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       agent,
       session_id: context.sessionID,
       output: `This session now runs in ${target.worktree.path} on work item ${target.work_id}.`,
+      // The remote Linear check rides the resume result into the envelope so
+      // the resuming session sees remote drift before it acts.
+      ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
     }
   } catch (error) {
     return workStartFailure(error, target, "work_start_failed")

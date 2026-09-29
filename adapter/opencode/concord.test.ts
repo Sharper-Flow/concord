@@ -1767,6 +1767,71 @@ test("work start resume succeeds with a warning when the core refuses the landin
   expect(raw.output).toContain("replay work_start")
 })
 
+// The resume-time remote Linear check rides the work-resume result into the
+// envelope, so the resuming session sees remote drift before it acts. The
+// strict validator admits the exact section shape, keeps the envelope free
+// of the field when the core applied no remote check, and refuses anything
+// outside the contract.
+const linearRemoteOK = () => ({
+  authority: "ok" as const,
+  changed_since_recorded: true,
+  updated_at: "2026-09-28T12:00:00Z",
+  status: { expected: "state-in-progress", actual: "state-canceled", remote_state_type: "canceled", mismatch: true },
+  title: { remote: "Renamed by the coordinator", differs: true },
+  description: "New remote body",
+  description_truncated: false,
+  comments: { items: [{ author: "Dana", created_at: "2026-09-27T00:00:00Z", body: "Heads up" }], truncated: false },
+})
+
+test("work start resume passes the linear_remote section through to the envelope", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: linearRemoteOK() }), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.linear_remote).toEqual(linearRemoteOK())
+
+  const degradedCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(degradedCalls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "rate_limited" } }), stderr: "" }),
+  }) })
+  const degraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(degraded.outcome).toBe("ok")
+  expect(degraded.linear_remote).toEqual({ authority: "degraded", reason: "rate_limited" })
+
+  // A resume that applied no remote check keeps the envelope free of the
+  // field, so unchanged resumes stay byte-identical.
+  const plainCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(plainCalls) })
+  const plain: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(plain.outcome).toBe("ok")
+  expect("linear_remote" in plain).toBe(false)
+})
+
+test("work start resume refuses a malformed linear_remote section", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "ok", invented: true } }), stderr: "" }),
+  }) })
+  const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(refused.outcome).toBe("error")
+  expect(refused.error.kind).toBe("malformed_response")
+  expect(refused.error.message).toContain("strict resume contract")
+
+  // A degraded section may carry only its typed reason: a comparison field
+  // alongside it is outside the contract.
+  const shapeCalls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(shapeCalls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "timeout", status: {} } }), stderr: "" }),
+  }) })
+  const shaped: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(shaped.outcome).toBe("error")
+  expect(shaped.error.kind).toBe("malformed_response")
+})
+
 // CD-0182: a resume whose named member Project lives in another repository
 // never reaches the host move. The registered session opener runs the core
 // launch argv without a shell and the answer reports its exit status and

@@ -753,3 +753,45 @@ func TestGetProjectRefusesAnUnknownProject(t *testing.T) {
 		}
 	}
 }
+
+// The resume-time remote check reads one bounded comments page created after
+// the recorded freshness, oldest first, and learns whether a further page
+// exists so the section can say "truncated" instead of silently dropping.
+func TestListIssueCommentsReadsTheBoundedWindow(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":{"comments":{"nodes":[{"id":"comment-1","body":"Heads up","createdAt":"2026-09-27T00:00:00Z","user":{"name":"Dana","displayName":"Dana D"}},{"id":"comment-2","body":"Second","createdAt":"2026-09-27T01:00:00Z","user":null}],"pageInfo":{"hasNextPage":true}}}}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := time.Date(2026, 9, 25, 19, 28, 0, 0, time.UTC)
+	comments, hasMore, err := client.ListIssueComments(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", after, 20)
+	if err != nil {
+		t.Fatalf("ListIssueComments() error = %v", err)
+	}
+	if !hasMore {
+		t.Fatal("hasNextPage=true must surface as a truncated page")
+	}
+	if len(comments) != 2 {
+		t.Fatalf("comments = %+v, want two nodes", comments)
+	}
+	if comments[0].Author != "Dana" || comments[0].ID != "comment-1" || !comments[0].CreatedAt.Equal(time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("first comment = %+v", comments[0])
+	}
+	// A comment without a user (a bot or an integration) keeps the section
+	// shape instead of failing the read.
+	if comments[1].Author != "" {
+		t.Fatalf("userless comment author = %q, want empty", comments[1].Author)
+	}
+	for _, want := range []string{`"first":20`, `"after":"2026-09-25T19:28:00Z"`, "createdAt: { gt: $after }", "orderBy: createdAt", `"id":"68d52710-76d9-4b41-ba45-778511d0e2ed"`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("request body %q lacks %q", gotBody, want)
+		}
+	}
+}

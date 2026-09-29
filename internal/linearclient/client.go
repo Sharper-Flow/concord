@@ -413,6 +413,56 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
 }
 
+// RemoteComment is one comment read from an issue's comments connection.
+type RemoteComment struct {
+	ID        string
+	Body      string
+	CreatedAt time.Time
+	Author    string
+}
+
+// ListIssueComments returns up to limit comments of one issue created after
+// `after`, oldest first, and reports whether the connection held a further
+// page. A zero `after` keeps the oldest comments instead of narrowing the
+// window: Linear accepts the zero DateTime, and every comment follows it.
+// The read exists for the resume-time remote check; it never writes.
+func (c *Client) ListIssueComments(ctx context.Context, issueUUID string, after time.Time, limit int) ([]RemoteComment, bool, error) {
+	var payload struct {
+		Issue struct {
+			Comments struct {
+				Nodes []struct {
+					ID        string    `json:"id"`
+					Body      string    `json:"body"`
+					CreatedAt time.Time `json:"createdAt"`
+					User      *struct {
+						Name        string `json:"name"`
+						DisplayName string `json:"displayName"`
+					} `json:"user"`
+				} `json:"nodes"`
+				PageInfo struct {
+					HasNextPage bool `json:"hasNextPage"`
+				} `json:"pageInfo"`
+			} `json:"comments"`
+		} `json:"issue"`
+	}
+	query := `query($id: String!, $after: DateTime!, $first: Int!) { issue(id: $id) { comments(first: $first, orderBy: createdAt, filter: { createdAt: { gt: $after } }) { nodes { id body createdAt user { name displayName } } pageInfo { hasNextPage } } } }`
+	if err := c.call(ctx, query, map[string]any{"id": issueUUID, "after": after.UTC().Format(time.RFC3339Nano), "first": limit}, &payload); err != nil {
+		return nil, false, err
+	}
+	comments := make([]RemoteComment, 0, len(payload.Issue.Comments.Nodes))
+	for _, node := range payload.Issue.Comments.Nodes {
+		author := ""
+		if node.User != nil {
+			author = node.User.Name
+			if author == "" {
+				author = node.User.DisplayName
+			}
+		}
+		comments = append(comments, RemoteComment{ID: node.ID, Body: node.Body, CreatedAt: node.CreatedAt, Author: author})
+	}
+	return comments, payload.Issue.Comments.PageInfo.HasNextPage, nil
+}
+
 // GetIssueLabelIDs fetches only the issue's current label ids, so the drain
 // can compute the Concord-managed labels that no longer apply without a full
 // issue read.

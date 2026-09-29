@@ -216,7 +216,10 @@ another repository routes through the host-registered session opener
   target Project's canonical path), `{title}` (the work ID), and `{command}`
   (the core launch argv, spliced as separate elements) and runs it without a
   shell. The result reports the opener's exit status and argv and never
-  claims the new session is running.
+  claims the new session is running. Before the run, the adapter probes that
+  the canonical path resolves to an existing directory on this filesystem
+  (CD-0093 D3 fail-closed); a path that no longer resolves refuses the
+  opener and falls back to the launch command.
 - With no opener registered, the result carries the exact launch command and
   directory for the operator.
 - An invalid opener refuses naming the invalid field and still carries the

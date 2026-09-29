@@ -398,6 +398,52 @@ func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transa
 	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: p.SourceDirectory, DestinationDirectory: filepath.Clean(p.DestinationDirectory)}, nil
 }
 
+// PendingSessionVacateSourceRequestTx resolves the still-pending version 2
+// vacate request of one session whose source worktree is the caller's
+// directory. session_vacate called again re-reads the committed request's
+// state and resolves it, appends nothing, whatever idempotency key the retry
+// carries (CD-0190 D3), so the planner answers a new-key retry through this
+// resolution instead of recording a second relocation request for one move.
+// A request its recorded landing already completed keeps the fresh-request
+// path, so a re-occupied worktree records its own new request (CD-0190 D2).
+// It runs inside the caller's transaction so the read observes the caller's
+// own uncommitted events.
+func PendingSessionVacateSourceRequestTx(ctx context.Context, transaction *Transaction, projectID, sourceDirectory, sessionRef string) (SessionVacateReplayTarget, error) {
+	var target SessionVacateReplayTarget
+	tx, err := transactionSQL(transaction, "session_vacate")
+	if err != nil {
+		return target, err
+	}
+	if projectID == "" || sourceDirectory == "" || sessionRef == "" {
+		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
+	}
+	var raw string
+	var seq int
+	cleaned := filepath.Clean(sourceDirectory)
+	err = tx.QueryRowContext(ctx, `SELECT seq, payload FROM domain_events WHERE kind='work.session_vacated' AND payload_version=2 AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.source_directory')=? ORDER BY seq DESC LIMIT 1`, sessionRef, projectID, cleaned).Scan(&seq, &raw)
+	if err == sql.ErrNoRows {
+		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
+	}
+	if err != nil {
+		return target, wrapFailure(KindUnavailable, "session_vacate", "cannot read the committed vacate request", true, "retry once the database is readable", err)
+	}
+	var p sessionVacatedPayload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload does not decode", false, "repair the recorded event")
+	}
+	if p.WorkID == "" || p.SourceDirectory == "" || p.DestinationDirectory == "" {
+		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload is missing required fields", false, "repair the recorded event")
+	}
+	landed, err := sessionVacateLandedAfterTx(ctx, tx, p.WorkID, sessionRef, seq)
+	if err != nil {
+		return target, err
+	}
+	if landed {
+		return target, newFailure(KindProjectionNotFound, "session_vacate", "no pending session vacate names this directory as its source worktree", false, "run the operation from a linked worktree")
+	}
+	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: filepath.Clean(p.SourceDirectory), DestinationDirectory: filepath.Clean(p.DestinationDirectory)}, nil
+}
+
 // ResolveSessionVacateReplayTx resolves a same-key session_vacate replay
 // from the caller's current directory state-driven, appending nothing. The
 // replay re-reads the committed request's state on every call, so a cached

@@ -519,7 +519,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   // An unreadable session_vacate answer leaves the committed relocation
   // request's state to the replay, so the refusal names that recovery
   // instead of a reconciliation the operation cannot drive.
-  const outcomeMessage = (message: string) => toolName === "concord_work_transition" && operation === "session_vacate" ? vacateReplayRecovery(message) : message
+  const vacateOperation = toolName === "concord_work_transition" && operation === "session_vacate"
+  const outcomeMessage = (message: string) => (vacateOperation ? vacateReplayRecovery(message) : message)
   let result: any
   try { result = await run(args.input) } catch (error) { return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
@@ -539,6 +540,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // is a defect; the operator gets both digests.
     const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; under the pinned release pair this mismatch is a defect, so contact the operator with both digests`
     if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
+    // CD-0190 D3: session_vacate names no work id, so a reconcile_operation
+    // recovery cannot drive a reconciliation. The committed relocation
+    // request's recovery is the state-driven replay, which keeps the skew
+    // detail and both digests in the refusal message.
+    if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(skewDetail), "possible", "retry_same_request")
     return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
   }
   const contractFailure = coreResponseFailure(response, toolName, operation)
@@ -641,10 +647,26 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: sessionDirectory, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
-    try { result = await run(approvedInput) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation") }
-    try { response = singleJSON(result.stdout) } catch (error) { return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout)) }
+    try {
+      result = await run(approvedInput)
+    } catch (error) {
+      // CD-0190 D3: session_vacate routes a post-approval unreadable outcome
+      // to the state-driven replay, the same as every other refusal past the
+      // commit — a reconcile_operation recovery cannot drive without a work
+      // id. A missing binary started nothing, so it keeps the no-effect
+      // refusal.
+      if (vacateOperation) return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted)
+      return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "unknown_effect", "possible", "possible", "reconcile_operation")
+    }
+    try { response = singleJSON(result.stdout) } catch (error) {
+      if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(String(error)), "possible", "retry_same_request", salvageDetails(result.stdout))
+      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout))
+    }
     const approvedFailure = coreResponseFailure(response, toolName, operation)
-    if (approvedFailure) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
+    if (approvedFailure) {
+      if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(`post-approval response failed the TS7 contract: ${approvedFailure}`), "possible", "retry_same_request", salvageDetails(result.stdout))
+      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
+    }
   }
   return response as CoreConcordEnvelope;
 }

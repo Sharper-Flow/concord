@@ -84,7 +84,12 @@ state and resolves it, appends nothing, and the readback-verified landing
 records through the same verb. The replay resolves from the verified
 destination, or from the source worktree the pending request names while the
 session still runs there, so a commit whose host move never ran and a retry
-after an adapter restart recover the same way. A move that landed without a
+after an adapter restart recover the same way. The re-read does not key to
+the idempotency record: a retry under a new idempotency key resolves the
+same still-pending request from its source worktree and appends nothing. A
+request the recorded landing already completed resolves no pending request
+there, so a re-occupied worktree records its own new relocation request. A
+move that landed without a
 confirmed landing recovers this way, so no stale row strands the session from
 claiming other work. A successful core answer the adapter cannot read
 classifies with the same recovery: the request stands, and the state-driven
@@ -93,7 +98,10 @@ classifies with the same recovery once the core process started: an abort or
 a timeout kills a running core, and a spawn failure names a process that
 started, so the core may have committed before it died and the refusal
 reports the possible effect with the replay. A missing binary started
-nothing, so it keeps the no-effect refusal. session_vacate names no
+nothing, so it keeps the no-effect refusal. The same recovery replaces the
+generic reconciliation on every refusal the adapter would aim at one: a
+manifest-skew response the self-heal cannot adopt, and a post-approval
+response the adapter cannot read. session_vacate names no
 work item, so no generic reconciliation can drive; the adapter remembers
 nothing the core did not return.
 

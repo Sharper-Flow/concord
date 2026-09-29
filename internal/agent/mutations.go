@@ -2605,6 +2605,19 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 			payload, merr := resolvePayload(target)
 			return payload, nil, []ChangedRef{}, merr
 		}
+		// CD-0190 D3: session_vacate called again re-reads the committed
+		// request's state whatever idempotency key the retry carries. A
+		// still-pending version 2 request whose source worktree is this one
+		// is the same relocation: the call answers through the replay
+		// resolution and appends nothing, so a retry under a new key never
+		// records a second relocation request for one move. A request its
+		// recorded landing already completed resolves no pending request
+		// here, so the fresh-request path below still records a re-occupied
+		// worktree's own new relocation (CD-0190 D2).
+		if pending, perr := store.PendingSessionVacateSourceRequestTx(ctx, tx, project, grant.Worktree, grant.SessionRef); perr == nil {
+			result, merr := resolvePayload(pending)
+			return result, nil, []ChangedRef{}, merr
+		}
 		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 		if err != nil {
 			// A vacate whose host move landed without a recorded landing

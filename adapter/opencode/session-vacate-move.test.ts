@@ -358,6 +358,96 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(landingCalls).toEqual([])
   })
 
+  // A manifest-skew refusal on session_vacate advertises the recovery that
+  // works: session_vacate names no work id, so reconcile_operation cannot
+  // drive a reconciliation, and the committed relocation request's recovery
+  // is the state-driven replay. The refusal keeps the skew detail and both
+  // digests, reports the possible effect, and retries the same request. When
+  // the skew clears, the replay records the verified landing and releases
+  // the row (CD-0190 D3).
+  test("routes a manifest-skew session_vacate refusal to the replay recovery, and the retry lands after the skew clears", async () => {
+    let skewed = true
+    let sitting = "/worktree"
+    const moves: string[] = []
+    const skewDigest = "sha256:" + "b".repeat(64)
+    const sessionVacateAnswer = (digest: string) => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        schema_version: "1.0",
+        request_id: "session-1-message-1",
+        origin: "core",
+        tool: "concord_work_transition",
+        operation: "session_vacate",
+        outcome: "ok",
+        resolved_scope: null,
+        authority: "authoritative",
+        freshness: null,
+        manifest_digest: digest,
+        source_version_watermark: [],
+        ordering_keys: [],
+        next_cursor: null,
+        omissions: [],
+        warnings: [],
+        evidence_refs: [],
+        replayed: false,
+        result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" },
+        changed_refs: [],
+        next_valid_intents: [],
+      }) + "\n",
+      stderr: "",
+    })
+    await fakeHost((body) => {
+      moves.push(body.destination.directory)
+      sitting = body.destination.directory
+      return { status: 204, body: null }
+    }, () => ({ status: 200, body: { directory: sitting } }), {
+      async run(argv: string[], input: string) {
+        if (argv[1] === "project-resolve") {
+          return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "sv-1", main_worktree: false, product_ids: ["product-1"] }) + "\n", stderr: "" }
+        }
+        if (argv[1] === "invoke") {
+          const parsed = JSON.parse(input) as { operation?: string }
+          if (parsed?.operation === "session_vacate") return sessionVacateAnswer(skewed ? skewDigest : manifestDigest)
+        }
+        if (argv[1] === "vacate-landing") {
+          landingCalls.push((JSON.parse(input) as { landed_directory: string }).landed_directory)
+          return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+        }
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as never)
+    configureHostLease({ reset: true })
+    const skewedResult = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-skew-1" } } } as never, context())
+    const skewedOutput = typeof skewedResult === "string" ? skewedResult : skewedResult.output
+    const skewedEnvelope = JSON.parse(skewedOutput.split("\n")[0])
+    expect(skewedEnvelope.outcome, skewedOutput).toBe("error")
+    if (skewedEnvelope.outcome === "error") {
+      const error = skewedEnvelope.error as { kind?: string; effect_state?: string; recovery_action?: { kind?: string }; message?: string }
+      expect(error.kind).toBe("operation_conflict")
+      expect(error.effect_state).toBe("possible")
+      expect(error.recovery_action?.kind).toBe("retry_same_request")
+      expect(error.message).toContain("does not match this adapter's")
+      expect(error.message).toContain("both digests")
+      expect(error.message).toContain("replay session_vacate")
+    }
+    // The skew refusal precedes the move: no host move ran, no landing
+    // recorded, and the committed request stands possible.
+    expect(moves).toEqual([])
+    expect(landingCalls).toEqual([])
+
+    // The skew clears; the replay retry records the verified landing and
+    // releases the row, so nothing strands the session.
+    skewed = false
+    const retry = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-skew-2" } } } as never, context())
+    const retryOutput = typeof retry === "string" ? retry : retry.output
+    const retryEnvelope = JSON.parse(retryOutput.split("\n")[0])
+    expect(retryEnvelope.outcome, retryOutput).toBe("ok")
+    expect(moves).toEqual(["/main"])
+    expect(landingCalls).toEqual(["/main"])
+    expect(pendingVacateDestination("session-1")).toBeNull()
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+  })
+
   // The confirmed vacate landing drops the armed claim, so a later dispatch
   // from the main checkout runs the no-claim path exactly as before.
   test("clears the armed claimed worktree once the vacate landing is confirmed", async () => {

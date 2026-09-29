@@ -1,0 +1,33 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-09-29T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow.go",
+    "internal/store/workflow_dispatch.go"
+  ],
+  "id": "lesson-required-evidence-kind-producible",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-29-pick-a-required-evidence-kind-the-recorder-can-a.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "explicit",
+    "product_ids": [
+      "concord"
+    ],
+    "project_ids": [
+      "concord"
+    ],
+    "tag_ids": []
+  },
+  "sha256": "sha256:08900075daf5f2414fd2e720300221dda7f2dcfb745d22e70579a3c086e06727",
+  "status": "published",
+  "summary": "A contract that requires native_run evidence cannot be satisfied by a coordinator running commands: native_run admits only an attributed record in workflow_native_runs or external_observations carrying verification_state verified. Use verification for a coordinator's own command runs.",
+  "tags": [
+    "evidence",
+    "required-evidence",
+    "workflow-contract"
+  ],
+  "title": "Pick a required_evidence kind the recorder can actually produce"
+}

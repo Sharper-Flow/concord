@@ -314,8 +314,9 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     try {
       const stale = { ...context(), directory: "/main" } as Parameters<typeof work_transition.execute>[1]
       const result = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-outside-retry" } } } as never, stale)
-      const envelope = JSON.parse((typeof result === "string" ? result : result.output).split("\n")[0])
-      expect(envelope.outcome, result.output).toBe("ok")
+      const output = typeof result === "string" ? result : result.output
+      const envelope = JSON.parse(output.split("\n")[0])
+      expect(envelope.outcome, output).toBe("ok")
       expect(moves).toEqual(["/main"])
       expect(landingCalls).toEqual(["/main"])
       expect(pendingVacateDestination("session-1")).toBeNull()

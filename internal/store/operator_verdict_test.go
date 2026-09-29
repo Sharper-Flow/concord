@@ -442,6 +442,66 @@ func TestOperatorEvaluationRequiresDefinitionBackedExit(t *testing.T) {
 	}
 }
 
+// A carried-forward instance keeps the exits it recorded under the definition
+// pin in effect when each exit completed. Implementation v10 recorded
+// record_delivery at refine, whose forward edge entered acceptance directly;
+// the current definition splices the delivery gate between refine and
+// acceptance, so the current graph alone can never vouch for that exit.
+func TestOperatorVerdictExitCarriedForwardAcceptsThePinAtTheExit(t *testing.T) {
+	t.Parallel()
+	const workID = "operator-verdict-carry-forward"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.implementation", 10, "acceptance")
+	s := fixture.store
+	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-carry", Definition: current, Actor: fixture.owner, Now: time.Unix(30, 0).UTC()})
+	}); err != nil {
+		t.Fatalf("carry forward refused: %v", err)
+	}
+	if _, version, _ := workflowInstancePin(t, s, workID); version != current.Definition.Version {
+		t.Fatalf("pin after carry forward = v%d, want v%d", version, current.Definition.Version)
+	}
+	if got := readInstanceStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("step after carry forward = %q, want acceptance preserved", got)
+	}
+	// The stranded shape: the item reached release with every verdict and the
+	// premise confirmation recorded, and no declared route back to delivery.
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
+	if err := operatorVerdictExitCheck(t, s, workID); err != nil {
+		t.Fatalf("operator verdict exit refused a delivery recorded under the pin in effect at its completion: %v", err)
+	}
+}
+
+// The historical-pin acceptance is bounded by what each exit recorded under
+// the pin in effect at its completion: an exit that advanced under no pin, or
+// held its step under the pin that preceded the verdict step, stays refused.
+func TestOperatorVerdictExitCarriedForwardRefusesTransitsNoPinSatisfies(t *testing.T) {
+	t.Parallel()
+	const workID = "operator-verdict-carry-forward-hold"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.implementation", 10, "refine")
+	s := fixture.store
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:carry-forward-hold"}`), 0); err != nil {
+		t.Fatalf("bind evidence at refine: %v", err)
+	}
+	current, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-carry", Definition: current, Actor: fixture.owner, Now: time.Unix(30, 0).UTC()})
+	}); err != nil {
+		t.Fatalf("carry forward refused: %v", err)
+	}
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
+	err = operatorVerdictExitCheck(t, s, workID)
+	if err == nil || !strings.Contains(err.Error(), "definition-backed advancing exit") {
+		t.Fatalf("operator verdict exit accepted a transit no pinned definition satisfies: err=%v", err)
+	}
+}
+
 // #909: a host restart mints a new session identity, so the completing
 // action can be the first place that tuple appears. The complete path must
 // land the guard's actor-recording events instead of dropping them; before

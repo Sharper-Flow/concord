@@ -405,3 +405,71 @@ func TestWorkResumeWithoutApplicableLinkMakesNoLinearCall(t *testing.T) {
 		}
 	})
 }
+
+// TestWorkResumeCutCommentBodyReportsTruncated proves a comment body cut to
+// its rune limit marks the page truncated even when every comment is kept.
+func TestWorkResumeCutCommentBodyReportsTruncated(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	helper := serveLinearRemoteIssue(t,
+		`{"id":"`+remoteUUID+`","identifier":"CON-77","url":"https://linear.app/example/issue/CON-77","title":"Bootstrap work","description":"","updatedAt":"2026-09-26T00:00:00Z","state":{"id":"state-in-progress","type":"started"},"team":{"id":"team-uuid-1"}}`,
+		`{"nodes":[{"id":"comment-long","body":"`+strings.Repeat("x", linearResumeCommentBodyLimit+1)+`","createdAt":"2026-09-27T00:00:00Z","user":{"name":"Dana","displayName":"Dana D"}}],"pageInfo":{"hasNextPage":false}}`)
+	t.Setenv(linearclient.EnvEndpoint, helper.server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_resume_test")
+
+	code, output, stderr := resumeCLI(t, mustOpenStore(t, dbPath), repo, workID)
+	if code != 0 {
+		t.Fatalf("resume code=%d stderr=%q", code, stderr)
+	}
+	comments := output.LinearRemote.Comments
+	if comments == nil || len(comments.Items) != 1 || !comments.Truncated {
+		t.Fatalf("comments=%+v want one kept comment marked truncated", comments)
+	}
+	if got := len([]rune(comments.Items[0].Body)); got != linearResumeCommentBodyLimit {
+		t.Fatalf("kept body runes=%d want %d", got, linearResumeCommentBodyLimit)
+	}
+}
+
+// TestWorkResumeVanishedIssueDegradesTheComments proves an issue that
+// disappears between the issue read and the comments read reports degraded
+// comments, never a complete empty page.
+func TestWorkResumeVanishedIssueDegradesTheComments(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), "comments(") {
+			_, _ = w.Write([]byte(`{"data":{"issue":null}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"` + remoteUUID + `","identifier":"CON-77","title":"Bootstrap work","description":"","updatedAt":"2026-09-25T19:28:00Z","state":{"id":"state-in-progress","type":"started"}}}}`))
+	}))
+	defer server.Close()
+	t.Setenv(linearclient.EnvEndpoint, server.URL)
+	t.Setenv(linearclient.EnvAPIKey, "lin_api_resume_test")
+
+	code, output, stderr := resumeCLI(t, mustOpenStore(t, dbPath), repo, workID)
+	if code != 0 {
+		t.Fatalf("resume code=%d stderr=%q", code, stderr)
+	}
+	comments := output.LinearRemote.Comments
+	if comments == nil || comments.Reason != "not_found" || len(comments.Items) != 0 {
+		t.Fatalf("comments=%+v want degraded not_found", comments)
+	}
+}
+
+// TestLinearRemoteLocalReadFailureDegrades proves a failed local read is
+// reported as local_unavailable instead of silently omitting the section.
+func TestLinearRemoteLocalReadFailureDegrades(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	_, workID, _ := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	s := mustOpenStore(t, dbPath)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remote := checkLinearRemote(context.Background(), s, workID)
+	if remote == nil || remote.Authority != "degraded" || remote.Reason != "local_unavailable" {
+		t.Fatalf("linear_remote=%+v want degraded local_unavailable", remote)
+	}
+}

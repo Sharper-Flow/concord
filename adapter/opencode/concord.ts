@@ -874,7 +874,7 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
   return !("linear_remote" in value) || validateLinearRemoteSection(value.linear_remote)
 }
 
-const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found"])
+const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found", "local_unavailable"])
 
 function validateLinearRemoteComment(value: unknown): value is LinearRemoteComment {
   return record(value) && exactKeys(value, ["author", "created_at", "body"])

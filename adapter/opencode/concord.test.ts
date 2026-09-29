@@ -1801,6 +1801,15 @@ test("work start resume passes the linear_remote section through to the envelope
   expect(degraded.outcome).toBe("ok")
   expect(degraded.linear_remote).toEqual({ authority: "degraded", reason: "rate_limited" })
 
+  // A linked item whose local state cannot be read degrades rather than
+  // dropping the section.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "local_unavailable" } }), stderr: "" }),
+  }) })
+  const localDegraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(localDegraded.outcome).toBe("ok")
+  expect(localDegraded.linear_remote).toEqual({ authority: "degraded", reason: "local_unavailable" })
+
   // A resume that applied no remote check keeps the envelope free of the
   // field, so unchanged resumes stay byte-identical.
   const plainCalls: RetargetCall[] = []

@@ -2,6 +2,7 @@ package linearclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -793,5 +794,24 @@ func TestListIssueCommentsReadsTheBoundedWindow(t *testing.T) {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("request body %q lacks %q", gotBody, want)
 		}
+	}
+}
+
+// TestListIssueCommentsRefusesAMissingIssue proves a vanished issue is a
+// failure, not an empty comment page.
+func TestListIssueCommentsRefusesAMissingIssue(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"issue":null}}`))
+	}))
+	defer server.Close()
+	client, err := New("lin_api_test", WithEndpoint(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments, hasMore, err := client.ListIssueComments(context.Background(), "68d52710-76d9-4b41-ba45-778511d0e2ed", time.Time{}, 20)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindGraphqlError || !strings.Contains(failure.Detail, "returned no issue") {
+		t.Fatalf("ListIssueComments() = %v, %v, %v; want a missing-issue failure", comments, hasMore, err)
 	}
 }

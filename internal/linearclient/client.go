@@ -425,10 +425,12 @@ type RemoteComment struct {
 // `after`, oldest first, and reports whether the connection held a further
 // page. A zero `after` keeps the oldest comments instead of narrowing the
 // window: Linear accepts the zero DateTime, and every comment follows it.
-// The read exists for the resume-time remote check; it never writes.
+// A response without the issue refuses exactly as GetIssue does, so a
+// vanished issue never reads as an empty comment page. The read exists for
+// the resume-time remote check; it never writes.
 func (c *Client) ListIssueComments(ctx context.Context, issueUUID string, after time.Time, limit int) ([]RemoteComment, bool, error) {
 	var payload struct {
-		Issue struct {
+		Issue *struct {
 			Comments struct {
 				Nodes []struct {
 					ID        string    `json:"id"`
@@ -448,6 +450,9 @@ func (c *Client) ListIssueComments(ctx context.Context, issueUUID string, after 
 	query := `query($id: String!, $after: DateTime!, $first: Int!) { issue(id: $id) { comments(first: $first, orderBy: createdAt, filter: { createdAt: { gt: $after } }) { nodes { id body createdAt user { name displayName } } pageInfo { hasNextPage } } } }`
 	if err := c.call(ctx, query, map[string]any{"id": issueUUID, "after": after.UTC().Format(time.RFC3339Nano), "first": limit}, &payload); err != nil {
 		return nil, false, err
+	}
+	if payload.Issue == nil {
+		return nil, false, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
 	comments := make([]RemoteComment, 0, len(payload.Issue.Comments.Nodes))
 	for _, node := range payload.Issue.Comments.Nodes {

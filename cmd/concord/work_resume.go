@@ -52,9 +52,9 @@ type linearRemoteComment struct {
 
 type linearRemoteComments struct {
 	Items []linearRemoteComment `json:"items"`
-	// Truncated reports that more comments exist than the section reports:
-	// the connection held a further page, or the encoded budget stopped the
-	// page early.
+	// Truncated reports that the section omits comment content: the
+	// connection held a further page, the encoded budget stopped the page
+	// early, or an author or body was cut to its rune limit.
 	Truncated bool `json:"truncated"`
 	// Reason carries the typed degraded reason when only the comments read
 	// failed after the issue itself was read.
@@ -67,7 +67,9 @@ type linearRemoteComments struct {
 type linearRemoteSection struct {
 	Authority string `json:"authority"`
 	// Reason is set only when authority is degraded: missing_credentials,
-	// unauthorized, rate_limited, timeout, unavailable, or not_found.
+	// unauthorized, rate_limited, timeout, unavailable, not_found, or
+	// local_unavailable when the item holds a confirmed link but Concord
+	// cannot read the local state the comparison needs.
 	Reason string `json:"reason,omitempty"`
 	// The remaining fields are set only when authority is ok.
 	ChangedSinceRecorded *bool                 `json:"changed_since_recorded,omitempty"`
@@ -101,27 +103,34 @@ var linearResumeTimeout = 10 * time.Second
 
 // checkLinearRemote reads the linked Linear issue once and compares it with
 // what Concord last recorded. It applies only to a resume of an item whose
-// Product is linear_enabled with a declared connection and whose link is
-// confirmed; every other resume returns nil, makes no Linear call, and keeps
-// its output byte-identical. The check reads only: resume records nothing to
-// the store or to Linear (CD-0104 D1), and CD-0171 D8 keeps the outbox the
-// only writer of issue status. A local store read failure also returns nil,
-// because the resume outcome must never depend on the remote check.
+// link is confirmed and whose owning Product is linear_enabled; every other
+// resume returns nil, makes no Linear call, and keeps its output
+// byte-identical. Once a confirmed link exists, a failed local read degrades
+// the section with local_unavailable rather than hiding the check. The check
+// reads only: resume records nothing to the store or to Linear (CD-0104 D1),
+// and CD-0171 D8 keeps the outbox the only writer of issue status. No
+// failure here changes the resume outcome.
 func checkLinearRemote(ctx context.Context, s *store.Store, workID string) *linearRemoteSection {
 	// The owning Product, not the Product the session resumes from, holds
 	// the Linear identity and the lifecycle-to-status mapping: a work item
 	// shared across Products resumes from a secondary Project too.
-	link, err := s.ReadConfirmedLinearResumeLink(ctx, workID)
+	link, found, err := s.ReadConfirmedLinearResumeLink(ctx, workID)
 	if err != nil {
+		return localUnavailableLinearRemote()
+	}
+	if !found {
 		return nil
 	}
 	mode, err := s.ResolveLinearPlanningTarget(ctx, link.ProductID)
-	if err != nil || mode.PlanningMode != store.PlanningModeLinear {
+	if err != nil {
+		return localUnavailableLinearRemote()
+	}
+	if mode.PlanningMode != store.PlanningModeLinear {
 		return nil
 	}
 	connection, err := s.ReadLinearConnection(ctx, link.ProductID)
 	if err != nil {
-		return nil
+		return localUnavailableLinearRemote()
 	}
 	client, err := linearclient.FromEnv()
 	if err != nil {
@@ -167,8 +176,8 @@ func checkLinearRemote(ctx context.Context, s *store.Store, workID string) *line
 func appendBoundedComments(section *linearRemoteComments, comments []linearclient.RemoteComment, hasMore bool) {
 	budget := linearRemoteCommentsBudget
 	for _, comment := range comments {
-		author, _ := truncateRunes(comment.Author, linearResumeCommentAuthorLimit)
-		body, _ := truncateRunes(comment.Body, linearResumeCommentBodyLimit)
+		author, authorCut := truncateRunes(comment.Author, linearResumeCommentAuthorLimit)
+		body, bodyCut := truncateRunes(comment.Body, linearResumeCommentBodyLimit)
 		item := linearRemoteComment{Author: author, CreatedAt: comment.CreatedAt.UTC().Format(time.RFC3339Nano), Body: body}
 		encoded, err := json.Marshal(item)
 		if err != nil || len(encoded) > budget {
@@ -177,6 +186,9 @@ func appendBoundedComments(section *linearRemoteComments, comments []linearclien
 		}
 		budget -= len(encoded)
 		section.Items = append(section.Items, item)
+		if authorCut || bodyCut {
+			section.Truncated = true
+		}
 	}
 	if hasMore {
 		section.Truncated = true
@@ -186,6 +198,12 @@ func appendBoundedComments(section *linearRemoteComments, comments []linearclien
 // degradedLinearRemote states why the remote check could not read Linear.
 func degradedLinearRemote(err error, callCtx context.Context) *linearRemoteSection {
 	return &linearRemoteSection{Authority: "degraded", Reason: linearRemoteDegradedReason(err, callCtx)}
+}
+
+// localUnavailableLinearRemote states that the item holds a confirmed link
+// but the local state the comparison needs could not be read.
+func localUnavailableLinearRemote() *linearRemoteSection {
+	return &linearRemoteSection{Authority: "degraded", Reason: "local_unavailable"}
 }
 
 // linearRemoteDegradedReason maps one linearclient failure onto the typed

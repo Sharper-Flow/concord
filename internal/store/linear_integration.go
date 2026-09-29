@@ -908,28 +908,29 @@ type LinearResumeLink struct {
 }
 
 // ReadConfirmedLinearResumeLink returns one work item's confirmed link with
-// its owning Product, recorded remote freshness, local title, and lifecycle. A work item
-// without a confirmed link refuses with unknown_scope, so the caller can
-// tell "no remote check applies" from a read failure.
-func (s *Store) ReadConfirmedLinearResumeLink(ctx context.Context, workID string) (LinearResumeLink, error) {
-	var link LinearResumeLink
-	err := s.db.QueryRowContext(ctx, `
+// its owning Product, recorded remote freshness, local title, and lifecycle.
+// found is false with a nil error only when the work item holds no confirmed
+// link; every other failure, including an unresolvable owning Product,
+// returns an error so the caller never mistakes a failed read for "no remote
+// check applies".
+func (s *Store) ReadConfirmedLinearResumeLink(ctx context.Context, workID string) (link LinearResumeLink, found bool, err error) {
+	err = s.db.QueryRowContext(ctx, `
 SELECT l.work_id, l.remote_issue_uuid, l.human_key, l.url, l.remote_updated_at, w.title, w.lifecycle
 FROM linear_issue_links l
 JOIN work_items w ON w.id=l.work_id
 WHERE l.work_id=? AND l.link_state=?`, workID, LinearLinkConfirmed).Scan(
 		&link.WorkID, &link.RemoteIssueUUID, &link.HumanKey, &link.URL, &link.RemoteUpdatedAt, &link.Title, &link.Lifecycle)
 	if err == sql.ErrNoRows {
-		return LinearResumeLink{}, newFailure(KindUnknownScope, "linear_resume_link_read", "no confirmed Linear link exists for the work item", false, "resume without a Linear remote check")
+		return LinearResumeLink{}, false, nil
 	} else if err != nil {
-		return LinearResumeLink{}, wrapFailure(KindUnavailable, "linear_resume_link_read", "cannot read confirmed Linear link", true, "retry once the database is readable", err)
+		return LinearResumeLink{}, false, wrapFailure(KindUnavailable, "linear_resume_link_read", "cannot read confirmed Linear link", true, "retry once the database is readable", err)
 	}
 	productID, err := resolveLinearProductCore(ctx, s.db, workID)
 	if err != nil {
-		return LinearResumeLink{}, err
+		return LinearResumeLink{}, false, err
 	}
 	link.ProductID = productID
-	return link, nil
+	return link, true, nil
 }
 
 // ReadConfirmedLinearLinkedWorkForProduct returns confirmed links and the

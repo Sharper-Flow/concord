@@ -100,9 +100,9 @@ func TestLinearSharedCrossProductWorkItemKeepsOneOwningLink(t *testing.T) {
 	// A resume from the secondary Product's Project reads the owning
 	// Product, so the remote check uses the primary Product's planning mode
 	// and status mapping rather than the Product it resumes from.
-	resumeLink, err := s.ReadConfirmedLinearResumeLink(ctx, "shared-cross-work")
-	if err != nil {
-		t.Fatalf("ReadConfirmedLinearResumeLink() error = %v", err)
+	resumeLink, found, err := s.ReadConfirmedLinearResumeLink(ctx, "shared-cross-work")
+	if err != nil || !found {
+		t.Fatalf("ReadConfirmedLinearResumeLink() found=%v error=%v", found, err)
 	}
 	if resumeLink.ProductID != "shared-concord-product" || resumeLink.Lifecycle != "in_progress" || resumeLink.RemoteIssueUUID != "remote-shared" {
 		t.Fatalf("resume link = %+v, want owning Product shared-concord-product, in_progress, remote-shared", resumeLink)

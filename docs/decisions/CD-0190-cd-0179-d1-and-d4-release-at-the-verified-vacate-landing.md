@@ -88,9 +88,21 @@ after an adapter restart recover the same way. A move that landed without a
 confirmed landing recovers this way, so no stale row strands the session from
 claiming other work. A successful core answer the adapter cannot read
 classifies with the same recovery: the request stands, and the state-driven
-replay resolves it from wherever the session sits. session_vacate names no
+replay resolves it from wherever the session sits. A thrown runner error
+classifies with the same recovery once the core process started: an abort or
+a timeout kills a running core, and a spawn failure names a process that
+started, so the core may have committed before it died and the refusal
+reports the possible effect with the replay. A missing binary started
+nothing, so it keeps the no-effect refusal. session_vacate names no
 work item, so no generic reconciliation can drive; the adapter remembers
 nothing the core did not return.
+
+The adapter decides a move from the host session directory it reads back,
+never from the request's tool context. A stale tool context can name the
+registered main checkout while the host session still sits in the source
+worktree, and the readback-first move still reaches the destination from
+there, so a mismatch refusal never advertises a retry the request cannot
+complete.
 
 The adapter keeps the committed destination of a post-commit refusal for the
 session: a later session_vacate first moves the host session to the remembered
@@ -195,7 +207,12 @@ still releases on fold.
   recorded, a retry with no remembered destination reports
   contact_operator instead of the unreachable retry, and an unreadable
   successful core answer classifies with the state-driven replay recovery
-  and remembers nothing the core did not return.
+  and remembers nothing the core did not return. The same run proves a
+  stale tool context that names the registered main checkout while the
+  host readback names the source worktree still moves, records the
+  landing, and releases the row, on the first call and on its retry. It
+  also proves a thrown runner timeout on session_vacate reports the
+  possible effect with the same replay recovery.
 - `bun test adapter/opencode/session-vacate-reoccupy.test.ts` proves the
   landed-but-unconfirmed move recovers on replay and releases the row, and a
   readback outside every registered Project recovers through the remembered

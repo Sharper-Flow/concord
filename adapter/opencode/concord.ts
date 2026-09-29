@@ -449,6 +449,21 @@ function vacateReplayRecovery(message: string): string {
   return `${message}; the core commits the relocation request before it answers, so replay session_vacate — the state-driven replay resolves the committed request from wherever the session sits and the verified landing releases the rows`
 }
 
+// A thrown runner error on session_vacate leaves the committed relocation
+// request's state unreadable once the core process started: an abort or a
+// timeout kills a running core, and a spawn failure names a process that
+// started, so the core may have committed before it died and the refusal
+// reports the possible effect and the state-driven replay instead of a
+// proved absence (CD-0190 D3). A missing binary started nothing, so it
+// keeps the no-effect refusal. Every other operation keeps its runner
+// classification.
+function vacateRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean) {
+  const failure = runnerFailure(error, aborted)
+  if (toolName === "concord_work_transition" && operation === "session_vacate" && failure instanceof AdapterFailure && failure.reason !== "missing_binary") {
+    return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(failure.message), "possible", "retry_same_request")
+  }
+  return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
+}
 
 function selectedProductID() {
   const value = process.env.CONCORD_SELECTED_PRODUCT_ID ?? ""
@@ -506,7 +521,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   // instead of a reconciliation the operation cannot drive.
   const outcomeMessage = (message: string) => toolName === "concord_work_transition" && operation === "session_vacate" ? vacateReplayRecovery(message) : message
   let result: any
-  try { result = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
+  try { result = await run(args.input) } catch (error) { return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -539,7 +554,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
-      try { retryResult = await run(args.input) } catch (error) { return failureEnvelope(toolName, operation, requestID, runnerFailure(error, context.abort.aborted), "spawn_failure") }
+      try { retryResult = await run(args.input) } catch (error) { return vacateRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -1860,13 +1875,20 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // readback-verified landing run from wherever the host session sits
   // (CD-0190 D3). The verified landing clears it with the claimed worktree.
   recordPendingVacateDestination(context.sessionID, destination)
-  // A replay that resolves a pending landing arrives with the session already
-  // at the registered main checkout, so the move is skipped and the readback
-  // below still verifies the landing before the vacate-landing verb records
-  // it. The core vacate committed the relocation request, so every refusal
-  // from here on reports a possible effect: the request stands and the
-  // occupancy rows wait for the landing.
-  if (typeof context.directory !== "string" || !samePath(context.directory, destination)) {
+  // The host readback, not the tool context, decides whether the move runs.
+  // A stale tool context can name the registered main checkout while the
+  // host session still sits in the source worktree, and a move skipped on
+  // that name strands the standing request behind a mismatch no retry can
+  // clear (CD-0190 D3). A readback that fails moves. A replay that resolves
+  // a pending landing arrives with the readback already naming the
+  // registered main checkout, so its move is skipped and the readback below
+  // still verifies the landing before the vacate-landing verb records it.
+  // The core vacate committed the relocation request, so every refusal from
+  // here on reports a possible effect: the request stands and the occupancy
+  // rows wait for the landing.
+  let hostDirectory: string | null = null
+  try { hostDirectory = await hostControlPlane().sessionDirectory(context.sessionID, context.abort) } catch { hostDirectory = null }
+  if (hostDirectory === null || !samePath(hostDirectory, destination)) {
     try {
       await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
     } catch (error) {

@@ -70,11 +70,16 @@ afterEach(async () => {
 
 describe("session_vacate moves only to the core-derived checkout", () => {
   test("moves, verifies the registered destination, and records the verified landing", async () => {
+    // The fake host models the real one: the session sits in the source
+    // worktree until a move POST relocates it, then the readback names the
+    // destination.
+    let sitting = "/worktree"
     let moved = ""
     await fakeHost((body) => {
       moved = body.destination.directory
+      sitting = body.destination.directory
       return { status: 204, body: null }
-    }, () => ({ status: 200, body: { directory: "/main" } }))
+    }, () => ({ status: 200, body: { directory: sitting } }))
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-1" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
     expect(moved).toBe("/main")
@@ -132,7 +137,8 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       },
     } as never)
     configureHostLease({ reset: true })
-    const envelope = JSON.parse(String((await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-unreadable" } } } as never, context())).output).split("\n")[0])
+    const unreadable = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-unreadable" } } } as never, context())
+    const envelope = JSON.parse((typeof unreadable === "string" ? unreadable : unreadable.output).split("\n")[0])
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { kind?: string; effect_state?: string; recovery_action?: { kind?: string }; message?: string }
@@ -157,7 +163,8 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       },
     } as never)
     configureHostLease({ reset: true })
-    const envelope = JSON.parse(String((await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-restart" } } } as never, context())).output).split("\n")[0])
+    const restarted = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-restart" } } } as never, context())
+    const envelope = JSON.parse((typeof restarted === "string" ? restarted : restarted.output).split("\n")[0])
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { kind?: string; adapter_reason?: string; effect_state?: string; recovery_action?: { kind?: string } }
@@ -204,14 +211,82 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(landingCalls).toEqual(["/main"])
   })
 
+  // A stale tool context names the registered main checkout while the host
+  // session still sits in the source worktree. The host readback decides the
+  // move, so the first call moves from the source worktree, records the
+  // verified landing, and releases the row; the retry records the landing
+  // again and keeps the row released. Under the previous tool-context gate
+  // the move was skipped, the readback mismatched, and no retry could ever
+  // release the standing row.
+  test("moves on the host readback when a stale tool context names the main checkout", async () => {
+    let sitting = "/worktree"
+    const moves: string[] = []
+    await fakeHost((body) => {
+      moves.push(body.destination.directory)
+      sitting = body.destination.directory
+      return { status: 204, body: null }
+    }, () => ({ status: 200, body: { directory: sitting } }))
+    const stale = { ...context(), directory: "/main" } as Parameters<typeof moveSessionToRegisteredMainCheckout>[1]
+    try {
+      armClaimedWorktree("session-1", "/worktree")
+      const first = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-stale-1" }), stale, okEnvelope())
+      expect(first.outcome).toBe("ok")
+      expect(moves).toEqual(["/main"])
+      expect(landingCalls).toEqual(["/main"])
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+      const retry = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-stale-2" }), stale, okEnvelope())
+      expect(retry.outcome).toBe("ok")
+      expect(moves).toEqual(["/main"])
+      expect(landingCalls).toEqual(["/main", "/main"])
+      expect(armedClaimedWorktree("session-1")).toBeNull()
+    } finally {
+      clearClaimedWorktree("session-1")
+    }
+  })
+
+  // A thrown runner error on session_vacate leaves the committed relocation
+  // request's state unreadable once the core process started: a timeout
+  // kills a running core, so the core may have committed before it died.
+  // The refusal reports the possible effect with the state-driven replay
+  // recovery, not a proved absence (CD-0190 D3). Every other operation
+  // keeps its no-effect runner classification.
+  test("classifies a thrown runner timeout on session_vacate as possible with the replay recovery", async () => {
+    await fakeHost(() => {
+      throw new Error("no host call may run before the core answers")
+    }, () => ({ status: 200, body: { directory: "/worktree" } }), {
+      async run(argv: string[], input: string) {
+        if (argv[1] === "project-resolve") {
+          return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "sv-1", main_worktree: false, product_ids: ["product-1"] }) + "\n", stderr: "" }
+        }
+        if (argv[1] === "invoke") throw Object.assign(new Error("core invocation timed out"), { name: "TimeoutError" })
+        throw new Error("unexpected CLI invocation: " + argv.join(" "))
+      },
+    } as never)
+    configureHostLease({ reset: true })
+    const result = await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "vacate-timeout" } } } as never, context())
+    const envelope = JSON.parse((typeof result === "string" ? result : result.output).split("\n")[0])
+    expect(envelope.outcome).toBe("error")
+    if (envelope.outcome === "error") {
+      const error = envelope.error as { kind?: string; effect_state?: string; recovery_action?: { kind?: string }; message?: string }
+      expect(error.kind).toBe("operation_conflict")
+      expect(error.effect_state).toBe("possible")
+      expect(error.recovery_action?.kind).toBe("retry_same_request")
+      expect(error.message).toContain("replay session_vacate")
+    }
+    expect(pendingVacateDestination("session-1")).toBeNull()
+    expect(landingCalls).toEqual([])
+  })
+
   // The confirmed vacate landing drops the armed claim, so a later dispatch
   // from the main checkout runs the no-claim path exactly as before.
   test("clears the armed claimed worktree once the vacate landing is confirmed", async () => {
+    let sitting = "/worktree"
     let moved = ""
     await fakeHost((body) => {
       moved = body.destination.directory
+      sitting = body.destination.directory
       return { status: 204, body: null }
-    }, () => ({ status: 200, body: { directory: "/main" } }))
+    }, () => ({ status: 200, body: { directory: sitting } }))
     try {
       armClaimedWorktree("session-1", "/worktree")
       const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-armed" }), context(), okEnvelope())

@@ -684,22 +684,14 @@ def plugin_entry_path(paths: Paths) -> str:
 def drop_string_token(original: str, token: str) -> str:
     """Remove one exact JSON string token and a single adjacent comma.
 
-    Shared by the skills and plugin deregistration paths. The caller guarantees
-    the token occurs exactly once in the original text.
+    Shared by the skills and plugin deregistration paths. The comma hunt
+    skips whitespace and comments, so a comment beside the token never
+    hides its separating comma. The caller guarantees the token occurs
+    exactly once in the original text.
     """
     start = original.index(token)
     end = start + len(token)
-    after = end
-    while after < len(original) and original[after].isspace():
-        after += 1
-    if after < len(original) and original[after] == ",":
-        end = after + 1
-    else:
-        before = start - 1
-        while before >= 0 and original[before].isspace():
-            before -= 1
-        if before >= 0 and original[before] == ",":
-            start = before
+    start, end = span_without_adjacent_comma(original, start, end)
     return original[:start] + original[end:]
 
 
@@ -781,64 +773,159 @@ def plan_plugin_entry(text: str, entry_path: str) -> str:
     return text[:insert_at] + insertion + text[insert_at:]
 
 
+def _line_comment_start(line: str) -> int:
+    """Return the offset of the first ``//`` outside strings in line, or -1."""
+    index = 0
+    in_string = False
+    while index < len(line):
+        char = line[index]
+        if in_string:
+            if char == "\\":
+                index += 1
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "/" and line.startswith("//", index):
+            return index
+        index += 1
+    return -1
+
+
+def _skip_ws_comments_right(text: str, pos: int) -> int:
+    """Return the first significant offset at or above pos.
+
+    Whitespace, ``//`` line comments, and ``/*`` block comments carry no
+    structure, so a comma hunt walks over them.
+    """
+    index = pos
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char.isspace():
+            index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = length if newline < 0 else newline
+        elif text.startswith("/*", index):
+            terminator = text.find("*/", index + 2)
+            index = length if terminator < 0 else terminator + 2
+        else:
+            break
+    return index
+
+
+def _skip_ws_comments_left(text: str, pos: int) -> int:
+    """Return the first significant offset at or below pos, or -1.
+
+    Walks backwards over whitespace and comments. A line that ends in a
+    ``//`` comment is skipped to the comment start, so a comma hidden under
+    it is still found; anything else significant stops the walk, including
+    strings, whose quotes the walk never crosses.
+    """
+    index = pos
+    while index >= 0:
+        char = text[index]
+        if char.isspace():
+            if char == "\n":
+                line_start = text.rfind("\n", 0, index) + 1
+                comment = _line_comment_start(text[line_start:index])
+                if comment >= 0:
+                    index = line_start + comment - 1
+                    continue
+            index -= 1
+        elif index >= 1 and char == "/" and text[index - 1] == "*":
+            opener = text.rfind("/*", 0, index)
+            if opener < 0:
+                break
+            index = opener - 1
+        elif index >= 1 and char == "/" and text[index - 1] == "/":
+            index -= 2
+        else:
+            break
+    return index
+
+
 def span_without_adjacent_comma(original: str, start: int, end: int) -> tuple[int, int]:
-    """Grow one removal span by exactly one adjacent comma, either side."""
-    after = end
-    while after < len(original) and original[after].isspace():
-        after += 1
+    """Grow one removal span by exactly one adjacent comma, either side.
+
+    The hunt skips whitespace and comments, so a comment between the removed
+    span and its separating comma never hides that comma. When no comma is
+    adjacent the skipped text stays and the span is unchanged.
+    """
+    after = _skip_ws_comments_right(original, end)
     if after < len(original) and original[after] == ",":
         return start, after + 1
-    before = start - 1
-    while before >= 0 and original[before].isspace():
-        before -= 1
+    before = _skip_ws_comments_left(original, start - 1)
     if before >= 0 and original[before] == ",":
-        start = before
+        return before, end
     return start, end
+
+
+def jsonc_array_span_around(original: str, token_start: int) -> tuple[int, int]:
+    """Return the (start, end) offsets of the JSON array open at token_start.
+
+    The walk parses the JSONC structure — strings, ``//`` line comments, and
+    ``/*`` block comments are skipped — so a bracket inside a comment or an
+    option string never opens or closes a span. The token must occur once and
+    outside comments; the parsed document the caller checked guarantees both.
+    The innermost array open at the token is the element span the caller
+    removes. A token position the walk never reaches, an unterminated span,
+    or a non-array element refuses instead of guessing.
+    """
+    refuse = "cannot safely remove the managed plugin entry from the OpenCode config"
+    stack: list[int] = []
+    close_at: dict[int, int] = {}
+    open_at_token = -1
+    index = 0
+    length = len(original)
+    while index < length:
+        if index == token_start and stack:
+            open_at_token = stack[-1]
+        character = original[index]
+        if character == '"':
+            index += 1
+            while index < length:
+                if original[index] == "\\":
+                    index += 2
+                    continue
+                if original[index] == '"':
+                    break
+                index += 1
+            index += 1
+            continue
+        if character == "/" and index + 1 < length and original[index + 1] == "/":
+            newline = original.find("\n", index)
+            index = length if newline < 0 else newline
+            continue
+        if character == "/" and index + 1 < length and original[index + 1] == "*":
+            terminator = original.find("*/", index + 2)
+            index = length if terminator < 0 else terminator + 2
+            continue
+        if character in "[{":
+            stack.append(index)
+        elif character in "]}":
+            if not stack:
+                raise InstallerError(refuse)
+            close_at[stack.pop()] = index
+        index += 1
+    if open_at_token < 0 or original[open_at_token] != "[" or open_at_token not in close_at:
+        raise InstallerError(refuse)
+    return open_at_token, close_at[open_at_token] + 1
 
 
 def drop_json_array_span(original: str, token: str) -> str:
     """Remove the whole JSON array that contains token, plus one adjacent comma.
 
     The tuple form of the plugin entry carries operator options beside the
-    managed path, so deregistration removes the enclosing bracket span —
-    string-aware, so brackets inside option strings never end the scan —
-    rather than the path token alone, which would strand an option fragment.
-    The caller guarantees the token occurs exactly once in the original text.
+    managed path, so deregistration removes the parsed element span — located
+    by walking the JSONC structure, so a bracket inside a comment or an option
+    string never ends the scan — rather than the path token alone, which would
+    strand an option fragment. The caller guarantees the token occurs exactly
+    once in the original text.
     """
-    token_start = original.index(token)
-    open_index = -1
-    for index in range(token_start - 1, -1, -1):
-        if original[index] == "[":
-            open_index = index
-            break
-    if open_index < 0:
-        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
-    end = -1
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(open_index, len(original)):
-        character = original[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character == "[":
-            depth += 1
-        elif character == "]":
-            depth -= 1
-            if depth == 0:
-                end = index
-                break
-    if end < 0:
-        raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
-    start, end = span_without_adjacent_comma(original, open_index, end + 1)
+    open_index, end = jsonc_array_span_around(original, original.index(token))
+    start, end = span_without_adjacent_comma(original, open_index, end)
     return original[:start] + original[end:]
 
 

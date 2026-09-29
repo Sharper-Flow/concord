@@ -956,19 +956,23 @@ function secondSessionLaunch(workID: string, projectID: string, directory: strin
   return { argv, directory, runnable: argv.map(shellQuote).join(" ") }
 }
 
-// projectRepository resolves a Project's canonical repository through the
-// core's worktree-locate read. The canonical path is the comparison value
-// for the repository gate: two equal canonical paths are one repository, and
-// a differing path never reaches the host move that crosses repositories.
-async function projectRepository(workID: string, projectID: string, context: ToolContext): Promise<string> {
-  const result = await runWorkStartChild([concordBinaryPath(), "worktree-locate"], JSON.stringify({ project_id: projectID, work_id: workID }), context.abort, { cwd: context.directory })
+// projectCanonicalRepository resolves a Project's registered canonical
+// repository path through the core's project-canonical-path read. The
+// canonical path is the comparison value for the repository gate: two equal
+// canonical paths are one repository, and a differing path never reaches the
+// host move that crosses repositories. The read resolves no git ref and no
+// commit, so a member Project whose repository has no resolvable default ref
+// still routes; worktree-locate, which derives those git facts for the
+// worktree claim, stays out of the routing decision (CD-0182).
+async function projectCanonicalRepository(projectID: string, context: ToolContext): Promise<string> {
+  const result = await runWorkStartChild([concordBinaryPath(), "project-canonical-path"], JSON.stringify({ project_id: projectID }), context.abort, { cwd: context.directory })
   if (result.exitCode !== 0) throw new AdapterFailure("invalid_input", "project_location_failed", result.stderr.slice(0, MAX_STDERR), "none", "correct_request")
   let parsed: any
   try { parsed = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
-  if (typeof parsed.repo !== "string" || !parsed.repo.startsWith("/") || typeof parsed.path !== "string" || !parsed.path.startsWith("/")) {
-    throw new AdapterFailure("malformed_response", "malformed_core_response", "worktree-locate response failed the location contract")
+  if (typeof parsed.canonical_path !== "string" || !parsed.canonical_path.startsWith("/")) {
+    throw new AdapterFailure("malformed_response", "malformed_core_response", "project-canonical-path response failed the location contract")
   }
-  return parsed.repo
+  return parsed.canonical_path
 }
 
 // openSecondCoordinatorSession routes a resume whose named Project lives in
@@ -1097,8 +1101,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       const selectedProject = (args as { project_id: string }).project_id
       if (selectedProject !== ambient.projectID) {
         const workID = (args as { work_id: string }).work_id
-        const selectedRepo = await projectRepository(workID, selectedProject, context)
-        const ambientRepo = await projectRepository(workID, ambient.projectID, context)
+        const selectedRepo = await projectCanonicalRepository(selectedProject, context)
+        const ambientRepo = await projectCanonicalRepository(ambient.projectID, context)
         if (selectedRepo !== ambientRepo) {
           return await openSecondCoordinatorSession(workID, selectedProject, selectedRepo, context)
         }

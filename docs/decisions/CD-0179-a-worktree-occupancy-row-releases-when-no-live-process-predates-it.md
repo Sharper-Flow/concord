@@ -7,6 +7,7 @@
   reclaim limit bounds;
   [Concord (CON) issue 509](https://linear.app/sharper-flow/issue/CON-509)
 - **Amends:** CD-0178 D3 at the stored occupant
+- **Amended by:** [CD-0190](CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md) at D1's release clause and D4's release order: the vacate commit records the relocation request and releases nothing, and the verified landing the adapter-only verb records releases the session's rows in one transaction.
 - **Preserves:** CD-0178 D1, D2, and D4 in full, and every content gate the
   removal operations run
 - **Related:** CD-0096, CD-0104, CD-0111, CD-0118, CD-0176

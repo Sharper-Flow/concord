@@ -1819,31 +1819,43 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   const requestID = `${context.sessionID}-${context.messageID}`
   const input = args.input
   if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
+    // The composed routes strip a destination before the core call, so this
+    // refusal is pre-commit. A caller that reaches it on an ok envelope
+    // reports the recorded relocation request truthfully instead.
+    const committed = record(envelope) && envelope.outcome === "ok"
+    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", committed ? "possible" : "none", "correct_request")
   }
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
   const result = envelope.result
   const destination = record(result) ? result.destination_directory : undefined
   if (typeof destination !== "string" || !destination.startsWith("/")) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", "core session_vacate response did not carry an absolute derived destination", "none", "retry_same_request")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", "core session_vacate response did not carry an absolute derived destination", "possible", "retry_same_request")
   }
-  try {
-    await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
-    const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
-    const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
-    return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, message, "none", recovery)
+  // A replay that resolves a pending landing arrives with the session already
+  // at the registered main checkout, so the move is skipped and the readback
+  // below still verifies the landing before the vacate-landing verb records
+  // it. The core vacate committed the relocation request, so every refusal
+  // from here on reports a possible effect: the request stands and the
+  // occupancy rows wait for the landing.
+  if (typeof context.directory !== "string" || !samePath(context.directory, destination)) {
+    try {
+      await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
+      const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
+      const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
+      return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, message, "possible", recovery)
+    }
   }
   let landed: string
   try {
     landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", error instanceof Error ? error.message : String(error), "possible", "retry_same_request")
   }
   if (!samePath(landed, destination)) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "none", "retry_same_request")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "possible", "retry_same_request")
   }
   // The host readback names the registered main checkout, so the verified
   // landing records itself through the same adapter-only landing owner the
@@ -1851,17 +1863,18 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // and left every occupancy row standing; the landing releases the
   // session's rows in one transaction. A landing the core refuses records
   // nothing, so the source occupancy stands and the removal gate never sees
-  // a live session's worktree as empty; replaying session_vacate retries the
-  // move and the landing record.
+  // a live session's worktree as empty; replaying session_vacate from the
+  // verified destination resolves the pending request and retries the
+  // landing record.
   const workID = record(result) ? result.work_id : undefined
   if (typeof workID !== "string" || workID === "") {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_landing_unattributable", "the vacate's landing verified by readback carries no work id to record it under", "none", "retry_same_request")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_landing_unattributable", "the vacate's landing verified by readback carries no work id to record it under", "possible", "retry_same_request")
   }
   try {
     await recordVacateLanding(workID, context.sessionID, destination, context.abort)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay session_vacate to retry the landing record`, "none", "retry_same_request")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay session_vacate from the verified destination to record the landing`, "possible", "retry_same_request")
   }
   // The verified landing released the occupancy rows, so no claimed worktree
   // is armed for this session any more.

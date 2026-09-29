@@ -97,7 +97,13 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     await fakeHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/other" } }))
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-3" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
-    if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_destination_mismatch")
+    if (envelope.outcome === "error") {
+      const error = envelope.error as { adapter_reason?: string; effect_state?: string }
+      expect(error.adapter_reason).toBe("vacate_destination_mismatch")
+      // The relocation request committed, so the refusal reports a possible
+      // effect and the occupancy stands.
+      expect(error.effect_state).toBe("possible")
+    }
     // The refused move leaves the occupancy standing: no landing runs.
     expect(landingCalls).toEqual([])
   })
@@ -113,9 +119,25 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-refused" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
-      expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("vacate_landing_refused")
-      expect((envelope.error as { message: string }).message).toContain("the source occupancy stands")
+      const error = envelope.error as { adapter_reason?: string; effect_state?: string; message: string }
+      expect(error.adapter_reason).toBe("vacate_landing_refused")
+      expect(error.effect_state).toBe("possible")
+      expect(error.message).toContain("the source occupancy stands")
+      expect(error.message).toContain("replay session_vacate from the verified destination")
     }
+  })
+
+  // A replay that resolves a pending landing arrives with the session already
+  // at the registered main checkout, so the move is skipped and the verified
+  // landing records through the adapter-only verb.
+  test("replay from the verified destination skips the move and records the landing", async () => {
+    await fakeHost(() => {
+      throw new Error("no move may run when the session already sits at the destination")
+    }, () => ({ status: 200, body: { directory: "/main" } }))
+    const replayContext = { ...context(), directory: "/main" } as Parameters<typeof moveSessionToRegisteredMainCheckout>[1]
+    const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-replay" }), replayContext, okEnvelope())
+    expect(envelope.outcome).toBe("ok")
+    expect(landingCalls).toEqual(["/main"])
   })
 
   // The confirmed vacate landing drops the armed claim, so a later dispatch

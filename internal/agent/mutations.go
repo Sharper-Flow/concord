@@ -2557,6 +2557,28 @@ func (r runtime) planSessionVacate(ctx context.Context, base Envelope, raw []byt
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		target, err := store.ResolveSessionVacateTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef)
 		if err != nil {
+			// A vacate whose host move landed without a recorded landing
+			// leaves the session outside every active worktree with the
+			// relocation request standing. The replay from the verified
+			// destination is the recovery: the core resolves it to the
+			// committed request and appends nothing, and the adapter-only
+			// vacate-landing verb records the landing and releases the
+			// session's rows in its own transaction, so no stale row strands
+			// the session from claiming other work.
+			var failure *store.Failure
+			if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
+				if pending, perr := store.ResolveSessionVacateReplayTargetTx(ctx, tx, project, grant.Worktree, grant.SessionRef); perr == nil {
+					result, merr := json.Marshal(map[string]any{
+						"changed_refs":          mutationResultChangedRefs([]ChangedRef{}),
+						"next_valid_intents":    mutationResultIntents(plan.intents),
+						"work_id":               pending.WorkID,
+						"project_id":            pending.ProjectID,
+						"source_directory":      pending.SourceDirectory,
+						"destination_directory": pending.DestinationDirectory,
+					})
+					return result, nil, []ChangedRef{}, merr
+				}
+			}
 			return nil, nil, nil, err
 		}
 		// The request digest is caller-constant here: mutationDigest strips

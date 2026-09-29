@@ -56,6 +56,40 @@ func TestSessionVacateRequestLeavesOccupancyStanding(t *testing.T) {
 	}
 }
 
+func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	req := baseClaim(git)
+	req.SessionRef = "ses-x"
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		vacateRequestEvent("vacate-replay", claimPath(s), "/data/repo-main"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	var target SessionVacateReplayTarget
+	err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		var resolveErr error
+		target, resolveErr = ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/repo-main", "ses-x")
+		return resolveErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.WorkID != "work-w" || target.ProjectID != "project-w" || target.DestinationDirectory != "/data/repo-main" || target.SourceDirectory != claimPath(s) {
+		t.Fatalf("replay target=%+v", target)
+	}
+	err = s.Transact(context.Background(), func(transaction *Transaction) error {
+		_, resolveErr := ResolveSessionVacateReplayTargetTx(context.Background(), transaction, "project-w", "/data/elsewhere", "ses-x")
+		return resolveErr
+	})
+	if failureKind(err) != KindProjectionNotFound {
+		t.Fatalf("err=%v, want projection_not_found off the committed destination", err)
+	}
+}
+
 func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)

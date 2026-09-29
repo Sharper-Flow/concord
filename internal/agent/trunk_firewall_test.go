@@ -270,8 +270,13 @@ func TestMainCheckoutAllowlistDeclaresBothSides(t *testing.T) {
 	if !ok {
 		t.Fatal("work_transition operation allowlist is missing")
 	}
-	if _, ok := operations["lifecycle"]; !ok || len(operations) != 1 {
-		t.Fatalf("work_transition operation allowlist=%v, want lifecycle only", operations)
+	for _, operation := range []string{"lifecycle", "session_vacate"} {
+		if _, ok := operations[operation]; !ok {
+			t.Fatalf("operation %q is missing from the work_transition main-checkout allowlist", operation)
+		}
+	}
+	if len(operations) != 2 {
+		t.Fatalf("work_transition operation allowlist=%v, want lifecycle and session_vacate only", operations)
 	}
 	retirement, ok := mainCheckoutWorktreeRetirementOperations[Capability("work_transition")]
 	if !ok {

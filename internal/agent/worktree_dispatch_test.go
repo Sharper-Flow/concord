@@ -713,6 +713,129 @@ func TestSessionVacateSucceedsFromLinkedWorktreeMutation(t *testing.T) {
 	}
 }
 
+// A vacate whose host move landed without a recorded landing leaves the
+// session outside every active worktree with the relocation request
+// standing. The replay from the verified destination is the recovery: the
+// core resolves it to the committed request and appends nothing, and the
+// adapter-only vacate-landing verb records the landing that releases the
+// session's rows.
+func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
+	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
+	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/vacate", "claim-vacate")
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.Worktree = worktreePath
+	env.Directory = worktreePath
+	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-replay-1"}`)}, env)
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("first vacate response=%+v error=%+v err=%v", first, first.Error, err)
+	}
+
+	// The replay arrives from the registered main checkout the committed
+	// request names, so the grant resolves as a main-checkout caller.
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayEnv := mutationEnvelope(grant, scopeVersion)
+	replayEnv.Worktree = repoRoot
+	replayEnv.Directory = repoRoot
+	replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-replay-2"}`)}, replayEnv)
+	if err != nil || replay.Outcome != OutcomeOK {
+		t.Fatalf("replay response=%+v error=%+v err=%v", replay, replay.Error, err)
+	}
+	var result struct {
+		WorkID               string `json:"work_id"`
+		ProjectID            string `json:"project_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if err := json.Unmarshal(replay.Result, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.WorkID != "work-1" || result.ProjectID != "project-1" || result.SourceDirectory != worktreePath || result.DestinationDirectory != repoRoot {
+		t.Fatalf("replay result=%+v", result)
+	}
+	var vacates int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 1 {
+		t.Fatalf("session_vacated events=%d, want the one committed request", vacates)
+	}
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 1 {
+		t.Fatalf("occupancy rows after the replay=%d, want the row standing until the landing records", occupied)
+	}
+	if _, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: grant.SessionRef, LandedDirectory: repoRoot, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 0 {
+		t.Fatalf("occupancy rows after the verified landing=%d, want 0", occupied)
+	}
+}
+
+// The allowlist admits session_vacate from the registered main checkout only
+// to resolve a committed relocation request. A session with no committed
+// request naming the main checkout still refuses there, and the refusal
+// appends no event and moves no occupancy row.
+func TestSessionVacateFromMainCheckoutWithoutPendingRequestRefuses(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, repoRoot, _ := worktreeDispatchFixture(t)
+	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
+		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.Worktree = repoRoot
+	env.Directory = repoRoot
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "session_vacate", Input: json.RawMessage(`{"idempotency_key":"vacate-main-no-request"}`)}, env)
+	if err != nil || response.Outcome != OutcomeError || response.Error == nil {
+		t.Fatalf("response=%+v err=%v, want a refusal", response, err)
+	}
+	if response.Error.Kind != "unknown_scope" {
+		t.Fatalf("error.kind=%q, want unknown_scope", response.Error.Kind)
+	}
+	if !strings.Contains(response.Error.Message, "does not run in an active Concord worktree") {
+		t.Fatalf("error.message=%q, want the no-active-worktree refusal", response.Error.Message)
+	}
+	var vacates int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_vacated'`).Scan(&vacates); err != nil {
+		t.Fatal(err)
+	}
+	if vacates != 0 {
+		t.Fatalf("session_vacated events=%d, want none from a refused main-checkout vacate", vacates)
+	}
+	var occupied int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy WHERE session_ref=?`, grant.SessionRef).Scan(&occupied); err != nil {
+		t.Fatal(err)
+	}
+	if occupied != 0 {
+		t.Fatalf("occupancy rows=%d, want none for a session with no committed request", occupied)
+	}
+}
+
 // The vacate request digest is caller-constant: the input carries only the
 // idempotency key, which mutationDigest strips. When the event id was the
 // bare digest, the first vacate ever recorded owned the id for every later

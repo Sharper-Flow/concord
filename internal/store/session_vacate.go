@@ -295,6 +295,51 @@ func recordSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, req SessionVa
 	return out, nil
 }
 
+// SessionVacateReplayTarget names the committed relocation request that a
+// session_vacate replay from the verified destination resolves to.
+type SessionVacateReplayTarget struct {
+	WorkID               string
+	ProjectID            string
+	SourceDirectory      string
+	DestinationDirectory string
+}
+
+// ResolveSessionVacateReplayTargetTx resolves the newest committed vacate
+// request of one session whose registered main checkout is the caller's
+// current directory. A host move that landed without a recorded landing
+// leaves the request standing and the session outside every active worktree,
+// so the replay from the verified destination is the recovery: the core
+// resolves it to the pending request and appends nothing, and the
+// adapter-only vacate-landing verb records the landing and releases the
+// session's rows. It runs inside the caller's transaction so the read
+// observes the caller's own uncommitted events.
+func ResolveSessionVacateReplayTargetTx(ctx context.Context, transaction *Transaction, projectID, directory, sessionRef string) (SessionVacateReplayTarget, error) {
+	var target SessionVacateReplayTarget
+	tx, err := transactionSQL(transaction, "session_vacate")
+	if err != nil {
+		return target, err
+	}
+	if projectID == "" || directory == "" || sessionRef == "" {
+		return target, newFailure(KindInvalidOperation, "session_vacate", "the vacate replay requires the resolved Project, session, and directory", false, "run the operation from a linked worktree or the verified destination")
+	}
+	var raw string
+	err = tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE kind='work.session_vacated' AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.project_id')=? AND json_extract(payload,'$.destination_directory')=? ORDER BY seq DESC LIMIT 1`, sessionRef, projectID, filepath.Clean(directory)).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return target, newFailure(KindProjectionNotFound, "session_vacate", "no committed session vacate names this directory as its registered main checkout", false, "run session_vacate from a linked worktree")
+	}
+	if err != nil {
+		return target, wrapFailure(KindUnavailable, "session_vacate", "cannot read the committed vacate request", true, "retry once the database is readable", err)
+	}
+	var p sessionVacatedPayload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload does not decode", false, "repair the recorded event")
+	}
+	if p.WorkID == "" || p.SourceDirectory == "" {
+		return target, newFailure(KindInvalidPayload, "session_vacate", "the recorded vacate payload is missing required fields", false, "repair the recorded event")
+	}
+	return SessionVacateReplayTarget{WorkID: p.WorkID, ProjectID: p.ProjectID, SourceDirectory: p.SourceDirectory, DestinationDirectory: filepath.Clean(directory)}, nil
+}
+
 // latestSessionVacateRequestTx reads the newest vacate event of one work item
 // and session. It runs inside the caller's transaction so the read observes
 // the caller's own uncommitted events.

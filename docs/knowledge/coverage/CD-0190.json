@@ -1,0 +1,54 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSessionVacateRequestLeavesOccupancyStanding"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSessionVacateReplayTargetResolvesTheCommittedRequest"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSessionVacateLandingReleasesRowsInOneTransaction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSessionVacateReleasesEveryWorkItemRow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSessionVacateFromMainCheckoutWithoutPendingRequestRefuses"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/session-vacate-move.test.ts#replay from the verified destination skips the move and records the landing"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/session-vacate-move.test.ts#refuses a landing mismatch and records no vacate landing"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0190",
+  "state": "satisfied"
+}

@@ -318,17 +318,20 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     ])
     expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
 
-    // A retry of one unchanged vacate after the landing holds moves nothing
-    // and changes nothing: the host readback now reports the main checkout,
-    // whose refusal the core answers before any move or occupancy write,
-    // and the durable vacate history still holds exactly one operation with
-    // the occupancy row standing until a landing records.
+    // A retry of one unchanged vacate after the landed-but-unconfirmed move
+    // recovers: the replay resolves to the recorded relocation request and
+    // moves nothing, and the verified landing the readback earns records
+    // through the adapter-only vacate-landing verb, releasing the session's
+    // row so no stale row strands the session from claiming other work.
     const replay = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-1" }, worktree1)
-    expect(replay.outcome, JSON.stringify(replay)).toBe("error")
-    expect((replay.error as any).kind).toBe("unauthorized")
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    expect(replay.replayed).toBe(true)
     expect(moves).toHaveLength(2)
     expect(vacateEvents()).toHaveLength(1)
-    expect(worktreeEntries()[0].occupant).toBe(SESSION_ID)
+    expect(worktreeEntries()[0].occupant).toBe("")
+    const recoveries = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
+    expect(recoveries).toHaveLength(1)
+    expect(JSON.parse(recoveries[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
 
     // Work resume's read remains read-only. A move back from main refuses
     // while the tool context still reports main; next-turn replay from the
@@ -368,11 +371,14 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
         destination_directory: repo1.repo,
       })
     }
-    // The verified landing recorded its own event and released the
-    // session's rows in one transaction.
+    // Both landings recorded their own event and each released the
+    // session's rows in one transaction: the recovery landing, then the
+    // second vacate's landing.
     const landings = dbRows(dbPath, "SELECT payload FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? ORDER BY seq", workID)
-    expect(landings).toHaveLength(1)
-    expect(JSON.parse(landings[0].payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    expect(landings).toHaveLength(2)
+    for (const landing of landings) {
+      expect(JSON.parse(landing.payload as string)).toMatchObject({ work_id: workID, session_ref: SESSION_ID, landed_directory: repo1.repo })
+    }
 
     // Both vacates preserve the original Project claim, active and
     // unoccupied. The vacated session then claims the same work item in the

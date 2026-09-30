@@ -3,8 +3,7 @@ import { hostControlPlane } from "./move-session"
 
 const CONTINUITY_TTL_MS = 10_000
 // Session identities the render cache can hold. The cache is process-local
-// and otherwise unbounded, so the cap evicts the least recently rendered
-// session, mirroring the agent-switch hook's bound.
+// and otherwise unbounded, so the cap evicts in insertion order once full.
 const MAX_CACHED_SESSIONS = 512
 const START_SENTINEL = "<!-- concord:continuity:v1 -->"
 const END_SENTINEL = "<!-- /concord:continuity:v1 -->"
@@ -55,13 +54,16 @@ export function createContinuityTransform(options: ContinuityOptions = {}) {
       // A session with a managed parent is a dispatched lane; the dispatch
       // packet is the lane's complete Concord context (CD-0017 D4), so the
       // lane gets no continuity block of its parent's work.
+      // The transform runs on every chat completion, so both host reads carry
+      // their own deadline: a wedged host read must never stall system-prompt
+      // assembly.
       if (await sessions.hasManagedParent(sessionID)) return
       // The coordinator resolves its work from the directory the host runs
       // the session in, through the claimed worktree — never from the
       // launcher environment, which goes stale when work_start moves the
       // session. A directory that resolves no active claim prints no packet,
       // so the session renders no block rather than the launch item's.
-      const directory = await sessions.sessionDirectory(sessionID)
+      const directory = await sessions.sessionDirectory(sessionID, AbortSignal.timeout(5_000))
       if (!directory) return
 
       const identity = `${sessionID}\u0000${directory}`

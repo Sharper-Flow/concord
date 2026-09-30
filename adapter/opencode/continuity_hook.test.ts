@@ -187,6 +187,29 @@ test("continuity transform re-resolves after a work_start retarget", async () =>
   expect(transformed.system[0].indexOf(START)).toBe(transformed.system[0].lastIndexOf(START))
 })
 
+test("continuity transform ignores the launcher identity environment", async () => {
+  // Clause 3's negative: a session whose directory resolves no active claim
+  // renders no block even with the launcher identity environment set, so the
+  // stale launch item's continuity can never reach a moved session.
+  Bun.env.CONCORD_SELECTED_PRODUCT_ID = "concord"
+  Bun.env.CONCORD_SELECTED_WORK_ID = "work-launch-item"
+  const original = "coordinator bytes"
+  const unchanged = output(original)
+  let calls = 0
+  const transform = createContinuityTransform({
+    sessions: {
+      hasManagedParent: async () => false,
+      sessionDirectory: async () => "",
+    },
+    runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: "unexpected", stderr: "" } } },
+  }) as Transform
+
+  await transform({ sessionID: "ses-moved" }, unchanged)
+
+  expect(unchanged.system[0]).toBe(original)
+  expect(calls).toBe(0)
+})
+
 test("continuity transform leaves system bytes unchanged on failure, empty output, or unreadable session", async () => {
   const original = "prefix\n\nexact bytes"
   const failed = output(original)

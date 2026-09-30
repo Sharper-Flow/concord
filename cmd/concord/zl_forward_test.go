@@ -196,7 +196,7 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	t.Setenv(selectedProductEnv, "fwd-alpha-product")
 	// A regression that skips the guard must fail here without a remote call.
 	t.Setenv(linearclient.EnvAPIKey, "")
-	t.Setenv(linearclient.EnvEndpoint, "http://127.0.0.1:1/graphql")
+	t.Setenv(linearclient.EnvEndpoint, "https://linear.invalid/graphql")
 	calls := captureForwardSession(t)
 	var out, errOut bytes.Buffer
 	if code := runZLForwarding([]string{"FWD-404", "--project", "fwd-alpha-project"}, strings.NewReader(""), &out, &errOut); code != 1 {

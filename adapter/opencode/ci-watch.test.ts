@@ -398,3 +398,25 @@ test("a JSON-Schema envelope of the arguments still starts the watch", async () 
   expect(started.status).toBe("started")
   await ciWatchSettled(String(started.watch_id))
 })
+
+test("a serialized selector string and a flattened kind/value pair both start the watch", async () => {
+  const fixture = hostFixture({ messages: [] })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success" }) },
+    { stdout: JSON.stringify({ status: "success" }) },
+  ])
+  configureCiWatch({ spawner })
+  const sha = "d6dcfb372fbac68788410ce2a03e20ed88c2fa84"
+  const serialized = result(
+    await concord_ci_watch.execute({ repo: "owner/name", selector: JSON.stringify({ kind: "sha", value: sha }) }, context),
+  )
+  expect(serialized.status).toBe("started")
+  await ciWatchSettled(String(serialized.watch_id))
+  const flattened = result(await concord_ci_watch.execute({ repo: "owner/name", kind: "sha", value: sha }, context))
+  expect(flattened.status).toBe("started")
+  await ciWatchSettled(String(flattened.watch_id))
+})

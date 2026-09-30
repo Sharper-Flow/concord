@@ -265,7 +265,25 @@ function unwrapArgs(args: unknown): unknown {
 
 function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
   if (args === null || typeof args !== "object" || Array.isArray(args)) return "the request body must be a JSON object"
-  const record = args as Record<string, unknown>
+  const record = { ...(args as Record<string, unknown>) }
+  // The Code Mode bridge can deliver a nested argument as its serialized JSON
+  // string, and schema-presenting callers can flatten selector into sibling
+  // kind and value fields. Normalize both shapes before the closed validation.
+  if (typeof record.selector === "string") {
+    try {
+      record.selector = JSON.parse(record.selector)
+    } catch {
+      return "selector must be an object with kind and value, not a malformed JSON string"
+    }
+  }
+  if (record.selector === undefined && record.kind !== undefined && record.value !== undefined) {
+    record.selector = { kind: record.kind, value: record.value }
+    delete record.kind
+    delete record.value
+  }
+  if (typeof record.time_seconds_max === "string" && /^[0-9]+$/.test(record.time_seconds_max)) {
+    record.time_seconds_max = Number(record.time_seconds_max)
+  }
   if (typeof record.repo !== "string" || !/^[A-Za-z0-9][A-Za-z0-9.-]*\/[A-Za-z0-9][A-Za-z0-9.-]*$/.test(record.repo)) {
     return "repo is required as owner/name"
   }

@@ -317,7 +317,12 @@ func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID,
 	return locateWorktree(ctx, s.db, filepath.Dir(s.Path()), projectID, workID, ref, runner)
 }
 
-func locateWorktree(ctx context.Context, q queryer, dataDir, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
+// locateWorktree reads the Project's canonical locator and probes the
+// repository for the pinned base commit. It takes *sql.DB because the git
+// probes must never run inside an open transaction (CD-0195 D2): the type
+// makes a transaction caller a compile-time error. Callers pass the store's
+// own connection, and each read completes before the probes run.
+func locateWorktree(ctx context.Context, db *sql.DB, dataDir, projectID, workID, ref string, runner GitRunner) (WorktreeLocation, error) {
 	var out WorktreeLocation
 	if projectID == "" || workID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
@@ -326,7 +331,7 @@ func locateWorktree(ctx context.Context, q queryer, dataDir, projectID, workID, 
 		ref = "HEAD"
 	}
 	var repo string
-	err := q.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&repo)
+	err := db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE kind=? AND project_id=? ORDER BY locator_id LIMIT 1`, LocatorCanonicalPath, projectID).Scan(&repo)
 	if err == sql.ErrNoRows {
 		return out, newFailure(KindUnknownScope, "worktree_locate", "Project has no canonical_path locator", false, "register the repository's canonical path locator")
 	}
@@ -469,19 +474,33 @@ func (s *Store) ResolveProject(ctx context.Context, directory, worktree string) 
 	return s.ResolveProjectWithRunner(ctx, directory, worktree, ExecGitRunner{})
 }
 
+// ResolveProjectWithRunner probes the host git identity with no transaction
+// open, then matches the probed host against Project locators (CD-0195 D2).
+// The matcher is SQL only, so the pooled connection never spans the git work.
 func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
-	return resolveProjectWithRunner(ctx, s.db, directory, worktree, runner)
+	host, err := ResolveProjectHost(ctx, directory, worktree, runner)
+	if err != nil {
+		return ProjectResolution{}, err
+	}
+	return matchResolvedProjectHost(ctx, s.db, host)
 }
 
-// ResolveProjectTx resolves inside a caller-owned transaction. The store pools
-// one connection, so a resolution that reaches for s.db while a transaction
-// holds that connection never returns.
-func ResolveProjectTx(ctx context.Context, transaction *Transaction, directory, worktree string) (ProjectResolution, error) {
+// MatchResolvedProjectHost matches an already-probed host against the Project
+// locators with no transaction open. It is the non-transaction matcher behind
+// the agent authorization boundary.
+func (s *Store) MatchResolvedProjectHost(ctx context.Context, host ResolvedProjectHost) (ProjectResolution, error) {
+	return matchResolvedProjectHost(ctx, s.db, host)
+}
+
+// MatchResolvedProjectHostTx matches an already-probed host inside the
+// caller's transaction. It runs SQL only: every git fact arrived in the
+// probe, which the caller ran before the transaction opened (CD-0195 D2).
+func MatchResolvedProjectHostTx(ctx context.Context, transaction *Transaction, host ResolvedProjectHost) (ProjectResolution, error) {
 	tx, err := transactionSQL(transaction, "project_resolve")
 	if err != nil {
 		return ProjectResolution{}, err
 	}
-	return resolveProjectWithRunner(ctx, tx, directory, worktree, ExecGitRunner{})
+	return matchResolvedProjectHost(ctx, tx, host)
 }
 
 // ResolvedProjectHost carries the git facts one directory resolution probed
@@ -499,7 +518,7 @@ type ResolvedProjectHost struct {
 // worktree with no database access and no transaction open (CD-0195 D2).
 func ResolveProjectHost(ctx context.Context, directory, worktree string, runner GitRunner) (ResolvedProjectHost, error) {
 	if runner == nil {
-		runner = ExecGitRunner{}
+		return ResolvedProjectHost{}, newFailure(KindInvalidOperation, "resolve_project", "git runner is nil", false, "provide a git runner")
 	}
 	paths := []string{worktree, directory}
 	var root string
@@ -576,14 +595,6 @@ func matchResolvedProjectHost(ctx context.Context, q queryer, host ResolvedProje
 		id = candidate
 	}
 	return ProjectResolution{ProjectID: id, Repository: host.Host, Locators: locators, MainWorktree: host.MainWorktree}, nil
-}
-
-func resolveProjectWithRunner(ctx context.Context, q queryer, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
-	host, err := ResolveProjectHost(ctx, directory, worktree, runner)
-	if err != nil {
-		return ProjectResolution{}, err
-	}
-	return matchResolvedProjectHost(ctx, q, host)
 }
 
 func resolveRepositoryCommonRoot(ctx context.Context, runner GitRunner, worktreeRoot string) (string, error) {

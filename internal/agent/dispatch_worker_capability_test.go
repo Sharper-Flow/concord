@@ -106,9 +106,7 @@ func TestWorkerDispatchCapabilityIsInTheClientPolicyAllowList(t *testing.T) {
 	}
 	defer s.Close()
 	service := NewService(s)
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 
 	publicKey, _, err := ed25519.GenerateKey(nil)
 	if err != nil {

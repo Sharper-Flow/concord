@@ -23,15 +23,31 @@ func testClientRegistration(client, principal string, capabilities []Capability,
 	return ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: TrustedClientPolicy{PrincipalRef: principal, Capabilities: capabilities, ProductScope: products, ProjectScope: projects, AgentScope: testFixtureAgents}}
 }
 
+// resolveProjectAuthority installs the prober/matcher pair every
+// authorization reads: the prober reports the fixture host with no
+// transaction open, and the matcher answers with the resolution using SQL
+// only, mirroring the CLI wiring (CD-0195 D2).
+// probedHost is the fixture value a successful host probe returns.
+func probedHost() store.ResolvedProjectHost {
+	return store.ResolvedProjectHost{Canonical: "/repo", Host: store.HostRepository{CanonicalPath: "/repo"}}
+}
+
+func resolveProjectAuthority(service *Service, resolution store.ProjectResolution) {
+	service.ProjectHostProber = func(context.Context, string, string) (store.ResolvedProjectHost, error) {
+		return store.ResolvedProjectHost{Canonical: "/repo", Host: store.HostRepository{CanonicalPath: "/repo"}}, nil
+	}
+	service.ProjectHostMatcher = func(context.Context, *store.Transaction, store.ResolvedProjectHost) (store.ProjectResolution, error) {
+		return resolution, nil
+	}
+}
+
 // newAuthorizedService creates a registered client and a fixed project resolver for a fixture.
 func newAuthorizedService(t *testing.T, db *store.Store, client, principal string, capabilities []Capability, products, projects []string, resolution store.ProjectResolution) (*Service, Invocation, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	service := NewService(db)
 	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return resolution, nil
-	}
+	resolveProjectAuthority(service, resolution)
 	if err := service.RegisterTrustedClient(ctx, testClientRegistration(client, principal, capabilities, products, projects)); err != nil {
 		t.Fatal(err)
 	}
@@ -72,9 +88,7 @@ func TestAgentScopeBoundsTheAgentAClientMayPresent(t *testing.T) {
 			seedSimpleAuthorityScope(t, db)
 			service := NewService(db)
 			service.Now = fixedTime
-			service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-				return store.ProjectResolution{ProjectID: "project-1"}, nil
-			}
+			resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 			publicKey, _, err := ed25519.GenerateKey(cryptorand.Reader)
 			if err != nil {
 				t.Fatal(err)
@@ -119,15 +133,13 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)
 	}
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 	ctx := context.Background()
 	invocation := Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: "product_read", HostAssertionDigest: "sha256:host-resolution", ProductID: "product-1", ProjectID: "project-1"}
 	var challenge string
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		var err error
-		challenge, err = service.CreateApprovalChallengeTx(ctx, tx, invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
+		challenge, err = service.CreateApprovalChallengeTx(ctx, tx, probedHost(), invocation, ApprovalChallengeSpec{OperationDigest: "sha256:operation", Scope: map[string]any{"product_id": "product-1"}, Versions: map[string]any{"work": 3}, Consequence: "publication", HostAssertionDigest: invocation.HostAssertionDigest, ExpiresAt: fixedTime().Add(time.Hour)})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -135,7 +147,7 @@ func TestApprovalConsumptionIsTransactionBoundAndSingleUse(t *testing.T) {
 	var approval string
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
 		var err error
-		approval, err = service.CreateApprovalFromChallengeTx(ctx, tx, invocation, challenge)
+		approval, err = service.CreateApprovalFromChallengeTx(ctx, tx, probedHost(), invocation, challenge)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -222,9 +234,8 @@ func TestAuthorityMethodsGuardNilServiceAndStore(t *testing.T) {
 	if _, err := nilService.Authorize(ctx, Invocation{}); err == nil {
 		t.Fatal("nil service authorization did not fail")
 	}
-	service := &Service{ProjectResolver: func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}}
+	service := &Service{Store: nil}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "principal-1"}); err == nil {
 		t.Fatal("nil store policy update did not fail")
 	}

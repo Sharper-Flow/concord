@@ -437,10 +437,6 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		}
 		return response
 	}
-	mainCheckoutResolver := func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
-
 	t.Run("non-terminal work refuses", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, repoRoot, baseSHA := worktreeDispatchFixture(t)
@@ -448,7 +444,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-inprogress", "claim-inprogress")
 		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-inprogress")
 		seedWorkTransition(t, s, "work-1", "needed", "in_progress", 3)
-		service.ProjectResolver = mainCheckoutResolver
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		refused := dispatchReclaim(t, s, service, grant, "main-reclaim-inprogress", 4)
 		if refused.Outcome != OutcomeError || refused.Error == nil {
@@ -476,7 +472,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-terminal", "claim-terminal")
 		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-terminal")
 		seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
-		service.ProjectResolver = mainCheckoutResolver
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		response := dispatchReclaim(t, s, service, grant, "main-reclaim-terminal", 4)
 		if response.Outcome != OutcomeOK {
@@ -501,7 +497,7 @@ func TestWorktreeReclaimFromMainCheckoutRequiresTerminalWork(t *testing.T) {
 		claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/main-cancelled", "claim-cancelled")
 		vacateLinkedWorktree(t, s, service, grant, worktreePath, "vacate-cancelled")
 		seedWorkTransition(t, s, "work-1", "needed", "cancelled", 3)
-		service.ProjectResolver = mainCheckoutResolver
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 
 		response := dispatchReclaim(t, s, service, grant, "main-reclaim-cancelled", 4)
 		if response.Outcome != OutcomeOK {
@@ -589,9 +585,7 @@ func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/reclaim-observation", "reclaim-observation-claim")
 	seedWorkTransition(t, s, "work-1", "needed", "completed", 3)
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -740,9 +734,7 @@ func TestSessionVacateReplayFromVerifiedDestinationResolvesPendingLanding(t *tes
 
 	// The replay arrives from the registered main checkout the committed
 	// request names, so the grant resolves as a main-checkout caller.
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -821,9 +813,7 @@ func TestSessionVacateReplayOfCompletedRequestResolvesWithoutRows(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -916,9 +906,7 @@ func TestSessionVacateReplayOfCompletedRequestRefusesLaterClaimRows(t *testing.T
 	if err != nil || claim.Outcome != OutcomeOK {
 		t.Fatalf("claim work-2 response=%+v err=%v", claim, err)
 	}
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -960,9 +948,7 @@ func TestSessionVacateFromMainCheckoutWithoutPendingRequestRefuses(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, repoRoot, _ := worktreeDispatchFixture(t)
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

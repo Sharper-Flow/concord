@@ -748,11 +748,14 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	s.Clock = clock
 	service := agent.NewService(s)
 	service.Now = clock
-	service.ProjectResolver = func(ctx context.Context, tx *store.Transaction, directory, worktree string) (store.ProjectResolution, error) {
+	service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
+		return store.ResolveProjectHost(ctx, directory, worktree, store.ExecGitRunner{})
+	}
+	service.ProjectHostMatcher = func(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost) (store.ProjectResolution, error) {
 		if tx == nil {
-			return s.ResolveProject(ctx, directory, worktree)
+			return s.MatchResolvedProjectHost(ctx, host)
 		}
-		return store.ResolveProjectTx(ctx, tx, directory, worktree)
+		return store.MatchResolvedProjectHostTx(ctx, tx, host)
 	}
 	switch command {
 	case "invoke":

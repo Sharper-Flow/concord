@@ -1270,12 +1270,18 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
+	// The host probes before any transaction this mutation opens (CD-0195 D2);
+	// each authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	if requiresApproval && approval == "" {
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			return err
 		})
 		if txErr != nil {
@@ -1336,11 +1342,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return err
 			}
 		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
 			if err != nil {
 				return err
 			}
@@ -3300,6 +3306,20 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The CD-0092 D2 terminality gate runs before the pre-transaction probe:
+	// a main-checkout reclaim of non-terminal work refuses here with the same
+	// typed refusal the in-transaction re-authorization below enforces, so
+	// the probe's projection gates cannot answer first. The in-transaction
+	// gate stays authoritative; this read only preserves the refusal order.
+	if grant.MainWorktree {
+		lifecycle, lifecycleErr := r.Store.WorkLifecycle(ctx, in.WorkID)
+		if lifecycleErr != nil {
+			return failureEnvelope(base, lifecycleErr), nil, true
+		}
+		if !store.IsTerminalLifecycle(lifecycle) {
+			return failureEnvelope(base, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)), nil, true
+		}
+	}
 	// The lease set and the git facts are read before the mutation
 	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
 	// compares the lease snapshot against the row's recorded_at, and no
@@ -3466,6 +3486,12 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 
 	var response Envelope
 	var resultRejected bool
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -3475,7 +3501,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
@@ -3542,7 +3568,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		}
 		if approval == "" {
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			if challengeErr != nil {
 				return challengeErr
 			}
@@ -3552,7 +3578,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		if _, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+		if _, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
 			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
 			resultRejected = true
 			return errors.New("approval invalid")
@@ -3656,6 +3682,12 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 
 	var response Envelope
 	var resultRejected bool
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -3665,7 +3697,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
@@ -3736,7 +3768,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		}
 		if approval == "" {
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			if challengeErr != nil {
 				return challengeErr
 			}
@@ -3746,7 +3778,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
 			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
 			resultRejected = true
 			return errors.New("approval invalid")
@@ -4250,6 +4282,12 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
+	// The host probes before the transactions below open (CD-0195 D2); each
+	// authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	grant, err := r.Authority.Authorize(ctx, inv)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -4261,7 +4299,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			var challengeRef string
 			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 				var err error
-				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 				return err
 			}); err != nil {
 				return failureEnvelope(base, err), nil
@@ -4286,10 +4324,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 				return err
 			}
-			if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+			if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 				return err
 			}
-			_, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			return err
 		})
 		if claimErr != nil {
@@ -4786,6 +4824,12 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
 	var deferredInsert *store.MutationIdempotencyInsert
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return Envelope{}, hostErr
+	}
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -4795,7 +4839,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		grant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
@@ -4868,7 +4912,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if requiresApproval && approval == "" {
 			challengeScope := boundedApprovalScope(scope)
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			if err != nil {
 				return err
 			}
@@ -4892,12 +4936,12 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			response.Error.Details = details
 			return nil
 		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
 		if requiresApproval {
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-			if _, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
+			if _, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck); err != nil {
 				response = coreError(base, "approval_invalid", err.Error(), "request_approval", false)
 				resultRejected = true
 				return errors.New("approval invalid")
@@ -5117,7 +5161,15 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	return false
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
+// probeInvocationHost resolves the invoking git identity with no transaction
+// open (CD-0195 D2). Every mutation that opens a transaction runs it before
+// the transaction opens, and each authorization inside matches the probed
+// host against Project locators with SQL only.
+func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProjectHost, error) {
+	return r.Authority.ProbeProjectHost(ctx, r.Envelope.Directory, r.Envelope.Worktree)
+}
+
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, grant Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
 		return operator, "", fmt.Errorf("signed host approval assertion is required")
@@ -5129,7 +5181,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, i
 	}
 	approvalRef := check.ApprovalRef
 	if challenge {
-		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, inv, check.ApprovalRef)
+		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, host, inv, check.ApprovalRef)
 		if err != nil {
 			return operator, "", err
 		}

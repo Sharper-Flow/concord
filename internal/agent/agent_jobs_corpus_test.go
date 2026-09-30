@@ -1470,9 +1470,7 @@ func bindAJ1AmbiguousProduct(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _ := agentJobsPM1Fixture(t)
 	ambient, _ := sc.InitialState["ambient_project"].(string)
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "proj-shared"}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "proj-shared"})
 
 	// Resolve from proj-shared — should trigger ambiguous_scope.
 	env := agentJobsEnvelope(grant, ambient, "")

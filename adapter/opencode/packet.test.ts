@@ -529,16 +529,23 @@ test("every installed lane definition states the multi-entry remedy", async () =
 
 // The lane contract owns what the law block in inputs.context means and what
 // the report must disclose, so every generated lane definition carries the
-// shared conformance rule.
+// conformance rule. Only a lane granted edit_scoped_files is told to change
+// files or law documents.
 test("every installed lane definition carries the law conformance rule", async () => {
   for (const lane of agentLanes) {
     const agent = (await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()).replace(/\s+/g, " ")
     expect(agent, `${lane.id} omitted the law conformance rule`).toContain("Approved law and architecture block")
-    expect(agent).toContain("Read each named law document before you change files")
     expect(agent).toContain("Conform to it.")
-    expect(agent).toContain("`modified` or `added`")
     expect(agent).toContain("Report any conflict between that law and the assigned result in your evidence")
     expect(agent).toContain("`status` `failed`")
+    if ((lane.capabilities as readonly string[]).includes("edit_scoped_files")) {
+      expect(agent).toContain("Read each named law document before you change files")
+      expect(agent).toContain("`modified` or `added`")
+    } else {
+      expect(agent).toContain("Read each named law document before you assess the result")
+      expect(agent).not.toContain("before you change files")
+      expect(agent).not.toContain("`modified` or `added`")
+    }
   }
 })
 

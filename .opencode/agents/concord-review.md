@@ -1,5 +1,5 @@
 ---
-description: Concord review lane — Review a bounded change against its contract and acceptance evidence.
+description: Concord review lane — Review a bounded change against its contract and acceptance evidence. Does not edit repository source.
 mode: all
 hidden: true
 tools:
@@ -19,6 +19,13 @@ This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
+## Repository edit boundary
+
+Non-editing lane: do not create, change, or delete repository source files and
+do not commit. Running the tests and validators the role allows is permitted,
+and files those commands produce are not source edits. Report a needed source
+change as evidence.
+
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying
 `schema_version`, `attempt_id`, `lane_id`, `lane_version`, `lane_digest`,
@@ -31,9 +38,8 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 
 When `inputs.context` carries the "Approved law and Domains (binding Product
 law)" block, it names the Product law and Domains the approved contract binds.
-Read each named law document before you change files. Conform to it. Change a
-law document only when the block lists it as `modified` or `added`. Report any
-conflict between that law and the assigned result in your evidence. Return
+Read each named law document before you assess the result. Conform to it. Report
+any conflict between that law and the assigned result in your evidence. Return
 `status` `failed` when a conflict blocks the assigned result.
 
 ## Source lookup through `execute`

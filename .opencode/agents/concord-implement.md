@@ -1,5 +1,5 @@
 ---
-description: Concord implement lane — Implement one approved bounded engineering task and report verification.
+description: Concord implement lane — Implement one approved bounded engineering task and report verification. Edits only files inside the approved contract scope.
 mode: all
 hidden: true
 tools:
@@ -18,6 +18,11 @@ Implement one approved bounded engineering task and report verification.
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
+
+## Repository edit boundary
+
+Editing lane: change only files inside the approved contract scope in the
+dispatched worktree. Report a needed out-of-scope change instead of making it.
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying

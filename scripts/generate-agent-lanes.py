@@ -8,6 +8,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -262,20 +263,56 @@ Never invent a lookup result, and never present recall as a research call.
 """
 
 
-def law_conformance_instructions() -> str:
+def edits_scoped_files(lane: dict) -> bool:
+    """Whether the lane's declared capabilities grant scoped repository edits."""
+    return "edit_scoped_files" in lane.get("capabilities", [])
+
+
+def repository_edit_boundary(lane: dict) -> str:
+    # The capability registry is the only edit authority, so the boundary is
+    # derived from `edit_scoped_files` and cannot drift from it.
+    if edits_scoped_files(lane):
+        text = (
+            "Editing lane: change only files inside the approved contract scope in the "
+            "dispatched worktree. Report a needed out-of-scope change instead of making it."
+        )
+    else:
+        text = (
+            "Non-editing lane: do not create, change, or delete repository source files and "
+            "do not commit. Running the tests and validators the role allows is permitted, and "
+            "files those commands produce are not source edits. Report a needed source change "
+            "as evidence."
+        )
+    return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
+
+
+def law_conformance_instructions(lane: dict) -> str:
     # The dispatched packet carries the approved contract's bound law and
     # Domains as recorded state. The block's meaning and the disclosure the
     # report owes are lane contract, so one shared generated block serves
     # every lane; it states no host procedure (CD-0043 D1). Precedent: the
-    # generated packet-refusal block.
-    return """## Approved law and architecture block
+    # generated packet-refusal block. The read rule follows the lane's
+    # derived edit boundary: only a lane whose capabilities grant
+    # edit_scoped_files is told to change files.
+    if edits_scoped_files(lane):
+        read_rule = (
+            "Read each named law document before you change files. Conform to it. "
+            "Change a law document only when the block lists it as `modified` or `added`."
+        )
+    else:
+        read_rule = "Read each named law document before you assess the result. Conform to it."
+    paragraph = textwrap.fill(
+        'When `inputs.context` carries the "Approved law and Domains (binding Product '
+        'law)" block, it names the Product law and Domains the approved contract binds. '
+        f"{read_rule} Report any conflict between that law and the assigned result in "
+        "your evidence. Return `status` `failed` when a conflict blocks the assigned result.",
+        width=80,
+        break_on_hyphens=False,
+        break_long_words=False,
+    )
+    return f"""## Approved law and architecture block
 
-When `inputs.context` carries the "Approved law and Domains (binding Product
-law)" block, it names the Product law and Domains the approved contract binds.
-Read each named law document before you change files. Conform to it. Change a
-law document only when the block lists it as `modified` or `added`. Report any
-conflict between that law and the assigned result in your evidence. Return
-`status` `failed` when a conflict blocks the assigned result.
+{paragraph}
 """
 
 
@@ -303,6 +340,11 @@ milliseconds, or run a narrower test tier instead.
 
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
+    boundary_clause = (
+        "Edits only files inside the approved contract scope."
+        if edits_scoped_files(lane)
+        else "Does not edit repository source."
+    )
     evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
@@ -311,7 +353,7 @@ def agent_projection(lane: dict, report_schema: dict) -> str:
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     return f"""---
-description: Concord {lane['id']} lane — {lane['purpose']}
+description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
 mode: all
 hidden: true
 tools:
@@ -331,8 +373,12 @@ This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
 record workflow transitions, verdicts, completion, or spawn nested workers.
 
+## Repository edit boundary
+
+{repository_edit_boundary(lane)}
+
 {packet_refusal_instructions()}
-{law_conformance_instructions()}
+{law_conformance_instructions(lane)}
 {execute_source_lookup_instructions()}
 {command_duration_instructions(lane)}
 Return the report as a single JSON object, and nothing else, as your final

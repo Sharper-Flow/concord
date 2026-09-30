@@ -537,12 +537,11 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		row   ProductRow
 		works []productRowWork
 	}
-	// queryLimit already bounds limit to queryMaxLimit; the clamp keeps the
-	// capacity expression provably bounded at the allocation site.
-	if limit > queryMaxLimit {
-		limit = queryMaxLimit
-	}
-	products := make([]rawProductRow, 0, limit+1)
+	// queryLimit validates the requested page to at most queryMaxLimit rows.
+	// The allocation uses that constant ceiling directly so the capacity is a
+	// constant expression, not arithmetic on a request-sourced value; a page
+	// below the ceiling over-allocates by at most queryMaxLimit rows.
+	products := make([]rawProductRow, 0, queryMaxLimit+1)
 	productIndex := make(map[string]int)
 	registry := productRowWorkflowRegistry
 	definitionCache := make(map[string]RegisteredDefinition)

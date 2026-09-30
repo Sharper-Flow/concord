@@ -1,0 +1,45 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-2426fc2e27e187f6ef3dd3e0",
+    "tier": "legislated"
+  },
+  "date": "2026-09-30T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0198",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0156"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0183"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0198-small-items-batch-merge-and-derive-routine-workflow-actions.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3174cbc69dba39766762a6c02839cdb6f2681ca2bccadb3344131b15aa19507d",
+  "status": "accepted",
+  "summary": "A small item batch, merges, and derives routine coordinator records. One record_verdict call carries a verdict object per approved predicate, each with its own actor, evidence, and kind, so CD-0012 D7 evaluator distinctness holds per verdict. The three break_fix diagnosis records merge into one record_diagnosis action whose required sections carry the CD-0156 payload guards, and the alignment step narrows to workflow.implementation. The start of repair and refine derives from the first action at the step under the CD-0183 D2 derivation, keeping the epoch, the fence, and the CD-0192 refine bound. An accepted report that carries the delivery artifact folds the same typed delivery event CD-0166 D1 keeps coordinator-owned. The worker-failure record derives from the attempt terminal event, and reject_worker_result can carry the retry dispatch behind the CD-0173 escalation wall. Each decision names one implementation item; the record implements nothing.",
+  "tags": [
+    "workflow",
+    "workflow-actions",
+    "verdict",
+    "worker-attempts",
+    "law"
+  ],
+  "title": "Small items batch, merge, and derive routine workflow actions"
+}

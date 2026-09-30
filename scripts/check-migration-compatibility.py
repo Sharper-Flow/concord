@@ -170,6 +170,27 @@ class Tok(NamedTuple):
 
 GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 GO_NUMBER = re.compile(r"\d[\w.]*")
+# Integer literal forms of the Go spec: decimal, 0-leading octal, and the
+# 0x, 0o, and 0b prefixes, with underscores between digits. Anything else
+# a number token can carry (a float, an exponent) is not a version.
+GO_INT = re.compile(r"^(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|0[0-7_]*|[1-9][0-9_]*|0)$")
+
+
+def go_int(text: str) -> int | None:
+    """Parse one Go integer literal, or None when the text is not one."""
+    if not GO_INT.match(text):
+        return None
+    digits = text.replace("_", "")
+    lowered = digits.lower()
+    if lowered.startswith("0x"):
+        return int(digits, 16)
+    if lowered.startswith("0b"):
+        return int(digits, 2)
+    if lowered.startswith("0o"):
+        return int(digits, 8)
+    if digits.startswith("0") and len(digits) > 1:
+        return int(digits, 8)
+    return int(digits, 10)
 
 
 def go_tokens(region: str) -> list[Tok]:
@@ -349,24 +370,44 @@ def sql_field_sound(entry: str) -> bool:
     return run is None or (len(run) == 1 and run[0].kind == "raw")
 
 
+def migrations_binding(tokens: list[Tok]) -> int:
+    """Return the index of the migrations literal's opening brace token.
+
+    The binding is the token sequence var migrations = []migration followed
+    by an opening brace, all in code position: a lookalike sequence inside a
+    comment or a literal is never these tokens and cannot redirect the
+    walk to a decoy list.
+    """
+    keys = ("var", "migrations", "=", "[", "]", "migration")
+    for i in range(len(tokens) - len(keys)):
+        window = tokens[i : i + len(keys)]
+        if all(
+            t.kind in ("ident", "punct") and t.text == key for t, key in zip(window, keys)
+        ):
+            brace = tokens[i + len(keys)]
+            if brace.kind == "punct" and brace.text == "{":
+                return i + len(keys)
+    raise ValueError("no migrations binding in source")
+
+
 def migrations(source: str) -> list[tuple[int, str, str]]:
     """Return each migration's version, its entry text, and its SQL.
 
     Entries are brace groups of the migrations literal, found by walking
     tokens: a comment or a literal cannot open or close a group, and field
-    order inside an entry does not affect recognition. The SQL is the
-    token-recognized SQL field's raw string content, and declaration
-    searches tokenize the same entry, where a raw literal is one token, so
-    SQL content can never read as a Go field in either direction.
+    order inside an entry does not affect recognition. The literal itself
+    is located by its token sequence (var migrations = []migration {), so
+    a decoy binding inside a comment or a literal never redirects the
+    walk. The SQL is the token-recognized SQL field's raw string content,
+    and declaration searches tokenize the same entry, where a raw literal
+    is one token, so SQL content can never read as a Go field in either
+    direction.
 
-    An entry whose Version field is missing or unreadable parses with
-    version -1; evaluate refuses it by name.
+    An entry whose Version field is missing or not one Go integer literal
+    parses with version -1; evaluate refuses it by name.
     """
-    start = source.index("var migrations = []migration{")
-    tokens = go_tokens(source[start:])
-    opener = next(
-        i for i, t in enumerate(tokens) if t.kind == "punct" and t.text == "{"
-    )
+    tokens = go_tokens(source)
+    opener = migrations_binding(tokens)
     out: list[tuple[int, str, str]] = []
     depth = 1
     entry_start: int | None = None
@@ -379,11 +420,11 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
         if tok.kind == "punct" and tok.text == "}":
             depth -= 1
             if depth == 1 and entry_start is not None:
-                entry = source[start + entry_start : start + tok.at]
+                entry = source[entry_start:tok.at]
                 version_run = field_run(entry, "Version")
                 version = -1
                 if version_run and len(version_run) == 1 and version_run[0].kind == "number":
-                    version = int(version_run[0].text)
+                    version = go_int(version_run[0].text) or -1
                 out.append((version, entry, sql_literal(entry)))
                 entry_start = None
             if depth == 0:

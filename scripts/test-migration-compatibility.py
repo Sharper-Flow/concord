@@ -597,6 +597,66 @@ expect_evaluate(
     breaking=[],
 )
 
+# The migrations binding is located by its token sequence, so a decoy
+# binding inside a comment or a literal never redirects the walk.
+DECOY_PREFIX = (
+    "// var migrations = []migration{{Version: 1, Name: \"decoy\", SQL: `SELECT 1;`}}\n"
+)
+REAL_LIST = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 134,\n\t\tName: \"m134\",\n"
+    "\t\tSQL: `DROP TABLE existing;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a decoy binding in a comment does not hide the real list",
+    check.migrations(DECOY_PREFIX + REAL_LIST),
+    failures=1,
+    breaking=[134],
+)
+DECOY_STRING_SOURCE = (
+    'const doc = "var migrations = []migration{{Version: 1}}"\n\n' + REAL_LIST
+)
+expect_evaluate(
+    "a decoy binding in a string does not hide the real list",
+    check.migrations(DECOY_STRING_SOURCE),
+    failures=1,
+    breaking=[134],
+)
+
+# Version literals follow Go integer semantics: 0-leading octal and the
+# 0x prefix parse by their base, and anything that is not one integer
+# literal is the named unreadable-version refusal.
+def version_of(entry_body: str) -> int:
+    source = (
+        "var migrations = []migration{\n"
+        f"\t{{\n{entry_body}"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "}\n"
+    )
+    return check.migrations(source)[0][0]
+
+
+if version_of("\t\tVersion: 0156,\n") != 110:
+    FAILURES.append("octal version 0156 must parse as 110")
+if version_of("\t\tVersion: 0x6e,\n") != 110:
+    FAILURES.append("hex version 0x6e must parse as 110")
+if version_of("\t\tVersion: 1_10,\n") != 110:
+    FAILURES.append("underscore version 1_10 must parse as 110")
+if version_of("\t\tVersion: 110.0,\n") != -1:
+    FAILURES.append("float version 110.0 must parse as unreadable")
+expect_evaluate(
+    "a float Version is refused, not crashed on",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 110.0,\n\t\tName: \"m135\",\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

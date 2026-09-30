@@ -141,7 +141,7 @@ func TestIssue933PremiseRevisionUsesTypedContractSupersession(t *testing.T) {
 	if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:primary" {
 		t.Fatalf("compatible verdicts after correction = %+v, want the preserved primary verdict", verdicts)
 	}
-	if binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID); err != nil {
+	if binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); err != nil {
 		t.Fatalf("public correction path after contract supersession: %v", err)
 	} else if binding != nil {
 		t.Fatalf("correction path returned a retry binding without a failed worker: %#v", binding)

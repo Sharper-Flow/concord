@@ -160,7 +160,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	if record.Outcome != OutcomeOK {
 		t.Fatalf("seed pre-contract failure record: %+v", record.Error)
 	}
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1")
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
 	if err != nil || binding == nil {
 		t.Fatalf("pre-contract retry binding=%+v err=%v", binding, err)
 	}

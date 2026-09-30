@@ -1111,13 +1111,13 @@ func retryApprovalApprovedAttempts(assertion *HostApprovalAssertion) (int64, boo
 }
 
 // retryApprovalFenceTx rereads the retry wall inside the action transaction
-// and refuses when it no longer matches what the approval binds. A failed or
-// escalated rejected result binds its failed attempt identity and epoch. An
-// escalated verification correction binds the attempt count the operator's
-// signed approval carries, so an approval minted for one correction cannot
-// authorize a different or consumed one.
-func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, workID string, scope, versions map[string]any, approval *HostApprovalAssertion) error {
-	binding, err := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, workID)
+// and refuses when it no longer matches what the approval binds. A failed,
+// escalated rejected, or same-step wall binding names its failed attempt
+// identity and epoch. An escalated verification correction binds the attempt
+// count the operator's signed approval carries, so an approval minted for one
+// correction cannot authorize a different or consumed one.
+func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, scope, versions map[string]any, approval *HostApprovalAssertion) error {
+	binding, err := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
 	}
@@ -1206,16 +1206,17 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	retryApproval := false
 	if in.ActionID == "dispatch_worker" {
-		binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, in.WorkID)
+		binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(ctx, r.Store, registry, in.WorkID)
 		if bindingErr != nil {
 			return failureEnvelope(base, bindingErr), nil
 		}
 		if binding != nil {
 			// A failed disposition below the limit, an escalated rejected
-			// correction, and an escalated verification correction all
-			// dispatch only behind an operator approval bound to the wall's
-			// durable identity. The escalation wall is operator approvable;
-			// it is not a dead end.
+			// correction, an escalated verification correction, and a
+			// same-step wall binding with no correction record all dispatch
+			// only behind an operator approval bound to the wall's durable
+			// identity. The escalation wall is operator approvable; it is
+			// not a dead end.
 			retryApproval = true
 			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
 		}
@@ -1338,7 +1339,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if retryApproval {
-			if err := retryApprovalFenceTx(ctx, tx, in.WorkID, scope, versions, r.Envelope.HostApproval); err != nil {
+			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, scope, versions, r.Envelope.HostApproval); err != nil {
 				return err
 			}
 		}

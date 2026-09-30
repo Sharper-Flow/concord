@@ -320,7 +320,7 @@ func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
 		t.Fatalf("approved interrupted retry: %v", err)
 	}
 
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
 	if err != nil {
 		t.Fatalf("read retry binding after the interruption: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
 		t.Fatalf("approved re-dispatch after the interruption: %v", err)
 	}
 	issue1013RecordWorkerDispatch(t, s, workID, retry)
-	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
 	if err != nil {
 		t.Fatalf("read retry binding after the materialized re-dispatch: %v", err)
 	}

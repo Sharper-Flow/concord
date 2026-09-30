@@ -298,7 +298,7 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 
 	// The half-materialized dispatch consumed nothing: the retry binding
 	// still names the failed attempt, so the wall's escape stays reachable.
-	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1")
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
 	if err != nil || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != failedEpoch {
 		t.Fatalf("retry binding after the interruption = %+v err=%v, want the live record", binding, err)
 	}
@@ -339,10 +339,14 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 	if approved2.Outcome != OutcomeOK {
 		t.Fatalf("approved re-dispatch after the interruption = %+v", approved2.Error)
 	}
+	// The materialized re-dispatch consumes the correction record, and the
+	// same-step wall keeps the escape on the counted failures: the binding
+	// names the latest counted failed attempt, so a fresh refusal stays
+	// operator approvable (CD-0164).
 	recordGenericOneOffWorkerDispatch(t, s, grant, retry2ID, "verify-wall-materialized")
-	binding, err = store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1")
-	if err != nil || binding != nil {
-		t.Fatalf("retry binding after the materialized re-dispatch = %+v err=%v, want the consumed record", binding, err)
+	binding, err = store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if err != nil || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != failedEpoch || binding.CorrectionAttempts != 0 {
+		t.Fatalf("retry binding after the materialized re-dispatch = %+v err=%v, want the same-step wall binding for %s at epoch %d", binding, err, failedID, failedEpoch)
 	}
 	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil || pin.Correction != nil {

@@ -163,7 +163,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if record.Outcome != OutcomeOK {
 		t.Fatalf("seed retry failure record: %+v", record.Error)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1"); err != nil || binding == nil {
+	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil {
 		t.Fatalf("retry binding=%+v err=%v", binding, err)
 	}
 	var version int64

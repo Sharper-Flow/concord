@@ -1,0 +1,35 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-09-29T00:00:00Z",
+  "evidence": [
+    "docs/development-authority.md",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_completion.go",
+    "internal/store/workflow_operator.go"
+  ],
+  "id": "lesson-stalled-record-wrong-route",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-29-a-stalled-concord-record-usually-means-the-wrong.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "explicit",
+    "product_ids": [
+      "concord"
+    ],
+    "project_ids": [
+      "concord"
+    ],
+    "tag_ids": [
+      "workflow-engine",
+      "agent-surface",
+      "record-reality"
+    ]
+  },
+  "sha256": "sha256:25ed1bdab27f50aef236854bb38a4564f1623e4a3c8c63ae8a31fe5915c06eea",
+  "status": "published",
+  "summary": "Four shipped-but-unclosed items closed in one session. Each had stalled where a session read a refusal as a missing capability. In every case the capability existed under a different route.",
+  "tags": [],
+  "title": "A stalled Concord record usually means the wrong route, not a missing capability"
+}

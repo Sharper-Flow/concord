@@ -358,6 +358,34 @@ func TestDispatchLessonPublishAcceptsAnIssueNumberCoverage(t *testing.T) {
 	}
 }
 
+// TestDispatchLessonPublishSameWorkScopeChallengeMarshals holds the observed
+// failure: a caller that pins publication_work_id to work_id itself doubled
+// the work_ids scope binding, and the approval challenge envelope refused to
+// marshal, so the challenge never reached the operator and the core child
+// died with a marshal error instead of an approval prompt.
+func TestDispatchLessonPublishSameWorkScopeChallengeMarshals(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _, _, _ := lessonDispatchFixture(t)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := json.RawMessage(`{"work_id":"work-pub","lesson_id":"lesson-same-work-scope","title":"Same work scope","summary":"The publication work is the calling work itself.","content":"# Same work scope\n","coverage":{"state":"out_of_scope","reason":"Fixture probe for the canonical challenge scope."},"idempotency_key":"lesson-same-work-1","publication_work_id":"work-pub"}`)
+	request := InvokeRequest{Tool: "concord_work_compact", Operation: "lesson_publish", Input: input}
+	missing, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
+		t.Fatalf("missing approval response=%+v err=%v", missing, err)
+	}
+	if _, ok := missing.Error.Details["approval_ref"].(string); !ok {
+		t.Fatalf("challenge carries no approval ref: %v", missing.Error.Details)
+	}
+	if _, err := json.Marshal(missing); err != nil {
+		t.Fatalf("the challenge envelope does not marshal: %v", err)
+	}
+}
+
 // lessonDelivery extracts the prepared delivery evidence a lesson_publish
 // response carries: the claimed branch and the immutable commit the
 // coordinator's pull request will carry.

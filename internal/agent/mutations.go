@@ -2056,8 +2056,13 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = true
+	// The scope bindings render canonically sorted and unique, so naming the
+	// same work twice is one binding: a publication that pins itself as its
+	// own publication work must not double the work_ids entry, or the
+	// challenge envelope refuses to marshal and the approval prompt never
+	// reaches the operator.
 	workIDs := []string{in.WorkID}
-	if in.PublicationWorkID != "" {
+	if in.PublicationWorkID != "" && in.PublicationWorkID != in.WorkID {
 		workIDs = append(workIDs, in.PublicationWorkID)
 	}
 	plan.scope["work_ids"] = workIDs

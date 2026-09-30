@@ -51,9 +51,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 
 	service := NewService(s)
 	service.Now = fixedTime
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1"}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 
 	clients := []string{"client-session-exec-aaaa", "client-session-other-bbbb"}
 	keys := []ed25519.PrivateKey{}

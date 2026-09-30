@@ -338,6 +338,43 @@ milliseconds, or run a narrower test tier instead.
 """
 
 
+def concord_tool_ids() -> list[str]:
+    """The Concord tool ids, derived from the two tool-surface contracts.
+
+    The agent surface and the host surface together enumerate every concord_*
+    tool the adapter publishes, so a new Concord tool becomes denied for every
+    lane and utility when the contracts regenerate, never when someone
+    remembers to edit this list.
+    """
+    ids: list[str] = []
+    for name in ("contracts/agent-tool-surface.v1.json", "contracts/host-tool-surface.v1.json"):
+        surface = json.loads((ROOT / name).read_text(encoding="utf-8"))
+        for tool in surface["tools"]:
+            entry = tool if isinstance(tool, dict) else {"id": tool}
+            tool_id = entry.get("id") or entry.get("name")
+            if not isinstance(tool_id, str) or not tool_id:
+                raise ValueError(f"{name} carries a tool entry without an id or name")
+            if tool_id not in ids:
+                ids.append(tool_id)
+    return sorted(ids)
+
+
+def concord_context_boundary_instructions() -> str:
+    # The lane holds no Concord tool access (CD-0017 D4), so the packet is the
+    # only Concord state the lane can read. Law and Domains ride the packet's
+    # law block with repository paths, and the Domain registry path names the
+    # file that carries Domain structure.
+    return """## Concord context boundary
+
+The dispatched packet is your complete Concord context. Concord tools are
+unavailable to this lane: the lane definition denies them, and a `concord_*`
+call from a lane session is refused with no effect. Read law from the
+repository paths the packet names, and read Domain structure from the registry
+path the law block carries. Report missing context in your evidence, and
+return `status` `failed` when the missing context blocks the assigned result.
+"""
+
+
 def agent_projection(lane: dict, report_schema: dict) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
@@ -352,12 +389,14 @@ def agent_projection(lane: dict, report_schema: dict) -> str:
     report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
+    concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
 mode: all
 hidden: true
 tools:
   task: false
+{concord_denies}
 permission:
   task:
     "*": deny
@@ -379,6 +418,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
+{concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}
 {command_duration_instructions(lane)}
 Return the report as a single JSON object, and nothing else, as your final
@@ -416,19 +456,9 @@ UTILITY_TOOL_KEYS = (
     "skill",
     "execute",
     "question",
-    "concord_domain",
-    "concord_knowledge",
-    "concord_product_view",
-    "concord_work_browse",
-    "concord_work_compact",
-    "concord_work_define",
-    "concord_work_initiative",
-    "concord_work_relate",
-    "concord_work_start",
-    "concord_work_trace",
-    "concord_work_transition",
     "opencode_mcp_connect",
     "opencode_mcp_disconnect",
+    *concord_tool_ids(),
 )
 
 

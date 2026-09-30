@@ -92,7 +92,8 @@ function renderDesignRecord(value: unknown): string {
 // A law's criteria field (CD-0180) carries the law's acceptance criteria
 // bound to this work item's own outcome predicates, so the worker sees the
 // criterion-to-predicate chaining the item discharges without opening the
-// manifest.
+// manifest. The Domain registry path names the repository file that carries
+// Domain structure, because the lane holds no Concord tool access to fetch it.
 function renderLawContext(value: unknown): string {
   if (!isRecord(value)) return ""
   const laws = Array.isArray(value.laws) ? value.laws : []
@@ -117,6 +118,8 @@ function renderLawContext(value: unknown): string {
     const purpose = typeof domain.purpose === "string" ? domain.purpose : ""
     lines.push(`- Domain ${domainId}: ${name}${purpose.length > 0 ? ` — ${purpose}` : ""}`)
   }
+  const registryPath = typeof value.registry_path === "string" ? value.registry_path : ""
+  if (registryPath.length > 0) lines.push(`Domain registry: ${registryPath}`)
   return lines.join("\n") + "\n\n"
 }
 

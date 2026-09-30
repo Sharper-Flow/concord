@@ -696,6 +696,96 @@ test("all context and transport failures produce valid adapter envelopes", async
   }
 })
 
+// CD-0017 D4, extended by CD-0196. A session with a managed parent is a
+// dispatched worker lane: every concord_* tool refuses before the core is
+// invoked, and the refusal is a structured adapter envelope with effect_state
+// none. A session the host answers as unparented is a coordinator session and
+// passes unchanged — every other tool test in this suite runs through that
+// pass path via the default root-session binding.
+const recordingRunner = () => {
+  const calls: Array<{ argv: string[]; input: string }> = []
+  return {
+    calls: () => calls,
+    async run(argv: string[], input: string) {
+      calls.push({ argv, input })
+      return { exitCode: 0, stdout: "", stderr: "" }
+    },
+  }
+}
+const bindManagedParentRoute = () => {
+  hostControlPlane().bind({
+    get: async ({ path }: any) => {
+      const id = (path as { id?: string })?.id ?? "session-1"
+      const record: Record<string, unknown> = { id, directory: "/worktree" }
+      if (id === "session-1") record.parentID = "session-0"
+      else record.metadata = { "concord.task_scope": "managed" }
+      return { data: record, response: new Response(null, { status: 200 }) }
+    },
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+}
+
+test("a lane session's concord call refuses unauthorized with no effect and never reaches the core", async () => {
+  bindManagedParentRoute()
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  for (const [tool, call] of [
+    [adapter.work_browse, hostCall("list", { product_id: "product-1" })],
+    [adapter.work_trace, hostCall("continuity", { work_id: "work-1" })],
+    [adapter.domain, hostCall("detail", { domain_id: "agent-surface" })],
+    [adapter.work_transition, hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "k" })],
+  ] as const) {
+    const result: any = await rawHostResult(tool.execute(call as any, contextFor()))
+    assertAdapterEnvelope(result)
+    expect(result.error.kind).toBe("unauthorized")
+    expect(result.error.adapter_reason).toBe("lane_tool_refusal")
+    expect(result.error.effect_state).toBe("none")
+    expect(result.error.message).toContain("CD-0017 D4")
+  }
+  expect(runner.calls()).toEqual([])
+})
+
+test("a lane session's work_start refuses with the work_start envelope shape", async () => {
+  bindManagedParentRoute()
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_start.execute({ title: "t", value_statement: "v", kind: "task", task: "d", idempotency_key: "k" }, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("unauthorized")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("CD-0017 D4")
+  expect(runner.calls()).toEqual([])
+})
+
+test("an unresolvable session scope refuses a concord call closed", async () => {
+  hostControlPlane().bind({
+    get: async () => ({ data: null, response: new Response(null, { status: 404 }) }),
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.knowledge.execute(hostCall("search", {}), contextFor()))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("unauthorized")
+  expect(result.error.message).toContain("cannot resolve this session's managed Task scope")
+  expect(runner.calls()).toEqual([])
+})
+
+// A control plane that cannot answer is not a lane boundary: the guard lets
+// the call fail exactly as it did before the guard existed, so a degraded
+// host changes no coordinator route. The pre-existing unbound-host refusal is
+// the session-directory transport failure, and the core still never runs.
+test("a control plane that cannot answer adds no refusal to a coordinator call", async () => {
+  hostControlPlane().bind(undefined)
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor()))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("transport_failure")
+  expect(result.error.adapter_reason).toBe("session_directory_unreadable")
+  expect(runner.calls()).toEqual([])
+})
+
 test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", async () => {
   const io: any = await runProduct(runnerWithContext({ exitCode: 1, stdout: "", stderr: "broken pipe" }))
   assertAdapterEnvelope(io)
@@ -2242,18 +2332,24 @@ test("capture and resume refuse before core effects when managed participation c
 })
 
 test("invalid work start input cannot enroll a host session", async () => {
-  let hostCalls = 0
+  // The lane guard's caller check (CD-0196) is the one permitted host read;
+  // invalid input reaches no host write and no core transport.
+  let hostReads = 0
+  let hostWrites = 0
   hostControlPlane().bind({
-    get: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
-    post: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
-    patch: async () => { hostCalls++; throw new Error("invalid input must not reach the host") },
+    get: async () => {
+      hostReads++
+      return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
+    },
+    post: async () => { hostWrites++; throw new Error("invalid input must not reach the host") },
+    patch: async () => { hostWrites++; throw new Error("invalid input must not reach the host") },
   })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const { idempotency_key: _key, ...invalid } = bootstrapArgs
   const result: any = await rawHostResult(adapter.work_start.execute(invalid, contextFor()))
   expect(result.error.kind).toBe("invalid_input")
-  expect(hostCalls).toBe(0)
+  expect(hostWrites).toBe(0)
   expect(calls).toEqual([])
 })
 
@@ -2302,11 +2398,13 @@ for (const field of ["constructor", "toString", "__proto__"]) {
 }
 for (const { name, args, fragments } of workStartDiagnosticCases) {
   test(`work start diagnostic: ${name}`, async () => {
-    let hostCalls = 0
+    // The lane guard's caller check (CD-0196) is the one permitted host read;
+    // a diagnostic refusal reaches no host write and no core transport.
+    let hostWrites = 0
     hostControlPlane().bind({
-      get: async () => { hostCalls++; throw new Error("invalid input reached the host") },
-      post: async () => { hostCalls++; throw new Error("invalid input reached the host") },
-      patch: async () => { hostCalls++; throw new Error("invalid input reached the host") },
+      get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
+      post: async () => { hostWrites++; throw new Error("invalid input reached the host") },
+      patch: async () => { hostWrites++; throw new Error("invalid input reached the host") },
     })
     let coreCalls = 0
     adapter.configureConcordAdapter({ runner: { async run() { coreCalls++; throw new Error("invalid input reached the core") } } })
@@ -2317,7 +2415,7 @@ for (const { name, args, fragments } of workStartDiagnosticCases) {
     expect(result.error.message).toContain("Resume requires only work_id")
     expect(result.error.message).not.toContain("sensitive-input-value")
     expect(result.work_id).toBeUndefined()
-    expect(hostCalls).toBe(0)
+    expect(hostWrites).toBe(0)
     expect(coreCalls).toBe(0)
   })
 }
@@ -2516,8 +2614,8 @@ const bindSessionRoutes = (options: { sessions?: unknown; listStatus?: number; u
   }
   hostControlPlane().bind({
     post: async () => ({ response: new Response(null, { status: 404 }) }),
-    get: async ({ url }) => {
-      if (url === SESSION_ROUTE) return { data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
+    get: async ({ url, path }) => {
+      if (url === SESSION_ROUTE) return { data: { id: (path as { id?: string })?.id ?? "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }
       if (url !== SESSION_LIST_ROUTE) return { response: new Response(null, { status: 404 }) }
       options.onListRequest?.()
       const status = options.listStatus ?? 200

@@ -4,6 +4,17 @@ mode: all
 hidden: true
 tools:
   task: false
+  concord_domain: false
+  concord_knowledge: false
+  concord_product_view: false
+  concord_work_browse: false
+  concord_work_compact: false
+  concord_work_define: false
+  concord_work_initiative: false
+  concord_work_relate: false
+  concord_work_start: false
+  concord_work_trace: false
+  concord_work_transition: false
 permission:
   task:
     "*": deny
@@ -41,6 +52,15 @@ law)" block, it names the Product law and Domains the approved contract binds.
 Read each named law document before you assess the result. Conform to it. Report
 any conflict between that law and the assigned result in your evidence. Return
 `status` `failed` when a conflict blocks the assigned result.
+
+## Concord context boundary
+
+The dispatched packet is your complete Concord context. Concord tools are
+unavailable to this lane: the lane definition denies them, and a `concord_*`
+call from a lane session is refused with no effect. Read law from the
+repository paths the packet names, and read Domain structure from the registry
+path the law block carries. Report missing context in your evidence, and
+return `status` `failed` when the missing context blocks the assigned result.
 
 ## Source lookup through `execute`
 

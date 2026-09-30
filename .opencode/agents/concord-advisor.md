@@ -17,6 +17,8 @@ tools:
   skill: false
   execute: true
   question: false
+  opencode_mcp_connect: false
+  opencode_mcp_disconnect: false
   concord_domain: false
   concord_knowledge: false
   concord_product_view: false
@@ -28,8 +30,6 @@ tools:
   concord_work_start: false
   concord_work_trace: false
   concord_work_transition: false
-  opencode_mcp_connect: false
-  opencode_mcp_disconnect: false
 permission:
   bash:
     "*": deny

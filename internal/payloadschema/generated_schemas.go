@@ -12733,6 +12733,12 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 128,
           "type": "array"
+        },
+        "registry_path": {
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
         }
       },
       "required": [

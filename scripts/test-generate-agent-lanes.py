@@ -38,6 +38,27 @@ class AgentProjectionTests(unittest.TestCase):
         # CD-0070 Invariant 3, carrying CD-0064 Invariant 3 forward.
         self.assertIn('"*": deny', generator.agent_projection(self.LANE, REPORT_SCHEMA))
 
+    def test_projection_denies_every_concord_tool(self):
+        # CD-0017 D4, extended by CD-0196. The tool ids come from the two
+        # tool-surface contracts, so the check reads them from there too.
+        ids = generator.concord_tool_ids()
+        self.assertIn("concord_work_start", ids)
+        self.assertIn("concord_work_transition", ids)
+        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        for tool_id in ids:
+            self.assertIn(f"\n  {tool_id}: false\n", projection)
+        self.assertIn("## Concord context boundary", projection)
+
+    def test_every_installed_agent_definition_denies_every_concord_tool(self):
+        # generate-agent-lanes.py --check keeps these files equal to the
+        # projections, so this covers every lane and utility the manifest declares.
+        definitions = sorted((ROOT / ".opencode/agents").glob("concord-*.md"))
+        self.assertTrue(definitions)
+        for path in definitions:
+            text = path.read_text(encoding="utf-8")
+            for tool_id in generator.concord_tool_ids():
+                self.assertIn(f"\n  {tool_id}: false\n", text, f"{path.name} does not deny {tool_id}")
+
     def test_projection_reads_report_bounds_from_schema(self):
         changed = copy.deepcopy(REPORT_SCHEMA)
         changed["properties"]["readback_model"]["maxLength"] = 77

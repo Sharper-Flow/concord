@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:82cd0a01520bc5c18e5b0bf9c38b4c3285ea0ba7fa72e34578378d1980c29f8c"
+const ManifestDigest = "sha256:05619130e0f60f1a2778b0b6f6a6d76facbbf6ce78375208c51fff664057bf9e"
 
 type OperationKind string
 
@@ -299,7 +299,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_design_decision":                       {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                         {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                      {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
-	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains"}},
+	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
 	"workflow_law_context_domain":                    {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
 	"workflow_law_context_law":                       {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
 	"workflow_outcome_absent":                        {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},

@@ -115,17 +115,76 @@ def compare_pattern(subject: str, declared: str | None, enforced: str, findings:
         findings.append(f"{subject}: schema declares {declared!r}, the checker enforces {enforced!r}")
 
 
-# The Go model cannot compile $defs.record.path: RE2 has no lookahead. It
-# decomposes the alternation into prefix and substring rules instead, and
-# internal/store/knowledge_vocabulary_test.go binds that decomposition by
-# reading the alternation back out of this same pattern. That reader only works
-# while the pattern keeps this shape, so a restructure must fail here rather
-# than silently leave the Go side matching nothing.
+# The Go model cannot compile $defs.record's default-tree path pattern: RE2
+# has no lookahead. It decomposes the alternation into prefix and substring
+# rules instead, and internal/store/knowledge_vocabulary_test.go binds that
+# decomposition by reading the alternation back out of this same pattern. That
+# reader only works while the pattern keeps this shape, so a restructure must
+# fail here rather than silently leave the Go side matching nothing.
 RECORD_PATH_SHAPE = re.compile(r"^\^.concord/docs/\(\?!(?P<alternation>.+)\)\.\*\\\.md\$$")
+
+# The clause discriminator both default-tree readers share: the if-clause
+# selects every default-tree markdown path, and the then-clause carries the
+# authored path rule.
+DEFAULT_TREE_CLAUSE_CONDITION = r"^\.concord/docs/.*\.md$"
+
+
+def schema_default_path_pattern(schema: object, findings: list[str]) -> str | None:
+    """Read the default-tree path pattern from $defs.record.allOf (CD-0194 D2).
+
+    CD-0194 D2 moved the default-tree rule out of $defs.record.properties.path
+    so an override-admitted external path can validate beside it: JSON Schema
+    intersects sibling constraints, so a base pattern that named only the
+    default tree would refuse every external placement before the override
+    logic could speak. The rule now lives in an implication, and both this
+    checker and the Go binding read it back out of that clause, so a
+    restructure fails loudly instead of leaving the default rule unbound.
+    """
+    clauses = walk(schema, ["$defs", "record", "allOf"], findings)
+    if not isinstance(clauses, list):
+        return None
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            continue
+        condition = clause.get("if") or {}
+        paths = (condition.get("properties") or {}).get("path") or {}
+        then = clause.get("then") or {}
+        then_paths = (then.get("properties") or {}).get("path") or {}
+        pattern = then_paths.get("pattern")
+        if paths.get("pattern") == DEFAULT_TREE_CLAUSE_CONDITION and isinstance(pattern, str) and pattern:
+            return pattern
+    findings.append("schema: $defs.record.allOf declares no default-tree record path clause")
+    return None
+
+
+def schema_external_path_pattern(schema: object, findings: list[str]) -> str | None:
+    """Read the external path pattern from $defs.record.allOf (CD-0194 D2).
+
+    The clause is an implication: a path that is not a default-tree markdown
+    path must carry the closed external shape. The reader finds the clause
+    structurally, so a restructure fails loudly instead of leaving the
+    external rule unbound.
+    """
+    clauses = walk(schema, ["$defs", "record", "allOf"], findings)
+    if not isinstance(clauses, list):
+        return None
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            continue
+        condition = clause.get("if") or {}
+        paths = (condition.get("properties") or {}).get("path") or {}
+        negated = paths.get("not") or {}
+        then = clause.get("then") or {}
+        then_paths = (then.get("properties") or {}).get("path") or {}
+        pattern = then_paths.get("pattern")
+        if negated.get("pattern") == r"^\.concord/docs/.*\.md$" and isinstance(pattern, str) and pattern:
+            return pattern
+    findings.append("schema: $defs.record.allOf declares no external record path clause")
+    return None
 
 
 def check_record_path_decomposable(schema: object, findings: list[str]) -> None:
-    pattern = schema_string(schema, ["$defs", "record", "properties", "path", "pattern"], findings)
+    pattern = schema_default_path_pattern(schema, findings)
     if pattern is None:
         return
     shape = RECORD_PATH_SHAPE.fullmatch(pattern)
@@ -199,8 +258,14 @@ def validate_generator(schema: object, generator: object, findings: list[str]) -
     )
     compare_pattern(
         "generator RECORD_PATH_RE",
-        schema_string(schema, ["$defs", "record", "properties", "path", "pattern"], findings),
+        schema_default_path_pattern(schema, findings),
         generator.RECORD_PATH_RE.pattern,
+        findings,
+    )
+    compare_pattern(
+        "generator EXTERNAL_RECORD_PATH_RE",
+        schema_external_path_pattern(schema, findings),
+        generator.EXTERNAL_RECORD_PATH_RE.pattern,
         findings,
     )
 
@@ -221,8 +286,15 @@ def validate(schema: object, checker: object, doc_contract: object = None, closu
     )
     compare_pattern(
         "RECORD_PATH_RE",
-        schema_string(schema, ["$defs", "record", "properties", "path", "pattern"], findings),
+        schema_default_path_pattern(schema, findings),
         checker.RECORD_PATH_RE.pattern,
+        findings,
+    )
+    external_pattern = schema_external_path_pattern(schema, findings)
+    compare_pattern(
+        "EXTERNAL_RECORD_PATH_RE (checker)",
+        external_pattern,
+        checker.EXTERNAL_RECORD_PATH_RE.pattern,
         findings,
     )
     check_record_path_decomposable(schema, findings)

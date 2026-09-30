@@ -252,32 +252,57 @@ func TestKnowledgeManifestVocabularyMatchesSchema(t *testing.T) {
 		schemaEnum(t, schema.Defs["lawRelation"], "properties", "kind"), boolSetKeys(lawRelationKinds))
 }
 
-// schemaRecordPathShape matches the one form of $defs.record.path the Go
-// decomposition can be read out of: a negative lookahead over `|`-separated
-// ineligibility members, applied to everything below .concord/docs/.
+// schemaRecordPathShape matches the one form of the default-tree record path
+// rule the Go decomposition can be read out of: a negative lookahead over
+// `|`-separated ineligibility members, applied to everything below
+// .concord/docs/.
 var schemaRecordPathShape = regexp.MustCompile(`^\^.concord/docs/\(\?!(.+)\)\.\*\\\.md\$$`)
 
-// schemaIneligibleRE converts the schema's negative lookahead into an RE2
-// predicate over the path remainder below .concord/docs/. RE2 cannot express the
-// lookahead itself, but the alternation inside it is ordinary regex, so
-// "ineligible" is exactly "some member matches at the start of the remainder".
+// schemaIneligibleRE reads the default-tree path pattern out of
+// $defs.record.allOf (CD-0194 D2) and converts its negative lookahead into an
+// RE2 predicate over the path remainder below .concord/docs/. RE2 cannot
+// express the lookahead itself, but the alternation inside it is ordinary
+// regex, so "ineligible" is exactly "some member matches at the start of the
+// remainder". The clause is an implication: the if-clause selects every
+// default-tree markdown path and the then-clause carries the authored rule, so
+// a restructure fails loudly instead of silently matching nothing.
 func schemaIneligibleRE(t *testing.T, record json.RawMessage) *regexp.Regexp {
 	t.Helper()
 	var holder struct {
-		Properties struct {
-			Path struct {
-				Pattern string `json:"pattern"`
-			} `json:"path"`
-		} `json:"properties"`
+		AllOf []struct {
+			If struct {
+				Properties struct {
+					Path struct {
+						Pattern string `json:"pattern"`
+					} `json:"path"`
+				} `json:"properties"`
+			} `json:"if"`
+			Then struct {
+				Properties struct {
+					Path struct {
+						Pattern string `json:"pattern"`
+					} `json:"path"`
+				} `json:"properties"`
+			} `json:"then"`
+		} `json:"allOf"`
 	}
 	if err := json.Unmarshal(record, &holder); err != nil {
-		t.Fatalf("parse $defs.record.properties.path: %v", err)
+		t.Fatalf("parse $defs.record.allOf: %v", err)
 	}
-	pattern := holder.Properties.Path.Pattern
+	const defaultTreeCondition = `^\.concord/docs/.*\.md$`
+	pattern := ""
+	for _, clause := range holder.AllOf {
+		if clause.If.Properties.Path.Pattern == defaultTreeCondition && clause.Then.Properties.Path.Pattern != "" {
+			pattern = clause.Then.Properties.Path.Pattern
+			break
+		}
+	}
+	if pattern == "" {
+		t.Fatalf("%s: $defs.record.allOf declares no default-tree record path clause", knowledgeSchemaPath)
+	}
 	shape := schemaRecordPathShape.FindStringSubmatch(pattern)
 	if shape == nil {
-		t.Fatalf("%s: $defs.record.path pattern %q is no longer the shape this binding decomposes",
-			knowledgeSchemaPath, pattern)
+		t.Fatalf("%s: default-tree record path pattern %q is no longer the shape this binding decomposes", knowledgeSchemaPath, pattern)
 	}
 	compiled, err := regexp.Compile("^(?:" + shape[1] + ")")
 	if err != nil {
@@ -476,12 +501,13 @@ func TestLiveKnowledgeManifestHeadKeysSurviveComposition(t *testing.T) {
 		t.Fatalf("compose live knowledge manifest: %v", err)
 	}
 	projected := map[string]bool{
-		"schema_version":  manifest.SchemaVersion != "",
-		"supported_kinds": manifest.SupportedKinds != nil,
-		"indexed_kinds":   manifest.IndexedKinds != nil,
-		"knowledge_roots": manifest.KnowledgeRoots != nil,
-		"exclusions":      manifest.Exclusions != nil,
-		"dispositions":    manifest.Dispositions != nil,
+		"schema_version":     manifest.SchemaVersion != "",
+		"supported_kinds":    manifest.SupportedKinds != nil,
+		"indexed_kinds":      manifest.IndexedKinds != nil,
+		"knowledge_roots":    manifest.KnowledgeRoots != nil,
+		"exclusions":         manifest.Exclusions != nil,
+		"operator_overrides": manifest.OperatorOverrides != nil,
+		"dispositions":       manifest.Dispositions != nil,
 	}
 	for key := range head {
 		declared, known := manifestRootKeys[key]

@@ -268,9 +268,13 @@ func gitTreeEntry(ctx context.Context, repo, commitOID, notePath string) (treeEn
 }
 
 func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string) ([]string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-r", "-z", commitOID, "--", knowledgeWorkNoteTree)
+	// One revision carries at most one work-note home in practice, but the
+	// scan reads both tiers so a commit that predates the move (CD-0194 D5)
+	// projects the notes it actually carries. An absent tier contributes
+	// nothing.
+	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-r", "-z", commitOID, "--", knowledgeWorkNoteTree, legacyKnowledgeWorkNoteTree)
 	if err != nil {
-		return nil, wrapFailure(KindGitUnreachable, "rebuild_knowledge_index", "cannot scan the canonical work-note directory", true, "restore access to the git home and retry", err)
+		return nil, wrapFailure(KindGitUnreachable, "rebuild_knowledge_index", "cannot scan the canonical work-note directories", true, "restore access to the git home and retry", err)
 	}
 	entries, err := parseTreeEntries(out)
 	if err != nil {
@@ -279,7 +283,7 @@ func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from .concord/docs/work")
+			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from "+knowledgeWorkNoteTree+" and "+legacyKnowledgeWorkNoteTree)
 		}
 		if !strings.HasSuffix(entry.path, ".md") {
 			continue
@@ -334,28 +338,46 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 }
 
 // knowledgeWorkNoteTree is the canonical work-note directory the projection
-// scans. scanKnowledgeTree and knowledgeContentDigest must name the same path,
+// scans. scanKnowledgeTree and knowledgeContentDigest must name the same paths,
 // or the digest would miss content the scan projects.
 const knowledgeWorkNoteTree = ".concord/docs/work/"
 
+// legacyKnowledgeWorkNoteTree is the pre-migration work-note directory
+// (CD-0194 D5). Verification, scanning, and the content digest keep reading a
+// revision in the layout that revision carries, so notes recorded before the
+// move stay provable and stay part of the projected content. New authoring
+// never lands here: PublishCanonicalNote writes only knowledgeWorkNoteTree.
+const legacyKnowledgeWorkNoteTree = "docs/work/"
+
+// knowledgeNoteDirs are the markdown directories a verifiable note may live
+// in: the canonical homes, then the pre-migration homes (CD-0194 D5). A proof
+// recorded against an old revision names the path that revision used, so the
+// verifier admits both tiers. Publishing is not affected: the only write path
+// constructs its path from knowledgeWorkNoteTree alone.
+var knowledgeNoteDirs = []string{
+	".concord/docs/work/", ".concord/docs/lessons/", ".concord/docs/decisions/",
+	"docs/work/", "docs/lessons/", "docs/decisions/",
+}
+
 // knowledgeContentDigest identifies the content the knowledge index projects
-// at a commit: the knowledge shard tree, the legacy manifest blob, and the
-// canonical work-note tree. Git names each by an object ID that changes
-// exactly when its content does, and every record shard embeds its sha256, so
-// a record edit moves the shard tree OID. The digest is therefore a function
-// of projected content alone: a commit that touches none of the objects
-// leaves it unchanged. An absent object contributes its absence, so a
-// manifest added or removed changes the digest.
+// at a commit: the knowledge shard tree, the legacy manifest blob, and both
+// work-note tiers. Git names each by an object ID that changes exactly when
+// its content does, and every record shard embeds its sha256, so a record edit
+// moves the shard tree OID. The digest is therefore a function of projected
+// content alone: a commit that touches none of the objects leaves it
+// unchanged. An absent object contributes its absence, so a manifest added or
+// removed changes the digest.
 func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"))
+	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"))
 	if err != nil {
 		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
 	}
 	entries, err := parseTreeEntries(out)
 	if err != nil {
-		return "", wrapFailure(KindInvalidNoteProof, "knowledge_index", "git returned malformed tree entries", false, "repair the canonical git tree", err)
+		return "", wrapFailure(KindInvalidNoteProof, "knowledge_index", "git returns malformed tree entries", false, "repair the canonical git tree", err)
 	}
-	shards, manifest, notes := "absent", "absent", "absent"
+	shards, manifest := "absent", "absent"
+	notes := []string{}
 	for _, entry := range entries {
 		switch entry.path {
 		case knowledgeShardRoot, "docs/knowledge":
@@ -364,11 +386,14 @@ func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID s
 			shards = entry.kind + ":" + entry.oid
 		case knowledgeManifestPath:
 			manifest = entry.kind + ":" + entry.oid
-		case strings.TrimSuffix(knowledgeWorkNoteTree, "/"):
-			notes = entry.kind + ":" + entry.oid
+		case strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"):
+			// Both note tiers feed one slot, so an edit in either changes
+			// the digest (CD-0194 D5). Git sorts entries by path, so the
+			// order is deterministic.
+			notes = append(notes, entry.kind+":"+entry.oid)
 		}
 	}
-	sum := sha256.Sum256([]byte("shards=" + shards + "\nmanifest=" + manifest + "\nnotes=" + notes + "\n"))
+	sum := sha256.Sum256([]byte("shards=" + shards + "\nmanifest=" + manifest + "\nnotes=" + strings.Join(notes, ",") + "\n"))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -449,10 +474,21 @@ func validateNotePath(notePath string) error {
 			return newFailure(KindInvalidNoteProof, "verify_note", "note path contains a forbidden path component", false, "use a clean relative canonical note path")
 		}
 	}
-	if !strings.HasSuffix(notePath, ".md") || !(strings.HasPrefix(notePath, ".concord/docs/work/") || strings.HasPrefix(notePath, ".concord/docs/lessons/") || strings.HasPrefix(notePath, ".concord/docs/decisions/")) {
-		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, .concord/docs/lessons, or .concord/docs/decisions markdown")
+	if !strings.HasSuffix(notePath, ".md") || !hasEligibleNoteDir(notePath) {
+		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, lessons, or decisions markdown, or the pre-migration docs home a recorded proof names")
 	}
 	return nil
+}
+
+// hasEligibleNoteDir reports whether notePath sits in one of the bounded
+// knowledge note directories, current or pre-migration.
+func hasEligibleNoteDir(notePath string) bool {
+	for _, dir := range knowledgeNoteDirs {
+		if strings.HasPrefix(notePath, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseKnowledgeNote(content []byte) (VerifiedNote, error) {

@@ -15,7 +15,7 @@
       "target_id": "CD-0011"
     }
   ],
-  "path": "docs/decisions/CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md",
+  "path": ".concord/docs/decisions/CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

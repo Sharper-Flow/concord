@@ -7,11 +7,11 @@
     "internal/store/workpin.go",
     "internal/store/lifecycle.go",
     "internal/store/workflow_completion.go",
-    "docs/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md"
+    ".concord/docs/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md"
   ],
   "id": "lesson-drive-live-workflow-to-complete",
   "kind": "lesson",
-  "path": "docs/lessons/2026-09-30-drive-a-live-workflow-to-complete-keep-the-cance.md",
+  "path": ".concord/docs/lessons/2026-09-30-drive-a-live-workflow-to-complete-keep-the-cance.md",
   "scopes": {
     "domain_ids": [],
     "mode": "explicit",

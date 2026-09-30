@@ -40,6 +40,20 @@ def manifest_document(**overrides: object) -> dict:
         "indexed_kinds": ["decision"],
         "knowledge_roots": [".concord/docs/"],
         "exclusions": [],
+        "domain_registry": {
+            "schema_version": "1.0",
+            "product_key": "example-product",
+            "root_domain_id": "product-root:example-product",
+            "domains": [
+                {
+                    "domain_id": "product-root:example-product",
+                    "name": "Example",
+                    "purpose": "example product root for the placement sandbox",
+                    "status": "current",
+                    "architecture_relations": [],
+                }
+            ],
+        },
         "records": [
             {
                 "id": "CD-0001",
@@ -383,6 +397,61 @@ class OperatorOverrideTest(unittest.TestCase):
         code, out = self.run_override(root, self.override())
         self.assertEqual(code, 1)
         self.assertIn("cannot be read", out)
+
+    def test_an_instruction_inside_a_fenced_example_is_never_an_instruction(self) -> None:
+        # An anchor that shows the grammar inside a fenced code block
+        # documents the override route; it never grants one. A fenced
+        # example without a real block outside it refuses.
+        root = build_sandbox()
+        (root / "external/knowledge").mkdir(parents=True)
+        example = (
+            "To record an override an operator would write:\n\n"
+            "```\n"
+            + self.instruction_block()
+            + "```\n"
+        )
+        self.write_anchor(root, example)
+        code, out = self.run_override(root, self.override())
+        self.assertEqual(code, 1)
+        self.assertIn("carries no operator instruction for Product", out)
+
+    def test_a_fenced_example_beside_a_real_block_still_admits(self) -> None:
+        # The fence hides only its own content: a real block outside the
+        # fenced example keeps granting the placement.
+        root = build_sandbox()
+        (root / "external/knowledge").mkdir(parents=True)
+        example = (
+            "```\n"
+            + self.instruction_block(decision="deny")
+            + "```\n"
+            + "\n"
+            + self.instruction_block()
+        )
+        self.write_anchor(root, example)
+        code, out = self.run_override(root, self.override())
+        self.assertEqual(code, 0, out)
+
+    def test_a_tilde_fenced_example_is_never_an_instruction(self) -> None:
+        root = build_sandbox()
+        (root / "external/knowledge").mkdir(parents=True)
+        example = "~~~\n" + self.instruction_block() + "~~~\n"
+        self.write_anchor(root, example)
+        code, out = self.run_override(root, self.override())
+        self.assertEqual(code, 1)
+        self.assertIn("carries no operator instruction for Product", out)
+
+    def test_an_override_for_another_product_never_admits_this_product(self) -> None:
+        # CD-0194 D2: the manifest belongs to one Product. An override and
+        # instruction recorded for another Product never authorize this
+        # Product's external placement, so the placement refuses exactly
+        # like silence and the mismatch is named.
+        root = build_sandbox()
+        (root / "external/knowledge").mkdir(parents=True)
+        self.write_anchor(root, self.instruction_block(product_id="other-product"))
+        code, out = self.run_override(root, self.override(product_id="other-product"))
+        self.assertEqual(code, 1)
+        self.assertIn("knowledge root outside the default tree without an operator override: external/knowledge/", out)
+        self.assertIn("override names Product 'other-product', not this manifest's owning Product 'example-product'", out)
 
 
 class ExclusionTest(unittest.TestCase):

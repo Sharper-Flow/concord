@@ -103,6 +103,13 @@ RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][E
 # the shape that revision has, so its path rule moves with it. Authoring
 # always uses RECORD_PATH_RE.
 PRE_MIGRATION_RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+# CD-0194 D2: the closed external shape an operator override admits. The text
+# mirrors the external path pattern in $defs.record.allOf of
+# contracts/concord-knowledge-index.v1.schema.json;
+# check-knowledge-vocabulary.py binds the two. The generated-substring
+# exclusion and the dot-segment refusals apply on top, exactly as they do
+# inside the default tree.
+EXTERNAL_RECORD_PATH_RE = re.compile(r"^(?!.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd])(?!(?:.*/)?\.\.(?:/|$))(?!(?:.*/)?\.(?:/|$))[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$")
 # CD-0180: the predicate-reference criterion binding form, closed against the
 # schema's $defs.criterionBinding patterns.
 CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
@@ -203,7 +210,50 @@ def validate_criterion_bindings(record: dict[str, object], prefix: str, findings
                 findings.append(f"{binding_prefix}: predicate_id must carry the predicate: prefix")
 
 
-def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> None:
+def external_path_is_generated(path: str) -> bool:
+    """The generated-substring exclusion is generic: generated content is
+    never an authored index record in any tree, so an override cannot admit
+    it either."""
+    return bool(re.search(r"[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]", path))
+
+
+def override_covers(override_path: str, candidate: str) -> bool:
+    """True when one override path admits one candidate location.
+
+    A directory override ends in a slash and covers every path beneath it;
+    a file override covers exactly its own path. Mirrors the placement
+    check so the two layers cannot diverge silently.
+    """
+    if override_path.endswith("/"):
+        return candidate.startswith(override_path)
+    return candidate == override_path
+
+
+def build_override_coverage(overrides: object, product_key: object = None) -> "callable | None":
+    """The coverage predicate the head's overrides admit, or None when the
+    head carries none. Shape-invalid entries are findings from
+    validate_operator_overrides; only complete entries naming the manifest's
+    owning Product contribute here."""
+    if not isinstance(overrides, list) or not overrides:
+        return None
+    entries = [
+        entry
+        for entry in overrides
+        if isinstance(entry, dict)
+        and isinstance(entry.get("path"), str)
+        and OPERATOR_OVERRIDE_PATH_RE.fullmatch(entry["path"])
+        and (product_key is None or entry.get("product_id") == product_key)
+    ]
+    if not entries:
+        return None
+
+    def covered(path: str) -> bool:
+        return any(override_covers(entry["path"], path) for entry in entries)
+
+    return covered
+
+
+def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: "callable | None" = None) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
         return
@@ -236,9 +286,37 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         or len(path) > 512
         or "\x00" in path
         or ".." in Path(path).parts
-        or not record_path_re.fullmatch(path)
     ):
         findings.append(f"{prefix}: forbidden or unsafe path: {path}")
+    elif not record_path_re.fullmatch(path):
+        # CD-0194 D2: outside the default tree, only an explicit operator
+        # override admits the placement, and only the closed external shape.
+        # An override can never name a path inside .concord/, so a stray
+        # .concord path keeps refusing here. Only an override that names the
+        # manifest's owning Product contributes, so one Product's recorded
+        # instruction can never admit another Product's placement.
+        if (
+            covered is not None
+            and isinstance(path, str)
+            and not path.startswith(".concord/")
+            and covered(path)
+            and EXTERNAL_RECORD_PATH_RE.fullmatch(path)
+            and not external_path_is_generated(path)
+        ):
+            pass
+        else:
+            findings.append(f"{prefix}: forbidden or unsafe path: {path}")
+    if kind == "decision":
+        # An override-admitted decision keeps the canonical CD filename,
+        # mirroring canonicalDecisionPath in the store parser and the index
+        # checker's decision rule.
+        if isinstance(path, str) and path.startswith(".concord/docs/decisions/"):
+            if not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path):
+                findings.append(f"{prefix}: decision is outside the canonical CD decision path")
+        elif not isinstance(path, str) or (
+            not path.startswith(".concord/docs/") and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name)
+        ):
+            findings.append(f"{prefix}: decision is outside the canonical CD decision path")
     try:
         datetime.fromisoformat(str(record["date"]).replace("Z", "+00:00"))
     except (TypeError, ValueError):
@@ -363,7 +441,7 @@ def canonical_domain_registry(registry: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> list[dict[str, object]]:
+def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: "callable | None" = None) -> list[dict[str, object]]:
     directory = root / SHARD_DIR
     if not directory.is_dir():
         findings.append(f"shard directory missing: {SHARD_DIR}")
@@ -380,7 +458,7 @@ def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles
             continue
         identifier = record.get("id")
         prefix = f"{SHARD_DIR / path.name}"
-        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re)
+        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re, covered)
         if not isinstance(identifier, str):
             continue
         if path.stem != identifier:
@@ -418,14 +496,16 @@ OPERATOR_OVERRIDE_PATH_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?
 MAX_OPERATOR_OVERRIDES = 32
 
 
-def validate_operator_overrides(template: dict[str, object], findings: list[str]) -> None:
+def validate_operator_overrides(template: dict[str, object], findings: list[str], product_key: object = None) -> None:
     """Validate the manifest head's explicit operator overrides (CD-0194 D2).
 
     An entry admits one Product knowledge location outside .concord/. The
     field is optional; when present it must be an array of complete
     overrides. A path inside .concord/ is not an override, so it refuses
     here rather than pretending to grant an exception the default already
-    allows.
+    allows. An override is tied to one Product: an entry whose product_id is
+    not the manifest's owning registry key refuses, so one Product's
+    instruction can never admit another Product's placement.
     """
     raw = template.get("operator_overrides")
     if raw is None:
@@ -462,6 +542,10 @@ def validate_operator_overrides(template: dict[str, object], findings: list[str]
         product_id = entry["product_id"]
         if not isinstance(product_id, str) or not 1 <= len(product_id) <= 128 or not clean_text(product_id, 128):
             findings.append(f"{prefix}: product_id must be a bounded clean identifier")
+        elif product_key is not None and product_id != product_key:
+            findings.append(
+                f"{prefix}: override names Product {product_id!r}, not this manifest's owning Product {product_key!r}"
+            )
         recorded_in = entry["recorded_in"]
         if not isinstance(recorded_in, str) or not clean_text(recorded_in, 256):
             findings.append(f"{prefix}: recorded_in must name the record carrying the operator's instruction")
@@ -492,8 +576,9 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     doc_contract = root_template.get("doc_contract")
     decision_head = doc_contract.get("decision") if isinstance(doc_contract, dict) else None
     profiles_enforced = isinstance(decision_head, dict) and "current_required_sections" in decision_head
-    validate_operator_overrides(root_template, findings)
-    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re)
+    validate_operator_overrides(root_template, findings, registry.get("product_key") if isinstance(registry, dict) else None)
+    covered = build_override_coverage(root_template.get("operator_overrides"), registry.get("product_key") if isinstance(registry, dict) else None)
+    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re, covered)
     if findings:
         return None
     aggregate = dict(root_template)

@@ -78,6 +78,70 @@ DISPOSITION_PATH_RE = re.compile(r"^(?![\s\S]*\.\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9
 # binds the two texts. `generated` is spelled as per-letter character classes
 # because the Go model matches it ASCII case-insensitively.
 RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+# CD-0194 D2: the closed external shape an operator override admits. The text
+# mirrors the external path pattern in $defs.record.allOf of
+# contracts/concord-knowledge-index.v1.schema.json;
+# check-knowledge-vocabulary.py binds the two. The generated-substring
+# exclusion and the dot-segment refusals apply on top, exactly as they do
+# inside the default tree.
+EXTERNAL_RECORD_PATH_RE = re.compile(r"^(?!.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd])(?!(?:.*/)?\.\.(?:/|$))(?!(?:.*/)?\.(?:/|$))[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\.md$")
+
+
+def override_covers(override_path: str, candidate: str) -> bool:
+    """True when one override path admits one candidate location.
+
+    A directory override ends in a slash and covers every path beneath it;
+    a file override covers exactly its own path. Mirrors the placement
+    check so the layers cannot diverge silently.
+    """
+    if override_path.endswith("/"):
+        return candidate.startswith(override_path)
+    return candidate == override_path
+
+
+def external_path_is_generated(path: str) -> bool:
+    """The generated-substring exclusion is generic: generated content is
+    never an authored index record in any tree, so an override cannot admit
+    it either."""
+    return bool(re.search(r"[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]", path))
+
+
+def record_path_admitted(path: str, overrides: object, product_key: str | None = None) -> bool:
+    """The full record path rule for the composed manifest (CD-0194).
+
+    A path under the default tree follows RECORD_PATH_RE. Any other path is
+    a Product knowledge location outside the default tree: it is admitted
+    only when the manifest head carries a shape-valid operator override that
+    covers it, names this manifest's owning Product, and the path carries
+    the closed external shape. An override can never name a .concord/ path,
+    so a stray .concord path refuses here too, and an override recorded for
+    another Product never admits this one's placements.
+    """
+    if RECORD_PATH_RE.fullmatch(path):
+        return True
+    if path.startswith(".concord/") or not isinstance(overrides, list):
+        return False
+    for override in overrides:
+        if not isinstance(override, dict):
+            continue
+        override_path = override.get("path")
+        if not isinstance(override_path, str) or not OPERATOR_OVERRIDE_PATH_RE.fullmatch(override_path):
+            continue
+        if product_key is None or override.get("product_id") != product_key:
+            continue
+        if override_covers(override_path, path) and EXTERNAL_RECORD_PATH_RE.fullmatch(path) and not external_path_is_generated(path):
+            return True
+    return False
+
+
+def owning_product_key(data: object) -> str | None:
+    """The Product a manifest belongs to, from its domain registry."""
+    registry = data.get("domain_registry") if isinstance(data, dict) else None
+    if isinstance(registry, dict):
+        key = registry.get("product_key")
+        if isinstance(key, str) and key:
+            return key
+    return None
 
 
 class DuplicateKeyError(ValueError):
@@ -249,13 +313,16 @@ def has_cycle(graph: dict[str, list[str]]) -> bool:
     return any(visit(node) for node in graph)
 
 
-def validate_operator_overrides(overrides: object, findings: list[str]) -> None:
+def validate_operator_overrides(overrides: object, findings: list[str], product_key: str | None = None) -> None:
     """Enforce the closed override contract in the manifest head (CD-0194 D2).
 
     The field is optional and starts empty in this repository. An entry is
     the only manifest route that admits Product knowledge placement outside
     .concord/, so its shape is validated wherever the manifest is: a
     malformed override refuses here instead of quietly admitting nothing.
+    An override is tied to one Product: an entry whose product_id is not the
+    manifest's owning registry key refuses, so one Product's recorded
+    instruction can never admit another Product's placement.
     """
     if overrides is None:
         return
@@ -280,6 +347,12 @@ def validate_operator_overrides(overrides: object, findings: list[str]) -> None:
         seen.add(path)
         if not bounded_text(entry["product_id"], 128):
             fail(findings, f"{prefix}: product_id must be a bounded clean identifier")
+        elif product_key is not None and entry["product_id"] != product_key:
+            fail(
+                findings,
+                f"{prefix}: override names Product {entry['product_id']!r}, not this manifest's "
+                f"owning Product {product_key!r}",
+            )
         if not valid_id(entry["recorded_in"]):
             fail(findings, f"{prefix}: recorded_in must name the record carrying the operator's instruction")
         reason = entry["reason"]
@@ -459,7 +532,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             or len(path) > MAX_MANIFEST_PATH
             or (isinstance(path, str) and "\x00" in path)
             or path.startswith(knowledge_index.KNOWLEDGE_ROOT + "/")
-            or not RECORD_PATH_RE.fullmatch(path)
+            or not record_path_admitted(path, data.get("operator_overrides"), owning_product_key(data))
         ):
             fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
             continue
@@ -470,7 +543,11 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: duplicate path {path}")
         else:
             paths.add(path)
-        if kind == "decision" and (not isinstance(path, str) or not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path)):
+        if kind == "decision" and path.startswith(".concord/docs/decisions/") and (not isinstance(path, str) or not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path)):
+            fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
+        elif kind == "decision" and not path.startswith(".concord/docs/") and not re.fullmatch(r"CD-[0-9]{4}(?:-.+)?\.md", Path(path).name):
+            # An override-admitted decision keeps the canonical CD filename,
+            # mirroring canonicalDecisionPath in the Go parser.
             fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
 
         status = record["status"]
@@ -607,7 +684,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if actual != record["sha256"]:
                 fail(findings, f"{prefix}: hash drift for {path}")
 
-    validate_operator_overrides(data.get("operator_overrides"), findings)
+    validate_operator_overrides(data.get("operator_overrides"), findings, owning_product_key(data))
     validate_dispositions(data.get("dispositions"), paths, findings)
 
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}

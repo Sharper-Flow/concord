@@ -933,6 +933,82 @@ def test_composed_repository_manifest_passes_the_canonical_schema() -> None:
     assert errors == [], errors[:5]
 
 
+def external_record_document(path: str, with_override: bool) -> dict:
+    """A v1.3 manifest whose one record lives outside the default tree, with
+    or without the operator override head that admits it."""
+    value = v12_fixture()
+    value["schema_version"] = "1.3"
+    value["supported_kinds"] = ["reference"]
+    value["indexed_kinds"] = ["reference"]
+    value["records"] = [{
+        "id": "external-1", "kind": "reference", "path": path, "status": "published",
+        "date": "2026-08-10T00:00:00Z", "title": "External", "summary": "External placement", "tags": [],
+        "authority": {"tier": "derived"},
+        "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
+        "sha256": "sha256:" + "a" * 64,
+    }]
+    if with_override:
+        value["operator_overrides"] = [{
+            "path": "external/knowledge/", "product_id": "concord",
+            "recorded_in": "external-1", "reason": "the operator recorded this placement for the external tree",
+        }]
+    return value
+
+
+def test_schema_admits_only_the_closed_external_record_shape() -> None:
+    """CD-0194 D2 schema/reader lockstep, at the schema itself.
+
+    The default-tree rule moved into $defs.record.allOf so an
+    override-admitted external record can validate beside it. A clean
+    external markdown path under an override head validates; a generated
+    path, a traversal path, and a non-markdown path refuse, and the override
+    object bound is the closed four-field shape.
+    """
+    validator = schema_validator()
+    assert schema_errors(validator, external_record_document("external/knowledge/reference.md", True)) == []
+
+    generated = schema_errors(validator, external_record_document("external/knowledge/generated-reference.md", True))
+    assert any("does not match" in message for message in generated), generated
+
+    traversal = schema_errors(validator, external_record_document("external/../secrets.md", True))
+    assert traversal != [], traversal
+
+    dot_segment = schema_errors(validator, external_record_document("external/./reference.md", True))
+    assert dot_segment != [], dot_segment
+
+    not_markdown = schema_errors(validator, external_record_document("external/knowledge/reference.txt", True))
+    assert not_markdown != [], not_markdown
+
+    malformed = external_record_document("external/knowledge/reference.md", True)
+    malformed["operator_overrides"][0]["extra"] = "field"
+    errors = schema_errors(validator, malformed)
+    assert any("Additional properties are not allowed" in message for message in errors), errors
+
+
+def test_checker_admits_only_an_override_of_the_owning_product() -> None:
+    """CD-0194 D2 reader lockstep, at the checker: the schema declares the
+    closed external shape, and record_path_admitted gates it on an override
+    that names the manifest's owning Product."""
+    admitted = checker.record_path_admitted(
+        "external/knowledge/reference.md",
+        [{"path": "external/knowledge/", "product_id": "concord", "recorded_in": "r", "reason": "recorded placement"}],
+        "concord",
+    )
+    assert admitted is True
+    foreign = checker.record_path_admitted(
+        "external/knowledge/reference.md",
+        [{"path": "external/knowledge/", "product_id": "other-product", "recorded_in": "r", "reason": "recorded placement"}],
+        "concord",
+    )
+    assert foreign is False
+    ownerless = checker.record_path_admitted(
+        "external/knowledge/reference.md",
+        [{"path": "external/knowledge/", "product_id": "concord", "recorded_in": "r", "reason": "recorded placement"}],
+        None,
+    )
+    assert ownerless is False
+
+
 def run_tests() -> None:
     """Run every module-level test, and prove none was missed.
 

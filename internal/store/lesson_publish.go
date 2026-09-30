@@ -332,6 +332,12 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if parseErr != nil {
 		return out, parseErr
 	}
+	// The same anchor gate a committed read runs (CD-0194 D2): publication
+	// builds on the working-tree manifest, so an override whose anchor does
+	// not prove out refuses before anything is written.
+	if err := validateOverrideAnchors(manifest, workingTreeOverrideAnchorReader(home.RepoPath)); err != nil {
+		return out, err
+	}
 	// A lesson id already in the manifest is a replay or a conflict, decided
 	// by the complete record: the candidate rebuilt on the committed
 	// record's own publication date and path must equal it field for field.
@@ -357,7 +363,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		}
 	}
 	record := req.record(contentSHA, date, notePath)
-	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion, manifestRecordPathPrefix); err != nil {
+	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion, manifestRecordPathPrefix, nil); err != nil {
 		return out, err
 	}
 

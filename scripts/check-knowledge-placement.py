@@ -99,7 +99,9 @@ def parse_override_instructions(text: str) -> tuple[list[dict], list[str]]:
     opens with the opener line, closes with a lone `-->` line, and carries
     the fields `product`, `path`, and `decision` and no others; `decision`
     is `approve` or `deny`. Anything else in a block is a malformation, and
-    prose outside blocks is never read for an instruction.
+    prose outside blocks is never read for an instruction. Fenced code
+    blocks are skipped: an instruction shown inside a fenced example
+    documents the grammar, it never grants a placement.
     """
     instructions: list[dict] = []
     malformations: list[str] = []
@@ -107,8 +109,18 @@ def parse_override_instructions(text: str) -> tuple[list[dict], list[str]]:
     start_line = 0
     fields: dict[str, str] = {}
     seen: set[str] = set()
+    in_fence = False
+    fence_char = ""
     for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
+        if in_fence:
+            if fence_run(stripped, fence_char):
+                in_fence = False
+            continue
+        if fence_opener(stripped):
+            in_fence = True
+            fence_char = stripped[0]
+            continue
         if not inside:
             if stripped == OVERRIDE_BLOCK_OPEN:
                 inside = True
@@ -154,6 +166,18 @@ def parse_override_instructions(text: str) -> tuple[list[dict], list[str]]:
     if inside:
         malformations.append(f"line {start_line}: instruction block is never closed by '-->'")
     return instructions, malformations
+
+
+def fence_opener(stripped: str) -> bool:
+    """True when the line opens a fenced code block: three or more
+    backticks or tildes, optionally followed by an info string."""
+    return len(stripped) >= 3 and stripped[0] in ("`", "~") and stripped[:3] == stripped[0] * 3
+
+
+def fence_run(stripped: str, char: str) -> bool:
+    """True when the line closes the open fence: the same character as the
+    opener, at least three of them, and nothing else."""
+    return len(stripped) >= 3 and stripped == char * len(stripped)
 
 
 def anchor_instruction_findings(
@@ -239,8 +263,22 @@ def anchor_instruction_findings(
         )
 
 
+def owning_product_key(manifest: dict) -> str | None:
+    """The Product this manifest belongs to, from its domain registry.
+
+    The registry is required law, so an absent key leaves nothing for an
+    override to belong to and nothing external is admitted.
+    """
+    registry = manifest.get("domain_registry")
+    if isinstance(registry, dict):
+        key = registry.get("product_key")
+        if isinstance(key, str) and key:
+            return key
+    return None
+
+
 def validate_overrides(
-    overrides: list[dict], records_by_id: dict[str, dict], findings: list[str]
+    overrides: list[dict], records_by_id: dict[str, dict], findings: list[str], product_key: str | None
 ) -> None:
     """An override admits a placement only when its anchor is real and
     carries the instruction.
@@ -252,7 +290,9 @@ def validate_overrides(
     override's exact Product and path with the approve decision. Anything
     else refuses. A work-item identifier is never an anchor: the store is
     external live state a repository check cannot reach, so accepting its
-    shape would admit an unverifiable instruction as law.
+    shape would admit an unverifiable instruction as law. An override whose
+    product_id names another Product never belongs to this manifest, so it
+    refuses here instead of admitting this Product's placements.
     """
     for index, override in enumerate(overrides):
         prefix = f"manifest.operator_overrides[{index}]"
@@ -266,6 +306,12 @@ def validate_overrides(
                 findings.append(f"{prefix}: override directory does not exist on disk: {path}")
         elif target.is_symlink() or not target.is_file():
             findings.append(f"{prefix}: override file does not exist on disk: {path}")
+        if not isinstance(override.get("product_id"), str) or override.get("product_id") != product_key:
+            findings.append(
+                f"{prefix}: override names Product {override.get('product_id')!r}, not this "
+                f"manifest's owning Product {product_key!r}"
+            )
+            continue
         recorded_in = override.get("recorded_in")
         anchor = records_by_id.get(recorded_in) if isinstance(recorded_in, str) else None
         if anchor is None:
@@ -301,12 +347,22 @@ def check_placement(manifest: dict, findings: list[str]) -> None:
     overrides = manifest.get("operator_overrides")
     if not isinstance(overrides, list):
         overrides = []
+    product_key = owning_product_key(manifest)
+    # Only an override that names this manifest's owning Product admits a
+    # placement here (CD-0194 D2). An instruction recorded for another
+    # Product never authorizes this one's external knowledge, so a
+    # cross-Product head refuses exactly like silence.
+    owned_overrides = [
+        override
+        for override in overrides
+        if isinstance(override, dict) and override.get("product_id") == product_key
+    ]
 
     roots = knowledge_roots_of(manifest)
     for root in roots:
         if root.startswith(DEFAULT_TREE):
             continue
-        if covering_override(root, overrides) is not None:
+        if covering_override(root, owned_overrides) is not None:
             continue
         findings.append(f"knowledge root outside the default tree without an operator override: {root}")
 
@@ -315,7 +371,7 @@ def check_placement(manifest: dict, findings: list[str]) -> None:
         for record in manifest.get("records", [])
         if isinstance(record, dict) and isinstance(record.get("id"), str)
     }
-    validate_overrides(overrides, records_by_id, findings)
+    validate_overrides(overrides, records_by_id, findings, product_key)
 
     for number, record in enumerate(manifest.get("records", [])):
         if not isinstance(record, dict):
@@ -323,7 +379,7 @@ def check_placement(manifest: dict, findings: list[str]) -> None:
         path = record.get("path")
         if not isinstance(path, str) or path.startswith(DEFAULT_TREE):
             continue
-        if covering_override(path, overrides) is not None:
+        if covering_override(path, owned_overrides) is not None:
             continue
         findings.append(
             f"manifest.records[{number}] ({record.get('id')}): unapproved external knowledge placement: {path}"
@@ -335,7 +391,7 @@ def check_placement(manifest: dict, findings: list[str]) -> None:
             continue
         if exclusion.startswith(DEFAULT_TREE):
             continue
-        if covering_override(exclusion, overrides) is not None:
+        if covering_override(exclusion, owned_overrides) is not None:
             continue
         under_root = any(exclusion.startswith(prefix) for prefix in prefixes)
         if not under_root:

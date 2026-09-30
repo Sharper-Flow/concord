@@ -4,14 +4,14 @@
   },
   "date": "2026-09-29T00:00:00Z",
   "evidence": [
-    "docs/development-authority.md",
+    ".concord/docs/development-authority.md",
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow_completion.go",
     "internal/store/workflow_operator.go"
   ],
   "id": "lesson-stalled-record-wrong-route",
   "kind": "lesson",
-  "path": "docs/lessons/2026-09-29-a-stalled-concord-record-usually-means-the-wrong.md",
+  "path": ".concord/docs/lessons/2026-09-29-a-stalled-concord-record-usually-means-the-wrong.md",
   "scopes": {
     "domain_ids": [],
     "mode": "explicit",

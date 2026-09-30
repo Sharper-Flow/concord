@@ -298,7 +298,7 @@
         },
         "path": {
           "type": "string",
-          "pattern": "^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$",
+          "description": "CD-0194 D2: the record path rule lives in $defs.record.allOf as two implications. A path under the default tree must carry the default-tree shape; a path outside it is an external placement admitted only through an explicit operator override whose closed shape the then-clause declares. The override and its anchor decision are proven by the composer, the checkers, and the store parser, never by this pattern.",
           "maxLength": 512
         },
         "status": {
@@ -378,6 +378,27 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^\\.concord/docs/.*\\.md$"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "description": "CD-0194 D2: inside the default tree the authored path rule applies: the tier's work, research, and generated content exclusions hold. The Go model cannot compile the lookahead (RE2), so knowledge_vocabulary_test.go decomposes this pattern; keep its text in the '^.concord/docs/(?!<alternation>).*\\.md$' shape.",
+                "pattern": "^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$"
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
@@ -624,6 +645,31 @@
             "properties": {
               "id": {
                 "$ref": "#/$defs/legacySpecProfileId"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "not": {
+                  "pattern": "^\\.concord/docs/.*\\.md$"
+                }
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "then": {
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "CD-0194 D2: a record path outside the default tree is admitted only when the manifest head carries an explicit operator override that covers it. The pattern declares the closed external shape; the override itself, and the accepted decision that anchors it, are proven by the composer, the checkers, and the store parser. The generated-substring exclusion and the dot-segment refusals apply in every tree.",
+                "pattern": "^(?!.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd])(?!(?:.*/)?\\.\\.(?:/|$))(?!(?:.*/)?\\.(?:/|$))[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*\\.md$",
+                "maxLength": 512
               }
             }
           }

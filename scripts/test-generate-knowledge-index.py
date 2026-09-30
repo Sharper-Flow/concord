@@ -299,6 +299,57 @@ def test_legacy_spec_profile_composes_into_the_aggregate() -> None:
         assert composed["records"][0]["doc_contract_profile"] == "legacy"
 
 
+def external_override(product_id: str = "concord") -> dict:
+    return {
+        "path": "external/knowledge/",
+        "product_id": product_id,
+        "recorded_in": "CD-0001",
+        "reason": "the operator recorded this placement for the external tree",
+    }
+
+
+def test_cross_product_override_never_covers() -> None:
+    """CD-0194 D2: an override recorded for another Product never admits
+    this Product's external placement, at the shard composer too."""
+    foreign = external_override("other-product")
+    findings: list[str] = []
+    generator.validate_operator_overrides({"operator_overrides": [foreign]}, findings, "concord")
+    assert any(
+        "override names Product 'other-product', not this manifest's owning Product 'concord'" in finding
+        for finding in findings
+    ), findings
+    assert generator.build_override_coverage([foreign], "concord") is None
+    shard = record("lesson-x")
+    shard["path"] = "external/knowledge/reference.md"
+    findings = []
+    generator.validate_record(shard, "1.2", set(), "records/shard.json", findings, covered=generator.build_override_coverage([foreign], "concord"))
+    assert any("forbidden or unsafe path" in finding for finding in findings), findings
+
+
+def test_override_admitted_external_record_composes() -> None:
+    covered = generator.build_override_coverage([external_override()], "concord")
+    shard = record("lesson-x")
+    shard["path"] = "external/knowledge/reference.md"
+    findings: list[str] = []
+    generator.validate_record(shard, "1.2", set(), "records/shard.json", findings, covered=covered)
+    assert findings == [], findings
+
+
+def test_external_decision_requires_the_canonical_cd_filename() -> None:
+    """An override-admitted decision keeps the canonical CD filename, in
+    lockstep with the store parser and the index checker."""
+    covered = generator.build_override_coverage([external_override()], "concord")
+    decision = decision_shard("CD-0002", "legacy")
+    decision["path"] = "external/knowledge/decisions/CD-0002-external.md"
+    findings: list[str] = []
+    generator.validate_record(decision, "1.2", {"product-root:concord"}, "records/shard.json", findings, covered=covered)
+    assert findings == [], findings
+    decision["path"] = "external/knowledge/decisions/odd-name.md"
+    findings = []
+    generator.validate_record(decision, "1.2", {"product-root:concord"}, "records/shard.json", findings, covered=covered)
+    assert findings == ["records/shard.json: decision is outside the canonical CD decision path"], findings
+
+
 if __name__ == "__main__":
     failures = 0
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]

@@ -24,6 +24,13 @@ const (
 	// prefix its layout tier carries. Authoring is always the current tier.
 	manifestRecordPathPrefix             = ".concord/docs/"
 	preMigrationManifestRecordPathPrefix = "docs/"
+	// CD-0194 D2: an operator override is the only route that admits a
+	// Product knowledge location outside the layout tier's prefix. The
+	// bounded array and closed path shape mirror $defs.operatorOverrides in
+	// contracts/concord-knowledge-index.v1.schema.json.
+	maxOperatorOverrides = 32
+	maxOverrideReason    = 512
+	minOverrideReason    = 12
 	// maxKnowledgeRecord bounds one record shard. The caps test holds it
 	// against the per-field record caps, and the shard reader refuses an
 	// oversized shard while naming its path.
@@ -147,7 +154,7 @@ var manifestRootKeys = map[string]bool{
 	"dispositions":       true,
 	"knowledge_roots":    true,
 	"exclusions":         true,
-	"operator_overrides": false,
+	"operator_overrides": true,
 	"doc_contract":       false,
 }
 
@@ -161,16 +168,30 @@ var lawRelationKinds = map[string]bool{
 // KnowledgeManifest is the one tracked registry for non-work-note durable
 // knowledge. It contains metadata and proofs, never document bodies.
 type KnowledgeManifest struct {
-	SchemaVersion         string                  `json:"schema_version"`
-	SupportedKinds        []string                `json:"supported_kinds"`
-	IndexedKinds          []string                `json:"indexed_kinds"`
-	DomainRegistry        KnowledgeDomainRegistry `json:"domain_registry"`
-	KnowledgeRoots        []string                `json:"knowledge_roots,omitempty"`
-	Exclusions            []string                `json:"exclusions,omitempty"`
-	DocContract           *KnowledgeDocContract   `json:"doc_contract,omitempty"`
-	Records               []KnowledgeRecord       `json:"records"`
-	Dispositions          []KnowledgeDisposition  `json:"dispositions"`
+	SchemaVersion         string                      `json:"schema_version"`
+	SupportedKinds        []string                    `json:"supported_kinds"`
+	IndexedKinds          []string                    `json:"indexed_kinds"`
+	DomainRegistry        KnowledgeDomainRegistry     `json:"domain_registry"`
+	KnowledgeRoots        []string                    `json:"knowledge_roots,omitempty"`
+	Exclusions            []string                    `json:"exclusions,omitempty"`
+	OperatorOverrides     []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
+	DocContract           *KnowledgeDocContract       `json:"doc_contract,omitempty"`
+	Records               []KnowledgeRecord           `json:"records"`
+	Dispositions          []KnowledgeDisposition      `json:"dispositions"`
 	domainRegistryPresent bool
+}
+
+// KnowledgeOperatorOverride is one recorded operator instruction that admits a
+// Product knowledge location outside the layout tier's record prefix
+// (CD-0194 D2). RecordedIn names the accepted decision whose document carries
+// the closed instruction block; the parse proves shape and Product ownership,
+// and the anchor gate on every committed or working-tree manifest read, beside
+// the placement check, proves that anchor against its document.
+type KnowledgeOperatorOverride struct {
+	Path       string `json:"path"`
+	ProductID  string `json:"product_id"`
+	RecordedIn string `json:"recorded_in"`
+	Reason     string `json:"reason"`
 }
 
 type KnowledgeDocContract struct {
@@ -427,14 +448,15 @@ func (record *KnowledgeRecord) UnmarshalJSON(data []byte) error {
 
 func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 	type manifestJSON struct {
-		SchemaVersion  string                   `json:"schema_version"`
-		SupportedKinds []string                 `json:"supported_kinds"`
-		IndexedKinds   []string                 `json:"indexed_kinds"`
-		DomainRegistry *KnowledgeDomainRegistry `json:"domain_registry,omitempty"`
-		KnowledgeRoots []string                 `json:"knowledge_roots,omitempty"`
-		Exclusions     []string                 `json:"exclusions,omitempty"`
-		DocContract    *KnowledgeDocContract    `json:"doc_contract,omitempty"`
-		Records        []map[string]any         `json:"records"`
+		SchemaVersion     string                      `json:"schema_version"`
+		SupportedKinds    []string                    `json:"supported_kinds"`
+		IndexedKinds      []string                    `json:"indexed_kinds"`
+		DomainRegistry    *KnowledgeDomainRegistry    `json:"domain_registry,omitempty"`
+		KnowledgeRoots    []string                    `json:"knowledge_roots,omitempty"`
+		Exclusions        []string                    `json:"exclusions,omitempty"`
+		OperatorOverrides []KnowledgeOperatorOverride `json:"operator_overrides,omitempty"`
+		DocContract       *KnowledgeDocContract       `json:"doc_contract,omitempty"`
+		Records           []map[string]any            `json:"records"`
 	}
 	registry := manifest.DomainRegistry
 	records := make([]map[string]any, 0, len(manifest.Records))
@@ -445,7 +467,8 @@ func (manifest KnowledgeManifest) MarshalJSON() ([]byte, error) {
 		SchemaVersion: manifest.SchemaVersion, SupportedKinds: manifest.SupportedKinds,
 		IndexedKinds: manifest.IndexedKinds, DomainRegistry: &registry,
 		KnowledgeRoots: manifest.KnowledgeRoots, Exclusions: manifest.Exclusions,
-		DocContract: manifest.DocContract, Records: records,
+		OperatorOverrides: manifest.OperatorOverrides,
+		DocContract:       manifest.DocContract, Records: records,
 	})
 }
 
@@ -564,6 +587,10 @@ func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix st
 	if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
 		return err
 	}
+	covered, err := validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
+	if err != nil {
+		return err
+	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
 	if err != nil {
 		return err
@@ -586,7 +613,7 @@ func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix st
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	for _, record := range manifest.Records {
-		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion, pathPrefix); err != nil {
+		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion, pathPrefix, covered); err != nil {
 			return err
 		}
 		if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
@@ -1023,7 +1050,7 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 	return result, nil
 }
 
-func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string, pathPrefix string) error {
+func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string, pathPrefix string, covered func(string) bool) error {
 	if len(record.CriterionBindings) > maxCriterionBindings {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many criterion bindings", false, "supply at most one thousand criterion bindings")
 	}
@@ -1080,7 +1107,7 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	if !supported[record.Kind] || !indexed[record.Kind] {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record kind is not indexed: "+record.Kind, false, "include the record kind in supported_kinds and indexed_kinds")
 	}
-	if err := validateManifestPathForPrefix(record.Path, pathPrefix); err != nil {
+	if err := validateRecordPathForTier(record.Path, pathPrefix, covered); err != nil {
 		return err
 	}
 	if record.Kind == "decision" && !canonicalDecisionPath(record.Path) {
@@ -1151,6 +1178,137 @@ func canonicalDecisionPath(value string) bool {
 
 func validateManifestPath(value string) error {
 	return validateManifestPathForPrefix(value, manifestRecordPathPrefix)
+}
+
+// operatorOverridePathRE mirrors OPERATOR_OVERRIDE_PATH_RE in
+// scripts/check-knowledge-index.py: a relative directory prefix with a
+// trailing slash, or a relative markdown file path, over bounded clean
+// segments.
+var operatorOverridePathRE = regexp.MustCompile(`^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$`)
+
+// externalRecordSegmentRE mirrors the external path shape in
+// $defs.record.allOf of contracts/concord-knowledge-index.v1.schema.json:
+// every segment is a bounded clean identifier and the path ends in markdown.
+var externalRecordSegmentRE = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// validatedOverrideCoverage validates the manifest head's operator overrides
+// (CD-0194 D2) and returns the coverage predicate they admit. The store
+// proves shape, completeness, and Product ownership; composition and the
+// placement check prove the recorded_in anchor against its closed instruction
+// block, so a record that parses here has already passed the anchor gate on
+// the authoring side. An override belongs to exactly one Product: a head
+// whose override names a Product other than the manifest's owning registry
+// key refuses, so one Product's recorded instruction can never admit another
+// Product's external placement.
+func validatedOverrideCoverage(overrides []KnowledgeOperatorOverride, productKey string) (func(string) bool, error) {
+	if len(overrides) == 0 {
+		return func(string) bool { return false }, nil
+	}
+	if len(overrides) > maxOperatorOverrides {
+		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator_overrides exceeds the bounded array", false, "record at most 32 operator overrides")
+	}
+	seen := make(map[string]bool, len(overrides))
+	for _, override := range overrides {
+		if err := validateOperatorOverride(override, productKey); err != nil {
+			return nil, err
+		}
+		if seen[override.Path] {
+			return nil, newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "operator_overrides carries a duplicate path", false, "record one override per placement")
+		}
+		seen[override.Path] = true
+	}
+	return func(path string) bool {
+		for _, override := range overrides {
+			if overrideCoversPath(override.Path, path) {
+				return true
+			}
+		}
+		return false
+	}, nil
+}
+
+// overrideCoversPath mirrors the placement check: a directory override ends in
+// a slash and covers every path beneath it, so `external/knowledge/` cannot be
+// narrowed by a sibling such as `external/knowledge-notes/`. A file override
+// covers exactly its own path.
+func overrideCoversPath(overridePath, candidate string) bool {
+	if strings.HasSuffix(overridePath, "/") {
+		return strings.HasPrefix(candidate, overridePath)
+	}
+	return candidate == overridePath
+}
+
+func validateOperatorOverride(override KnowledgeOperatorOverride, productKey string) error {
+	if override.Path == "" || utf8.RuneCountInString(override.Path) > 256 || !operatorOverridePathRE.MatchString(override.Path) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator override path is not a clean directory prefix or markdown path", false, "use a relative directory prefix with a trailing slash or a relative markdown path")
+	}
+	if strings.HasPrefix(override.Path, ".concord/") {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator override path is inside the default tree and cannot be an override", false, "place the record under .concord/ or override a path outside it")
+	}
+	if override.ProductID != productKey {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator override names Product "+override.ProductID+", not this manifest's owning Product "+productKey, false, "record the override in the manifest of the Product it belongs to")
+	}
+	if override.RecordedIn == "" || utf8.RuneCountInString(override.RecordedIn) > maxManifestID || strings.TrimSpace(override.RecordedIn) != override.RecordedIn {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator override recorded_in is empty, oversized, or not clean", false, "name the accepted decision carrying the operator's instruction")
+	}
+	if utf8.RuneCountInString(override.Reason) < minOverrideReason || utf8.RuneCountInString(override.Reason) > maxOverrideReason || strings.TrimSpace(override.Reason) != override.Reason {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator override reason is not a bounded trimmed justification", false, "supply a trimmed reason of twelve to five hundred twelve characters")
+	}
+	return nil
+}
+
+// validateRecordPathForTier validates one record path under the prefix its
+// layout tier carries (CD-0194 D5). A path below the tier prefix follows the
+// authored tier rules. A path outside the prefix is a Product knowledge
+// location outside the default tree: CD-0194 D2 admits it only through an
+// explicit operator override, and never for a path inside .concord/, which no
+// override can name. covered is nil on self-authored validation routes, which
+// never leave the tier prefix.
+func validateRecordPathForTier(value, pathPrefix string, covered func(string) bool) error {
+	if strings.HasPrefix(value, pathPrefix) {
+		return validateManifestPathForPrefix(value, pathPrefix)
+	}
+	if covered != nil && !strings.HasPrefix(value, ".concord/") && covered(value) {
+		return validateExternalRecordPath(value, pathPrefix)
+	}
+	if isExternalRecordPathShape(value) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "external record path carries no operator override", false, "record an explicit operator override in the manifest head before indexing knowledge outside "+pathPrefix)
+	}
+	return validateManifestPathForPrefix(value, pathPrefix)
+}
+
+// isExternalRecordPathShape reports whether the value looks like a clean
+// override-admittable markdown path, so an uncovered external placement
+// refuses with the override guidance instead of the tier-prefix guidance.
+func isExternalRecordPathShape(value string) bool {
+	if value == "" || !strings.HasSuffix(value, ".md") || strings.HasPrefix(value, "/") {
+		return false
+	}
+	for _, part := range strings.Split(value, "/") {
+		if !externalRecordSegmentRE.MatchString(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateExternalRecordPath applies the closed external shape to an
+// override-covered record path. The tier-relative work and research
+// exclusions stay tier-relative; the generated-substring exclusion is
+// generic and refuses generated content in any tree.
+func validateExternalRecordPath(value, pathPrefix string) error {
+	if value == "" || utf8.RuneCountInString(value) > maxManifestPath || path.Clean(value) != value || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "-") || !strings.HasSuffix(value, ".md") {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "external record path is not a clean relative markdown path", false, "use a clean relative markdown path below the overridden location")
+	}
+	for _, part := range strings.Split(value, "/") {
+		if part == "" || part == ".." || strings.ContainsRune(part, '\x00') || !externalRecordSegmentRE.MatchString(part) {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "external record path carries a forbidden or malformed segment", false, "use bounded clean path segments below the overridden location")
+		}
+	}
+	if reason, ineligible := manifestPathIneligibleFor(value, pathPrefix); ineligible {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "external record path is not an eligible authored knowledge blob", false, reason+"; "+manifestIneligibleHintFor(pathPrefix))
+	}
+	return nil
 }
 
 func validateManifestPathForPrefix(value, pathPrefix string) error {
@@ -1299,7 +1457,17 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 	}
 	if sharded {
 		manifest, err := composeKnowledgeManifest(shards)
-		return manifest, false, err
+		if err != nil {
+			return KnowledgeManifest{}, false, err
+		}
+		// Every committed manifest read proves the operator overrides it
+		// carries (CD-0194 D2): an external record is law only while its
+		// anchor decision, read from this same commit, carries the closed
+		// approve instruction for the override's exact Product and path.
+		if err := validateOverrideAnchors(manifest, committedOverrideAnchorReader(ctx, repo, commit)); err != nil {
+			return KnowledgeManifest{}, false, err
+		}
+		return manifest, false, nil
 	}
 	entry, err := gitTreeEntry(ctx, repo, commit, knowledgeManifestPath)
 	if err != nil {
@@ -1325,7 +1493,13 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 		return KnowledgeManifest{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed manifest blob", true, "restore the manifest blob and retry", err)
 	}
 	manifest, err := parseKnowledgeManifestWithPaths(content, aggregateRecordPathPrefix(content))
-	return manifest, false, err
+	if err != nil {
+		return KnowledgeManifest{}, false, err
+	}
+	if err := validateOverrideAnchors(manifest, committedOverrideAnchorReader(ctx, repo, commit)); err != nil {
+		return KnowledgeManifest{}, false, err
+	}
+	return manifest, false, nil
 }
 
 // aggregateRecordPathPrefix resolves the record path prefix an aggregate

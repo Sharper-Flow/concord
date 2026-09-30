@@ -137,6 +137,51 @@ func committedPaths(t *testing.T, repo, commit string) []string {
 	return paths
 }
 
+// TestPublishLessonRecordRefusesABrokenOverrideAnchor proves the
+// working-tree manifest read runs the same anchor gate a committed read runs
+// (CD-0194 D2): publication builds on the composed manifest, so a head whose
+// override anchor does not prove out refuses before anything is written.
+func TestPublishLessonRecordRefusesABrokenOverrideAnchor(t *testing.T) {
+	t.Parallel()
+	_, home := lessonWorktreeFixture(t)
+	ctx := context.Background()
+	headPath := filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeHeadPath))
+	raw, err := os.ReadFile(headPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var head map[string]any
+	if err := json.Unmarshal(raw, &head); err != nil {
+		t.Fatal(err)
+	}
+	head["operator_overrides"] = []map[string]any{{
+		"path": "external/knowledge/", "product_id": "concord",
+		"recorded_in": "seed-lesson", "reason": "the operator recorded this placement for the external tree",
+	}}
+	encoded, err := json.MarshalIndent(head, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(headPath, append(encoded, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := LessonPublication{
+		LessonID: "lesson-gate-probe", Title: "Gate probe", Summary: "A publication that must refuse on the broken anchor.",
+		Content: "# Gate probe\n\nBody.\n", Tags: []string{"testing"},
+		Scopes:   KnowledgeRecordScopes{Mode: "explicit", ProjectIDs: []string{"project-1"}},
+		Evidence: []string{"internal/store/lesson_publish_test.go"},
+		Coverage: lessonSatisfiedCoverage(),
+		Now:      time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC),
+	}
+	before := commitCount(t, home.RepoPath)
+	if _, err := PublishLessonRecord(ctx, home, req); err == nil || !strings.Contains(err.Error(), "only a decision carries operator override authority") {
+		t.Fatalf("expected a broken-anchor refusal, got %v", err)
+	}
+	if commitCount(t, home.RepoPath) != before {
+		t.Fatal("a refused publication wrote a commit")
+	}
+}
+
 func TestPublishLessonRecordCommitsManifestAndNoteIdempotently(t *testing.T) {
 	t.Parallel()
 	canonical, home := lessonWorktreeFixture(t)

@@ -33,6 +33,18 @@ def validate_generator(schema: dict) -> list[str]:
     return findings
 
 
+def default_path_clause(schema: dict) -> dict:
+    """The $defs.record.allOf clause that carries the default-tree path rule
+    (CD-0194 D2). The rule moved out of properties.path so an
+    override-admitted external path can validate beside it; the bindings read
+    it back out of this clause."""
+    for clause in schema["$defs"]["record"]["allOf"]:
+        paths = clause.get("if", {}).get("properties", {}).get("path", {})
+        if paths.get("pattern") == binding.DEFAULT_TREE_CLAUSE_CONDITION:
+            return clause
+    raise AssertionError("schema declares no default-tree record path clause")
+
+
 def test_repository_schema_and_checker_agree() -> None:
     assert validate(copy.deepcopy(SCHEMA)) == []
 
@@ -58,7 +70,7 @@ def test_generator_accepting_an_undeclared_kind_is_reported() -> None:
 
 def test_generator_record_path_pattern_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = "^.concord/docs/(?!work/).*\\.md$"
+    default_path_clause(schema)["then"]["properties"]["path"]["pattern"] = r"^.concord/docs/(?!work/).*\.md$"
     findings = validate_generator(schema)
     assert len(findings) == 1
     assert findings[0].startswith("generator RECORD_PATH_RE: schema declares")
@@ -226,7 +238,7 @@ def test_disposition_path_pattern_divergence_is_reported() -> None:
 
 def test_record_path_pattern_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^.concord/docs/(?!work/).*\.md$"
+    default_path_clause(schema)["then"]["properties"]["path"]["pattern"] = r"^.concord/docs/(?!work/).*\.md$"
     findings = validate(schema)
     assert any(finding.startswith("RECORD_PATH_RE: schema declares") for finding in findings), findings
 
@@ -236,20 +248,32 @@ def test_record_path_shape_change_is_reported_for_the_go_binding() -> None:
     A restructure must fail here rather than leave the Go side matching
     nothing."""
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^.concord/docs/.*\.md$"
+    default_path_clause(schema)["then"]["properties"]["path"]["pattern"] = r"^.concord/docs/.*\.md$"
     findings = validate(schema)
     assert any("is no longer the" in finding for finding in findings), findings
 
 
+def test_missing_default_tree_path_clause_is_reported_not_silently_passed() -> None:
+    schema = copy.deepcopy(SCHEMA)
+    schema["$defs"]["record"]["allOf"] = [
+        clause
+        for clause in schema["$defs"]["record"]["allOf"]
+        if clause.get("if", {}).get("properties", {}).get("path", {}).get("pattern")
+        != binding.DEFAULT_TREE_CLAUSE_CONDITION
+    ]
+    findings = validate(schema)
+    assert "schema: $defs.record.allOf declares no default-tree record path clause" in findings
+
+
 def test_repealed_files_are_absent_from_the_schema_alternation() -> None:
     """The two accepted contracts must not reappear as named exclusions."""
-    pattern = SCHEMA["$defs"]["record"]["properties"]["path"]["pattern"]
+    pattern = default_path_clause(SCHEMA)["then"]["properties"]["path"]["pattern"]
     assert "product-coordination-view" not in pattern
     assert "terminal-launcher-contract" not in pattern
 
 
 def test_class_exclusions_remain_in_the_schema_alternation() -> None:
-    pattern = SCHEMA["$defs"]["record"]["properties"]["path"]["pattern"]
+    pattern = default_path_clause(SCHEMA)["then"]["properties"]["path"]["pattern"]
     for member in ("work/", "research/", "[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]"):
         assert member in pattern, member
 

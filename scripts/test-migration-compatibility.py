@@ -1113,6 +1113,41 @@ for label, sql, failures, breaking in (
         [150],
     ),
     (
+        "a leading unicode space hides no column add",
+        "CREATE TABLE \u00a0a (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a trailing unicode space hides no column add",
+        "CREATE TABLE a\u00a0 (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "an em-space sibling name hides no column add",
+        "CREATE TABLE \u2003a (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a narrow-no-break-space sibling name hides no column add",
+        "CREATE TABLE \u202fa (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a unicode-space sibling drop classifies as destructive",
+        "CREATE TABLE \u00a0a (a TEXT);"
+        "DROP TABLE a;",
+        1,
+        [150],
+    ),
+    (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,

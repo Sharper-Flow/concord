@@ -63,18 +63,29 @@ FOLD_VALUE_ELSEWHERE = "<value on a later line>"
 # then looks owned.
 SQL_ID_START = r"[A-Za-z_$\u0080-\U0010FFFF]"
 SQL_ID_CONT = r"[A-Za-z0-9_$\u0080-\U0010FFFF]"
+# SQLite treats only space, tab, newline, formfeed, and carriage return as
+# whitespace; Python's \s, \S, and str.strip() go further and consume or stop
+# at identifier characters such as U+00A0. Every SQL token boundary and name
+# trim uses these classes so the checker reads the names SQLite executes.
+SQL_SPACE = "[ \\t\\n\\f\\r]"
+SQL_SP = f"{SQL_SPACE}+"
+SQL_SQ = f"{SQL_SPACE}*"
+SQL_NOT_SPACE = "[^ \\t\\n\\f\\r]"
+SQL_TRIM = " \t\n\f\r"
 SQL_REF = (
     rf"(?:\"(?:[^\"]|\"\")+\"|\[[^\]]+\]|`[^`]+`|'(?:[^']|'')+'"
     rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
 )
-SQL_QUAL = rf"(?:{SQL_REF}(?:\s*\.\s*{SQL_REF})*)"
+SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
 CREATE_TABLE = re.compile(
-    rf"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
-    rf"\s+({SQL_QUAL})",
+    rf"^CREATE{SQL_SP}(?:VIRTUAL{SQL_SP}|TEMP{SQL_SP}|TEMPORARY{SQL_SP})*"
+    rf"TABLE(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_SP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 DROP_TABLE = re.compile(
-    rf"^DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+({SQL_QUAL})", re.IGNORECASE
+    rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_SP}({SQL_QUAL})",
+    re.IGNORECASE,
 )
 
 
@@ -114,7 +125,7 @@ def sql_parts(ref: str) -> list[str]:
             current.append(ch)
             i += 1
     parts.append("".join(current))
-    return [p.strip() for p in parts if p.strip()]
+    return [p.strip(SQL_TRIM) for p in parts if p.strip(SQL_TRIM)]
 
 
 ASCII_CASE_FOLD = str.maketrans(
@@ -179,24 +190,33 @@ def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
 # One SQL table reference: quoted, bracketed, backticked, string-literal, or
 # bare, alone or schema-qualified. Comparisons normalize through sql_table_key.
 DROP_INDEX = re.compile(
-    rf"^DROP\s+(?:INDEX|TRIGGER|VIEW)(?:\s+IF\s+EXISTS)?\s+{SQL_QUAL}",
+    rf"^DROP{SQL_SP}(?:INDEX|TRIGGER|VIEW)(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_SP}{SQL_QUAL}",
     re.IGNORECASE,
 )
 ALTER = re.compile(
-    rf"^ALTER\s+TABLE\s+({SQL_QUAL})\s+([\s\S]*)$", re.IGNORECASE
+    rf"^ALTER{SQL_SP}TABLE{SQL_SP}({SQL_QUAL}){SQL_SP}([\s\S]*)$", re.IGNORECASE
 )
-ADD_COLUMN = re.compile(r"^ADD\s+(?:COLUMN\s+)?\S", re.IGNORECASE)
+ADD_COLUMN = re.compile(rf"^ADD{SQL_SP}(?:COLUMN{SQL_SP})?{SQL_NOT_SPACE}", re.IGNORECASE)
 INDEX_ON = re.compile(
-    rf"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+({SQL_QUAL})",
+    rf"^CREATE{SQL_SP}(UNIQUE{SQL_SP})?INDEX(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_SP}(?:{SQL_REF}){SQL_SP}ON{SQL_SP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 TRIGGER_ON = re.compile(
-    rf"^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+(?:BEFORE|AFTER|INSTEAD)"
-    rf"[\s\S]*?\bON\s+({SQL_QUAL})",
+    rf"^CREATE{SQL_SP}TRIGGER(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_SP}(?:{SQL_REF}){SQL_SP}(?:BEFORE|AFTER|INSTEAD)"
+    rf"[\s\S]*?(?<!{SQL_ID_CONT})ON{SQL_SP}({SQL_QUAL})",
     re.IGNORECASE,
 )
-VIEW_OR_PRAGMA = re.compile(r"^(CREATE\s+VIEW|PRAGMA|ANALYZE|REINDEX)\b", re.IGNORECASE)
-WRITE = re.compile(r"^(INSERT|UPDATE|DELETE|SELECT|WITH)\b", re.IGNORECASE)
+VIEW_OR_PRAGMA = re.compile(
+    rf"^(CREATE{SQL_SP}VIEW|PRAGMA|ANALYZE|REINDEX)(?!{SQL_ID_CONT})", re.IGNORECASE
+)
+WRITE = re.compile(rf"^(INSERT|UPDATE|DELETE|SELECT|WITH)(?!{SQL_ID_CONT})", re.IGNORECASE)
+
+
+def first_sql_word(text: str) -> str:
+    """Return the first SQL-space-delimited token, for refusal messages."""
+    return re.split(SQL_SPACE + "+", text.strip(SQL_TRIM), maxsplit=1)[0].upper()
 
 
 def statements(sql: str) -> list[str]:
@@ -256,7 +276,7 @@ def statements(sql: str) -> list[str]:
 
     while i < n:
         ch = sql[i]
-        if ch.isalnum() or ch in "_$":
+        if ch.isalnum() or ch in "_$" or ord(ch) >= 0x80:
             if not word:
                 word_start = i
             word.append(ch)
@@ -310,7 +330,7 @@ def statements(sql: str) -> list[str]:
             continue
         if ch == ";":
             if depth == 0:
-                statement = "".join(current).strip()
+                statement = "".join(current).strip(SQL_TRIM)
                 if statement:
                     out.append(statement)
                 current = []
@@ -328,14 +348,17 @@ def statements(sql: str) -> list[str]:
     token = "".join(word).upper()
     if token:
         current.extend(word)
-    tail = "".join(current).strip()
+    tail = "".join(current).strip(SQL_TRIM)
     if tail:
         out.append(tail)
     return out
 
 
-RENAMES = re.compile(rf"^RENAME\s+(?:TO|AS)\s+({SQL_QUAL})", re.IGNORECASE)
-CONDITIONAL_CREATE = re.compile(r"\bIF\s+NOT\s+EXISTS\b", re.IGNORECASE)
+RENAMES = re.compile(rf"^RENAME{SQL_SP}(?:TO|AS){SQL_SP}({SQL_QUAL})", re.IGNORECASE)
+CONDITIONAL_CREATE = re.compile(
+    rf"(?<!{SQL_ID_CONT})IF{SQL_SP}NOT{SQL_SP}EXISTS(?!{SQL_ID_CONT})",
+    re.IGNORECASE,
+)
 
 
 def track_born(
@@ -372,7 +395,7 @@ def track_born(
         return None
     match = ALTER.match(statement)
     if match:
-        rename = RENAMES.match(match.group(2).strip())
+        rename = RENAMES.match(match.group(2).strip(SQL_TRIM))
         if rename:
             retired = resolve_born(match.group(1), born)
             if retired is not None:
@@ -410,12 +433,12 @@ def classify(sql: str) -> list[str]:
             continue
         match = ALTER.match(statement)
         if match:
-            table, rest = match.group(1), match.group(2).strip()
+            table, rest = match.group(1), match.group(2).strip(SQL_TRIM)
             if resolves_to_born(table, born):
                 continue
             if ADD_COLUMN.match(rest):
                 continue
-            reasons.append(f"alters the pre-existing table {table}: {rest.split()[0].upper()}")
+            reasons.append(f"alters the pre-existing table {table}: {first_sql_word(rest)}")
             continue
         match = INDEX_ON.match(statement)
         if match:
@@ -433,7 +456,7 @@ def classify(sql: str) -> list[str]:
             continue
         if VIEW_OR_PRAGMA.match(statement) or WRITE.match(statement):
             continue
-        reasons.append(f"uses an unclassified statement: {statement.split()[0].upper()}")
+        reasons.append(f"uses an unclassified statement: {first_sql_word(statement)}")
     return reasons
 
 
@@ -621,7 +644,7 @@ def adds_preexisting_column(sql: str) -> bool:
             key = resolve_born(match.group(1), born)
             if key is not None and key not in conditional:
                 continue
-            if ADD_COLUMN.match(match.group(2).strip()):
+            if ADD_COLUMN.match(match.group(2).strip(SQL_TRIM)):
                 return True
     return False
 

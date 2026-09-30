@@ -2258,6 +2258,9 @@ test("a completion under a legacy lane digest signs and records the packet's dig
     expect((record.body.assertion as Record<string, unknown>).lane_digest).toBe(legacy)
     if (record.verb === "worker-dispatch") expect(record.body.lane_digest).toBe(legacy)
   }
+  // The coordinator-facing envelope keeps the authorized identity too: the
+  // summary must not relabel a legacy-digest attempt as the current digest.
+  expect(result.lane.digest).toBe(legacy)
 })
 
 test("the review lane refuses a free-text severity entry beside the typed review block", () => {

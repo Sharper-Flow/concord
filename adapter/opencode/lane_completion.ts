@@ -102,7 +102,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   try {
     envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory }, signal)
   } catch (error) {
-    envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: lane.digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
+    envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: record.packet.lane_digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
   output.output += renderAttempt(envelope)
 }

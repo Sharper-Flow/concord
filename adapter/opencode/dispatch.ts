@@ -976,7 +976,11 @@ function laneRequiresReportBlock(lane: AgentLane, block: "review"): boolean {
 
 function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
   const id = lane?.id ?? String(packet.lane_id ?? "")
-  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
+  // The envelope publishes the digest the dispatch authorized, not the
+  // resolved current definition: a legacy-digest packet keeps its identity in
+  // the coordinator-facing summary (CD-0017 D5), exactly as the signed
+  // assertions below already do.
+  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: String(packet.lane_digest ?? lane?.digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
 function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details"> = {}): AgentResultEnvelope {

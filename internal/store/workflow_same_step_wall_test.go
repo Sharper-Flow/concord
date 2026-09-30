@@ -125,11 +125,9 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", accepted, worker, false, nil); err != nil {
 		t.Fatalf("accepted delivery dispatch: %v", err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "worker-completed-" + accepted, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(11, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: accepted, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "worker-completed-"+accepted, accepted, lane, time.Unix(11, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": accepted, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {

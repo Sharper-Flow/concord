@@ -51,7 +51,16 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
-	completion := store.Event{EventID: "delivery-recovery-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	payloadVersion := 1
+	// A live completion on a lane that requires the typed review block
+	// carries it (CD-0197), whatever evidence origin it claims.
+	if len(lane.RequiredReportBlocks) > 0 {
+		payloadVersion = 3
+		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
+		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P1", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+	}
+	completion := store.Event{EventID: "delivery-recovery-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(payload)}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

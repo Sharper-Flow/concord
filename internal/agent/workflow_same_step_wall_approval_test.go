@@ -56,7 +56,9 @@ func seedSameStepWallWithoutCorrection(t *testing.T, s *store.Store, grant Autho
 		t.Fatalf("approved fourth dispatch: %v", err)
 	}
 	recordGenericOneOffWorkerDispatch(t, s, grant, fourth, "same-step-completed")
-	completion := store.Event{EventID: "same-step-completed-" + fourth, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: fourth, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	// The fourth attempt rides the review lane, so its live completion carries
+	// the typed review block (CD-0197).
+	completion := store.Event{EventID: "same-step-completed-" + fourth, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: fourth, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceLegacyUnavailable, Review: &store.WorkerReviewBlock{Verdict: "ship", Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the bounded change matches the approved contract"}}}})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{completion}})
 		return err

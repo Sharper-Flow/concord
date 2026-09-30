@@ -517,6 +517,24 @@ func workerCompleteEvent(workID, eventID, attemptID, model string) Event {
 	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "readback_model": model, "report_schema_version": WorkerReportSchemaVersion})}
 }
 
+// workerCompleteEventForLane builds one worker.completed fixture event for a
+// lane. A lane whose contract requires the typed review block completes only
+// with that block (CD-0197): the fixture records the completion at the
+// current payload version, origin legacy_unavailable, carrying the block and
+// no evidence — the live shape the fold admits beside a reported one. Other
+// lanes complete with the legacy payload they always carried, so both stored
+// shapes stay exercised on the live path.
+func workerCompleteEventForLane(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time) Event {
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}
+	version := 1
+	if len(lane.RequiredReportBlocks) > 0 {
+		version = 3
+		payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
+		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+	}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
+}
+
 func workerProjectionSnapshot(t *testing.T, s *Store) string {
 	t.Helper()
 	rows, err := s.DatabaseForTesting().Query(`SELECT work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,COALESCE(completed_at,''),COALESCE(failed_at,'') FROM worker_attempts ORDER BY attempt_id`)

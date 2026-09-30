@@ -394,7 +394,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	completed := Event{EventID: "join-checkpoint-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := workerCompleteEventForLane(workID, "join-checkpoint-completed-"+workID, attemptID, lane, time.Unix(40, 0).UTC())
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatal(err)
 	}

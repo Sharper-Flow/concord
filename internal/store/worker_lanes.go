@@ -921,13 +921,26 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	// CD-0056 D4: the fold is the only point where the attempt's lane
 	// identity and the reported evidence are both in hand, so coverage is
 	// enforced inside the transaction that would make the attempt terminal.
-	if payload.EvidenceOrigin == WorkerEvidenceReported {
+	live := !isWorkflowReplay(ctx)
+	if payload.EvidenceOrigin == WorkerEvidenceReported || live {
 		lane, err := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest)
 		if err != nil {
 			return err
 		}
-		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence, payload.Review); err != nil {
-			return err
+		if payload.EvidenceOrigin == WorkerEvidenceReported {
+			if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence, payload.Review); err != nil {
+				return err
+			}
+		}
+		// CD-0197: a lane that requires the typed review block refuses every
+		// live completion without it, whatever evidence origin the completion
+		// claims. Stored completions from before the requirement replay
+		// unchanged. The per-lane requirement sits here rather than in the
+		// payload validator, which cannot reach the dispatching lane.
+		if live {
+			if err := verifyWorkerReportBlockRequirement(lane, payload.Review); err != nil {
+				return err
+			}
 		}
 		// The recorded dispatch owns the predicate vocabulary: the typed
 		// outcome predicate ids it carried are read from the dispatch
@@ -936,16 +949,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		// recorded completion: history folded before this check may carry ties
 		// the live fold now refuses, or a dispatch recorded before the
 		// predicate list existed.
-		if !isWorkflowReplay(ctx) {
-			// CD-0197: a lane that requires the typed review block refuses a
-			// completion without it, live only. Stored completions from
-			// before the requirement replay unchanged, and the per-lane
-			// requirement is exactly why this sits beside the coverage check
-			// rather than in the payload validator, which cannot reach the
-			// dispatching lane.
-			if err := verifyWorkerReportBlockRequirement(lane, payload.Review); err != nil {
-				return err
-			}
+		if live && payload.EvidenceOrigin == WorkerEvidenceReported {
 			declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
 			if err != nil {
 				return err

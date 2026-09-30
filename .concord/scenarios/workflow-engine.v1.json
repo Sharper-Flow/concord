@@ -18934,11 +18934,32 @@
             "work_id": "work-alpha",
             "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
             "occurred_at": "2026-08-09T00:00:00Z",
-            "payload_version": 1,
+            "payload_version": 3,
             "payload": {
               "attempt_id": "attempt:wf48-lane-pipeline-review",
               "readback_model": "zai-coding-plan/glm-5.3",
-              "report_schema_version": "1.0"
+              "report_schema_version": "1.0",
+              "evidence_origin": "reported",
+              "evidence": [
+                {
+                  "obligation": "contract_findings",
+                  "detail": "the dispatch pin and the report evidence boundary match the lane contract"
+                },
+                {
+                  "obligation": "verification_commands",
+                  "detail": "go test ./internal/store -count=1"
+                }
+              ],
+              "review": {
+                "verdict": "ship",
+                "findings": [
+                  {
+                    "severity": "P2",
+                    "confidence": "medium",
+                    "detail": "the review lane report names two obligations for one evidence field"
+                  }
+                ]
+              }
             }
           }
         ],

@@ -426,11 +426,9 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
@@ -566,11 +564,9 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{
-		EventID: "verify-review-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "verify-review-completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 }

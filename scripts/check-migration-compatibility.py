@@ -18,6 +18,11 @@ binary resolves. Being wrong toward additive lets an old binary write against
 a shape it does not know, which is silent corruption.
 
 Fold-maintained columns are the additive shape this comparison cannot see.
+One deliberate boundary: the legacy statement rules treat a conditional
+CREATE (IF NOT EXISTS) as ownership, the repair-migration convention
+(migration 60 builds on it), while the FoldMaintained duty holds such a
+table to the stricter standard below because its column may land on the
+table SQLite retained.
 SQLite reads an added column's rows as its constant default and rejects a
 non-constant one, so every ADD COLUMN classifies as additive; whether the
 column stays true is decided by the Go fold writer, which the SQL shape does
@@ -63,6 +68,34 @@ DROP_TABLE = re.compile(
 )
 
 
+def sql_parts(ref: str) -> list[str]:
+    """Split a table reference on dots, keeping quoted parts atomic.
+
+    "a.b.c" is one name, not a schema and a table: the dot inside the
+    quotes belongs to the identifier.
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    i, n = 0, len(ref)
+    while i < n:
+        ch = ref[i]
+        if ch in ('"', "`", "["):
+            close = "]" if ch == "[" else ch
+            j = ref.find(close, i + 1)
+            j = n if j < 0 else j + 1
+            current.append(ref[i:j])
+            i = j
+        elif ch == ".":
+            parts.append("".join(current))
+            current = []
+            i += 1
+        else:
+            current.append(ch)
+            i += 1
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
 def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
     """Return the (schema, table) identity of one SQL table reference.
 
@@ -78,7 +111,7 @@ def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
             return part[1:-1]
         return part
 
-    parts = [p.strip() for p in ref.strip().split(".")]
+    parts = sql_parts(ref)
     if len(parts) == 1:
         schema = "temp" if temp else "main"
         name = parts[0]
@@ -95,7 +128,7 @@ def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None
     reference resolves as SQLite resolves it, temp before main.
     """
     schema, name = sql_table_key(ref)
-    if ref.strip().count(".") >= 1:
+    if len(sql_parts(ref)) >= 2:
         return (schema, name) if (schema, name) in born else None
     for key in (("temp", name), ("main", name)):
         if key in born:
@@ -115,7 +148,7 @@ DROP_INDEX = re.compile(
 ALTER = re.compile(
     rf"^ALTER\s+TABLE\s+({SQL_QUAL})\s+([\s\S]*)$", re.IGNORECASE
 )
-ADD_COLUMN = re.compile(r"^ADD\s+(?:COLUMN\s+)?[A-Za-z_\[]", re.IGNORECASE)
+ADD_COLUMN = re.compile(r"^ADD\s+(?:COLUMN\s+)?\S", re.IGNORECASE)
 INDEX_ON = re.compile(
     rf"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+({SQL_QUAL})",
     re.IGNORECASE,
@@ -132,39 +165,60 @@ WRITE = re.compile(r"^(INSERT|UPDATE|DELETE|SELECT|WITH)\b", re.IGNORECASE)
 def statements(sql: str) -> list[str]:
     """Split migration SQL into statements, ignoring comments.
 
-    CREATE TRIGGER bodies contain semicolons, so a bare split would cut them
-    apart. A statement therefore ends at a semicolon that is not inside a
-    BEGIN...END block. The scan is literal-aware: text inside a string or a
-    quoted identifier is never a comment marker or a boundary, so '--' in a
-    value cannot swallow the rest of a line and a semicolon in a value
-    cannot cut a statement, while comments come out wherever they sit
-    outside literals.
+    A statement ends at a semicolon outside a CREATE TRIGGER body. The
+    scan is literal-aware: text inside a string or a quoted identifier is
+    never a comment marker or a boundary, so '--' in a value cannot
+    swallow the rest of a line and a semicolon in a value cannot cut a
+    statement, while comments come out wherever they sit outside
+    literals. Block structure follows grammar, not spelling: the body of
+    a CREATE TRIGGER opens at that statement's first BEGIN, further
+    BEGINs count only at the head of a body statement, and an END closes
+    only when a semicolon or the statement's end follows it, so columns
+    named begin or end inside a body change nothing. A quoted table name
+    spelling a keyword is never the keyword: trigger heads are read with
+    the quoted segments removed.
     """
     out: list[str] = []
     current: list[str] = []
+    word_start = 0
     word: list[str] = []
     depth = 0
+    awaiting_body = False
+    stmt_open = False
     i, n = 0, len(sql)
 
-    def flush_word() -> None:
-        nonlocal depth, word
-        token = "".join(word).upper()
+    def head_code() -> str:
         head = "".join(current).lstrip().upper().split("(")[0]
-        trigger_head = head.startswith("CREATE") and re.search(r"\bTRIGGER\b", head)
-        if token == "BEGIN" and trigger_head:
-            depth += 1
-        elif token == "END":
-            depth = max(0, depth - 1)
-        current.extend(word)
-        word = []
+        return re.sub(r'"[^"]*"|`[^`]*`|\[[^\]]*\]', " ", head)
+
+    def end_closes() -> bool:
+        j = i
+        while j < n and sql[j] in " \t\r\n":
+            j += 1
+        return j >= n or sql[j] == ";"
 
     while i < n:
         ch = sql[i]
         if ch.isalnum() or ch in "_$":
+            if not word:
+                word_start = i
             word.append(ch)
             i += 1
             continue
-        flush_word()
+        token = "".join(word).upper()
+        if token:
+            if token == "TRIGGER" and depth == 0 and head_code().startswith("CREATE"):
+                awaiting_body = True
+            elif token == "BEGIN" and (
+                awaiting_body or (depth >= 1 and not stmt_open)
+            ):
+                depth += 1
+                awaiting_body = False
+            elif token == "END" and depth >= 1 and end_closes():
+                depth -= 1
+            current.extend(word)
+            word = []
+            stmt_open = True
         if ch == "'":
             j = i + 1
             while j < n:
@@ -176,6 +230,7 @@ def statements(sql: str) -> list[str]:
                 j += 1
             current.append(sql[i : min(j + 1, n)])
             i = j + 1
+            stmt_open = True
             continue
         if ch in ('"', "`", "["):
             close = "]" if ch == "[" else ch
@@ -183,6 +238,7 @@ def statements(sql: str) -> list[str]:
             j = n - 1 if j < 0 else j
             current.append(sql[i : j + 1])
             i = j + 1
+            stmt_open = True
             continue
         if sql.startswith("--", i):
             j = sql.find("\n", i)
@@ -193,20 +249,82 @@ def statements(sql: str) -> list[str]:
             i = n if j < 0 else j + 2
             current.append(" ")
             continue
-        if ch == ";" and depth == 0:
-            statement = "".join(current).strip()
-            if statement:
-                out.append(statement)
-            current = []
+        if ch == ";":
+            if depth == 0:
+                statement = "".join(current).strip()
+                if statement:
+                    out.append(statement)
+                current = []
+                awaiting_body = False
+                stmt_open = False
+                i += 1
+                continue
+            stmt_open = False
+            current.append(ch)
             i += 1
             continue
         current.append(ch)
         i += 1
-    flush_word()
+    token = "".join(word).upper()
+    if token:
+        current.extend(word)
     tail = "".join(current).strip()
     if tail:
         out.append(tail)
     return out
+
+
+RENAMES = re.compile(rf"^RENAME\s+(?:TO|AS)\s+({SQL_QUAL})", re.IGNORECASE)
+CONDITIONAL_CREATE = re.compile(r"\bIF\s+NOT\s+EXISTS\b", re.IGNORECASE)
+
+
+def track_born(
+    born: set[tuple[str, str]],
+    conditional: set[tuple[str, str]],
+    statement: str,
+) -> tuple | None:
+    """Apply one statement's table-lifetime effect to the born sets.
+
+    Returns the event for classification: ("preexisting_drop", ref) when
+    the statement drops a table this migration did not create, or None.
+    A RENAME moves the born identity to the new name instead of leaving
+    a stale one behind. A conditional CREATE joins both sets: born, as
+    the repair-migration convention has always claimed, and conditional,
+    where the fold-declaration rule holds it to the stricter standard -
+    the column may land on the pre-existing table SQLite retained.
+    """
+    match = CREATE_TABLE.match(statement)
+    if match:
+        prefix = statement[: match.start(1)]
+        temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", prefix, re.IGNORECASE))
+        key = sql_table_key(match.group(1), temp)
+        born.add(key)
+        if CONDITIONAL_CREATE.search(prefix):
+            conditional.add(key)
+        return None
+    match = DROP_TABLE.match(statement)
+    if match:
+        retired = resolve_born(match.group(1), born)
+        if retired is None:
+            return ("preexisting_drop", match.group(1))
+        born.discard(retired)
+        conditional.discard(retired)
+        return None
+    match = ALTER.match(statement)
+    if match:
+        rename = RENAMES.match(match.group(2).strip())
+        if rename:
+            retired = resolve_born(match.group(1), born)
+            if retired is not None:
+                moved = (retired[0], sql_table_key(rename.group(1))[1])
+                born.discard(retired)
+                born.add(moved)
+                if retired in conditional:
+                    conditional.discard(retired)
+                    conditional.add(moved)
+                return ("rename", match.group(1), rename.group(1))
+        return None
+    return None
 
 
 def classify(sql: str) -> list[str]:
@@ -216,24 +334,16 @@ def classify(sql: str) -> list[str]:
     dropping it, indexing it, or putting a trigger on it breaks nothing.
     """
     born: set[tuple[str, str]] = set()
+    scratch: set[tuple[str, str]] = set()
     reasons: list[str] = []
     for statement in statements(sql):
         if not statement:
             continue
-        match = CREATE_TABLE.match(statement)
-        if match:
-            temp = bool(
-                re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)], re.IGNORECASE)
-            )
-            born.add(sql_table_key(match.group(1), temp))
+        event = track_born(born, scratch, statement)
+        if event and event[0] == "preexisting_drop":
+            reasons.append(f"drops the pre-existing table {event[1]}")
             continue
-        match = DROP_TABLE.match(statement)
-        if match:
-            retired = resolve_born(match.group(1), born)
-            if retired is None:
-                reasons.append(f"drops the pre-existing table {match.group(1)}")
-            else:
-                born.discard(retired)
+        if event is not None or CREATE_TABLE.match(statement) or DROP_TABLE.match(statement):
             continue
         match = DROP_INDEX.match(statement)
         if match:
@@ -443,25 +553,16 @@ def adds_preexisting_column(sql: str) -> bool:
     table an older binary's fold generation already writes.
     """
     born: set[tuple[str, str]] = set()
+    conditional: set[tuple[str, str]] = set()
     for statement in statements(sql):
-        match = CREATE_TABLE.match(statement)
-        if match:
-            temp = bool(
-                re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)], re.IGNORECASE)
-            )
-            born.add(sql_table_key(match.group(1), temp))
-            continue
-        match = DROP_TABLE.match(statement)
-        if match:
-            retired = resolve_born(match.group(1), born)
-            if retired is not None:
-                born.discard(retired)
-            continue
+        track_born(born, conditional, statement)
         match = ALTER.match(statement)
-        if match and resolves_to_born(match.group(1), born):
-            continue
-        if match and ADD_COLUMN.match(match.group(2).strip()):
-            return True
+        if match:
+            key = resolve_born(match.group(1), born)
+            if key is not None and key not in conditional:
+                continue
+            if ADD_COLUMN.match(match.group(2).strip()):
+                return True
     return False
 
 

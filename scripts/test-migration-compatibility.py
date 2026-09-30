@@ -912,6 +912,74 @@ expect_evaluate(
 )
 
 
+# Round-eleven boundaries: trigger grammar from tokens, conditional-create
+# ownership under the fold duty, rename lifetime, dotted quoted names, and
+# the quoted column without the COLUMN keyword.
+for label, sql, failures, breaking in (
+    (
+        "a quoted table named trigger hides no column add",
+        'CREATE TABLE "trigger" (begin TEXT);'
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a bracketed table named trigger hides no column add",
+        "CREATE TABLE [trigger] (begin TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a begin column inside a real trigger body hides no later add",
+        "CREATE TABLE notes (begin TEXT);"
+        "CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "
+        "SELECT begin FROM notes; END;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a conditional create claims no fold ownership",
+        "CREATE TABLE IF NOT EXISTS existing (a TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a rename retires the born identity",
+        "CREATE TEMP TABLE existing (a TEXT);"
+        "ALTER TABLE existing RENAME TO staging;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "dots inside quoted names keep identities apart",
+        'CREATE TABLE "a.b.c" (a TEXT);'
+        'ALTER TABLE "a.x.c" ADD COLUMN c TEXT DEFAULT '';',
+        1,
+        [],
+    ),
+    (
+        "a quoted column without the COLUMN keyword still requires the declaration",
+        'ALTER TABLE existing ADD "c" TEXT DEFAULT '';',
+        1,
+        [],
+    ),
+):
+    expect_evaluate(
+        label,
+        check.migrations(
+            "var migrations = []migration{\n"
+            f"\t{{\n\t\tVersion: 150,\n\t\tName: \"m150\",\n"
+            f"\t\tSQL: `{sql}`,\n\t}},\n"
+            "}\n"
+        ),
+        failures=failures,
+        breaking=breaking,
+    )
+
 # A new table is invisible to an older binary, however constrained it is.
 expect(
     "new table with constraints",

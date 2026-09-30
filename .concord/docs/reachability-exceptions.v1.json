@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "analysis": {
+    "tool": "golang.org/x/tools/cmd/deadcode",
+    "version": "v0.38.0",
+    "args": [
+      "-test=false"
+    ],
+    "entrypoints": [
+      "./cmd/..."
+    ]
+  },
+  "exceptions": [
+    {
+      "id": "workflow-action-surface-reserved",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.CancelWorkflowCondition",
+        "internal/store.ClaimStep",
+        "internal/store.CompareOutcomeStrength",
+        "internal/store.CompareWorkflowPredicates",
+        "internal/store.CompleteWorkflow",
+        "internal/store.CompleteWorkflowTx",
+        "internal/store.CompleteWorkflowWithRegistry",
+        "internal/store.DeriveWorkflowReady",
+        "internal/store.DeriveWorkflowReadyWithReader",
+        "internal/store.EvaluateWorkflowOutcome",
+        "internal/store.EvaluateWorkflowOutcomePredicateSet",
+        "internal/store.OperatorTakeover",
+        "internal/store.ReadWorkflow",
+        "internal/store.ReadWorkflowProjection",
+        "internal/store.ReplaceWorkflowCheckTx",
+        "internal/store.ReplaceWorkflowOutcome",
+        "internal/store.ResolveWorkflowCondition",
+        "internal/store.ResolveWorkflowConditionsAtBoundary",
+        "internal/store.ResumeWorkflow",
+        "internal/store.WorkflowProjectionHash",
+        "internal/store.claimStepObserved",
+        "internal/store.compareSubjectSets",
+        "internal/store.compareTokenSets",
+        "internal/store.evaluateWorkflowOutcomePredicateCore",
+        "internal/store.parkedDeliveryRead",
+        "internal/store.predicateStringSet",
+        "internal/store.projectionColumns",
+        "internal/store.quoteSQLiteIdentifier",
+        "internal/store.setContains",
+        "internal/store.workflowOutcomeDefinition",
+        "internal/store.workflowRecordedStalenessWarnings",
+        "internal/store.writeHashValue"
+      ],
+      "reason": "The shipped command entrypoints do not reach these retained workflow support, projection, outcome-evaluation, completion, and contract-revision mechanisms. Focused tests cover their behavior, and their separate removal needs explicit adjudication of the whole mechanisms."
+    },
+    {
+      "id": "point-in-time-reconstruction-no-operator-verb",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.ReconstructSubjectAt",
+        "internal/store.excludedFromReconstructionSnapshot",
+        "internal/store.insertScratchLocator",
+        "internal/store.insertScratchProject",
+        "internal/store.insertScratchWork",
+        "internal/store.insertScratchWorkWithExternalRef",
+        "internal/store.newReconstructionStore",
+        "internal/store.populateReconstructionSnapshot",
+        "internal/store.readSubjectEvents",
+        "internal/store.reconstructionRelations",
+        "internal/store.seedReconstructionEndpoints",
+        "internal/store.upcastEvent"
+      ],
+      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence, so the capability is required law rather than spare code. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the sole entry point, the other eight are its private helpers, and upcastEvent is reachable only through this cluster."
+    },
+    {
+      "id": "test-only-registry-assertions",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.knownSubjectTypes",
+        "internal/store.validateEventKindRegistry"
+      ],
+      "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
+    },
+    {
+      "id": "registry-injection-test-seam",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/agent.InvokeWithRegistry"
+      ],
+      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
+    },
+    {
+      "id": "contract-generator-history-source",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.BuiltinWorkflowDefinitionsWithHistory"
+      ],
+      "reason": "BuiltinWorkflowDefinitionsWithHistory is the data source for scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see a build-time consumption edge that never enters the shipped binary. The edge is not unproven: CI runs generate-agent-contracts.py --check, which fails the build when this function stops projecting the historical payloads. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry, so only the generator-facing export is declared here."
+    },
+    {
+      "id": "workflow-admission-inspection-seam",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.InspectWorkflowActionAdmission",
+        "internal/store.InspectWorkflowDomainOverlap",
+        "internal/store.inspectWorkflowActionAdmissionTx"
+      ],
+      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction and defer to the same implementation, so admission keeps a single set of rules instead of the untransacted second copy this change removed. inspectWorkflowActionAdmissionTx carries the admission call for them, because TestTxScope requires a Transact closure to be one delegating return."
+    },
+    {
+      "id": "knowledge-manifest-current-tier-bindings",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.manifestIneligibleHint",
+        "internal/store.manifestPathIneligible",
+        "internal/store.parseKnowledgeManifest",
+        "internal/store.validateKnowledgeManifest",
+        "internal/store.validateManifestPath"
+      ],
+      "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
+    }
+  ]
+}

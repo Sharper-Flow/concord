@@ -1,0 +1,40 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-09-06T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/knowledge_shards.go",
+    "scripts/knowledge_index.py",
+    "scripts/generate-knowledge-index.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0114",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0020"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0114-the-knowledge-manifest-is-composed-from-shards.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:1be67a7ce14bd2e5e5f7fd7f9d839a44e22179ba78f482221efac2daac046ff1",
+  "status": "accepted",
+  "summary": "The knowledge manifest and law-coverage record are committed as shards and composed on read. Lesson preparation commits a note, one record shard, and one coverage shard on a claimed branch. Historical reads support pre-shard aggregate commits. Separate shards keep concurrent additions from editing one aggregate.",
+  "tags": [
+    "knowledge",
+    "docs",
+    "git"
+  ],
+  "title": "the knowledge manifest is composed from shards"
+}

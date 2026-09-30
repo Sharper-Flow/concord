@@ -443,7 +443,7 @@ func TestDispatchReconcileLinksVerifiedOrphanWithoutSecondNote(t *testing.T) {
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-orphan"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	notePath := filepath.Join(repo, "docs/work/2026-08-07-orphan-work.md")
+	notePath := filepath.Join(repo, ".concord/docs/work/2026-08-07-orphan-work.md")
 	if err := os.MkdirAll(filepath.Dir(notePath), 0o755); err != nil {
 		t.Fatal(err)
 	}

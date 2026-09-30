@@ -175,9 +175,7 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENCODE_BIN", "/bin/false")
 	t.Chdir(launcherDir)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -231,9 +229,7 @@ func TestSessionLaunchesAConfiguredHostCommand(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENCODE_BIN", "/bin/false")
 	t.Chdir(launcherDir)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -268,8 +264,7 @@ func TestSessionLaunchesAConfiguredHostCommand(t *testing.T) {
 func TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	t.Setenv(dbOverrideEnv, seedSessionProject(t, gone))
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
 
 	identityCalls, runs := 0, 0
 	var out, errOut bytes.Buffer
@@ -313,8 +308,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Setenv(dbOverrideEnv, path)
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+		setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
 		identityCalls, runs := 0, 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -338,8 +332,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 	})
 	t.Run("no canonical path locator", func(t *testing.T) {
 		t.Setenv(dbOverrideEnv, seedSessionProject(t, ""))
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+		setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
 		identityCalls, runs := 0, 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -370,9 +363,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 // keeps the launcher's directory and carries identity without a continuity
 // packet. It is the floor anchor for fc1-operator-work-capture.
 func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "", "", "concord-1")
 	launcherDir := t.TempDir()
 	t.Chdir(launcherDir)
 	bootstrapCalls, directoryCalls := 0, 0
@@ -463,9 +454,7 @@ func TestSessionStartsInTheActiveWorktree(t *testing.T) {
 	installFakeHost(t, recordDir)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(launcherDir)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -496,9 +485,7 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 	installFakeHost(t, recordDir)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(launcherDir)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -522,10 +509,7 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 // starts.
 func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 	t.Run("selection reaches the resolver and the fixed prompt names the resume route", func(t *testing.T) {
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-		t.Setenv(selectedProjectIDEnv, "project-two")
-		t.Setenv(selectedAgentEnv, "concord-1")
+		setIdentityLaunchEnv(t, "product-1", "work-1", "project-two", "concord-1")
 		resolvedWork, resolvedProject := "", ""
 		var ranIn string
 		var argv []string
@@ -563,9 +547,7 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 		}
 	})
 	t.Run("selection without a selected work refuses", func(t *testing.T) {
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "")
-		t.Setenv(selectedProjectIDEnv, "project-two")
+		setIdentityLaunchEnv(t, "product-1", "", "project-two", "")
 		identityCalls, runs := 0, 0
 		var errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
@@ -588,9 +570,7 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 		}
 	})
 	t.Run("invalid selection refuses", func(t *testing.T) {
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-		t.Setenv(selectedProjectIDEnv, "../escape")
+		setIdentityLaunchEnv(t, "product-1", "work-1", "../escape", "")
 		identityCalls, runs := 0, 0
 		var errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,

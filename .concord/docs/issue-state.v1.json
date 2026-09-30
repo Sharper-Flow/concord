@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-30T06:53:53Z",
+  "issues": {
+    "CON-22": "open",
+    "CON-24": "open",
+    "CON-33": "open",
+    "CON-34": "open",
+    "CON-752": "open"
+  }
+}

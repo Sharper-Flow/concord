@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/floor-readiness.schema.json",
   "title": "Concord first-usable floor readiness manifest",
-  "description": "Closed contract for the authorizing record of Concord's distance from the first-usable floor defined in docs/priorities.md. Every floor condition decomposes into bounded items whose state is one of satisfied, outstanding, unmeasured, or out_of_scope. Schema 2.0 binds every satisfied item to a typed executable anchor rather than a cited repository path.",
+  "description": "Closed contract for the authorizing record of Concord's distance from the first-usable floor defined in .concord/docs/priorities.md. Every floor condition decomposes into bounded items whose state is one of satisfied, outstanding, unmeasured, or out_of_scope. Schema 2.0 binds every satisfied item to a typed executable anchor rather than a cited repository path.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "source", "conditions", "items"],

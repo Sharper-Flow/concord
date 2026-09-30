@@ -1,0 +1,29 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-02T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0007",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0007-concord-repository-bootstrap.md",
+  "product_wide_rationale": "Fixes the repository bootstrap and release boundary the whole Product is built and shipped through. It governs the container for every Domain rather than behavior inside any one.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6d6ff211900227dcc173a963d66f4df029a697b4cc552d499c9c2f7ca91d5d10",
+  "status": "accepted",
+  "summary": "Defines the public repository, governance, and release boundary.",
+  "tags": [
+    "repository",
+    "governance"
+  ],
+  "title": "Concord repository bootstrap"
+}

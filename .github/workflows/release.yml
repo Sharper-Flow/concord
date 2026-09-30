@@ -88,7 +88,7 @@ jobs:
             cp "adapter/opencode/$adapter_name" release/package/adapter/opencode/
           done < release/adapter-files.txt
           cp -a skills/. release/package/skills/
-          cp -a instructions/. release/package/instructions/
+          cp -a .concord/instructions/. release/package/instructions/
           cp .opencode/agents/concord-*.md release/package/agents/
           cp scripts/install.py release/concord-installer.py
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \

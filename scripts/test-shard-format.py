@@ -37,8 +37,8 @@ class CanonicalForm(unittest.TestCase):
 
 class Drift(unittest.TestCase):
     def test_every_committed_shard_is_canonical(self) -> None:
-        shards = sorted((ROOT / "docs/knowledge/records").glob("*.json"))
-        shards += sorted((ROOT / "docs/knowledge/coverage").glob("*.json"))
+        shards = sorted((ROOT / ".concord/docs/knowledge/records").glob("*.json"))
+        shards += sorted((ROOT / ".concord/docs/knowledge/coverage").glob("*.json"))
         self.assertTrue(shards, "expected authored shards in the repository")
         self.assertEqual(shard_format.drifted(shards), [])
 

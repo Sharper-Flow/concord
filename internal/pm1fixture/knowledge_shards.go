@@ -12,11 +12,11 @@ import (
 
 // The fixture repositories commit the knowledge manifest as the shard tree the
 // store composes (CD-0114): a head shard, the domain registry, and one record
-// shard per record under docs/knowledge/records.
+// shard per record under .concord/docs/knowledge/records.
 const (
-	knowledgeHeadPath     = "docs/knowledge/manifest.json"
-	knowledgeRegistryPath = "docs/knowledge/domain-registry.json"
-	knowledgeRecordTree   = "docs/knowledge/records"
+	knowledgeHeadPath     = ".concord/docs/knowledge/manifest.json"
+	knowledgeRegistryPath = ".concord/docs/knowledge/domain-registry.json"
+	knowledgeRecordTree   = ".concord/docs/knowledge/records"
 )
 
 // writeKnowledgeShards lays a manifest out as its shard tree, replacing any

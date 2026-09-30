@@ -1,0 +1,27 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-08-30T00:00:00Z",
+  "evidence": [
+    ".concord/docs/priorities.md"
+  ],
+  "id": "clarifications",
+  "kind": "reference",
+  "path": ".concord/docs/clarifications.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:6d88b08b634792a361ada7933dcaea6961320b66f8feb1bdfd465a08197ef4d2",
+  "status": "published",
+  "summary": "Living index of resolved directions and the open questions still needing operator direction.",
+  "tags": [
+    "clarifications",
+    "open-questions"
+  ],
+  "title": "clarifications"
+}

@@ -28,7 +28,7 @@ func tierlessManifestBytes(t *testing.T, schemaVersion string) []byte {
 			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
 		},
 		Records: []KnowledgeRecord{{
-			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-legacy.md", Status: "accepted",
+			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-legacy.md", Status: "accepted",
 			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
 			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
@@ -125,7 +125,7 @@ func profileManifestBytes(t *testing.T, profile string) []byte {
 			Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}},
 		},
 		Records: []KnowledgeRecord{{
-			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-legacy.md", Status: "accepted",
+			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-legacy.md", Status: "accepted",
 			Date: "2026-08-10T00:00:00Z", Title: "Legacy decision", Summary: "summary", Tags: []string{},
 			Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
@@ -169,14 +169,14 @@ func TestParseReadsAPreAmendmentDecisionProfile(t *testing.T) {
 
 func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 	t.Parallel()
-	valid := "docs/" + strings.Repeat("é", 504) + ".md"
+	valid := ".concord/docs/" + strings.Repeat("é", 495) + ".md"
 	if utf8.RuneCountInString(valid) != 512 {
 		t.Fatalf("valid path rune count = %d", utf8.RuneCountInString(valid))
 	}
 	if err := validateManifestPath(valid); err != nil {
 		t.Fatalf("512 Unicode-scalar path rejected: %v", err)
 	}
-	tooLong := "docs/" + strings.Repeat("é", 505) + ".md"
+	tooLong := ".concord/docs/" + strings.Repeat("é", 496) + ".md"
 	if utf8.RuneCountInString(tooLong) != 513 {
 		t.Fatalf("invalid path rune count = %d", utf8.RuneCountInString(tooLong))
 	}
@@ -191,17 +191,17 @@ func TestManifestPathBoundUsesUnicodeScalarsAtSchemaLimit(t *testing.T) {
 // that still refuse: a duplicated stable ID and every semantic violation.
 func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["lesson","research"],"indexed_kinds":["lesson"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"lesson-1","kind":"lesson","path":"docs/lessons/one.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["lesson","research"],"indexed_kinds":["lesson"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"lesson-1","kind":"lesson","path":".concord/docs/lessons/one.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	for name, raw := range map[string]string{
 		"unknown field":  strings.Replace(valid, `"summary":"Summary"`, `"summary":"Summary","body":"forbidden"`, 1),
 		"duplicate id":   strings.Replace(valid, `"records":[{`, `"records":[{`, 1),
 		"bad status":     strings.Replace(valid, `"status":"published"`, `"status":"accepted"`, 1),
-		"bad path":       strings.Replace(valid, `docs/lessons/one.md`, `docs/generated/one.md`, 1),
+		"bad path":       strings.Replace(valid, `.concord/docs/lessons/one.md`, `.concord/docs/generated/one.md`, 1),
 		"uppercase hash": strings.Replace(valid, "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("A", 64), 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if name == "duplicate id" {
-				raw = strings.TrimSuffix(valid, `]}`) + `,{"id":"lesson-1","kind":"lesson","path":"docs/lessons/two.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
+				raw = strings.TrimSuffix(valid, `]}`) + `,{"id":"lesson-1","kind":"lesson","path":".concord/docs/lessons/two.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
 			}
 			manifest, err := parseKnowledgeManifest([]byte(raw))
 			switch name {
@@ -223,7 +223,7 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 
 func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("valid 1.2 manifest rejected: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestKnowledgeManifestV12RequiresDomainHomesAndDomainScopes(t *testing.T) {
 
 func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":"docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision"],"indexed_kinds":["decision"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"superseded","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"successor":"CD-0002","home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","applies_to_domain_ids":[],"sha256":"sha256:` + strings.Repeat("a", 64) + `"},{"id":"CD-0002","kind":"decision","path":".concord/docs/decisions/CD-0002.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Successor","summary":"Summary","tags":[],"authority":{"tier":"legislated","legislated_by":"fixture-authority","contract_version":1},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture successor law binds every child Domain.","law_relations":[{"kind":"supersedes","target_id":"CD-0001"}],"sha256":"sha256:` + strings.Repeat("b", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err != nil {
 		t.Fatalf("superseded law with home and empty applicability rejected: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestKnowledgeManifestV12RequiresLawHomeForApplicability(t *testing.T) {
 
 func TestKnowledgeManifestV12RejectsInvalidDomainRelations(t *testing.T) {
 	t.Parallel()
-	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[{"kind":"depends_on","target_domain_id":"product-root:concord","governing_law_ids":["CD-0001"]}]}]},"records":[{"id":"CD-0001","kind":"decision","path":"docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
+	valid := `{"schema_version":"1.2","supported_kinds":["decision","spec"],"indexed_kinds":["decision","spec"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[{"kind":"depends_on","target_domain_id":"product-root:concord","governing_law_ids":["CD-0001"]}]}]},"records":[{"id":"CD-0001","kind":"decision","path":".concord/docs/decisions/CD-0001.md","status":"accepted","date":"2026-08-10T00:00:00Z","title":"Decision","summary":"Summary","tags":[],"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"home_domain_id":"product-root:concord","product_wide_rationale":"Fixture law binds every child Domain.","sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	if _, err := parseKnowledgeManifest([]byte(valid)); err == nil {
 		t.Fatal("self-referential domain dependency accepted")
 	}
@@ -301,9 +301,9 @@ func TestKnowledgeDomainRegistryHashIsDeterministicAndNonMutating(t *testing.T) 
 func TestManifestSuccessorsAreValidatedAfterTheFullRecordSet(t *testing.T) {
 	t.Parallel()
 	base := func(id, kind, status, successor string) KnowledgeRecord {
-		recordPath := "docs/" + id + ".md"
+		recordPath := ".concord/docs/" + id + ".md"
 		if kind == "decision" {
-			recordPath = "docs/decisions/CD-0001-" + id + ".md"
+			recordPath = ".concord/docs/decisions/CD-0001-" + id + ".md"
 		}
 		authority := KnowledgeAuthority{Tier: "derived"}
 		if kind == "constitution" || kind == "decision" {
@@ -346,9 +346,9 @@ func TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	decision := "docs/decisions/CD-0001.md"
-	spec := "docs/spec.md"
-	lesson := "docs/lessons/lesson.md"
+	decision := ".concord/docs/decisions/CD-0001.md"
+	spec := ".concord/docs/spec.md"
+	lesson := ".concord/docs/lessons/lesson.md"
 	writeManifestFixture(t, repo,
 		manifestFixture{ID: "decision-1", Kind: "decision", Path: decision, Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Decision", Summary: "Decision summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
 		manifestFixture{ID: "spec-1", Kind: "spec", Path: spec, Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Spec", Summary: "Spec summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
@@ -382,7 +382,7 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	decision := "docs/decisions/CD-0001.md"
+	decision := ".concord/docs/decisions/CD-0001.md"
 	writeManifestFixture(t, repo, manifestFixture{
 		ID: "decision-rich", Kind: "decision", Path: decision, Status: "accepted", Date: "2026-08-10T00:00:00Z",
 		Title: "Decision", Summary: "Decision summary", Tags: []string{"sqlite"}, Scopes: KnowledgeRecordScopes{Mode: "home"},
@@ -427,9 +427,9 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "sqlite", Kind: "decision", Path: "docs/decisions/CD-0100-sqlite.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Storage decision", Summary: "Exact stable ID match", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "newer-text", Kind: "lesson", Path: "docs/lessons/newer.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Newer lesson", Summary: "Uses SQLite safely", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "older-text", Kind: "lesson", Path: "docs/lessons/older.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Older lesson", Summary: "SQLite recovery notes", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "sqlite", Kind: "decision", Path: ".concord/docs/decisions/CD-0100-sqlite.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Storage decision", Summary: "Exact stable ID match", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "newer-text", Kind: "lesson", Path: ".concord/docs/lessons/newer.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Newer lesson", Summary: "Uses SQLite safely", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "older-text", Kind: "lesson", Path: ".concord/docs/lessons/older.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Older lesson", Summary: "SQLite recovery notes", Tags: []string{"storage"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
 	)
 	commitKnowledgeRepo(t, repo, "structured knowledge ranking")
 	s := openTemp(t)
@@ -476,9 +476,9 @@ func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "title-match", Kind: "decision", Path: "docs/decisions/CD-0101-title.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "SQLite", Summary: "title", Tags: []string{"title"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "tag-match", Kind: "lesson", Path: "docs/lessons/tag.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Tag lesson", Summary: "tag", Tags: []string{"SQLITE"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", TagIDs: []string{"SQLITE"}}},
-		manifestFixture{ID: "domain-match", Kind: "spec", Path: "docs/specs/domain.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Domain spec", Summary: "domain", Tags: []string{"domain"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"SQLITE"}}},
+		manifestFixture{ID: "title-match", Kind: "decision", Path: ".concord/docs/decisions/CD-0101-title.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "SQLite", Summary: "title", Tags: []string{"title"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "tag-match", Kind: "lesson", Path: ".concord/docs/lessons/tag.md", Status: "published", Date: "2026-08-09T00:00:00Z", Title: "Tag lesson", Summary: "tag", Tags: []string{"SQLITE"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", TagIDs: []string{"SQLITE"}}},
+		manifestFixture{ID: "domain-match", Kind: "spec", Path: ".concord/docs/specs/domain.md", Status: "accepted", Date: "2026-08-08T00:00:00Z", Title: "Domain spec", Summary: "domain", Tags: []string{"domain"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"SQLITE"}}},
 	)
 	commitKnowledgeRepo(t, repo, "structured exact fields")
 	s := openTemp(t)
@@ -582,8 +582,8 @@ func TestKnowledgeScopeModesAreStructural(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "home-decision", Kind: "decision", Path: "docs/decisions/CD-0001-home.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Home", Summary: "Home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "explicit-decision", Kind: "decision", Path: "docs/decisions/CD-0002-explicit.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Explicit", Summary: "Explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}}},
+		manifestFixture{ID: "home-decision", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-home.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Home", Summary: "Home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "explicit-decision", Kind: "decision", Path: ".concord/docs/decisions/CD-0002-explicit.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Explicit", Summary: "Explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}}},
 	)
 	commitKnowledgeRepo(t, repo, "scope modes")
 	s := openTemp(t)
@@ -629,14 +629,14 @@ func TestHomeScopeRoutingDoesNotLeakAcrossCanonicalHomes(t *testing.T) {
 	ctx := context.Background()
 	firstRepo := initKnowledgeRepo(t)
 	writeManifestFixture(t, firstRepo,
-		manifestFixture{ID: "home-first", Kind: "decision", Path: "docs/decisions/CD-0001-home-first.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "First home", Summary: "First home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "explicit-first", Kind: "decision", Path: "docs/decisions/CD-0002-explicit-first.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "First explicit", Summary: "First explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}, DomainIDs: []string{"domain-a"}}},
+		manifestFixture{ID: "home-first", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-home-first.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "First home", Summary: "First home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "explicit-first", Kind: "decision", Path: ".concord/docs/decisions/CD-0002-explicit-first.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "First explicit", Summary: "First explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-a"}, ProjectIDs: []string{"project-a"}, DomainIDs: []string{"domain-a"}}},
 	)
 	commitKnowledgeRepo(t, firstRepo, "first canonical home")
 	secondRepo := initKnowledgeRepo(t)
 	writeManifestFixture(t, secondRepo,
-		manifestFixture{ID: "home-second", Kind: "decision", Path: "docs/decisions/CD-0003-home-second.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Second home", Summary: "Second home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "explicit-second", Kind: "decision", Path: "docs/decisions/CD-0004-explicit-second.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Second explicit", Summary: "Second explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-b"}, ProjectIDs: []string{"project-b"}, DomainIDs: []string{"domain-b"}}},
+		manifestFixture{ID: "home-second", Kind: "decision", Path: ".concord/docs/decisions/CD-0003-home-second.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Second home", Summary: "Second home summary", Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "explicit-second", Kind: "decision", Path: ".concord/docs/decisions/CD-0004-explicit-second.md", Status: "accepted", Date: "2026-08-09T00:00:00Z", Title: "Second explicit", Summary: "Second explicit summary", Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{"product-b"}, ProjectIDs: []string{"project-b"}, DomainIDs: []string{"domain-b"}}},
 	)
 	commitKnowledgeRepo(t, secondRepo, "second canonical home")
 	s := openTemp(t)
@@ -695,7 +695,7 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/decisions/CD-0099-rollback.md"
+	path := ".concord/docs/decisions/CD-0099-rollback.md"
 	writeManifestFixture(t, repo, manifestFixture{ID: "rollback", Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Rollback", Summary: "Stable summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	firstCommit := commitKnowledgeRepo(t, repo, "good manifest")
 	s := openTemp(t)
@@ -730,9 +730,9 @@ func TestManifestFailureLeavesPriorProjectionAndCoverageUnchanged(t *testing.T) 
 func TestManifestAndWorkNoteStableIDCollisionFailsClosed(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	workPath := "docs/work/2026-08-10-collision.md"
+	workPath := ".concord/docs/work/2026-08-10-collision.md"
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("collision", "2026-08-10T00:00:00Z"))
-	writeManifestFixture(t, repo, manifestFixture{ID: "collision", Kind: "lesson", Path: "docs/lessons/collision.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Collision", Summary: "Collision summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "collision", Kind: "lesson", Path: ".concord/docs/lessons/collision.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Collision", Summary: "Collision summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	commitKnowledgeRepo(t, repo, "cross-population collision")
 	if err := openTemp(t).RebuildKnowledgeIndex(context.Background(), KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}); err == nil {
 		t.Fatal("cross-population stable ID collision was accepted")

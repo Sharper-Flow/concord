@@ -35,13 +35,13 @@ func seedKnowledgeBodyBenchmark(t *testing.T) (*Store, KnowledgeHome) {
 	for i := 0; i < knowledgeBodyBenchmarkRows; i++ {
 		id := fmt.Sprintf("body-law-%04d", i)
 		hash := "sha256:" + strings.Repeat(fmt.Sprintf("%x", i%16), 64)[:64]
-		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", "docs/decisions/"+id+".md", "Storage law", hash, commit); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Storage law", hash, commit); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_bodies(home_project_id,home_locator_id,law_id,body,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, id, "benchmark body-only-discovery phrase", hash, commit); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "decision", "Storage law", "2026-09-20T00:00:00Z", "accepted", "[]", "completed", 0, "Storage summary", home.HomeProjectID, home.HomeLocatorID, "docs/decisions/"+id+".md", commit, hash, "home"); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, "decision", "Storage law", "2026-09-20T00:00:00Z", "accepted", "[]", "completed", 0, "Storage summary", home.HomeProjectID, home.HomeLocatorID, ".concord/docs/decisions/"+id+".md", commit, hash, "home"); err != nil {
 			t.Fatal(err)
 		}
 	}

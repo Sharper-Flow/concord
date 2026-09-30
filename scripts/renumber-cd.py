@@ -10,10 +10,23 @@ that validated while pointing at the wrong document.
 This tool moves all of them, then proves the move by refusing to finish while
 the old identifier survives anywhere in the tree.
 
-It renumbers a CD its branch allocated and has not landed. A CD that already
-exists on the comparison ref is durable law, and moving it is refused here for
-the same reason ``check-cd-allocation.py`` reports it as a removal: a landed
-number is referenced by records this repository cannot see.
+It renumbers a CD its branch allocated and has not landed. Whether a record
+is landed is a question of lineage, not of any mutable record field: the
+record at the comparison ref, compared with the record at the merge base of
+this branch and that ref, proves what this branch carried before it could
+change anything. A tree record equal to the landed one, or descended from
+it, is durable law, and moving it is refused here for the same reason
+``check-cd-allocation.py`` reports it as a removal: a landed number is
+referenced by records this repository cannot see. A record the branch
+allocated after the merge base is branch-local even when the comparison ref
+later claimed the identifier for another record — that collision is the case
+the allocation check exists to catch, and renumbering this branch's record
+is the remedy that check prescribes. A changed title on an otherwise-landed
+record is drift, not a new allocation, and refuses like the record it edits.
+This holds when both sides changed the record after the merge base: an
+amendment on the comparison ref and a local edit are two changes to one
+durable record, and the merge base carrying the identifier is what proves
+the lineage.
 """
 
 from __future__ import annotations
@@ -32,9 +45,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
 
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
-DECISIONS = Path("docs/decisions")
-RECORDS = Path("docs/knowledge/records")
-COVERAGE = Path("docs/knowledge/coverage")
+DECISIONS = Path(".concord/docs/decisions")
+RECORDS = Path(".concord/docs/knowledge/records")
+COVERAGE = Path(".concord/docs/knowledge/coverage")
 
 # Regenerated rather than edited, in dependency order. Each entry is the argv
 # that rewrites the file from its authored source. A CD identifier reaches these
@@ -63,7 +76,7 @@ GENERATED = frozenset(
         "adapter/opencode/generated-contract-tests.ts",
         "adapter/opencode/generated-contracts.ts",
         "contracts/agent-lanes.digest",
-        "docs/agent-lanes-contract.md",
+        ".concord/docs/agent-lanes-contract.md",
         "internal/agent/generated_contracts.go",
         "internal/agent/generated_payload_schemas.go",
         "internal/store/generated_agent_lanes.go",
@@ -115,8 +128,8 @@ def read_text(path: Path) -> str | None:
         return None
 
 
-def landed_ids(root: Path, ref: str) -> set[str] | None:
-    """CD ids present in the manifest at ``ref``, or None when it is unreachable."""
+def manifest_records(root: Path, ref: str) -> dict[str, dict] | None:
+    """CD id -> record object at ``ref``, or None when the ref is unreachable."""
     try:
         data = knowledge_index.raw_manifest_at(root, ref)
     except (subprocess.CalledProcessError, knowledge_index.ComposeError, knowledge_index.DuplicateKeyError, UnicodeDecodeError, json.JSONDecodeError):
@@ -124,13 +137,33 @@ def landed_ids(root: Path, ref: str) -> set[str] | None:
     records = data.get("records")
     if not isinstance(records, list):
         return None
-    return {
-        record["id"]
-        for record in records
-        if isinstance(record, dict)
-        and isinstance(record.get("id"), str)
-        and CD_ID_RE.fullmatch(record["id"])
-    }
+    by_id: dict[str, dict] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        identifier = record.get("id")
+        if isinstance(identifier, str) and CD_ID_RE.fullmatch(identifier):
+            by_id[identifier] = record
+    return by_id
+
+
+def tree_record(root: Path, identifier: str) -> dict | None:
+    """The tree's record shard object, or None when the shard is unreadable."""
+    try:
+        data = json.loads((root / RECORDS / f"{identifier}.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def merge_base(root: Path, ref: str) -> str | None:
+    """The best common ancestor of HEAD and ``ref``, or None when git cannot
+    name one."""
+    result = git(root, "merge-base", "HEAD", ref)
+    if result.returncode != 0:
+        return None
+    base = result.stdout.decode("utf-8", "replace").strip()
+    return base or None
 
 
 def find_document(root: Path, identifier: str, findings: list[str]) -> Path | None:
@@ -160,13 +193,37 @@ def plan(
 
     # An unreachable ref proves nothing either way, so it does not block an
     # offline renumber; check-cd-allocation.py remains the enforcing check.
-    landed = landed_ids(root, against)
+    # Landed is a property of lineage, not of any mutable record field: the
+    # merge base proves which record this branch carried before the branch
+    # could have changed it. A tree record equal to the landed one, or
+    # descended from it, is durable law — a changed title does not make it
+    # branch-local. A record absent from the merge base is this branch's own
+    # allocation even when the ref later claimed the identifier for another
+    # record; that collision is the case whose prescribed remedy is this
+    # renumber.
+    landed = manifest_records(root, against)
     if landed is not None:
-        if old in landed:
-            findings.append(
-                f"{old} is already on {against} and is durable law; renumber only a CD this "
-                "branch allocated and has not landed"
-            )
+        landed_old = landed.get(old)
+        if landed_old is not None:
+            if tree_record(root, old) == landed_old:
+                findings.append(
+                    f"{old} is already on {against} and is durable law; renumber only a CD this "
+                    "branch allocated and has not landed"
+                )
+            else:
+                base = merge_base(root, against)
+                base_old = manifest_records(root, base).get(old) if base else None
+                # The merge base carrying the id is what proves lineage, not
+                # agreement between the two landed copies: an amendment on
+                # the comparison ref after the merge base, and a local edit
+                # on this branch, are two edits of one durable record, and
+                # neither makes it branch-local.
+                if base_old is not None:
+                    findings.append(
+                        f"{old} descends from the landed record on {against} (the merge base "
+                        f"{base[:12]} already carried it); local changes such as a new title do "
+                        "not make it branch-local, and renumbering would move durable law"
+                    )
         if new in landed:
             findings.append(f"{new} is already on {against}; choose a free number")
 

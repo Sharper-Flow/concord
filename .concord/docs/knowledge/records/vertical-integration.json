@@ -1,0 +1,28 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    ".concord/docs/product-data-model.md",
+    ".concord/docs/workflows.md"
+  ],
+  "id": "vertical-integration",
+  "kind": "research",
+  "path": ".concord/docs/vertical-integration.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2ce0daa1652f4f9056a0f8dcc75eed4f4a1a092f6a86d3fa5a72845b88599194",
+  "status": "published",
+  "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
+  "tags": [
+    "vertical-integration",
+    "research"
+  ],
+  "title": "vertical integration"
+}

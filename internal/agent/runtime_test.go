@@ -608,10 +608,10 @@ func recordAuthorityForKind(kind string) map[string]any {
 func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProducts []string, memberships map[string]string) *store.Store {
 	t.Helper()
 	repo := t.TempDir()
-	notePath := "docs/lessons/" + id + ".md"
+	notePath := ".concord/docs/lessons/" + id + ".md"
 	content := "Durable knowledge.\n"
 	if kind == "work_note" {
-		notePath = "docs/work/" + id + ".md"
+		notePath = ".concord/docs/work/" + id + ".md"
 		content = "---\n" +
 			"concord_work_id: " + id + "\n" +
 			"work_type: implementation\n" +

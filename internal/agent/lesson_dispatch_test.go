@@ -44,7 +44,7 @@ func lessonDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, ed2
 	run("init", "--quiet", "-b", "main")
 	run("config", "user.email", "concord@example.invalid")
 	run("config", "user.name", "Concord Lesson Test")
-	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".concord/docs/lessons"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := "{\n  \"schema_version\": \"1.2\",\n  \"supported_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\", \"research\"],\n  \"indexed_kinds\": [\"work_note\", \"decision\", \"spec\", \"lesson\"],\n  \"domain_registry\": {\"schema_version\": \"1.0\", \"product_key\": \"lesson-product\", \"root_domain_id\": \"product-root:lesson-product\", \"domains\": [{\"domain_id\": \"product-root:lesson-product\", \"name\": \"Lesson product\", \"purpose\": \"Product-wide lesson fixture law\", \"status\": \"current\", \"architecture_relations\": []}]},\n  \"records\": []\n}\n"
@@ -161,12 +161,12 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	}
 	paths := committedFilePaths(t, worktree, commitOID)
 	want := []string{
-		"docs/knowledge/coverage/lesson-dispatch-probe.json",
-		"docs/knowledge/records/lesson-dispatch-probe.json",
+		".concord/docs/knowledge/coverage/lesson-dispatch-probe.json",
+		".concord/docs/knowledge/records/lesson-dispatch-probe.json",
 	}
 	notePath := ""
 	for _, path := range paths {
-		if strings.HasPrefix(path, "docs/lessons/") {
+		if strings.HasPrefix(path, ".concord/docs/lessons/") {
 			notePath = path
 		}
 	}
@@ -176,11 +176,11 @@ func TestDispatchLessonPublishApprovalRoundTripAndReplay(t *testing.T) {
 	if len(paths) != 3 || strings.Join(paths, ",") != strings.Join(want, ",") {
 		t.Fatalf("the prepared commit carries %v, want exactly %v", paths, want)
 	}
-	shardBytes, err := os.ReadFile(filepath.Join(worktree, "docs/knowledge/records/lesson-dispatch-probe.json"))
+	shardBytes, err := os.ReadFile(filepath.Join(worktree, ".concord/docs/knowledge/records/lesson-dispatch-probe.json"))
 	if err != nil || !strings.Contains(string(shardBytes), "lesson-dispatch-probe") {
 		t.Fatalf("record shard lacks the lesson (err=%v):\n%s", err, shardBytes)
 	}
-	if coverageBytes, err := os.ReadFile(filepath.Join(worktree, "docs/knowledge/coverage/lesson-dispatch-probe.json")); err != nil || !strings.Contains(string(coverageBytes), `"state": "satisfied"`) {
+	if coverageBytes, err := os.ReadFile(filepath.Join(worktree, ".concord/docs/knowledge/coverage/lesson-dispatch-probe.json")); err != nil || !strings.Contains(string(coverageBytes), `"state": "satisfied"`) {
 		t.Fatalf("coverage shard missing or wrong (err=%v):\n%s", err, coverageBytes)
 	}
 	commits := strings.TrimSpace(gitOut(t, worktree, "rev-list", "--count", "HEAD"))
@@ -282,7 +282,7 @@ func TestDispatchLessonPublishRefusesAWorktreeTheSessionDoesNotHold(t *testing.T
 	if err != nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" || !strings.Contains(response.Error.Message, "not the calling session's verified worktree") {
 		t.Fatalf("expected typed foreign-worktree refusal, got response=%+v err=%v", response.Error, err)
 	}
-	if _, err := os.Stat(filepath.Join(worktree, "docs/knowledge/records/lesson-dispatch-probe.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(worktree, ".concord/docs/knowledge/records/lesson-dispatch-probe.json")); !os.IsNotExist(err) {
 		t.Fatalf("the foreign session wrote into the claimed worktree (stat err=%v)", err)
 	}
 }
@@ -316,7 +316,7 @@ func TestDispatchLessonPublishReflectionTagRidesTheSamePath(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("reflection response kind=%s msg=%s err=%v", response.Error.Kind, response.Error.Message, err)
 	}
-	coverageBytes, err := os.ReadFile(filepath.Join(worktree, "docs/knowledge/coverage/lesson-reflection-probe.json"))
+	coverageBytes, err := os.ReadFile(filepath.Join(worktree, ".concord/docs/knowledge/coverage/lesson-reflection-probe.json"))
 	if err != nil || !strings.Contains(string(coverageBytes), `"issue": "CON-508"`) {
 		t.Fatalf("reflection coverage shard missing or wrong (err=%v):\n%s", err, coverageBytes)
 	}
@@ -352,7 +352,7 @@ func TestDispatchLessonPublishAcceptsAnIssueNumberCoverage(t *testing.T) {
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("issue-number response kind=%s msg=%s err=%v", response.Error.Kind, response.Error.Message, err)
 	}
-	coverageBytes, err := os.ReadFile(filepath.Join(worktree, "docs/knowledge/coverage/lesson-issue-number-probe.json"))
+	coverageBytes, err := os.ReadFile(filepath.Join(worktree, ".concord/docs/knowledge/coverage/lesson-issue-number-probe.json"))
 	if err != nil || !strings.Contains(string(coverageBytes), `"issue": 508`) {
 		t.Fatalf("issue-number coverage shard missing or wrong (err=%v):\n%s", err, coverageBytes)
 	}

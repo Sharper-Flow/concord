@@ -885,11 +885,20 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 }
 
 // workflowCorrectionContext reads the latest unconsumed failure or rejection.
-// A later dispatch consumes the record, while all earlier worker attempts stay immutable.
+// A later dispatch whose worker attempt materializes consumes the record, while
+// all earlier worker attempts stay immutable.
 func workflowCorrectionContext(ctx context.Context, q queryer, workID, stepID string) (*WorkflowCorrectionContext, error) {
 	return workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
 }
 
+// The consuming dispatch must have a worker attempt that materialized: a
+// worker.dispatched event for the completion's worker_attempt_id. A dispatch
+// intent folded without its host worker-dispatch call (an interruption between
+// the workflow action and the dispatch) leaves the correction record live, so
+// the retry binding stays readable and the escalation wall keeps its
+// operator-approvable escape. json_extract returns NULL for a missing path and
+// a plain = with NULL on either side matches no row, so a completion without a
+// worker_attempt_id consumes nothing.
 func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID, stepID, dispatchAttemptID string) (*WorkflowCorrectionContext, error) {
 	query := `SELECT d.seq,d.payload FROM domain_events d
 WHERE d.subject_type=? AND d.subject_id=? AND d.kind=?
@@ -897,8 +906,12 @@ WHERE d.subject_type=? AND d.subject_id=? AND d.kind=?
   AND NOT EXISTS (SELECT 1 FROM domain_events newer
     WHERE newer.subject_type=d.subject_type AND newer.subject_id=d.subject_id
       AND newer.kind=? AND newer.seq>d.seq
-      AND json_extract(newer.payload,'$.action_id')='dispatch_worker'`
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, WorkflowActionCompleted}
+      AND json_extract(newer.payload,'$.action_id')='dispatch_worker'
+      AND EXISTS (SELECT 1 FROM domain_events dispatched
+        WHERE dispatched.subject_type=newer.subject_type AND dispatched.subject_id=newer.subject_id
+          AND dispatched.kind=?
+          AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id'))`
+	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, WorkflowActionCompleted, WorkerDispatched}
 	if dispatchAttemptID != "" {
 		query += ` AND json_extract(newer.payload,'$.worker_attempt_id')<>?`
 		args = append(args, dispatchAttemptID)

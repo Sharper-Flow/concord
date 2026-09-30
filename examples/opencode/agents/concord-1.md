@@ -43,7 +43,7 @@ the contract: unknown tools, operations, and digests fail closed. No shell
 fallback, alias, or down-conversion may write refused Concord state.
 
 The Product's planning mode routes planned work and defects
-(`docs/development-authority.md`). For a Linear-enabled Product, capture a work
+(`.concord/docs/development-authority.md`). For a Linear-enabled Product, capture a work
 item, then `concord linear issue-enqueue` and `concord linear outbox-drain`
 create the Linear issue. A queued or failed creation is not a confirmed issue,
 and missing Linear access never falls back to GitHub. For a local-only Product,

@@ -18,8 +18,8 @@ SCRIPT = ROOT / "scripts/generate-dependency-inventory.py"
 def build_fixture() -> tuple[Path, dict[str, object], str, tempfile.TemporaryDirectory[str]]:
     directory = tempfile.TemporaryDirectory()
     root = Path(directory.name)
-    (root / "docs/decisions").mkdir(parents=True)
-    (root / "docs/knowledge/records").mkdir(parents=True)
+    (root / ".concord/docs/decisions").mkdir(parents=True)
+    (root / ".concord/docs/knowledge/records").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "bin").mkdir()
     module_dir = root / "module-cache"
@@ -43,14 +43,14 @@ def build_fixture() -> tuple[Path, dict[str, object], str, tempfile.TemporaryDir
         "test_only": [],
         "module_graph_only": [],
     }
-    (root / "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json").write_bytes(
+    (root / ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json").write_bytes(
         (json.dumps(inventory, indent=2) + "\n").encode()
     )
-    (root / "docs/decisions/CD-0014-terminal-launcher-rendering.md").write_text(
+    (root / ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md").write_text(
         f"- `{module} v1.0.0`\nIts artifact SHA-256 is `{'0' * 64}`.\n", encoding="utf-8"
     )
     shard = {"id": "CD-0014", "sha256": "sha256:" + "0" * 64}
-    (root / "docs/knowledge/records/CD-0014.json").write_text(json.dumps(shard, indent=2) + "\n", encoding="utf-8")
+    (root / ".concord/docs/knowledge/records/CD-0014.json").write_text(json.dumps(shard, indent=2) + "\n", encoding="utf-8")
     metadata = {"Path": module, "Version": "v2.0.0", "Dir": str(module_dir)}
     # `go list -m -json all` emits one JSON object per module in the build list,
     # and the generator accumulates them in a raw_decode loop. The fake answers
@@ -94,9 +94,9 @@ def test_update_applies_version_bump() -> None:
     try:
         result = run_generator(root, "--update")
         assert result.returncode == 0, result.stderr
-        inventory = json.loads((root / "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json").read_text())
+        inventory = json.loads((root / ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json").read_text())
         assert inventory["runtime"][0]["version"] == "v2.0.0"
-        decision = (root / "docs/decisions/CD-0014-terminal-launcher-rendering.md").read_text()
+        decision = (root / ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md").read_text()
         assert f"`{module} v2.0.0`" in decision
     finally:
         directory.cleanup()
@@ -106,7 +106,7 @@ def test_check_names_version_drift() -> None:
     root, _, module, directory = build_fixture()
     try:
         assert run_generator(root, "--update").returncode == 0
-        path = root / "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
+        path = root / ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
         value = json.loads(path.read_text())
         value["runtime"][0]["version"] = "v1.0.0"
         path.write_text(json.dumps(value, indent=2) + "\n")
@@ -121,14 +121,14 @@ def test_update_refuses_license_hash_drift_without_writing() -> None:
     root, _, module, directory = build_fixture()
     try:
         assert run_generator(root, "--update").returncode == 0
-        inventory_path = root / "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
+        inventory_path = root / ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
         value = json.loads(inventory_path.read_text())
         value["runtime"][0]["license"][0]["sha256"] = "f" * 64
         inventory_path.write_text(json.dumps(value, indent=2) + "\n")
         before = {path: path.read_bytes() for path in (
             inventory_path,
-            root / "docs/decisions/CD-0014-terminal-launcher-rendering.md",
-            root / "docs/knowledge/records/CD-0014.json",
+            root / ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md",
+            root / ".concord/docs/knowledge/records/CD-0014.json",
         )}
         result = run_generator(root, "--update")
         assert result.returncode == 1

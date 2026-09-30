@@ -33,7 +33,7 @@ func TestUnapprovedObservationDismissalRefusalIsDeliverable(t *testing.T) {
 	domain := pm1fixture.FixtureRootDomainID
 	env := mutationEnvelope(grant, scopeVersion)
 
-	recordInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"statement":"This Domain has no owner for the scanner failure path.","refs":["docs/core-architecture.md"],"tags":["gap"],"idempotency_key":"dismiss-delivery-obs"}`, domain))
+	recordInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"statement":"This Domain has no owner for the scanner failure path.","refs":[".concord/docs/core-architecture.md"],"tags":["gap"],"idempotency_key":"dismiss-delivery-obs"}`, domain))
 	if recorded, recordErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_domain", Operation: "observation_record", Input: recordInput}, env); recordErr != nil || recorded.Outcome != OutcomeOK {
 		t.Fatalf("observation_record response=%+v err=%v", recorded.Error, recordErr)
 	}

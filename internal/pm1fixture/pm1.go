@@ -1,5 +1,5 @@
 // Package pm1fixture is the shared PM1 acceptance fixture. Its data source is
-// scenarios/product-memory-query.v1.json. It exists so multiple corpus runners
+// .concord/scenarios/product-memory-query.v1.json. It exists so multiple corpus runners
 // share one implementation rather than re-seeding the same dataset each time.
 //
 // The package does not import testing: it returns errors and lets callers
@@ -24,7 +24,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// Corpus mirrors the JSON shape of scenarios/product-memory-query.v1.json.
+// Corpus mirrors the JSON shape of .concord/scenarios/product-memory-query.v1.json.
 // The struct tags are preserved exactly so callers that read the same file
 // can interop without bespoke translations.
 type Corpus struct {
@@ -156,7 +156,7 @@ func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, 
 	if err != nil {
 		return store.KnowledgeHome{}, err
 	}
-	const decisionPath = "docs/decisions/CD-0001-fixture-law.md"
+	const decisionPath = ".concord/docs/decisions/CD-0001-fixture-law.md"
 	decision := canonicalKnowledgeNote("CD-0001", "decision", "2026-08-04T12:00:00Z", []string{"governance"})
 	if err := writeKnowledgeFile(repo, decisionPath, decision); err != nil {
 		return store.KnowledgeHome{}, fmt.Errorf("pm1fixture: write fixture decision: %w", err)
@@ -176,7 +176,7 @@ func SeedCommittedProductDomain(ctx context.Context, s *store.Store, productID, 
 	return home, nil
 }
 
-// Load reads scenarios/product-memory-query.v1.json from the repository root
+// Load reads .concord/scenarios/product-memory-query.v1.json from the repository root
 // and decodes it into a Corpus. The lookup is anchored to this file's source
 // location so the package can move without breaking the relative path.
 func Load() (Corpus, error) {
@@ -186,7 +186,7 @@ func Load() (Corpus, error) {
 	if !ok {
 		return corpus, fmt.Errorf("pm1fixture: runtime.Caller failed")
 	}
-	path := filepath.Join(filepath.Dir(file), "..", "..", "scenarios", "product-memory-query.v1.json")
+	path := filepath.Join(filepath.Dir(file), "..", "..", ".concord", "scenarios", "product-memory-query.v1.json")
 	data, err := os.ReadFile(path) //nolint:gosec // runtime.Caller anchors this code-owned scenario path inside the repository.
 	if err != nil {
 		return corpus, fmt.Errorf("pm1fixture: read %s: %w", path, err)
@@ -385,12 +385,12 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: init knowledge repo: %w", err)
 	}
-	workPath := "docs/work/2026-08-03-auth-release.md"
+	workPath := ".concord/docs/work/2026-08-03-auth-release.md"
 	if err := writeKnowledgeFile(repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z")); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write work note: %w", err)
 	}
-	lessonPath := "docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := "docs/decisions/CD-0002-state-authority.md"
+	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
+	decisionPath := ".concord/docs/decisions/CD-0002-state-authority.md"
 	if err := writeKnowledgeFile(repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-05T12:00:00Z", []string{"state-authority", "sqlite"})); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write lesson note: %w", err)
 	}
@@ -464,7 +464,7 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 // unlucky one.
 func SeedLaggingKnowledge(home store.KnowledgeHome) (string, error) {
 	const id = "knowledge-decision-lagging"
-	const path = "docs/decisions/CD-0003-lagging-authority.md"
+	const path = ".concord/docs/decisions/CD-0003-lagging-authority.md"
 	manifest, err := readKnowledgeShards(home.RepoPath)
 	if err != nil {
 		return "", err

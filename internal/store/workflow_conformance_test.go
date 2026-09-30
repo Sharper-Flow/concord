@@ -722,7 +722,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 
 func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	t.Helper()
-	raw, err := os.ReadFile("../../scenarios/workflow-engine.v1.json")
+	raw, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1439,7 +1439,7 @@ func seedCorpusArchitectureScope(ctx context.Context, s *Store, workID string, f
 		}
 	}
 	if lawID, _ := corpusCompletionVerificationObligationFromFields(fields); lawID != "" {
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,'spec','accepted','docs/spec.md','Synthetic corpus law','sha256:`+strings.Repeat("a", 64)+`','corpus')`, lawID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,'spec','accepted','.concord/docs/spec.md','Synthetic corpus law','sha256:`+strings.Repeat("a", 64)+`','corpus')`, lawID); err != nil {
 			return rollback(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator',?,?,?,?, 'corpus')`, lawID, productID, rootDomain, "sha256:"+strings.Repeat("a", 64)); err != nil {
@@ -2127,7 +2127,7 @@ func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorp
 			}
 		}
 		if input.Kind == WorkflowContractApproved && corpusSetupInputDeclaresLaw(input) {
-			lawSetup := `INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','product','domain/corpus-main','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`
+			lawSetup := `INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('workflow-corpus-locator','project','canonical_path','workflow-corpus-repo','workflow-corpus-repo','now','now'); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-corpus-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic corpus law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); INSERT OR IGNORE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-corpus-locator','spec:one','product','domain/corpus-main','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','corpus'); DELETE FROM fold_guard`
 			lawSetup = strings.Replace(lawSetup, "domain/corpus-main", "domain/corpus-main/"+input.WorkID, 1)
 			if _, err := s.DatabaseForTesting().ExecContext(ctx, lawSetup); err != nil {
 				return err

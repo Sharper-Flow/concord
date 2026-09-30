@@ -31,9 +31,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INVENTORY = Path("docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json")
-DECISION = Path("docs/decisions/CD-0014-terminal-launcher-rendering.md")
-KNOWLEDGE_SHARD = Path("docs/knowledge/records/CD-0014.json")
+INVENTORY = Path(".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json")
+DECISION = Path(".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md")
+KNOWLEDGE_SHARD = Path(".concord/docs/knowledge/records/CD-0014.json")
 GROUPS = ("runtime", "test_only", "module_graph_only")
 
 

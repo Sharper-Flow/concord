@@ -14,7 +14,7 @@ import (
 )
 
 // This file implements the eight TS1 mutation scenarios bound from
-// scenarios/agent-jobs.v1.json for the #159 tranche. Every binding
+// .concord/scenarios/agent-jobs.v1.json for the #159 tranche. Every binding
 // returns a jobObservation whose state/result/communication/effects/
 // authority maps satisfy the corpus assertions literally. The
 // fixture helpers live in agent_jobs_mutation_fixture_test.go.
@@ -185,7 +185,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 
 // AJ4-start-valid-work: transition work-ready-high from needed to
 // in_progress using the post-amendment version 2 (per the operator
-// amendment applied to scenarios/agent-jobs.v1.json). Then replay the
+// amendment applied to .concord/scenarios/agent-jobs.v1.json). Then replay the
 // same idempotency_key and prove no duplicate transition event and no
 // additional version bump (retry_safe).
 func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
@@ -1318,7 +1318,7 @@ func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
 	hash := "sha256:" + strings.Repeat("a", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','.concord/docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
 		t.Fatalf("seed accepted law: %v", err)
 	}
 	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")

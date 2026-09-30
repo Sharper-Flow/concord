@@ -1,0 +1,52 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q1-ambiguous-project"
+    },
+    {
+      "criterion": 2,
+      "scenario": "Q3-authoritative-empty"
+    },
+    {
+      "criterion": 3,
+      "scenario": "Q5-ready-ranking"
+    },
+    {
+      "criterion": 4,
+      "scenario": "Q4-blocked-reason"
+    },
+    {
+      "criterion": 5,
+      "scenario": "Q2-stale-requires-review"
+    }
+  ],
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    ".concord/scenarios/product-memory-query.v1.json",
+    "internal/store/query_corpus_test.go",
+    "internal/store/query_corpus_cross_test.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "PM1",
+  "kind": "spec",
+  "path": ".concord/docs/product-memory-query-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3fe629fa440e2718b52c65844c5f2bd69c67e801cb0ac1f7eb085d795bc3cc32",
+  "status": "accepted",
+  "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
+  "tags": [
+    "pm1",
+    "queries"
+  ],
+  "title": "Product memory query contract"
+}

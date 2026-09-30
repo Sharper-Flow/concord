@@ -298,10 +298,18 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("dispatch with current correction context: %v", err)
 	}
+	// The dispatch intent alone consumes nothing: the fresh attempt must
+	// materialize before the rejection record is consumed.
+	if pin, err = ReadWorkPin(ctx, s, workID); err != nil {
+		t.Fatal(err)
+	} else if pin.Correction == nil {
+		t.Fatalf("pin correction vanished before the fresh attempt materialized: %#v", pin.Correction)
+	}
+	issue1013RecordWorkerDispatch(t, s, workID, "attempt:fresh-"+workID)
 	if pin, err = ReadWorkPin(ctx, s, workID); err != nil {
 		t.Fatal(err)
 	} else if pin.Correction != nil {
-		t.Fatalf("fresh dispatch did not consume correction context: %#v", pin.Correction)
+		t.Fatalf("materialized dispatch did not consume correction context: %#v", pin.Correction)
 	}
 	if _, _, err = WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
 		t.Fatal("contract correction remained available after a later dispatch consumed the rejection")
@@ -590,6 +598,54 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	}
 	if after == nil || after.CorrectionAttempts != 4 {
 		t.Fatalf("binding after refused fifth request = %+v, want correction attempts 4", after)
+	}
+}
+
+// A dispatch intent whose worker attempt never materialized — the session died
+// between the dispatch_worker action and the host worker-dispatch call — leaves
+// the correction record live: the retry binding keeps naming the failed
+// attempt, and a later dispatch consumes the record only once its worker
+// attempt actually exists.
+func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
+	const workID = "correction-half-dispatch-live"
+	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
+	defer s.Close()
+	failWorkerAttempt(t, s, workID, attemptID)
+	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, 1, 9, "half-dispatch-record")
+
+	interrupted := "attempt:" + workID + ":interrupted"
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
+		t.Fatalf("pin correction before the interrupted dispatch = %#v, want the failed attempt", pin.Correction)
+	}
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", interrupted, pin.Correction)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "half-dispatch-" + workID, OperationID: "half-dispatch-" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-" + workID, RequestID: "request:half-dispatch-" + workID, ContractDigest: testManifestDigest, Now: time.Unix(20, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("interrupted dispatch intent: %v", err)
+	}
+
+	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	if err != nil {
+		t.Fatalf("read retry binding after the interrupted dispatch: %v", err)
+	}
+	if binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 1 {
+		t.Fatalf("retry binding after the interrupted dispatch = %+v, want the failed attempt identity", binding)
+	}
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
+		t.Fatalf("pin correction after the interrupted dispatch = %#v, want the live record", pin.Correction)
+	}
+
+	issue1013RecordWorkerDispatch(t, s, workID, interrupted)
+	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	if err != nil {
+		t.Fatalf("read retry binding after the materialized dispatch: %v", err)
+	}
+	if binding != nil {
+		t.Fatalf("retry binding after the materialized dispatch = %+v, want the consumed record", binding)
 	}
 }
 
@@ -1636,7 +1692,7 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
 		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
 		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID); err != nil {
@@ -1857,7 +1913,7 @@ func seedOffShapeCompletedInstance(t *testing.T, workID string) workflowReturnRo
 		UPDATE workflow_instances SET current_step='verify', instance_state='completed' WHERE work_id=?;
 		UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND contract_version=1;
 		UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one';
-		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test');
 		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test');
 		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','');
 		DELETE FROM fold_guard`, workID, workID); err != nil {

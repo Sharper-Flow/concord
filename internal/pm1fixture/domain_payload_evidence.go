@@ -27,10 +27,10 @@ const (
 	PayloadResourceID = "payload-queue"
 
 	payloadProductKey       = "payload"
-	payloadLawPath          = "docs/decisions/CD-0101.md"
+	payloadLawPath          = ".concord/docs/decisions/CD-0101.md"
 	payloadLawBody          = "The child Domain owns synchronization law.\n"
 	payloadSupersededID     = "CD-0100"
-	payloadSupersededPath   = "docs/decisions/CD-0100.md"
+	payloadSupersededPath   = ".concord/docs/decisions/CD-0100.md"
 	payloadSupersededBody   = "Synchronization law used to live at the root.\n"
 	payloadResourceMetadata = `{}`
 )

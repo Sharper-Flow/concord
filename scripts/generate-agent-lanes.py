@@ -699,7 +699,7 @@ def main() -> int:
             ROOT / "internal/store/generated_agent_lanes.go": go_projection(manifest, manifest_digest),
             ROOT / "adapter/opencode/generated-agent-lanes.ts": ts_projection(manifest, manifest_digest, packet_schema, report_schema, worker_scope),
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",
-            ROOT / "docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
+            ROOT / ".concord/docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
         expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema) for lane in manifest["lanes"]})
         expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})

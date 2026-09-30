@@ -30,7 +30,7 @@ const (
 	// DomainEvidenceLawID is the accepted decision homed to the root Domain.
 	DomainEvidenceLawID = "CD-0041"
 	// DomainEvidenceLawPath is the accepted decision's committed path.
-	DomainEvidenceLawPath = "docs/decisions/CD-0041.md"
+	DomainEvidenceLawPath = ".concord/docs/decisions/CD-0041.md"
 	// DomainEvidenceLawTitle is its manifest title.
 	DomainEvidenceLawTitle = "Domain authority"
 	// DomainEvidenceLawBody is the committed blob behind DomainEvidenceLawPath.
@@ -38,7 +38,7 @@ const (
 
 	domainEvidenceProductKey     = "concord"
 	domainEvidenceSupersededID   = "CD-0002"
-	domainEvidenceSupersededPath = "docs/decisions/CD-0002.md"
+	domainEvidenceSupersededPath = ".concord/docs/decisions/CD-0002.md"
 	domainEvidenceSupersededBody = "Components were the prior architecture authority.\n"
 )
 

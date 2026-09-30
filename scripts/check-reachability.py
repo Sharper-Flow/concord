@@ -48,7 +48,7 @@ from coverage_state import (  # noqa: E402
     report,
 )
 
-MANIFEST = ROOT / "docs/reachability-exceptions.v1.json"
+MANIFEST = ROOT / ".concord/docs/reachability-exceptions.v1.json"
 SCHEMA = ROOT / "contracts/reachability-exceptions.schema.json"
 
 ALLOWED_ROOT = {"schema_version", "analysis", "exceptions"}

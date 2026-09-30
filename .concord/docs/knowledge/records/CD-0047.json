@@ -1,0 +1,39 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "repository-verification"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-20T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "scripts/check-law-coverage.py",
+    "scripts/check-reachability.py",
+    "scripts/knowledge_index.py",
+    ".concord/docs/reachability-exceptions.v1.json"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0047",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0047-declared-coverage-state.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:fce0bcf75c680eada5b936a84ca0376a166409bbdbe1f615f7d49d09265b8530",
+  "status": "accepted",
+  "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
+  "tags": [
+    "coverage",
+    "drift",
+    "evidence"
+  ],
+  "title": "Coverage is declared, and an undeclared gap is a failure"
+}

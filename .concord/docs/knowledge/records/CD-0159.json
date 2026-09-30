@@ -1,0 +1,51 @@
+{
+  "applies_to_domain_ids": [
+    "workflow-engine"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-09-20T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    ".concord/schemas/knowledge-record.v1.schema.json",
+    ".concord/docs/decisions/CD-0006-concord-root-product-policy.md",
+    ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md",
+    ".concord/docs/specs-as-laws.md",
+    "internal/store/workflow_registry.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0159",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0006"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0159-authority-tier-for-product-law.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:d567e8e25bc8d0d4703dd7aa98382bd63596544f0045059f34c314853c48dc06",
+  "status": "accepted",
+  "summary": "Gives each Product law record an authority tier of legislated or derived, fixed at write time. A law is legislated only when an operator-approved contract names it in an outcome predicate; law named only in law_additions is derived. A conflict with derived law is revised inside the contract with no separate approval turn, while legislated law keeps the legislative moment. Sets kind defaults for the existing records and lands every predecessor spec import as derived.",
+  "tags": [
+    "product-memory",
+    "product-law",
+    "authority",
+    "provenance",
+    "knowledge-index"
+  ],
+  "title": "Authority tier for Product law"
+}

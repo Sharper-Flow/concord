@@ -9,19 +9,19 @@ layer of the CD-0069 enforcement stack: it binds every writer, including
 manual commits, at the merge chokepoint.
 
 The bounds are not restated here. They live once in
-docs/durable-tier-budget.v1.json and this script reads them, so the budget
+.concord/docs/durable-tier-budget.v1.json and this script reads them, so the budget
 file, the future producer-side parse, and the AJ6 scenario extension all
 enforce the same numbers.
 
 Scope, per CD-0069:
 
-- docs/work/ and docs/lessons/ (the compaction-note roots): markdown only,
+- .concord/docs/work/ and .concord/docs/lessons/ (the compaction-note roots): markdown only,
   each note at or under max_note_bytes, no fenced JSON block over
   max_fenced_json_bytes. Zero tolerance; the tier starts empty and no ratchet
   baseline exists. An allowance is permission for one named note to exceed
   the byte bound while an issue tracks it, never permission to be non-markdown
   or to embed a state dump.
-- docs/decisions/: decision records are a different artifact class (CD-0013
+- .concord/docs/decisions/: decision records are a different artifact class (CD-0013
   is accepted law at 34.5 KB), so no byte bound applies. The markdown-only
   rule is enforced as a declared inventory: every non-markdown artifact is
   enumerated with a reason, and any new one fails until acknowledged. Drift
@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BUDGET = ROOT / "docs/durable-tier-budget.v1.json"
+BUDGET = ROOT / ".concord/docs/durable-tier-budget.v1.json"
 MAX_FINDINGS = 200
 FENCE_RE = re.compile(r"^```[ \t]*([A-Za-z0-9_-]*)[ \t]*$")
 
@@ -55,9 +55,9 @@ def load_budget(findings: list[str]) -> dict | None:
         return None
     roots = budget.get("note_roots")
     if not isinstance(roots, list) or not roots or not all(
-        isinstance(root, str) and root.startswith("docs/") for root in roots
+        isinstance(root, str) and root.startswith(".concord/docs/") for root in roots
     ):
-        findings.append("budget: note_roots must be a non-empty array of docs/ paths")
+        findings.append("budget: note_roots must be a non-empty array of .concord/docs/ paths")
         return None
     for key in ("max_note_bytes", "max_fenced_json_bytes"):
         value = budget.get(key)
@@ -82,14 +82,14 @@ def load_budget(findings: list[str]) -> dict | None:
     if not isinstance(inventory, list) or not all(
         isinstance(entry, dict)
         and isinstance(entry.get("path"), str)
-        and entry.get("path").startswith("docs/decisions/")
+        and entry.get("path").startswith(".concord/docs/decisions/")
         and not entry.get("path").endswith(".md")
         and isinstance(entry.get("reason"), str)
         and len(entry["reason"]) >= 12
         for entry in inventory
     ):
         findings.append(
-            "budget: non_markdown_inventory entries need a docs/decisions/ non-markdown path and a reason"
+            "budget: non_markdown_inventory entries need a .concord/docs/decisions/ non-markdown path and a reason"
         )
         return None
     return budget
@@ -161,11 +161,11 @@ def main() -> int:
                     )
 
     inventoried = {entry["path"] for entry in budget["non_markdown_inventory"]}
-    for path in iter_non_markdown(ROOT / "docs/decisions"):
+    for path in iter_non_markdown(ROOT / ".concord/docs/decisions"):
         rel = path.relative_to(ROOT).as_posix()
         if rel not in inventoried:
             findings.append(
-                f"{rel}: non-markdown artifact in docs/decisions is not in the budget inventory; acknowledge it with a reason or remove it"
+                f"{rel}: non-markdown artifact in .concord/docs/decisions is not in the budget inventory; acknowledge it with a reason or remove it"
             )
     declared_missing = sorted(
         path for path in inventoried if not (ROOT / path).is_file()
@@ -176,7 +176,7 @@ def main() -> int:
     for finding in findings[:MAX_FINDINGS]:
         print(finding)
     if findings:
-        print(f"{len(findings)} durable-tier finding(s); see CD-0069 and docs/durable-tier-budget.v1.json")
+        print(f"{len(findings)} durable-tier finding(s); see CD-0069 and .concord/docs/durable-tier-budget.v1.json")
         return 1
     print("durable tier satisfies the CD-0002 binding rules")
     return 0

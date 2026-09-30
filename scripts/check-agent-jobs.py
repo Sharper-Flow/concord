@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "contracts/agent-jobs-scenarios.schema.json"
-CORPUS_PATH = ROOT / "scenarios/agent-jobs.v1.json"
+CORPUS_PATH = ROOT / ".concord/scenarios/agent-jobs.v1.json"
 ENVELOPE_PATH = ROOT / "contracts/agent-tool-envelope.schema.json"
 EXPECTED_SCENARIO_COUNT = 24
 EXPECTED_CONTRACT = "TS1"

@@ -33,7 +33,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-MANIFEST = ROOT / "docs/complexity-budget.v1.json"
+MANIFEST = ROOT / ".concord/docs/complexity-budget.v1.json"
 SCHEMA = ROOT / "contracts/complexity-budget.schema.json"
 TIMEOUT_SECONDS = 900
 

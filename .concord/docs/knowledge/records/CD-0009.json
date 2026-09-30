@@ -1,0 +1,36 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "work-coordination"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-06T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/research_mutations.go",
+    "internal/agent/research_surface_test.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0009",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0009-active-research-context.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:72a04c1a30e11372be93f45b18d95c4111686e1e3929eff4323e1cd2a360c241",
+  "status": "accepted",
+  "summary": "Defines retention-bounded research context and canonical durable forms.",
+  "tags": [
+    "research",
+    "retention"
+  ],
+  "title": "Active research context"
+}

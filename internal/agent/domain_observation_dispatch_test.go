@@ -29,7 +29,7 @@ func TestDomainObservationDispatchRecordsReadsBackAndGatesDismissal(t *testing.T
 	env := mutationEnvelope(grant, scopeVersion)
 
 	// Recording is unapproved (CD-0068 D3) and needs no work item.
-	recordInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"statement":"This Domain has no owner for the scanner failure path.","refs":["docs/core-architecture.md"],"tags":["gap"],"idempotency_key":"domain-obs-1"}`, domain))
+	recordInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"statement":"This Domain has no owner for the scanner failure path.","refs":[".concord/docs/core-architecture.md"],"tags":["gap"],"idempotency_key":"domain-obs-1"}`, domain))
 	recorded, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_domain", Operation: "observation_record", Input: recordInput}, env)
 	if err != nil || recorded.Outcome != OutcomeOK {
 		t.Fatalf("observation_record response=%+v err=%v", recorded.Error, err)

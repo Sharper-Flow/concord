@@ -1740,7 +1740,7 @@ func (r runtime) q8(base Envelope, q store.Q8Result) (Envelope, error) {
 	// (`work_relation_graph.edges` in
 	// contracts/agent-tool-surface-payloads.schema.json) is the public
 	// contract; the store-side spelling is pinned by scenarios
-	// `Q8-relations` in scenarios/product-memory-query.v1.json, which asserts
+	// `Q8-relations` in .concord/scenarios/product-memory-query.v1.json, which asserts
 	// $.edges[0].source / $.edges[0].target against the store projection
 	// layer. Translating here keeps both contracts intact.
 	edges := make([]map[string]any, 0, len(q.Edges))

@@ -14,7 +14,7 @@ import (
 // derived, so the legislated row is stated explicitly.
 func seedDerivedLawExtension(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project','workflow-law-locator','spec:legislated','spec','accepted','docs/decisions/spec-legislated.md','Synthetic legislated test law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test','legislated'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier) VALUES('project','workflow-law-locator','spec:legislated','spec','accepted','.concord/docs/decisions/spec-legislated.md','Synthetic legislated test law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test','legislated'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -73,7 +73,7 @@ func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor Work
 func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:derived-revision", ClientRef: "client:derived-revision", AgentRef: "agent:derived-revision", SessionRef: "session:derived-revision", ActorClass: ActorAgent}
-	docBytes, err := os.ReadFile("../../docs/decisions/CD-0041-architecture-bound-product-law.md")
+	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0041-architecture-bound-product-law.md")
 	if err != nil {
 		t.Fatal(err)
 	}

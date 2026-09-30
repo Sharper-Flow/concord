@@ -1,0 +1,52 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "AJ1-ambient-ready-work"
+    },
+    {
+      "criterion": 2,
+      "scenario": "AJ2-blocker-explanation"
+    },
+    {
+      "criterion": 3,
+      "scenario": "AJ3-spec-conflict"
+    },
+    {
+      "criterion": 4,
+      "scenario": "AJ4-stale-version"
+    },
+    {
+      "criterion": 5,
+      "scenario": "AJ6-partial-publication"
+    }
+  ],
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    ".concord/scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "internal/agent/mutation_dispatch_test.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS1",
+  "kind": "spec",
+  "path": ".concord/docs/agent-tool-surface-jobs.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:61378889361fac33913873790ee94ffa2a1fb63769f6c150934526125884adca",
+  "status": "accepted",
+  "summary": "Defines eight canonical agent jobs AJ1-AJ8 and the 23-scenario acceptance corpus that measures them.",
+  "tags": [
+    "ts1",
+    "agent-jobs"
+  ],
+  "title": "agent tool surface jobs"
+}

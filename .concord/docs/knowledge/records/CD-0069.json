@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-24T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "scripts/check-durable-tier.py",
+    "scripts/test-durable-tier.py",
+    ".concord/docs/durable-tier-budget.v1.json",
+    "contracts/durable-tier-budget.schema.json"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0069",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0069-durable-tier-enforcement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:86f931472adb1460e52aa07e9d65a0943dda3fb1e6408f48595751d6673deaec",
+  "status": "accepted",
+  "summary": "D1 lands the detective layer now: check-durable-tier.py fails in CI on non-markdown artifacts under the note roots, notes over the budget byte bound, fenced JSON blocks over the dump threshold, and uninventoried non-markdown artifacts under .concord/docs/decisions, with all bounds single-sourced from .concord/docs/durable-tier-budget.v1.json and zero tolerance with no ratchet; D2 sets the bound at 16384 bytes over the compaction-note roots docs/work and .concord/docs/lessons, keeps decision records out of the byte bound as a different artifact class, and enforces markdown-only for them through a declared inventory with reasons; D3 records the producer-side strict typed parse as the contract the future compaction pipeline must satisfy, reading the same budget; D4 extends AJ6-compact-terminal-work to assert the compaction path emits an in-budget note; D5 states why three layers: the detective binds every writer at the merge chokepoint, the producer parse catches violations cheapest at write time, and the scenario observes pipeline behavior over time.",
+  "tags": [
+    "durable-tier",
+    "validator",
+    "budget",
+    "compaction"
+  ],
+  "title": "The durable tier is enforced, not advised"
+}

@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-96bdeb571b098be7760403bc",
+    "tier": "legislated"
+  },
+  "date": "2026-09-30T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0196",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:162335abcd5cd76f4f87d45c7a73417532b1b595cddb40fbabcab3a1e6bf43d1",
+  "status": "accepted",
+  "summary": "A dispatched worker lane holds no Concord read or write tool access, and the dispatch packet is its complete Concord context. Lane and utility definitions deny every concord_* tool from the derived surface list, the adapter refuses a managed-parent call with a structured no-effect envelope before the core runs, the lane text states the packet is complete, and the law context carries the Domain registry path so a lane reads Domain structure from the repository file. Extends CD-0017 D4.",
+  "tags": [
+    "agent-surface",
+    "worker-attempts",
+    "law",
+    "adapter"
+  ],
+  "title": "Worker lanes hold no Concord tool access, and the dispatch packet is their complete Concord context"
+}

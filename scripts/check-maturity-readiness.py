@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from evidence_anchors import check_anchor  # noqa: E402
 
 MANIFEST_GLOB = "maturity-readiness*.json"
-MANIFEST = ROOT / "docs/maturity-readiness.v1.json"
+MANIFEST = ROOT / ".concord/docs/maturity-readiness.v1.json"
 SCHEMA_VERSION = "1.0"
 RUNGS = {"alpha": "a", "beta": "b", "production": "p"}
 STATES = ("satisfied", "outstanding", "unmeasured", "out_of_scope")
@@ -208,7 +208,7 @@ def validate(data: object) -> tuple[list[str], dict[str, int]]:
 def main() -> int:
     # One file measures one rung (the schema says so); every file under the
     # glob is validated, and a rung may appear at most once across them.
-    paths = sorted((ROOT / "docs").glob(MANIFEST_GLOB))
+    paths = sorted((ROOT / ".concord/docs").glob(MANIFEST_GLOB))
     if not paths:
         print("maturity readiness manifest is missing", file=sys.stderr)
         return 1

@@ -36,8 +36,8 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const credentialSource = await Bun.file(new URL("./credentials.ts", import.meta.url)).text()
-const askingSource = await Bun.file(new URL("../../instructions/asking.md", import.meta.url)).text()
-const continuationSource = await Bun.file(new URL("../../instructions/continuation.md", import.meta.url)).text()
+const askingSource = await Bun.file(new URL("../../.concord/instructions/asking.md", import.meta.url)).text()
+const continuationSource = await Bun.file(new URL("../../.concord/instructions/continuation.md", import.meta.url)).text()
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord")

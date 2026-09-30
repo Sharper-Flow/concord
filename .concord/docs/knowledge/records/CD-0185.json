@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-d203f6918666271b95dce7c7",
+    "tier": "legislated"
+  },
+  "date": "2026-09-27T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0185",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0179"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0185-the-reclaim-report-pages-before-it-exceeds-the-result-envelope.md",
+  "product_wide_rationale": "Governs how one bulk reclaim pass reports its committed effects and its full classification across the agent result envelope and the audit read, so the caller never reconciles an uncertain effect by hand.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:a7a22fece243bab78e7acfdbb1e7574b7c3a6bd7ee1b9d369b469269a03ff89f",
+  "status": "accepted",
+  "summary": "A worktree_audit_reclaim pass compacts its result to fit the result envelope before it reports success: every committed and refused attempt stays reported with its outcome, version, and refusal kind, the free-text attempt detail drops last and only under an omission notice, report-only rows the inline result does not carry page through the worktree_audit read's signed cursor with an explicit count, a replay under the same idempotency key returns the same bounded result, and the limit stays the only bound on reclaim attempts. Amends CD-0179 D5 at its report bound.",
+  "tags": [
+    "worktrees",
+    "worktree-audit",
+    "agent-surface",
+    "envelope"
+  ],
+  "title": "The bulk reclaim report pages before it exceeds the result envelope"
+}

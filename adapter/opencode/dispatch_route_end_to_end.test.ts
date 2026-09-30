@@ -42,7 +42,7 @@ const WORKFLOW_PREDICATE = {
 // change, while the predicate above already passes on the unmodified baseline.
 // A worker that satisfies only the predicate has not delivered the objective,
 // so the packet must carry both and keep them distinct.
-const APPROVED_OBJECTIVE = "Add the session marker docs/dispatch-marker.txt describing the shipped route."
+const APPROVED_OBJECTIVE = "Add the session marker .concord/docs/dispatch-marker.txt describing the shipped route."
 
 type JSONRecord = Record<string, any>
 
@@ -194,19 +194,18 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   const lane = agentLanes.find((candidate) => candidate.id === "implement")
   if (!lane) throw new Error("implement lane is not registered")
 
-  await mkdir(join(repo, "docs"), { recursive: true })
-  await Bun.write(join(repo, "docs", "concord-knowledge-index.v1.json"), JSON.stringify({
+  await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
+  await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({
     schema_version: "1.2",
     supported_kinds: [],
     indexed_kinds: [],
     knowledge_roots: [],
-    domain_registry: {
-      schema_version: "1.0",
-      product_key: PRODUCT_ID,
-      root_domain_id: `product-root:${PRODUCT_ID}`,
-      domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
-    },
-    records: [],
+  }, null, 2))
+  await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
+    schema_version: "1.0",
+    product_key: PRODUCT_ID,
+    root_domain_id: `product-root:${PRODUCT_ID}`,
+    domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
   }, null, 2))
   await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/synthetic-instructions"] }))
   await Bun.write(join(repo, "README.md"), "synthetic dispatch fixture\n")
@@ -416,7 +415,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // context leads with the item's value line, carries the contract's
     // resolved home Domain with the registry path the lane reads Domain
     // structure from, and the recorded task ahead of the narrative.
-    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: docs/knowledge/domain-registry.json\n\nRecorded task:\nExercise the dispatch route.\n\n`)
+    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: .concord/docs/knowledge/domain-registry.json\n\nRecorded task:\nExercise the dispatch route.\n\n`)
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v12, contract v1)")
@@ -470,11 +469,11 @@ routeDeclaration("dispatches a real store route through Task completion and work
     response = await transition(verifyBoundVersion, "bind_evidence", "e2e-bind-refine-verification", { evidence_kind: "verification", evidence_ref: verifyOperationRef })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(refineDeliveryVersion, "record_delivery", "e2e-record-refine-delivery", { delivery_artifact: "docs/dispatch-marker.txt", delivery_state: "asserted" })
+    response = await transition(refineDeliveryVersion, "record_delivery", "e2e-record-refine-delivery", { delivery_artifact: ".concord/docs/dispatch-marker.txt", delivery_state: "asserted" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const gateVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("delivery")
-    response = await transition(gateVersion, "record_delivery", "e2e-record-gate-delivery", { delivery_artifact: "docs/dispatch-marker.txt", delivery_state: "asserted" })
+    response = await transition(gateVersion, "record_delivery", "e2e-record-gate-delivery", { delivery_artifact: ".concord/docs/dispatch-marker.txt", delivery_state: "asserted" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("verify")
     const verifyVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number

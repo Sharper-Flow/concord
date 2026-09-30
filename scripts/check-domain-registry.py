@@ -63,7 +63,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         return list(exc.findings), []
     registry = manifest.get("domain_registry")
     if not isinstance(registry, dict):
-        return ["docs/knowledge: no domain_registry"], []
+        return [".concord/docs/knowledge: no domain_registry"], []
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])

@@ -39,8 +39,8 @@ func lawTestManifest(records ...KnowledgeRecord) KnowledgeManifest {
 func TestKnowledgeManifestRelationsRequireCurrentSchema(t *testing.T) {
 	t.Parallel()
 	valid := lawTestManifest(
-		lawTestRecord("base", "decision", "accepted", "docs/decisions/CD-0001-base.md", KnowledgeRelation{Kind: "refines", TargetID: "detail"}),
-		lawTestRecord("detail", "spec", "accepted", "docs/detail.md"),
+		lawTestRecord("base", "decision", "accepted", ".concord/docs/decisions/CD-0001-base.md", KnowledgeRelation{Kind: "refines", TargetID: "detail"}),
+		lawTestRecord("detail", "spec", "accepted", ".concord/docs/detail.md"),
 	)
 	if err := validateKnowledgeManifest(valid); err != nil {
 		t.Fatalf("valid 1.2 relation rejected: %v", err)
@@ -63,8 +63,8 @@ func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t 
 	t.Parallel()
 	base := func(relations ...KnowledgeRelation) KnowledgeManifest {
 		return lawTestManifest(
-			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", relations...),
-			lawTestRecord("b", "spec", "accepted", "docs/b.md"),
+			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", relations...),
+			lawTestRecord("b", "spec", "accepted", ".concord/docs/b.md"),
 		)
 	}
 	for name, manifest := range map[string]KnowledgeManifest{
@@ -72,24 +72,24 @@ func TestKnowledgeManifestRelationsRejectInvalidGraphsAndSupersessionMismatch(t 
 		"self":           base(KnowledgeRelation{Kind: "refines", TargetID: "a"}),
 		"unknown kind":   base(KnowledgeRelation{Kind: "binds", TargetID: "b"}),
 		"reverse conflict": lawTestManifest(
-			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "b"}),
-			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "a"}),
+			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", ".concord/docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "a"}),
 		),
 		"cycle": lawTestManifest(
-			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
-			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
+			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", ".concord/docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
 		),
 		"mixed directed cycle": lawTestManifest(
-			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
-			lawTestRecord("b", "decision", "accepted", "docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
+			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "refines", TargetID: "b"}),
+			lawTestRecord("b", "decision", "accepted", ".concord/docs/decisions/CD-0002-b.md", KnowledgeRelation{Kind: "subordinate_to", TargetID: "a"}),
 		),
 		"supersession mismatch": lawTestManifest(
-			lawTestRecord("old", "decision", "superseded", "docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
-			lawTestRecord("new", "decision", "accepted", "docs/decisions/CD-0002-new.md"),
+			lawTestRecord("old", "decision", "superseded", ".concord/docs/decisions/CD-0001-old.md", KnowledgeRelation{Kind: "supersedes", TargetID: "new"}),
+			lawTestRecord("new", "decision", "accepted", ".concord/docs/decisions/CD-0002-new.md"),
 		),
 		"lesson endpoint": lawTestManifest(
-			lawTestRecord("lesson", "lesson", "published", "docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
-			lawTestRecord("a", "decision", "accepted", "docs/decisions/CD-0001-a.md"),
+			lawTestRecord("lesson", "lesson", "published", ".concord/docs/lesson.md", KnowledgeRelation{Kind: "refines", TargetID: "a"}),
+			lawTestRecord("a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md"),
 		),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -104,8 +104,8 @@ func TestRebuildKnowledgeIndexProjectsAndRollsBackLawRelations(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
 	records := []KnowledgeRecord{
-		lawTestRecord("law-a", "decision", "accepted", "docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "law-b"}),
-		lawTestRecord("law-b", "spec", "accepted", "docs/law-b.md"),
+		lawTestRecord("law-a", "decision", "accepted", ".concord/docs/decisions/CD-0001-a.md", KnowledgeRelation{Kind: "conflicts_with", TargetID: "law-b"}),
+		lawTestRecord("law-b", "spec", "accepted", ".concord/docs/law-b.md"),
 	}
 	for i, record := range records {
 		content := record.ID + "\n"
@@ -145,7 +145,7 @@ func TestMandatedLawBoundaryChecksUnknownConflictAndAmendmentSubset(t *testing.T
 	t.Parallel()
 	s := openTemp(t)
 	anchorHomePair(t, s, "p", "l")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'),('p','l','b','spec','accepted','.concord/docs/b.md','B','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit'); INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','a','conflicts_with','b','commit'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -177,7 +177,7 @@ func TestLawConflictQueriesFailClosedOnOverflow(t *testing.T) {
 	ids := make([]string, 32)
 	for i := range ids {
 		ids[i] = "law-" + string(rune('a'+i))
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'decision','accepted',?,'law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`, ids[i], "docs/decisions/CD-0001-"+ids[i]+".md"); err != nil {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l',?,'decision','accepted',?,'law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`, ids[i], ".concord/docs/decisions/CD-0001-"+ids[i]+".md"); err != nil {
 			t.Fatal(err)
 		}
 	}

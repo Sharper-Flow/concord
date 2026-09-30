@@ -26,6 +26,14 @@ type migration struct {
 	// nullable or defaulted column, leave an older binary unaffected: it never
 	// names what it does not know.
 	//
+	// One additive shape is not safe under a rolling upgrade. A column the
+	// fold advances moves as later events apply, and a fold generation from
+	// before the migration never advances it, so the column drifts behind the
+	// log with no convergence (CD-0111 D3; migration 108's last_activity_at
+	// drifted this way). FoldMaintained names that shape beside the SQL, and
+	// scripts/check-migration-compatibility.py binds an advance declaration
+	// to this bit.
+	//
 	// The manifest records this bit per applied migration, and the highest
 	// breaking version applied is the database's compatibility floor. A binary
 	// that defines that version may open the database even when later
@@ -33,6 +41,22 @@ type migration struct {
 	// the SQL and refuses a declaration its statements contradict, so the bit
 	// cannot drift from what the migration does.
 	Breaking bool
+	// FoldMaintained declares, for a step that adds a column to a
+	// pre-existing table, how the fold keeps that column true. The SQL shape
+	// cannot see the Go fold writer, so this declaration is the author's
+	// signed claim beside the SQL: the checker holds it to a closed
+	// vocabulary and to its consequences, and cannot derive it.
+	//
+	// "advance": the fold moves the column as later events apply, so an older
+	// binary's fold leaves it wrong with no convergence — the migration 108 /
+	// last_activity_at class. Such a step must declare Breaking: true.
+	//
+	// "origin": the fold sets the column once and first derivation wins, so
+	// the backfill and RebuildFromLog agree — the migration 107 /
+	// execution_started_at class (CD-0183 D2).
+	//
+	// Empty: the step adds no fold-maintained column.
+	FoldMaintained string
 	// Applies decides whether this step's SQL runs against the database in
 	// front of it. A repair for a divergence only some histories carry answers
 	// false where the divergence is absent, and the step still records as

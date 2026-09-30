@@ -140,10 +140,9 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("`status` `failed`", normalized)
 
     def test_projection_gives_non_editing_lanes_the_assess_rule(self):
-        # The shared block previously told every lane to change files, which
-        # implied edit authority review, verify, and research do not hold. A
-        # lane without edit_scoped_files reads each named law before it
-        # assesses the result, and receives no file-change rule.
+        # A lane without edit_scoped_files reads each named law before it
+        # assesses the result, and receives no file-change rule, so the block
+        # never implies edit authority the lane does not hold.
         lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
         projection = generator.agent_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())

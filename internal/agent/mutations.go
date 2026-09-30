@@ -4843,26 +4843,10 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return err
 		}
-		derivedProducts, err := deriveMutationProductsTx(ctx, tx, scope)
+		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
 		if err != nil {
 			return err
 		}
-		if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
-			return newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
-		}
-		crossProduct := false
-		for _, product := range derivedProducts {
-			if !contains(grant.ProductScope, product) {
-				return newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
-			}
-			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-				crossProduct = true
-				if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
-					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
-				}
-			}
-		}
-		scope["product_ids"] = derivedProducts
 		if crossProduct {
 			requiresApproval = true
 		}
@@ -4910,30 +4894,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return errors.New("budget admission refused")
 		}
 		if requiresApproval && approval == "" {
-			challengeScope := boundedApprovalScope(scope)
-			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
-			if err != nil {
-				return err
+			challenge, challengeErr := r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, base, digest, scope, versions, consequence, governingConflict)
+			if challengeErr != nil {
+				return challengeErr
 			}
-			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
-			// CD-0037 D2: the coupling is challenge presence. Both branches
-			// below minted this challenge, so both carry the summary — the
-			// governing-conflict envelope as much as the plain refusal.
-			summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
-			if len(governingConflict) > 0 {
-				response = governingConflictEnvelope(base, governingConflict)
-				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
-			} else {
-				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
-			}
-			response.Error.ConsequenceSummary = summary
-			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id", "takeover_owner"} {
-				if value, ok := scope[key]; ok {
-					details[key] = value
-				}
-			}
-			response.Error.Details = details
+			response = challenge
 			return nil
 		}
 		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
@@ -5029,6 +4994,66 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		return failureEnvelope(base, err), nil
 	}
+	return response, nil
+}
+
+// deriveAuthorizedProductsTx derives the mutation's Product scope inside the
+// open transaction, refuses a scope the grant does not cover, and reports
+// whether the mutation crosses Products, which raises the approval
+// requirement.
+func (r runtime) deriveAuthorizedProductsTx(ctx context.Context, tx *store.Transaction, scope map[string]any, grant Authority) (bool, error) {
+	derivedProducts, err := deriveMutationProductsTx(ctx, tx, scope)
+	if err != nil {
+		return false, err
+	}
+	if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
+		return false, newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
+	}
+	crossProduct := false
+	for _, product := range derivedProducts {
+		if !contains(grant.ProductScope, product) {
+			return false, newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
+		}
+		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
+			crossProduct = true
+			if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+				return false, newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+			}
+		}
+	}
+	scope["product_ids"] = derivedProducts
+	return crossProduct, nil
+}
+
+// approvalChallengeEnvelopeTx mints the approval challenge for a mutation
+// that requires approval and carries none, and answers with the refusal
+// envelope for it.
+func (r runtime) approvalChallengeEnvelopeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, base Envelope, digest string, scope, versions map[string]any, consequence string, governingConflict []string) (Envelope, error) {
+	challengeScope := boundedApprovalScope(scope)
+	spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+	challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+	if err != nil {
+		return Envelope{}, err
+	}
+	details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+	// CD-0037 D2: the coupling is challenge presence. Both branches below
+	// minted this challenge, so both carry the summary — the
+	// governing-conflict envelope as much as the plain refusal.
+	summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
+	var response Envelope
+	if len(governingConflict) > 0 {
+		response = governingConflictEnvelope(base, governingConflict)
+		details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
+	} else {
+		response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
+	}
+	response.Error.ConsequenceSummary = summary
+	for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id", "takeover_owner"} {
+		if value, ok := scope[key]; ok {
+			details[key] = value
+		}
+	}
+	response.Error.Details = details
 	return response, nil
 }
 

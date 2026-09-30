@@ -7,9 +7,13 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("check-cd-allocation.py")
@@ -291,6 +295,230 @@ class ConcurrentClaimTests(RepoFixture):
         )
 
         self.assertEqual(nxt, "CD-0008")
+
+
+class StoreReservationTests(RepoFixture):
+    """The store-backed half: reservations fold into --next, and the two
+    store-reservation warnings warn without ever reaching the exit status."""
+
+    def payload(
+        self,
+        reservations: list[dict[str, object]],
+        checkout: str = "work-mine",
+    ) -> dict[str, object]:
+        return {
+            "schema_version": "concord.cd-reservations.v1",
+            "checkout_work_id": checkout,
+            "reservations": reservations,
+        }
+
+    def test_next_free_returns_the_gap_below_a_sparse_reservation(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0007"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        nxt = checker.next_free(
+            root=self.root,
+            against="main",
+            peer_namespace="refs/heads",
+            reserved={"CD-0009"},
+        )
+
+        self.assertEqual(nxt, "CD-0008")
+
+    def test_next_free_skips_consecutive_reservations(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0007"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        nxt = checker.next_free(
+            root=self.root,
+            against="main",
+            peer_namespace="refs/heads",
+            reserved={"CD-0008", "CD-0009"},
+        )
+
+        self.assertEqual(nxt, "CD-0010")
+
+    def test_next_free_ignores_malformed_reservations(self) -> None:
+        self.seed_peer(["CD-0001", "CD-0007"], when="2026-01-01T00:00:00Z")
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        nxt = checker.next_free(
+            root=self.root,
+            against="main",
+            peer_namespace="refs/heads",
+            reserved={"lesson-9", "CD-007x", ""},
+        )
+
+        self.assertEqual(nxt, "CD-0008")
+
+    def test_store_reservations_degrades_when_the_binary_is_missing(self) -> None:
+        original = checker.CONCORD
+        checker.CONCORD = str(self.root / "no-such-concord")
+        try:
+            payload, note = checker.store_reservations(self.root)
+        finally:
+            checker.CONCORD = original
+
+        self.assertIsNone(payload)
+        self.assertTrue(note)
+
+    def test_store_reservations_degrades_when_the_binary_refuses(self) -> None:
+        # An older concord binary answers "unsupported command" and exits 2;
+        # the probe must turn that into the same git-only degradation.
+        helper = self.root / "old-concord"
+        helper.write_text("#!/bin/sh\necho 'concord: unsupported arguments' >&2\nexit 2\n")
+        helper.chmod(0o755)
+        original = checker.CONCORD
+        checker.CONCORD = str(helper)
+        try:
+            payload, note = checker.store_reservations(self.root)
+        finally:
+            checker.CONCORD = original
+
+        self.assertIsNone(payload)
+        self.assertIn("unsupported", note)
+
+    def test_store_reservations_degrades_on_an_unreadable_payload(self) -> None:
+        helper = self.root / "noisy-concord"
+        helper.write_text("#!/bin/sh\necho 'not json'\n")
+        helper.chmod(0o755)
+        original = checker.CONCORD
+        checker.CONCORD = str(helper)
+        try:
+            payload, note = checker.store_reservations(self.root)
+        finally:
+            checker.CONCORD = original
+
+        self.assertIsNone(payload)
+        self.assertTrue(note)
+
+    def test_store_reservations_degrades_on_a_malformed_row(self) -> None:
+        # A payload with one unreadable row must not keep its readable rows:
+        # --next would present partial reservations as the whole answer.
+        helper = self.root / "partial-concord"
+        helper.write_text(
+            "#!/bin/sh\n"
+            'echo \'{"schema_version": "concord.cd-reservations.v1", "checkout_work_id": "work-mine",'
+            ' "reservations": [{"law_id": "CD-0009", "owner_work_id": "work-mine"}, {"law_id": "CD-0008"}]}\'\n'
+        )
+        helper.chmod(0o755)
+        original = checker.CONCORD
+        checker.CONCORD = str(helper)
+        try:
+            payload, note = checker.store_reservations(self.root)
+        finally:
+            checker.CONCORD = original
+
+        self.assertIsNone(payload)
+        self.assertIn("owner work id", note)
+
+    def test_another_works_reservation_on_a_new_id_warns(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+
+        warnings = checker.store_findings(
+            self.root,
+            self.payload([{"law_id": "CD-0002", "owner_work_id": "work-other"}]),
+            against="main",
+            peer_namespace="refs/heads",
+        )
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("store-reservation", warnings[0])
+        self.assertIn("CD-0002", warnings[0])
+        self.assertIn("work-other", warnings[0])
+        self.assertIn("renumber-cd.py", warnings[0])
+
+    def test_the_checkouts_own_unadded_reservation_warns(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        warnings = checker.store_findings(
+            self.root,
+            self.payload([{"law_id": "CD-0009", "owner_work_id": "work-mine"}]),
+            against="main",
+            peer_namespace="refs/heads",
+        )
+
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("CD-0009", warnings[0])
+        self.assertIn("work-mine", warnings[0])
+        self.assertIn("does not add", warnings[0])
+        self.assertIn("current work pin", warnings[0])
+        self.assertNotIn("bind_evidence", warnings[0])
+        self.assertNotIn("supersede_contract", warnings[0])
+
+    def test_unadded_reservation_diagnostic_does_not_change_check_status(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+        payload = self.payload([{"law_id": "CD-0009", "owner_work_id": "work-mine"}])
+        stdout = StringIO()
+        stderr = StringIO()
+        with (
+            patch.object(checker, "ROOT", self.root),
+            patch.object(checker, "store_reservations", return_value=(payload, "")),
+            patch.object(checker, "store_findings", return_value=checker.store_findings(self.root, payload, "main", "refs/heads")),
+            patch.object(checker, "check", return_value=[]),
+            patch.object(sys, "argv", [str(SCRIPT)]),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            status = checker.main()
+
+        self.assertEqual(status, 0)
+        self.assertIn("current work pin", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
+
+    def test_the_checkouts_own_added_reservation_is_silent(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001", "CD-0002"])
+
+        warnings = checker.store_findings(
+            self.root,
+            self.payload([{"law_id": "CD-0002", "owner_work_id": "work-mine"}]),
+            against="main",
+            peer_namespace="refs/heads",
+        )
+
+        self.assertEqual(warnings, [])
+
+    def test_a_foreign_reservation_off_the_new_ids_is_silent(self) -> None:
+        self.start_branch()
+        self.write_manifest(["CD-0001"])
+
+        warnings = checker.store_findings(
+            self.root,
+            self.payload([{"law_id": "CD-0002", "owner_work_id": "work-other"}]),
+            against="main",
+            peer_namespace="refs/heads",
+        )
+
+        self.assertEqual(warnings, [])
+
+    def test_reservation_rows_drop_non_cd_laws(self) -> None:
+        rows = checker.reservation_rows(
+            self.payload(
+                [
+                    {"law_id": "CD-0002", "owner_work_id": "work-a"},
+                    {"law_id": "spec:one", "owner_work_id": "work-b"},
+                ]
+            )
+        )
+
+        self.assertEqual(rows, [("CD-0002", "work-a")])
+
+    def test_reservation_rows_reject_malformed_rows(self) -> None:
+        for reservations in (
+            ["not-a-row"],
+            [{"owner_work_id": "work-c"}],
+            [{"law_id": "CD-0009"}],
+            [{"law_id": "CD-0009", "owner_work_id": None}],
+        ):
+            with self.assertRaises(checker.ReservationPayloadError):
+                checker.reservation_rows(self.payload(reservations))
 
 
 if __name__ == "__main__":

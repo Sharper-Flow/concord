@@ -153,6 +153,10 @@ Commands read one strict JSON object from stdin:
   concord project-canonical-path < JSON stdin
   concord project canonical-path < JSON stdin
     required: project_id
+  concord cd-reservations < JSON stdin
+  concord cd reservations < JSON stdin
+    required: directory
+    accepted values: prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout, with checkout_work_id naming the work that owns the checkout; read-only
   concord backup < JSON stdin
     required: destination
     accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it

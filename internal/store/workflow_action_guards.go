@@ -99,7 +99,10 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 // advance is refused only when it leaves a step that declares bind_evidence,
 // because that step is the last place on the path where the mandate can be
 // bound. Terminal acceptance actions are refused wherever they run. A late
-// bind_evidence action remains available as the recovery route.
+// bind_evidence action remains available as the recovery route, and a
+// mandated law the contract itself adds binds only when the branch adds that
+// id, so the refusal names the contract-correction route the current step
+// admits too.
 func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
 	if actionID == "supersede_contract" || actionID == "bind_evidence" {
 		return nil
@@ -133,10 +136,94 @@ func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string
 			if actionID == "complete" {
 				kind = KindInvariantViolation
 			}
-			return newFailure(kind, subject, fmt.Sprintf("spec mandate law %q is not bound", lawID), false, fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID))
+			recovery, detail, recoveryErr := workflowMandateRecovery(ctx, q, workID, definition, currentStep, lawID, version, bindingStep, actionID, subject)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+			return newFailure(kind, subject, detail, false, recovery)
 		}
 	}
 	return nil
+}
+
+// workflowMandateRecovery names the recovery the refused action can actually
+// take. A mandated law the contract itself adds is the one case where
+// bind_evidence can bind a decision this branch never made: another merge can
+// claim the same CD id first, and the reserved id then names the other work's
+// law. The store cannot read branch contents, so for an added id the refusal
+// stays conditional: bind_evidence is the route when the branch adds the id,
+// and otherwise the contract-correction route the work pin would advertise at
+// this step — supersede_contract where correction is directly available, and
+// the worker-result rejection or the worker-failure record that reopens
+// correction first at a worker-dispatch step. Query failures propagate; a
+// step with no admitted correction route leaves the conditional bind_evidence
+// guidance alone.
+func workflowMandateRecovery(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, lawID string, contractVersion int64, bindingStep, actionID, subject string) (string, string, error) {
+	bindRecovery := fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID)
+	unboundDetail := fmt.Sprintf("spec mandate law %q is not bound", lawID)
+	added, err := workflowContractAddsLaw(ctx, q, workID, contractVersion, lawID)
+	if err != nil {
+		return "", "", err
+	}
+	if !added {
+		return bindRecovery, unboundDetail, nil
+	}
+	addedDetail := fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", lawID)
+	conditional := fmt.Sprintf("run bind_evidence on step %q before %s only when the branch adds %q", bindingStep, actionID, lawID)
+	correction, err := workflowContractCorrectionRoute(ctx, q, workID, definition, currentStep, actionID, subject)
+	if err != nil {
+		return "", "", err
+	}
+	if correction == "" {
+		return conditional, addedDetail, nil
+	}
+	return fmt.Sprintf("%s; otherwise %s", conditional, correction), addedDetail, nil
+}
+
+// workflowContractCorrectionRoute names the supersession route the work pin
+// admits at the current step, or "" when none is admitted: supersede_contract
+// directly at a human checkpoint, and the worker-result rejection or the
+// worker-failure record that reopens correction first at a worker-dispatch
+// step.
+func workflowContractCorrectionRoute(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) (string, error) {
+	direct, err := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
+	if err != nil {
+		return "", err
+	}
+	if direct {
+		return fmt.Sprintf("run supersede_contract on step %q", currentStep), nil
+	}
+	rejected, err := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject, 0)
+	if err != nil {
+		return "", err
+	}
+	if rejected {
+		return fmt.Sprintf("run reject_worker_result, then supersede_contract, before %s", actionID), nil
+	}
+	failed := false
+	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
+		failed, err = workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, true)
+	} else {
+		failed, err = workflowWorkerFailureRecoveryAvailable(ctx, q, workID, definition, currentStep, subject)
+	}
+	if err != nil {
+		return "", err
+	}
+	if failed {
+		return fmt.Sprintf("run record_worker_failure, then supersede_contract, before %s", actionID), nil
+	}
+	return "", nil
+}
+
+// workflowContractAddsLaw reports whether the active contract itself declares
+// the law id among its law additions, the only scope where an unbound mandate
+// can name a law this branch never authored.
+func workflowContractAddsLaw(ctx context.Context, q queryer, workID string, contractVersion int64, lawID string) (bool, error) {
+	var count int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&count); err != nil {
+		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the contract's law additions", true, "retry once the workflow projection is readable", err)
+	}
+	return count != 0, nil
 }
 
 func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string) ([]string, int64, error) {

@@ -704,6 +704,72 @@ if not any("raw_name" in failure for failure in RAW_NAME_UNREADABLE_FAILURES):
         f"{RAW_NAME_UNREADABLE_FAILURES}"
     )
 
+# The SQL statement scan is literal-aware: '--' inside a value is not a
+# comment and cannot hide the column add that follows it.
+STRING_MARKER_SQL = (
+    "CREATE TABLE notes (body TEXT);\n"
+    "INSERT INTO notes VALUES('--');\n"
+    "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';"
+)
+expect_evaluate(
+    "a string containing -- hides no column add",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 136,\n\t\tName: \"m136\",\n"
+        f"\t\tSQL: `{STRING_MARKER_SQL}`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect(
+    "a semicolon inside a value cuts no statement",
+    "INSERT INTO notes VALUES(';');",
+    breaking=False,
+)
+
+# Quoted, bracketed, qualified, and commented table references are the
+# tables they name: the column-add rules see through the spelling.
+for label, ref in (
+    ("double-quoted", '"existing"'),
+    ("bracketed", "[existing]"),
+    ("qualified", "main.existing"),
+):
+    expect_evaluate(
+        f"a {label} table reference still requires the fold declaration",
+        check.migrations(
+            "var migrations = []migration{\n"
+            f"\t{{\n\t\tVersion: 137,\n\t\tName: \"m137\",\n"
+            f"\t\tSQL: `ALTER TABLE {ref} ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+            "}\n"
+        ),
+        failures=1,
+        breaking=[],
+    )
+expect_evaluate(
+    "a commented ADD COLUMN keyword still requires the fold declaration",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 138,\n\t\tName: \"m138\",\n"
+        "\t\tSQL: `ALTER TABLE existing ADD /* why */ COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_evaluate(
+    "a quoted table reference with an origin declaration draws no false refusal",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 139,\n\t\tName: \"m139\",\n"
+        '\t\tFoldMaintained: "origin",\n'
+        "\t\tSQL: `ALTER TABLE \"existing\" ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=0,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

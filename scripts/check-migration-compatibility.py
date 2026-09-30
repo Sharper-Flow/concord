@@ -51,29 +51,46 @@ FOLD_VOCABULARY = ("advance", "origin")
 # value can carry keeps it from colliding with a real residue.
 FOLD_VALUE_ELSEWHERE = "<value on a later line>"
 
+SQL_REF = r'(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|[A-Za-z_][\w$]*)'
+SQL_QUAL = rf"(?:{SQL_REF}(?:\.\s*{SQL_REF})*)"
 CREATE_TABLE = re.compile(
-    r"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
-    r"\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
+    rf"\s+({SQL_QUAL})",
     re.IGNORECASE,
 )
 DROP_TABLE = re.compile(
-    r"^DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE
+    rf"^DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+({SQL_QUAL})", re.IGNORECASE
 )
+
+
+def sql_name(text: str) -> str:
+    """Normalize one SQL table reference for comparison.
+
+    Quoting comes off and the schema qualifier drops, so "t", [t], `t`,
+    main.t, and t are one table. SQLite treats the quoted and unquoted
+    spellings of an ASCII name as the same identifier.
+    """
+    part = text.strip().split(".")[-1].strip()
+    if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "[", "`"):
+        part = part[1:-1]
+    return part.lower()
+# One SQL table reference: quoted, bracketed, backticked, or bare, alone or
+# schema-qualified. Comparisons normalize through sql_name.
 DROP_INDEX = re.compile(
-    r"^DROP\s+(?:INDEX|TRIGGER|VIEW)(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^DROP\s+(?:INDEX|TRIGGER|VIEW)(?:\s+IF\s+EXISTS)?\s+{SQL_QUAL}",
     re.IGNORECASE,
 )
 ALTER = re.compile(
-    r"^ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+([\s\S]*)$", re.IGNORECASE
+    rf"^ALTER\s+TABLE\s+({SQL_QUAL})\s+([\s\S]*)$", re.IGNORECASE
 )
 ADD_COLUMN = re.compile(r"^ADD\s+COLUMN\b", re.IGNORECASE)
 INDEX_ON = re.compile(
-    r"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+({SQL_QUAL})",
     re.IGNORECASE,
 )
 TRIGGER_ON = re.compile(
-    r"^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+(?:BEFORE|AFTER|INSTEAD)"
-    r"[\s\S]*?\bON\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+(?:BEFORE|AFTER|INSTEAD)"
+    rf"[\s\S]*?\bON\s+({SQL_QUAL})",
     re.IGNORECASE,
 )
 VIEW_OR_PRAGMA = re.compile(r"^(CREATE\s+VIEW|PRAGMA|ANALYZE|REINDEX)\b", re.IGNORECASE)
@@ -85,25 +102,73 @@ def statements(sql: str) -> list[str]:
 
     CREATE TRIGGER bodies contain semicolons, so a bare split would cut them
     apart. A statement therefore ends at a semicolon that is not inside a
-    BEGIN...END block.
+    BEGIN...END block. The scan is literal-aware: text inside a string or a
+    quoted identifier is never a comment marker or a boundary, so '--' in a
+    value cannot swallow the rest of a line and a semicolon in a value
+    cannot cut a statement, while comments come out wherever they sit
+    outside literals.
     """
-    sql = re.sub(r"--[^\n]*", "", sql)
     out: list[str] = []
     current: list[str] = []
+    word: list[str] = []
     depth = 0
-    for token in re.split(r"(\bBEGIN\b|\bEND\b|;)", sql, flags=re.IGNORECASE):
-        upper = token.upper().strip()
-        if upper == "BEGIN":
+    i, n = 0, len(sql)
+
+    def flush_word() -> None:
+        nonlocal depth, word
+        token = "".join(word).upper()
+        if token == "BEGIN":
             depth += 1
-        elif upper == "END":
+        elif token == "END":
             depth = max(0, depth - 1)
-        elif token == ";" and depth == 0:
+        current.extend(word)
+        word = []
+
+    while i < n:
+        ch = sql[i]
+        if ch.isalnum() or ch in "_$":
+            word.append(ch)
+            i += 1
+            continue
+        flush_word()
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'" and j + 1 < n and sql[j + 1] == "'":
+                    j += 2
+                    continue
+                if sql[j] == "'":
+                    break
+                j += 1
+            current.append(sql[i : min(j + 1, n)])
+            i = j + 1
+            continue
+        if ch in ('"', "`", "["):
+            close = "]" if ch == "[" else ch
+            j = sql.find(close, i + 1)
+            j = n - 1 if j < 0 else j
+            current.append(sql[i : j + 1])
+            i = j + 1
+            continue
+        if sql.startswith("--", i):
+            j = sql.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if sql.startswith("/*", i):
+            j = sql.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            current.append(" ")
+            continue
+        if ch == ";" and depth == 0:
             statement = "".join(current).strip()
             if statement:
                 out.append(statement)
             current = []
+            i += 1
             continue
-        current.append(token)
+        current.append(ch)
+        i += 1
+    flush_word()
     tail = "".join(current).strip()
     if tail:
         out.append(tail)
@@ -123,11 +188,11 @@ def classify(sql: str) -> list[str]:
             continue
         match = CREATE_TABLE.match(statement)
         if match:
-            born.add(match.group(1).lower())
+            born.add(sql_name(match.group(1)))
             continue
         match = DROP_TABLE.match(statement)
         if match:
-            if match.group(1).lower() not in born:
+            if sql_name(match.group(1)) not in born:
                 reasons.append(f"drops the pre-existing table {match.group(1)}")
             continue
         match = DROP_INDEX.match(statement)
@@ -136,7 +201,7 @@ def classify(sql: str) -> list[str]:
         match = ALTER.match(statement)
         if match:
             table, rest = match.group(1), match.group(2).strip()
-            if table.lower() in born:
+            if sql_name(table) in born:
                 continue
             if ADD_COLUMN.match(rest):
                 continue
@@ -341,7 +406,7 @@ def adds_preexisting_column(sql: str) -> bool:
     for statement in statements(sql):
         match = CREATE_TABLE.match(statement)
         if match:
-            born.add(match.group(1).lower())
+            born.add(sql_name(match.group(1)))
             continue
         match = ALTER.match(statement)
         if match and match.group(1).lower() not in born:

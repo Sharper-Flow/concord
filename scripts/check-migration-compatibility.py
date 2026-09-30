@@ -72,17 +72,28 @@ def sql_parts(ref: str) -> list[str]:
     """Split a table reference on dots, keeping quoted parts atomic.
 
     "a.b.c" is one name, not a schema and a table: the dot inside the
-    quotes belongs to the identifier.
+    quotes belongs to the identifier. Every quoting form SQL_REF accepts
+    is atomic here, and a doubled quote inside a quoted part is one
+    character, not a boundary.
     """
     parts: list[str] = []
     current: list[str] = []
     i, n = 0, len(ref)
     while i < n:
         ch = ref[i]
-        if ch in ('"', "`", "["):
+        if ch in ('"', "'", "`", "["):
             close = "]" if ch == "[" else ch
-            j = ref.find(close, i + 1)
-            j = n if j < 0 else j + 1
+            j = i + 1
+            while j < n:
+                k = ref.find(close, j)
+                if k < 0:
+                    j = n
+                    break
+                if close != "]" and k + 1 < n and ref[k + 1] == close:
+                    j = k + 2
+                    continue
+                j = k + 1
+                break
             current.append(ref[i:j])
             i = j
         elif ch == ".":
@@ -101,12 +112,13 @@ def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
 
     An explicit qualifier names its schema; an unqualified reference in a
     CREATE carries temp when the statement says TEMP or TEMPORARY and main
-    otherwise. Quoting comes off the name, so "t", [t], `t`, and t are one
-    table, while main.t and temp.t stay distinct identities.
+    otherwise. Quoting comes off the name with its escapes resolved, so
+    "t", 't', [t], `t`, and t are one table, while main.t and temp.t stay
+    distinct identities.
     """
     def unquote(part: str) -> str:
-        if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "`"):
-            return part[1:-1]
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "'", "`"):
+            return part[1:-1].replace(part[0] * 2, part[0])
         if len(part) >= 2 and part[0] == "[" and part[-1] == "]":
             return part[1:-1]
         return part
@@ -139,8 +151,8 @@ def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None
 def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
     """Return whether a table reference resolves to a born table."""
     return resolve_born(ref, born) is not None
-# One SQL table reference: quoted, bracketed, backticked, or bare, alone or
-# schema-qualified. Comparisons normalize through sql_name.
+# One SQL table reference: quoted, bracketed, backticked, string-literal, or
+# bare, alone or schema-qualified. Comparisons normalize through sql_table_key.
 DROP_INDEX = re.compile(
     rf"^DROP\s+(?:INDEX|TRIGGER|VIEW)(?:\s+IF\s+EXISTS)?\s+{SQL_QUAL}",
     re.IGNORECASE,

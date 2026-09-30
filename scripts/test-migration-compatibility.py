@@ -1014,6 +1014,34 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "an escaped-quote name is one identity under its own form",
+        'CREATE TABLE "a""b" (a TEXT);'
+        'ALTER TABLE "a""b" ADD COLUMN c TEXT DEFAULT \'\';',
+        0,
+        [],
+    ),
+    (
+        "dots inside single-quoted names keep identities apart",
+        "CREATE TABLE 'a.b.c' (a TEXT);"
+        "ALTER TABLE 'a.x.c' ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a single-quoted name is the same identity as its quoted form",
+        "CREATE TABLE 'a.b.c' (a TEXT);"
+        'ALTER TABLE "a.b.c" ADD COLUMN c TEXT DEFAULT \'\';',
+        0,
+        [],
+    ),
+    (
+        "a string-literal table name is the same identity as its bare form",
+        "CREATE TABLE 'existing' (a TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        0,
+        [],
+    ),
+    (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
@@ -1063,6 +1091,16 @@ expect(
 
 # Removing or constraining something an older binary already names.
 expect("dropped table", "DROP TABLE existing;", breaking=True)
+expect(
+    "dropped table with a distinct single-quoted name",
+    "CREATE TABLE 'a.b.c' (a TEXT);DROP TABLE 'a.x.c';",
+    breaking=True,
+)
+expect(
+    "dropped own single-quoted born table",
+    "CREATE TABLE 'a.b.c' (a TEXT);DROP TABLE 'a.b.c';",
+    breaking=False,
+)
 expect("dropped column", "ALTER TABLE existing DROP COLUMN c;", breaking=True)
 expect("renamed table", "ALTER TABLE existing RENAME TO other;", breaking=True)
 expect(

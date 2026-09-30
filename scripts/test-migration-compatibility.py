@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -1098,6 +1099,20 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "a carriage return inside a raw literal hides no column add",
+        "CREATE TABLE a\rb (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a carriage-return name drop classifies as destructive",
+        "CREATE TABLE a\rb (a TEXT);"
+        "DROP TABLE a;",
+        1,
+        [150],
+    ),
+    (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
@@ -1115,6 +1130,35 @@ for label, sql, failures, breaking in (
         failures=failures,
         breaking=breaking,
     )
+
+# The source reader preserves the file's own characters. A universal-newline
+# read would erase a raw literal's carriage return before classification and
+# pass a name Go never executes, so the read and the value derivation carry
+# the language rule between them.
+with tempfile.NamedTemporaryFile(
+    "w", encoding="utf-8", newline="", delete=False
+) as handle:
+    handle.write(
+        fold_source(
+            entry(
+                110,
+                "CREATE TABLE a\rb (a TEXT);"
+                "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+            )
+        )
+    )
+    cr_path = Path(handle.name)
+try:
+    with open(cr_path, encoding="utf-8", newline="") as handle:
+        cr_source = handle.read()
+    expect_evaluate(
+        "a carriage-return source keeps its characters through the read",
+        check.migrations(cr_source),
+        failures=1,
+        breaking=[],
+    )
+finally:
+    cr_path.unlink()
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

@@ -632,11 +632,13 @@ def sql_literal(entry: str) -> str:
     The value comes from the token-recognized SQL field, so a commented or
     nested lookalike cannot supply it; a field whose value is anything but
     one raw string literal also reads as empty and sql_field_sound refuses
-    the entry separately.
+    the entry separately. The content is the Go raw-string value: the
+    language discards carriage returns inside raw string literals, so the
+    checker discards them too and classifies the SQL that actually runs.
     """
     run = field_run(entry, "SQL")
     if run and len(run) == 1 and run[0].kind == "raw":
-        return run[0].text[1:-1]
+        return run[0].text[1:-1].replace("\r", "")
     return ""
 
 
@@ -789,7 +791,11 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
 
 
 def main() -> int:
-    source = SCHEMA.read_text()
+    # newline="" keeps the file's own characters: Go raw-string semantics
+    # discard carriage returns at value derivation (see sql_literal), and
+    # universal-newline translation would erase the evidence first.
+    with open(SCHEMA, encoding="utf-8", newline="") as handle:
+        source = handle.read()
     entries = migrations(source)
     if not entries:
         print("check-migration-compatibility: no migrations found", file=sys.stderr)

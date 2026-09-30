@@ -557,6 +557,46 @@ expect_evaluate(
     breaking=[],
 )
 
+# The entry splitter walks tokens, so field order inside an entry does not
+# affect recognition and a commented entry-shaped block supplies nothing.
+NAME_FIRST_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tName: \"m131\",\n\t\tVersion: 131,\n"
+    "\t\tSQL: `DROP TABLE existing;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "an entry whose Version does not lead still evaluates",
+    check.migrations(NAME_FIRST_SOURCE),
+    failures=1,
+    breaking=[131],
+)
+COMMENTED_ENTRY_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 132,\n\t\tName: \"m132\",\n"
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "\t/* {\n\t\tVersion: 999,\n\t\tName: \"fake\",\n\t\tSQL: `SELECT 1;`,\n\t},\n\t*/\n"
+    "}\n"
+)
+expect_evaluate(
+    "an entry-shaped comment supplies nothing",
+    check.migrations(COMMENTED_ENTRY_SOURCE),
+    failures=0,
+    breaking=[],
+)
+NO_VERSION_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tName: \"m133\",\n"
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "an entry without a readable Version is refused by name",
+    check.migrations(NO_VERSION_SOURCE),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

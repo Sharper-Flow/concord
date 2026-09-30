@@ -4386,8 +4386,9 @@ DROP TABLE workflow_staleness_warnings;
 		// constitutional law even though the Git content did not move. The
 		// watermark digest names Git content, not projection semantics, so
 		// without this invalidation a pre-fix index reads fresh forever.
-		Version: 80,
-		Name:    "constitution_law_subjects",
+		Version:  80,
+		Name:     "constitution_law_subjects",
+		Breaking: true,
 		SQL: `
 PRAGMA defer_foreign_keys = ON;
 
@@ -4693,8 +4694,9 @@ WHERE state = 'active'
 		// surfaced as a projection conflict. The check now relaxes for
 		// depends_on alone. Every existing row carries an approval
 		// reference and survives the rebuilt check unchanged.
-		Version: 91,
-		Name:    "overlap_depends_on_resolution_carries_own_authority",
+		Version:  91,
+		Name:     "overlap_depends_on_resolution_carries_own_authority",
+		Breaking: true,
 		SQL: `
 PRAGMA defer_foreign_keys = ON;
 
@@ -4811,7 +4813,7 @@ CREATE TRIGGER workflow_backlog_alignment_guard_delete BEFORE DELETE ON workflow
 		// refusal a database carries into this migration stays in force.
 		Version:  95,
 		Name:     "verify_lease_aborted_outcome_and_owner_process",
-		Breaking: false,
+		Breaking: true,
 		SQL: `
 CREATE TABLE worktree_verify_leases_v95 (
     lease_id      TEXT PRIMARY KEY,
@@ -4853,8 +4855,9 @@ CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(pa
 		// No authority path reads it: admission stays a strictly-lowest
 		// ranked match class, and a zero-hit search stays non-proof of
 		// absence. Creating a table leaves an older binary unaffected.
-		Version: 96,
-		Name:    "law_bodies",
+		Version:  96,
+		Name:     "law_bodies",
+		Breaking: true,
 		SQL: `
 CREATE TABLE law_bodies (
     home_project_id    TEXT NOT NULL,
@@ -5025,7 +5028,7 @@ UPDATE worktree_claims SET incarnation = (
 		// rows once the queue carries its final name again.
 		Version:  101,
 		Name:     "linear_issue_audit_comment",
-		Breaking: false,
+		Breaking: true,
 		SQL: `
 CREATE TEMP TABLE linear_outbox_dispositions_v101 AS
     SELECT operation_id, work_id, disposition, reason, created_at FROM linear_outbox_dispositions;
@@ -5081,8 +5084,9 @@ CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_o
 		// already accepted kind survive. The disposition table holds a
 		// foreign key into the queue, so it is rebuilt with the same rows
 		// once the queue carries its final name again.
-		Version: 102,
-		Name:    "linear_project_links",
+		Version:  102,
+		Name:     "linear_project_links",
+		Breaking: true,
 		SQL: `
 CREATE TABLE linear_project_links (
     work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
@@ -5176,8 +5180,9 @@ DELETE FROM fold_guard WHERE active = 1;
 		// landing elsewhere on the same work item, or operator-approved
 		// removal. The fold and triggers below pin row identity, the
 		// pending releases path, and the migration of existing values.
-		Version: 104,
-		Name:    "worktree_occupancy_table",
+		Version:  104,
+		Name:     "worktree_occupancy_table",
+		Breaking: true,
 		SQL: `
 CREATE TABLE worktree_occupancy (
     worktree_id           TEXT    NOT NULL,

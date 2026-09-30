@@ -45,11 +45,6 @@ SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema
 # repair, migration 109, is the first version the rules could have bound.
 RULE_FLOOR = 108
 
-# A migration entry: its version, then everything up to the next entry.
-# gofmt aligns the values in a struct literal, so the run of spaces after a
-# field name depends on the longest field name present in that literal. Every
-# field pattern here tolerates that alignment rather than pinning one width.
-ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
 FOLD_VOCABULARY = ("advance", "origin")
 # What fold_maintained returns for a field whose value is not on the field's
 # own line: present, unreadable, and outside every vocabulary. Text no Go
@@ -168,8 +163,9 @@ def classify(sql: str) -> list[str]:
 
 
 class Tok(NamedTuple):
-    kind: str  # ident, string, raw, number, punct, newline
+    kind: str  # ident, string, raw, rune, number, punct, newline
     text: str
+    at: int  # offset of the token's first byte in the scanned source
 
 
 GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -190,7 +186,7 @@ def go_tokens(region: str) -> list[Tok]:
     while i < n:
         ch = region[i]
         if ch == "\n":
-            out.append(Tok("newline", "\n"))
+            out.append(Tok("newline", "\n", i))
             i += 1
         elif ch in " \t\r":
             i += 1
@@ -205,27 +201,31 @@ def go_tokens(region: str) -> list[Tok]:
             while j < n and region[j] != '"':
                 j += 2 if region[j] == "\\" else 1
             j = min(j, n - 1)
-            out.append(Tok("string", region[i : j + 1]))
+            out.append(Tok("string", region[i : j + 1], i))
             i = j + 1
         elif ch == "`":
             end = region.find("`", i + 1)
             end = n - 1 if end < 0 else end
-            out.append(Tok("raw", region[i : end + 1]))
+            out.append(Tok("raw", region[i : end + 1], i))
             i = end + 1
         elif ch == "'":
             j = i + 1
             while j < n and region[j] != "'":
                 j += 2 if region[j] == "\\" else 1
             j = min(j, n - 1)
-            out.append(Tok("rune", region[i : j + 1]))
+            out.append(Tok("rune", region[i : j + 1], i))
             i = j + 1
         else:
-            match = GO_IDENT.match(region, i) or GO_NUMBER.match(region, i)
+            match = GO_IDENT.match(region, i)
+            kind = "ident"
+            if not match:
+                match = GO_NUMBER.match(region, i)
+                kind = "number"
             if match:
-                out.append(Tok("ident", match.group(0)))
+                out.append(Tok(kind, match.group(0), i))
                 i = match.end()
             else:
-                out.append(Tok("punct", ch))
+                out.append(Tok("punct", ch, i))
                 i += 1
     return out
 
@@ -352,18 +352,42 @@ def sql_field_sound(entry: str) -> bool:
 def migrations(source: str) -> list[tuple[int, str, str]]:
     """Return each migration's version, its entry text, and its SQL.
 
-    The SQL is the token-recognized SQL field's raw string content: the Go
-    field lines around it are not statements, and feeding them to the
-    classifier would report every migration as unclassifiable. Declaration
+    Entries are brace groups of the migrations literal, found by walking
+    tokens: a comment or a literal cannot open or close a group, and field
+    order inside an entry does not affect recognition. The SQL is the
+    token-recognized SQL field's raw string content, and declaration
     searches tokenize the same entry, where a raw literal is one token, so
     SQL content can never read as a Go field in either direction.
+
+    An entry whose Version field is missing or unreadable parses with
+    version -1; evaluate refuses it by name.
     """
     start = source.index("var migrations = []migration{")
-    parts = ENTRY.split(source[start:])
+    tokens = go_tokens(source[start:])
+    opener = next(
+        i for i, t in enumerate(tokens) if t.kind == "punct" and t.text == "{"
+    )
     out: list[tuple[int, str, str]] = []
-    for i in range(1, len(parts), 2):
-        version, entry = int(parts[i]), parts[i + 1]
-        out.append((version, entry, sql_literal(entry)))
+    depth = 1
+    entry_start: int | None = None
+    for tok in tokens[opener + 1 :]:
+        if tok.kind == "punct" and tok.text == "{":
+            if depth == 1:
+                entry_start = tok.at + 1
+            depth += 1
+            continue
+        if tok.kind == "punct" and tok.text == "}":
+            depth -= 1
+            if depth == 1 and entry_start is not None:
+                entry = source[start + entry_start : start + tok.at]
+                version_run = field_run(entry, "Version")
+                version = -1
+                if version_run and len(version_run) == 1 and version_run[0].kind == "number":
+                    version = int(version_run[0].text)
+                out.append((version, entry, sql_literal(entry)))
+                entry_start = None
+            if depth == 0:
+                break
     return out
 
 
@@ -378,6 +402,16 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     failures: list[str] = []
     breaking_versions: list[int] = []
     for version, entry, sql in entries:
+        if version < 0:
+            name_run = field_run(entry, "Name")
+            label = "<unnamed>"
+            if name_run and len(name_run) == 1 and name_run[0].kind == "string":
+                label = name_run[0].text[1:-1]
+            failures.append(
+                f"migration entry {label} carries no readable Version field; "
+                "the checker refuses to evaluate it"
+            )
+            continue
         declared = declares_breaking(entry)
         fold = fold_maintained(entry)
         if not sql_field_sound(entry):
@@ -432,7 +466,8 @@ def main() -> int:
         print("check-migration-compatibility: no migrations found", file=sys.stderr)
         return 1
 
-    failures, breaking_versions = evaluate(entries)
+    eval_failures, breaking_versions = evaluate(entries)
+    failures = list(eval_failures)
     for failure in failures:
         print(f"check-migration-compatibility: {failure}", file=sys.stderr)
     if failures:
@@ -444,7 +479,6 @@ def main() -> int:
         f"{len(breaking_versions)} breaking, compatibility floor {floor}"
     )
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

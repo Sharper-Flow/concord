@@ -258,7 +258,7 @@ def statements(sql: str) -> list[str]:
     def end_closes() -> bool:
         j = i
         while j < n:
-            if sql[j] in " \t\r\n":
+            if sql[j] in SQL_TRIM:
                 j += 1
                 continue
             if sql.startswith("--", j):

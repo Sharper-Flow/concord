@@ -1195,6 +1195,45 @@ try:
 finally:
     cr_path.unlink()
 
+# Every SQLite whitespace character after a trigger END closes the body.
+# The body's tail scan uses the shared whitespace definition, so a formfeed
+# cannot hold the body open and swallow the statements that follow it.
+for label, gap in [
+    ("space", " "),
+    ("tab", "\t"),
+    ("newline", "\n"),
+    ("formfeed", "\f"),
+    ("carriage return", "\r"),
+]:
+    expect_evaluate(
+        f"a {label} after a trigger END closes the body",
+        check.migrations(
+            "var migrations = []migration{\n"
+            "\t{\n\t\tVersion: 150,\n\t\tName: \"m150\",\n"
+            f"\t\tSQL: `CREATE TABLE notes (a TEXT);"
+            f"CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "
+            f"SELECT 1; END{gap};"
+            f"ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+            "}\n"
+        ),
+        failures=1,
+        breaking=[],
+    )
+    expect_evaluate(
+        f"a {label} after a trigger END hides no destructive statement",
+        check.migrations(
+            "var migrations = []migration{\n"
+            "\t{\n\t\tVersion: 150,\n\t\tName: \"m150\",\n"
+            f"\t\tSQL: `CREATE TABLE notes (a TEXT);"
+            f"CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "
+            f"SELECT 1; END{gap};"
+            f"DROP TABLE existing;`,\n\t}},\n"
+            "}\n"
+        ),
+        failures=1,
+        breaking=[150],
+    )
+
 # A new table is invisible to an older binary, however constrained it is.
 expect(
     "new table with constraints",

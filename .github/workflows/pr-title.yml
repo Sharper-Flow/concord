@@ -5,6 +5,12 @@ name: PR title
 # computes the next version from those subjects. A title outside the
 # Conventional Commit grammar releases nothing and says nothing, without
 # failing. This check makes that consequence visible before the merge.
+#
+# The merge_group trigger runs the same guard when the pull request enters the
+# merge queue. The queue builds the squashed commit before the merge, and that
+# commit's subject is the exact subject that lands on main, whatever a later
+# rename does to the pull-request title. The queue head is validated with the
+# same grammar and byte budget, minus the reference GitHub appended.
 
 on:
   pull_request:
@@ -13,6 +19,9 @@ on:
       - edited
       - reopened
       - synchronize
+  merge_group:
+    types:
+      - checks_requested
 
 permissions:
   contents: read
@@ -27,6 +36,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate pull-request title as a release subject
+        if: github.event_name == 'pull_request'
         env:
           COMMIT_TITLE: ${{ github.event.pull_request.title }}
         run: python3 scripts/check-commit-title.py
+      - name: Validate the merge-queue head subject as a release subject
+        if: github.event_name == 'merge_group'
+        run: python3 scripts/check-commit-title.py --landed-subject "$(git log -1 --format=%s)"

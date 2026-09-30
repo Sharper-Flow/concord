@@ -9,7 +9,7 @@ import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./di
 import { claimHostLease, configureHostLease, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE } from "./move-session"
+import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
@@ -314,7 +314,13 @@ test("project resolution and envelopes use the live session directory", async ()
 })
 
 test("an unreadable session directory refuses before core transport", async () => {
-  hostControlPlane().bind(undefined)
+  // The lane guard passes: the host answers the ancestry read for an
+  // unparented session, but the record carries no directory, so the context
+  // resolution fails after the guard and before any core transport.
+  hostControlPlane().bind({
+    get: async () => ({ data: { id: "session-1", metadata: {} }, response: new Response(null, { status: 200 }) }),
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
   let calls = 0
   adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("core transport must not run") } } })
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
@@ -767,23 +773,69 @@ test("an unresolvable session scope refuses a concord call closed", async () => 
   const result: any = await rawHostResult(adapter.knowledge.execute(hostCall("search", {}), contextFor()))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("unauthorized")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("CD-0017 D4")
   expect(result.error.message).toContain("cannot resolve this session's managed Task scope")
   expect(runner.calls()).toEqual([])
 })
 
-// A control plane that cannot answer is not a lane boundary: the guard lets
-// the call fail exactly as it did before the guard existed, so a degraded
-// host changes no coordinator route. The pre-existing unbound-host refusal is
-// the session-directory transport failure, and the core still never runs.
-test("a control plane that cannot answer adds no refusal to a coordinator call", async () => {
+// Fail-closed lane boundary (CD-0017 D4): only a host answer that positively
+// resolves the caller as an unparented coordinator session passes. An unbound
+// control plane, an ancestor HTTP 500, and an ancestor transport failure each
+// leave the caller unproven, so every one refuses unauthorized with
+// effect_state none and the core never runs.
+test("an unbound control plane refuses a concord call closed", async () => {
   hostControlPlane().bind(undefined)
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor()))
   assertAdapterEnvelope(result)
-  expect(result.error.kind).toBe("transport_failure")
-  expect(result.error.adapter_reason).toBe("session_directory_unreadable")
+  expect(result.error.kind).toBe("unauthorized")
+  expect(result.error.adapter_reason).toBe("lane_tool_refusal")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("CD-0017 D4")
+  expect(result.error.message).toContain("the host control plane is unbound")
   expect(runner.calls()).toEqual([])
+})
+
+const bindAncestorFailureRoute = (ancestorFailure: () => Promise<RouteResult>) => {
+  hostControlPlane().bind({
+    get: async ({ path }: any): Promise<RouteResult> => {
+      const id = (path as { id?: string })?.id ?? "session-1"
+      if (id === "session-1") {
+        return { data: { id, directory: "/worktree", parentID: "session-0" }, response: new Response(null, { status: 200 }) }
+      }
+      return await ancestorFailure()
+    },
+    post: async () => ({ response: new Response(null, { status: 204 }) }),
+  })
+}
+
+const expectLaneRefusal = async (tool: { execute: (args: any, context: any) => Promise<string | { output: string }> }, runner: { calls: () => unknown[] }) => {
+  const result: any = await rawHostResult(tool.execute(hostCall("resolve", { product_id: "product-1" }), contextFor()))
+  assertAdapterEnvelope(result)
+  expect(result.error.kind).toBe("unauthorized")
+  expect(result.error.adapter_reason).toBe("lane_tool_refusal")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.message).toContain("CD-0017 D4")
+  expect(result.error.message).toContain("cannot resolve this session's managed Task scope")
+  expect(runner.calls()).toEqual([])
+}
+
+test("an ancestor HTTP 500 refuses a concord call closed with no core call", async () => {
+  bindAncestorFailureRoute(async () => ({ data: "upstream exploded", response: new Response(null, { status: 500 }) }))
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  await expectLaneRefusal(adapter.product_view, runner)
+})
+
+test("an ancestor transport failure refuses a concord call closed with no core call", async () => {
+  bindAncestorFailureRoute(() => {
+    throw new Error("connection reset by peer")
+  })
+  const runner = recordingRunner()
+  adapter.configureConcordAdapter({ runner })
+  await expectLaneRefusal(adapter.product_view, runner)
 })
 
 test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", async () => {
@@ -2259,7 +2311,9 @@ test("a failed project location lookup refuses before the opener runs", async ()
 })
 
 test("work start resume rejects mixed and malformed argument shapes", async () => {
-  bindRetargetRoute({ unbound: true })
+  // The passing route lets the lane guard admit the coordinator, so the
+  // assertions pin the argument-shape refusals, not the lane boundary.
+  bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
   for (const args of [
@@ -2282,7 +2336,9 @@ test("work start resume rejects mixed and malformed argument shapes", async () =
 
 // Missing capture fields must name the caller's correction without host effects.
 test("work start names the missing capture fields and admits a corrected request", async () => {
-  bindRetargetRoute({ unbound: true })
+  // The passing route lets the lane guard admit the coordinator, so the
+  // assertions pin the missing-field refusal, not the lane boundary.
+  bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: { async run(argv: string[]) { calls.push({ argv, input: "", options: undefined }); throw new Error("argument refusal must precede every effect") } } })
   const incomplete = { title: "Correct confirmed usage-reporting defects", kind: "bug", task: "Validate the reported defects and shape a bounded repair contract." }
@@ -2453,28 +2509,26 @@ test("work start accepts minimal capture and exact declared bounds in a resolved
 })
 
 test("work start refuses before any effect when the host handed the plugin no client", async () => {
+  // Fail-closed lane boundary: with no control-plane client the caller cannot
+  // be proven a coordinator session, so the lane guard refuses before work
+  // start's own probe layer runs. Nothing is captured and nothing moves.
   bindRetargetRoute({ unbound: true })
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(result.outcome).not.toBe("ok")
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("unauthorized")
   expect(result.error.effect_state).toBe("none")
-  expect(result.error.message).toContain("this host handed the plugin no client")
-  expect(result.error.message).toContain("host version")
-  // The remedy travels with the refusal, because the condition is one the
-  // operator repairs by starting the session differently. It must not name a
-  // separate server: CD-0098 D2 takes the transport from the client the plugin
-  // factory hands the adapter, so `opencode serve` repairs nothing here.
-  expect(result.error.message).toContain("restart this session on an OpenCode build")
-  expect(result.error.message).not.toContain("opencode serve")
-  expect(result.error.message).not.toContain("opencode attach")
-  // Nothing was captured, so there is nothing to roll back and nothing to
-  // resume: the probe ran before work-bootstrap.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
+  expect(result.error.message).toContain("CD-0017 D4")
+  expect(result.error.message).toContain("the host control plane is unbound")
+  expect(calls).toEqual([])
   expect(result.work_id).toBeUndefined()
 })
 
 test("work start refuses before any effect when the host control plane cannot be reached", async () => {
+  // Fail-closed lane boundary: an ancestry read that cannot reach the host
+  // leaves the caller unproven, so the lane guard refuses and the unreachability
+  // travels in the refusal detail. Nothing is captured and nothing moves.
   const unreachable = async () => {
     throw new Error("Unable to connect. Is the computer able to access the url?")
   }
@@ -2482,12 +2536,13 @@ test("work start refuses before any effect when the host control plane cannot be
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
   const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
-  expect(result.outcome).not.toBe("ok")
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("unauthorized")
   expect(result.error.effect_state).toBe("none")
-  expect(result.error.message).toContain("the host control plane is unreachable")
-  expect(result.error.message).toContain("restart this session on an OpenCode build")
-  expect(result.error.message).not.toContain("opencode serve")
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve"])
+  expect(result.error.message).toContain("CD-0017 D4")
+  expect(result.error.message).toContain("cannot resolve this session's managed Task scope")
+  expect(result.error.message).toContain("Unable to connect")
+  expect(calls).toEqual([])
 })
 
 test("work start refuses a move the host rejects", async () => {

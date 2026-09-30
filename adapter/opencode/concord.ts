@@ -8,7 +8,7 @@ import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { abandonWorkerAttempt } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal } from "./dispatch-window"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
-import { hostControlPlane, MoveSessionUnavailable, SessionScopeUnavailable } from "./move-session"
+import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
@@ -812,25 +812,34 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
 // managed parent and holds no Concord tool access — the dispatch packet is
 // its complete Concord context. The guard consults the host parent boundary,
 // which does not trust the selected agent or its prompt, and refuses before
-// the core is invoked, so a lane call records nothing. A session the host
-// answers as unparented is a coordinator session and passes unchanged. A
-// scope the host reports as unresolvable refuses closed. A control plane
-// that cannot answer at all never becomes a new refusal: the call proceeds
-// and fails exactly as it did before the guard, so no coordinator route
-// changes on a degraded host.
+// the core is invoked, so a lane call records nothing. The guard is
+// fail-closed: only a host answer that positively resolves the caller as an
+// unparented coordinator session passes. A session with a managed parent, a
+// session whose scope the host cannot resolve, and a control plane that
+// cannot answer at all all refuse unauthorized with effect_state none — each
+// leaves the caller unproven, and an unproven caller may be a lane. No
+// coordinator route changes: a coordinator session resolves unparented and
+// passes unchanged. A caller-cancelled signal is not a scope answer: the
+// boundary stands down for it, so the transport keeps the typed cancelled
+// envelope and the reconciliation retry paths stay reachable.
+const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0196): the dispatch packet is the lane's complete Concord context"
 async function laneConcordRefusalReason(context: ToolContext): Promise<string | null> {
-  // No bound control plane means no scope to resolve, so the guard stands
-  // down and the call fails exactly as it did before the guard existed.
-  if (!hostControlPlane().available()) return null
+  if (context.abort.aborted) return null
+  // Without a bound control plane the parent boundary cannot answer, so the
+  // caller cannot be proven a coordinator session and the call refuses.
+  if (!hostControlPlane().available()) {
+    return `${laneToolBoundary}; the host control plane is unbound, so the caller cannot be proven a coordinator session`
+  }
   let managedParent: boolean
   try {
     managedParent = await hostControlPlane().hasManagedParent(context.sessionID, context.abort)
   } catch (error) {
-    if (!(error instanceof SessionScopeUnavailable)) return null
-    return `Concord cannot resolve this session's managed Task scope (${error.message}), so it cannot prove the caller is a coordinator session`
+    if (context.abort.aborted) return null
+    const detail = error instanceof Error ? error.message : String(error)
+    return `${laneToolBoundary}; Concord cannot resolve this session's managed Task scope, so it cannot prove the caller is a coordinator session (${detail})`
   }
   if (!managedParent) return null
-  return "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0196): the dispatch packet is the lane's complete Concord context"
+  return `${laneToolBoundary}; the caller session runs under a managed parent`
 }
 
 function laneConcordRefusalEnvelope(toolName: string, operation: string, context: ToolContext, reason: string): ToolResult {

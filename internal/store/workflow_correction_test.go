@@ -248,7 +248,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if !correctionIntent {
 		t.Fatalf("work pin has no rejected-result correction intent: %#v", pin.NextValidIntents)
 	}
-	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, workID); err != nil {
+	if binding, err := WorkflowFailedWorkerRetryBinding(ctx, s, nil, workID); err != nil {
 		t.Fatalf("read retry binding after rejected result: %v", err)
 	} else if binding != nil {
 		t.Fatalf("rejected completed result has retry approval binding %#v", binding)
@@ -567,7 +567,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != count || pin.Correction.Escalated != (count > workflowCorrectionAttemptLimit) {
 			t.Fatalf("verification correction after cycle %d = %#v, want count %d escalated=%v", count, pin.Correction, count, count > workflowCorrectionAttemptLimit)
 		}
-		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+		binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
 		if bindingErr != nil {
 			t.Fatal(bindingErr)
 		}
@@ -579,7 +579,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		recordCorrectionCycle(count)
 	}
 	recordCorrectionCycle(4)
-	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
 	if bindingErr != nil {
 		t.Fatal(bindingErr)
 	}
@@ -592,7 +592,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
 		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
 	}
-	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, workID)
+	after, afterErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
 	if afterErr != nil {
 		t.Fatal(afterErr)
 	}
@@ -627,7 +627,7 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 		t.Fatalf("interrupted dispatch intent: %v", err)
 	}
 
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
 	if err != nil {
 		t.Fatalf("read retry binding after the interrupted dispatch: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 	}
 
 	issue1013RecordWorkerDispatch(t, s, workID, interrupted)
-	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
 	if err != nil {
 		t.Fatalf("read retry binding after the materialized dispatch: %v", err)
 	}

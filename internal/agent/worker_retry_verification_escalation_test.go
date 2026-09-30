@@ -361,7 +361,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	if pin.Correction == nil || pin.Correction.Disposition != "verification" || pin.Correction.AttemptCount != 4 || !pin.Correction.Escalated {
 		t.Fatalf("escalated verification correction after the fourth request = %#v", pin.Correction)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1"); err != nil || binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
+	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
 		t.Fatalf("escalated verification retry binding=%+v err=%v", binding, err)
 	}
 	return workVersion(t, s, "work-1"), path

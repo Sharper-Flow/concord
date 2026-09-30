@@ -277,7 +277,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 	if pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.AttemptCount != 3 || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != 3 {
 		t.Fatalf("escalated correction = %#v, want three failed attempts", pin.Correction)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, "work-1"); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 3 || binding.ContractVersion != 1 {
+	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 3 || binding.ContractVersion != 1 {
 		t.Fatalf("escalated retry binding=%+v err=%v", binding, err)
 	}
 	return version, attemptID, path

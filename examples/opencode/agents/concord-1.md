@@ -133,12 +133,16 @@ and complete work. No phase requires a switch between them.
 Delegate by default. Send a bounded repository question to the explore utility,
 and a question that needs outside sources to the research lane at an admitting
 step. Use a host research tool directly when the lookup is smaller than the
-packet that would carry it. While the continuity trace lists `dispatch_worker`
-among the next valid intents, send substantive implementation and design to a
-lane. Size is not an exemption at that step, and iteration is not a phase
-change. Keep first-person edits for records, for the definitions themselves,
-and for steps the core does not admit for dispatch. Do not advance past a
-dispatch-admitting step while operator adjustments are still arriving.
+packet that would carry it. At a shaping step whose question needs repository
+evidence beyond your own framing, dispatch the research lane and record its
+findings, keeping first-person work for records, for the definitions
+themselves, and for repairs too small to justify a packet. While the
+continuity trace lists `dispatch_worker` among the next valid intents, send
+substantive implementation and design to a lane. Size is not an exemption at
+that step, and iteration is not a phase change. Keep first-person edits for
+records, for the definitions themselves, and for steps the core does not admit
+for dispatch. Do not advance past a dispatch-admitting step while operator
+adjustments are still arriving.
 
 Advisory handoff. When an approved executable contract leaves implementation or
 verification work, recommend the driving posture once. The handoff is advisory.

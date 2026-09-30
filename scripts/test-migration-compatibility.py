@@ -770,6 +770,75 @@ expect_evaluate(
     breaking=[],
 )
 
+# A column named begin is not a trigger-body opener: the statement after it
+# still splits and still requires its own declaration.
+expect_evaluate(
+    "a begin column name hides no later column add",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 140,\n\t\tName: \"m140\",\n"
+        "\t\tSQL: `CREATE TABLE notes (begin TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+
+# Schema identity survives: a temp table born here never shadows the main
+# table a qualified statement destroys.
+expect_evaluate(
+    "a temp-born table does not authorize dropping the main one",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 141,\n\t\tName: \"m141\",\n"
+        "\t\tSQL: `CREATE TEMP TABLE existing (a TEXT);"
+        "DROP TABLE main.existing;`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[141],
+)
+
+# A table born under quoting or qualification is the table a later bare
+# statement names: no false declaration refusal on the same identity.
+expect_evaluate(
+    "a quoted born table needs no fold declaration for its own column",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 142,\n\t\tName: \"m142\",\n"
+        "\t\tSQL: `CREATE TABLE \"notes\" (a TEXT);"
+        "ALTER TABLE notes ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a qualified reference to a born table needs no fold declaration",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 143,\n\t\tName: \"m143\",\n"
+        "\t\tSQL: `CREATE TABLE notes (a TEXT);"
+        "ALTER TABLE main.notes ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a bracketed born table is the same identity bare",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 144,\n\t\tName: \"m144\",\n"
+        "\t\tSQL: `CREATE TABLE [notes] (a TEXT);"
+        "DROP TABLE notes;`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=0,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

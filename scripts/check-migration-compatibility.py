@@ -63,17 +63,38 @@ DROP_TABLE = re.compile(
 )
 
 
-def sql_name(text: str) -> str:
-    """Normalize one SQL table reference for comparison.
+def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
+    """Return the (schema, table) identity of one SQL table reference.
 
-    Quoting comes off and the schema qualifier drops, so "t", [t], `t`,
-    main.t, and t are one table. SQLite treats the quoted and unquoted
-    spellings of an ASCII name as the same identifier.
+    An explicit qualifier names its schema; an unqualified reference in a
+    CREATE carries temp when the statement says TEMP or TEMPORARY and main
+    otherwise. Quoting comes off the name, so "t", [t], `t`, and t are one
+    table, while main.t and temp.t stay distinct identities.
     """
-    part = text.strip().split(".")[-1].strip()
-    if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "[", "`"):
-        part = part[1:-1]
-    return part.lower()
+    parts = [p.strip() for p in ref.strip().split(".")]
+    if len(parts) == 1:
+        schema = "temp" if temp else "main"
+        name = parts[0]
+    else:
+        schema, name = parts[0], parts[-1]
+    if len(name) >= 2 and name[0] == name[-1] and name[0] in ('"', "`"):
+        name = name[1:-1]
+    elif len(name) >= 2 and name[0] == "[" and name[-1] == "]":
+        name = name[1:-1]
+    return (schema.lower(), name.lower())
+
+
+def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
+    """Return whether a table reference resolves to a born table.
+
+    A qualified reference matches only its own schema: dropping
+    main.existing does not touch a temp.existing born here. An unqualified
+    reference resolves as SQLite resolves it, temp before main.
+    """
+    schema, name = sql_table_key(ref)
+    if ref.strip().count(".") >= 1:
+        return (schema, name) in born
+    return ("temp", name) in born or ("main", name) in born
 # One SQL table reference: quoted, bracketed, backticked, or bare, alone or
 # schema-qualified. Comparisons normalize through sql_name.
 DROP_INDEX = re.compile(
@@ -117,7 +138,8 @@ def statements(sql: str) -> list[str]:
     def flush_word() -> None:
         nonlocal depth, word
         token = "".join(word).upper()
-        if token == "BEGIN":
+        head = "".join(current).lstrip().upper().split("(")[0]
+        if token == "BEGIN" and head.startswith("CREATE") and "TRIGGER" in head:
             depth += 1
         elif token == "END":
             depth = max(0, depth - 1)
@@ -181,18 +203,19 @@ def classify(sql: str) -> list[str]:
     A table created by this same migration is invisible to an older binary, so
     dropping it, indexing it, or putting a trigger on it breaks nothing.
     """
-    born: set[str] = set()
+    born: set[tuple[str, str]] = set()
     reasons: list[str] = []
     for statement in statements(sql):
         if not statement:
             continue
         match = CREATE_TABLE.match(statement)
         if match:
-            born.add(sql_name(match.group(1)))
+            temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)]))
+            born.add(sql_table_key(match.group(1), temp))
             continue
         match = DROP_TABLE.match(statement)
         if match:
-            if sql_name(match.group(1)) not in born:
+            if not resolves_to_born(match.group(1), born):
                 reasons.append(f"drops the pre-existing table {match.group(1)}")
             continue
         match = DROP_INDEX.match(statement)
@@ -201,7 +224,7 @@ def classify(sql: str) -> list[str]:
         match = ALTER.match(statement)
         if match:
             table, rest = match.group(1), match.group(2).strip()
-            if sql_name(table) in born:
+            if resolves_to_born(table, born):
                 continue
             if ADD_COLUMN.match(rest):
                 continue
@@ -209,14 +232,14 @@ def classify(sql: str) -> list[str]:
             continue
         match = INDEX_ON.match(statement)
         if match:
-            if match.group(1) and match.group(2).lower() not in born:
+            if match.group(1) and not resolves_to_born(match.group(2), born):
                 reasons.append(
                     f"adds a unique index to the pre-existing table {match.group(2)}"
                 )
             continue
         match = TRIGGER_ON.match(statement)
         if match:
-            if match.group(1).lower() not in born:
+            if not resolves_to_born(match.group(1), born):
                 reasons.append(
                     f"adds a trigger to the pre-existing table {match.group(1)}"
                 )
@@ -402,16 +425,18 @@ def adds_preexisting_column(sql: str) -> bool:
     A FoldMaintained declaration describes exactly this shape: a column on a
     table an older binary's fold generation already writes.
     """
-    born: set[str] = set()
+    born: set[tuple[str, str]] = set()
     for statement in statements(sql):
         match = CREATE_TABLE.match(statement)
         if match:
-            born.add(sql_name(match.group(1)))
+            temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)]))
+            born.add(sql_table_key(match.group(1), temp))
             continue
         match = ALTER.match(statement)
-        if match and match.group(1).lower() not in born:
-            if ADD_COLUMN.match(match.group(2).strip()):
-                return True
+        if match and resolves_to_born(match.group(1), born):
+            continue
+        if match and ADD_COLUMN.match(match.group(2).strip()):
+            return True
     return False
 
 

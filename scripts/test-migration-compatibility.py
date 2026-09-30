@@ -1190,6 +1190,22 @@ for label, sql, failures, breaking in (
         0,
         [],
     ),
+    (
+        "an unqualified rename transfers no main ownership",
+        "CREATE TABLE a (v TEXT);"
+        "ALTER TABLE a RENAME TO b;"
+        "ALTER TABLE main.b ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a qualified rename transfers ownership",
+        "CREATE TABLE a (v TEXT);"
+        "ALTER TABLE main.a RENAME TO b;"
+        "ALTER TABLE main.b ADD COLUMN c TEXT DEFAULT 0;",
+        0,
+        [],
+    ),
 ):
     expect_evaluate(
         label,
@@ -1302,6 +1318,37 @@ expect_evaluate(
     ),
     failures=1,
     breaking=[],
+)
+expect_evaluate(
+    "a wrapper call around a literal is refused whole",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\trewrite(migration{Version: 110, Name: \"wrapped\", "
+        "SQL: `SELECT 1;`}),\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_evaluate(
+    "a mixed literal and call list keeps both elements visible",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 109,\n\t\tName: \"head\",\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "\trewrite(migration{Version: 110, Name: \"wrapped\", "
+        "SQL: `SELECT 2;`}),\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_entries(
+    "a wrapper call parses as an unsupported entry",
+    "var migrations = []migration{\n"
+    "\trewrite(migration{Version: 110, Name: \"wrapped\", SQL: `SELECT 1;`}),\n"
+    "}\n",
+    [-2],
 )
 expect_entries(
     "a named element parses as an unsupported entry",

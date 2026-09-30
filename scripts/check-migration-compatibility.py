@@ -371,6 +371,8 @@ def track_born(
     born: set[tuple[str, str]],
     conditional: set[tuple[str, str]],
     statement: str,
+    *,
+    shadow_safe: bool = False,
 ) -> tuple | None:
     """Apply one statement's table-lifetime effect to the born sets.
 
@@ -404,6 +406,16 @@ def track_born(
         rename = RENAMES.match(match.group(2).strip(SQL_TRIM))
         if rename:
             retired = resolve_born(match.group(1), born)
+            if (
+                shadow_safe
+                and retired is not None
+                and retired[0] == "main"
+                and len(sql_parts(match.group(1))) < 2
+            ):
+                # An unqualified source resolves temp before main; a
+                # pre-existing temp shadow takes the rename, so the
+                # migration's own main identity does not move.
+                return None
             if retired is not None:
                 moved = (retired[0], sql_table_key(rename.group(1))[1])
                 born.discard(retired)
@@ -644,7 +656,7 @@ def adds_preexisting_column(sql: str) -> bool:
     born: set[tuple[str, str]] = set()
     conditional: set[tuple[str, str]] = set()
     for statement in statements(sql):
-        track_born(born, conditional, statement)
+        track_born(born, conditional, statement, shadow_safe=True)
         match = ALTER.match(statement)
         if match:
             ref = match.group(1)
@@ -748,17 +760,27 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
             element_start = None
             element_grouped = False
             continue
-        if tok.kind == "punct" and tok.text == "{":
-            if depth == 1:
-                entry_start = tok.at + 1
-                element_grouped = True
+        if tok.kind == "punct" and tok.text in "([{":
+            if depth == 1 and tok.text == "{":
+                prefix = (
+                    source[element_start:tok.at].strip()
+                    if element_start is not None
+                    else ""
+                )
+                # Only a migration composite literal is a readable entry:
+                # the elided-type group or the type name beside it. A call
+                # or another expression is refused whole, never mined for a
+                # nested literal that is not the element itself.
+                if prefix in ("", "migration"):
+                    entry_start = tok.at + 1
+                    element_grouped = True
                 if element_start is None:
                     element_start = tok.at
             depth += 1
             continue
-        if tok.kind == "punct" and tok.text == "}":
+        if tok.kind == "punct" and tok.text in ")]}":
             depth -= 1
-            if depth == 1 and entry_start is not None:
+            if tok.text == "}" and depth == 1 and entry_start is not None:
                 entry = source[entry_start:tok.at]
                 version_run = field_run(entry, "Version")
                 version = -1

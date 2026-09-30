@@ -432,6 +432,131 @@ expect_evaluate(
     breaking=[123],
 )
 
+# A field name nested inside a value is part of that value, never a
+# declaration: an Applies body or a local struct cannot supply FoldMaintained
+# or Breaking, and it cannot override a real migration-level claim.
+APPLIES_NESTED_FOLD = (
+    "Applies: func(context.Context, queryer) (bool, error) {\n"
+    '\t\t\tinner := struct{ FoldMaintained string }{FoldMaintained: "origin"}\n'
+    '\t\t\treturn inner.FoldMaintained == "origin", nil\n'
+    "\t\t},\n"
+)
+NESTED_FOLD_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 124,\n\t\tName: \"nested_fold\",\n"
+    f"\t\t{APPLIES_NESTED_FOLD}"
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a fold field nested in Applies satisfies nothing",
+    check.migrations(NESTED_FOLD_SOURCE),
+    failures=1,
+    breaking=[],
+)
+parsed_folds(
+    "a fold field nested in Applies is absent at the migration level",
+    NESTED_FOLD_SOURCE,
+    [""],
+)
+NESTED_OVERRIDE_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 125,\n\t\tName: \"nested_override\",\n"
+    f"\t\t{APPLIES_NESTED_FOLD}"
+    '\t\tFoldMaintained: "advance",\n'
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a real advance behind a nested decoy still forces the breaking declaration",
+    check.migrations(NESTED_OVERRIDE_SOURCE),
+    failures=1,
+    breaking=[125],
+)
+NESTED_BREAKING_DROP_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 126,\n\t\tName: \"nested_breaking\",\n"
+    "\t\tApplies: func(context.Context, queryer) (bool, error) {\n"
+    "\t\t\topts := struct{ Breaking bool }{Breaking: true}\n"
+    "\t\t\treturn opts.Breaking, nil\n"
+    "\t\t},\n"
+    "\t\tSQL: `DROP TABLE existing;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a nested Breaking cannot authorize a drop",
+    check.migrations(NESTED_BREAKING_DROP_SOURCE),
+    failures=1,
+    breaking=[126],
+)
+
+# A rune literal containing a quote must not start a string: a single
+# unpaired quote rune in an Applies body would otherwise swallow the code up
+# to the next real string, hiding every field after it.
+RUNE_QUOTE_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 127,\n\t\tName: \"rune_quote\",\n"
+    "\t\tApplies: func(context.Context, queryer) (bool, error) {\n"
+    "\t\t\tsep := '\"'\n"
+    "\t\t\treturn true, nil\n"
+    "\t\t},\n"
+    '\t\tFoldMaintained: "later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a quote rune in an Applies body hides nothing after it",
+    check.migrations(RUNE_QUOTE_SOURCE),
+    failures=2,
+    breaking=[],
+)
+
+# SQL comes from the token-recognized SQL field: a commented lookalike line
+# supplies nothing and stops mattering.
+COMMENTED_SQL_IMPERSONATION_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 128,\n\t\tName: \"commented_sql\",\n"
+    "\t\t/* SQL: `SELECT 1;`,\n"
+    "\t\t*/\n"
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a commented SQL line supplies nothing",
+    check.migrations(COMMENTED_SQL_IMPERSONATION_SOURCE),
+    failures=1,
+    breaking=[],
+)
+COMMENTED_SQL_FALSE_REFUSAL_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 129,\n\t\tName: \"commented_sql_origin\",\n"
+    "\t\t/* SQL: `SELECT 1;`,\n"
+    "\t\t*/\n"
+    '\t\tFoldMaintained: "origin",\n'
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a commented SQL line draws no false refusal beside a real declaration",
+    check.migrations(COMMENTED_SQL_FALSE_REFUSAL_SOURCE),
+    failures=0,
+    breaking=[],
+)
+
+# An SQL field that is not one raw literal is refused rather than read.
+CONCATENATED_SQL_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 130,\n\t\tName: \"concatenated_sql\",\n"
+    '\t\tSQL: "DROP TABLE existing;" + ";",\n\t},\n'
+    "}\n"
+)
+expect_evaluate(
+    "an SQL field that is not one raw literal is refused",
+    check.migrations(CONCATENATED_SQL_SOURCE),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

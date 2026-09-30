@@ -167,9 +167,6 @@ def classify(sql: str) -> list[str]:
     return reasons
 
 
-SQL_LITERAL = re.compile(r"\n\t\tSQL:\s+`([\s\S]*?)`,\n", re.MULTILINE)
-
-
 class Tok(NamedTuple):
     kind: str  # ident, string, raw, number, punct, newline
     text: str
@@ -215,6 +212,13 @@ def go_tokens(region: str) -> list[Tok]:
             end = n - 1 if end < 0 else end
             out.append(Tok("raw", region[i : end + 1]))
             i = end + 1
+        elif ch == "'":
+            j = i + 1
+            while j < n and region[j] != "'":
+                j += 2 if region[j] == "\\" else 1
+            j = min(j, n - 1)
+            out.append(Tok("rune", region[i : j + 1]))
+            i = j + 1
         else:
             match = GO_IDENT.match(region, i) or GO_NUMBER.match(region, i)
             if match:
@@ -229,29 +233,39 @@ def go_tokens(region: str) -> list[Tok]:
 def field_run(entry: str, name: str) -> list[Tok] | None:
     """Return the value tokens of the entry's keyed field `name`.
 
-    None means the entry never declares the field in code position. The
-    run spans from after the colon to the comma that closes the value at
-    bracket depth zero, so a function-valued field's internal commas stay
-    inside it. A run holding only a newline means the value starts on a
-    later line than its colon.
+    None means the entry never declares the field at the migration
+    literal's own level: a field name inside a value, such as a local
+    struct or an Applies function body, sits at deeper bracket depth and
+    is part of that value, never a declaration. The run spans from after
+    the colon to the comma that closes the value at bracket depth zero,
+    so a function-valued field's internal commas stay inside it. A run
+    holding only a newline means the value starts on a later line than
+    its colon.
     """
     tokens = go_tokens(entry)
+    depth = 0
     for i, tok in enumerate(tokens):
-        if tok.kind != "ident" or tok.text != name:
+        if tok.kind == "punct":
+            if tok.text in "([{":
+                depth += 1
+            elif tok.text in ")]}":
+                depth = max(0, depth - 1)
+            continue
+        if depth != 0 or tok.kind != "ident" or tok.text != name:
             continue
         if i + 1 >= len(tokens) or tokens[i + 1].text != ":":
             continue
         run: list[Tok] = []
-        depth = 0
+        value_depth = 0
         for value in tokens[i + 2 :]:
             if value.kind == "newline" and not run:
                 return [value]
             if value.kind == "punct":
                 if value.text in "([{":
-                    depth += 1
+                    value_depth += 1
                 elif value.text in ")]}":
-                    depth -= 1
-                elif value.text == "," and depth <= 0:
+                    value_depth -= 1
+                elif value.text == "," and value_depth <= 0:
                     break
             run.append(value)
         return run
@@ -315,26 +329,41 @@ def adds_preexisting_column(sql: str) -> bool:
     return False
 
 
-def migrations(source: str) -> list[tuple[int, str, str]]:
-    """Return each migration's version, its declaration block, and its SQL.
+def sql_literal(entry: str) -> str:
+    """Return the SQL field's content, or "" when the field is absent.
 
-    The declaration block carries the Breaking field. The SQL is the raw string
-    literal alone: the Go field lines around it are not statements, and feeding
-    them to the classifier would report every migration as unclassifiable.
+    The value comes from the token-recognized SQL field, so a commented or
+    nested lookalike cannot supply it; a field whose value is anything but
+    one raw string literal also reads as empty and sql_field_sound refuses
+    the entry separately.
+    """
+    run = field_run(entry, "SQL")
+    if run and len(run) == 1 and run[0].kind == "raw":
+        return run[0].text[1:-1]
+    return ""
+
+
+def sql_field_sound(entry: str) -> bool:
+    """Return whether the SQL field is absent or exactly one raw literal."""
+    run = field_run(entry, "SQL")
+    return run is None or (len(run) == 1 and run[0].kind == "raw")
+
+
+def migrations(source: str) -> list[tuple[int, str, str]]:
+    """Return each migration's version, its entry text, and its SQL.
+
+    The SQL is the token-recognized SQL field's raw string content: the Go
+    field lines around it are not statements, and feeding them to the
+    classifier would report every migration as unclassifiable. Declaration
+    searches tokenize the same entry, where a raw literal is one token, so
+    SQL content can never read as a Go field in either direction.
     """
     start = source.index("var migrations = []migration{")
     parts = ENTRY.split(source[start:])
     out: list[tuple[int, str, str]] = []
     for i in range(1, len(parts), 2):
         version, entry = int(parts[i]), parts[i + 1]
-        literal = SQL_LITERAL.search(entry)
-        sql = literal.group(1) if literal else ""
-        if literal:
-            # The returned entry is the declaration block: the entry with
-            # the SQL raw string's content removed. SQL text must never
-            # read as a Go field, in either direction.
-            entry = entry[: literal.start(1)] + entry[literal.end(1) :]
-        out.append((version, entry, sql))
+        out.append((version, entry, sql_literal(entry)))
     return out
 
 
@@ -351,6 +380,11 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     for version, entry, sql in entries:
         declared = declares_breaking(entry)
         fold = fold_maintained(entry)
+        if not sql_field_sound(entry):
+            failures.append(
+                f"migration {version} carries an SQL field that is not one raw "
+                "string literal; the checker refuses to read it"
+            )
         reasons = classify(sql)
         if version > RULE_FLOOR:
             adds_column = adds_preexisting_column(sql)

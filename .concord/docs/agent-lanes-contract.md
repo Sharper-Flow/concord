@@ -12,6 +12,18 @@ Registry digest: `sha256:6019e5cea715c8f42066b61e5eddb635e7d2bf1e14aab975721dd12
 | `review` v1 | `review` | `agent-lane-packet.v1` | `agent-lane-report.v1` |
 | `verify` v1 | `verification` | `agent-lane-packet.v1` | `agent-lane-report.v1` |
 
+## Required report blocks
+
+A live completion for a lane that requires a typed report block is refused without it.
+
+| Lane | Required blocks |
+|---|---|
+| `review` v1 | `review` |
+
+For the `review` lane the typed block discharges the `severity` evidence
+obligation: a completed `review` report carries no free-text `severity` entry
+beside the block.
+
 ## Utilities
 
 | Utility | Tools | Commands | Wall-time cap |

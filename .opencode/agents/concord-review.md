@@ -105,13 +105,13 @@ Report contract constraints:
 
 ## Required report blocks
 
-This lane's completed report must carry the typed `review` block: an explicit `ship` or `no_ship` verdict and every finding with its severity and confidence. For this lane the typed block discharges the `severity` evidence obligation, so a completed report needs no separate free-text severity entry; the remaining obligations stay as stated. The verdict is report content only: it maps to no workflow field and records no transition, and the coordinator records the workflow verdict through the core.
+This lane's completed report must carry the typed `review` block: an explicit `ship` or `no_ship` verdict and every finding with its severity and confidence. For this lane the typed block discharges the `severity` evidence obligation, so a completed report carries no free-text `severity` entry beside the block: such an entry is refused. The remaining obligations stay as stated. The verdict is report content only: it maps to no workflow field and records no transition, and the coordinator records the workflow verdict through the core.
 
-A successful report must carry at least one entry for every obligation below, and may name no other obligation.
+A successful report must carry at least one entry for every obligation below that the typed block does not discharge, and may name no other obligation.
 
 One obligation may span several entries. Where your content for an obligation
 exceeds the 512-character `detail` cap, continue it in further entries naming
 that same obligation, up to 64 entries. Split the content. Do not drop it, and
 do not truncate a citation, a command, or an error string to fit.
 
-Evidence obligations: `contract_findings`, `severity`, `verification_commands`.
+Evidence obligations: `contract_findings`, `verification_commands`.

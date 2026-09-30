@@ -730,76 +730,87 @@ def migrations_binding(tokens: list[Tok]) -> int:
     raise ValueError("no migrations binding in source")
 
 
+def brace_close(sig: list[Tok], open_at: int) -> int:
+    """Return the index of the bracket that closes sig[open_at], or -1."""
+    depth = 0
+    for i in range(open_at, len(sig)):
+        tok = sig[i]
+        if tok.kind == "punct" and tok.text in "([{":
+            depth += 1
+        elif tok.kind == "punct" and tok.text in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
 def migrations(source: str) -> list[tuple[int, str, str]]:
     """Return each migration's version, its entry text, and its SQL.
 
-    Entries are brace groups of the migrations literal, found by walking
-    tokens: a comment or a literal cannot open or close a group, and field
-    order inside an entry does not affect recognition. The literal itself
-    is located by its token sequence (var migrations = []migration {), so
-    a decoy binding inside a comment or a literal never redirects the
-    walk. The SQL is the token-recognized SQL field's raw string content,
-    and declaration searches tokenize the same entry, where a raw literal
-    is one token, so SQL content can never read as a Go field in either
-    direction.
+    A list element is one complete expression, split at top-level commas
+    over every bracket type. Only a migration composite literal is a
+    readable entry: the elided-type group, or the type name beside one
+    group that ends the element. A call, a selector, a method call on a
+    literal, or any other expression is refused whole, never mined for a
+    nested literal that is not the element itself. Classification reads
+    significant tokens, so a comment in the element changes nothing.
 
-    An entry whose Version field is missing or not one Go integer literal
-    parses with version -1; evaluate refuses it by name.
+    Field recognition inside an entry is the token walk in field_run: a
+    comment or a literal cannot supply or hide a field, and field order
+    does not affect recognition. The SQL is the token-recognized SQL
+    field's raw string content. An entry whose Version field is missing
+    or not one Go integer literal parses with version -1; evaluate
+    refuses it by name. A non-literal element parses with version -2.
     """
     tokens = go_tokens(source)
     opener = migrations_binding(tokens)
     out: list[tuple[int, str, str]] = []
     depth = 1
-    entry_start: int | None = None
-    element_start: int | None = None
-    element_grouped = False
-    for tok in tokens[opener + 1 :]:
-        if tok.kind == "punct" and tok.text == "," and depth == 1:
-            if element_start is not None and not element_grouped:
-                out.append((UNSUPPORTED_ELEMENT, source[element_start:tok.at], ""))
-            element_start = None
-            element_grouped = False
-            continue
-        if tok.kind == "punct" and tok.text in "([{":
-            if depth == 1 and tok.text == "{":
-                prefix = (
-                    source[element_start:tok.at].strip()
-                    if element_start is not None
-                    else ""
-                )
-                # Only a migration composite literal is a readable entry:
-                # the elided-type group or the type name beside it. A call
-                # or another expression is refused whole, never mined for a
-                # nested literal that is not the element itself.
-                if prefix in ("", "migration"):
-                    entry_start = tok.at + 1
-                    element_grouped = True
-                if element_start is None:
-                    element_start = tok.at
-            depth += 1
-            continue
-        if tok.kind == "punct" and tok.text in ")]}":
-            depth -= 1
-            if tok.text == "}" and depth == 1 and entry_start is not None:
-                entry = source[entry_start:tok.at]
+    element: list[Tok] = []
+
+    def flush() -> None:
+        nonlocal element
+        sig = [t for t in element if t.kind != "newline"]
+        element = []
+        if not sig:
+            return
+        open_at = 0
+        if (
+            sig[0].kind == "ident"
+            and sig[0].text == "migration"
+            and len(sig) > 1
+            and sig[1].text == "{"
+        ):
+            open_at = 1
+        if open_at == 1 or sig[0].text == "{":
+            close = brace_close(sig, open_at)
+            if close == len(sig) - 1:
+                entry = source[sig[open_at].at + 1 : sig[close].at]
                 version_run = field_run(entry, "Version")
                 version = -1
-                if version_run and len(version_run) == 1 and version_run[0].kind == "number":
+                if (
+                    version_run
+                    and len(version_run) == 1
+                    and version_run[0].kind == "number"
+                ):
                     version = go_int(version_run[0].text) or -1
                 out.append((version, entry, sql_literal(entry)))
-                entry_start = None
+                return
+        end = sig[-1].at + len(sig[-1].text)
+        out.append((UNSUPPORTED_ELEMENT, source[sig[0].at : end], ""))
+
+    for tok in tokens[opener + 1 :]:
+        if tok.kind == "punct" and tok.text in ")]}":
+            depth -= 1
             if depth == 0:
-                if element_start is not None and not element_grouped:
-                    out.append((UNSUPPORTED_ELEMENT, source[element_start:tok.at], ""))
+                flush()
                 break
+        if tok.kind == "punct" and tok.text == "," and depth == 1:
+            flush()
             continue
-        if (
-            depth == 1
-            and element_start is None
-            and not element_grouped
-            and tok.kind != "newline"
-        ):
-            element_start = tok.at
+        if tok.kind == "punct" and tok.text in "([{":
+            depth += 1
+        element.append(tok)
     return out
 
 

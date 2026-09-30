@@ -1350,6 +1350,44 @@ expect_entries(
     "}\n",
     [-2],
 )
+expect_evaluate(
+    "a suffix call on a literal is refused whole",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\tmigration{Version: 110, Name: \"suffix\", "
+        "SQL: `SELECT 1;`}.rewrite(),\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_evaluate(
+    "a mixed literal and suffix call keep both elements visible",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 109,\n\t\tName: \"head\",\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "\tmigration{Version: 110, Name: \"suffix\", "
+        "SQL: `SELECT 2;`}.rewrite(),\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_entries(
+    "a suffix call parses as an unsupported entry",
+    "var migrations = []migration{\n"
+    "\tmigration{Version: 110, Name: \"suffix\", SQL: `SELECT 1;`}.rewrite(),\n"
+    "}\n",
+    [-2],
+)
+expect_entries(
+    "a comment between the type name and brace parses",
+    "var migrations = []migration{\n"
+    "\tmigration /* claim */ {Version: 110, Name: \"typed\", SQL: `SELECT 1;`},\n"
+    "}\n",
+    [110],
+)
 expect_entries(
     "a named element parses as an unsupported entry",
     "var hidden = migration{Version: 110, Name: \"hidden_column\", SQL: `SELECT 1;`};\n"

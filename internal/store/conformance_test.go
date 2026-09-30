@@ -449,6 +449,18 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 		}
 	}
 
+	// CD-0195 D3: the workload covers the operation class that held the
+	// write lock. Ten workers claim and reclaim worktrees whose native git
+	// mutations run slower than a write; a write transaction that spanned
+	// the native work would escape the concurrent writers' busy timeout.
+	results = run("worktree_claim_reclaim")
+	if countOutcome(results, outcomeAccepted) != 10 {
+		t.Fatalf("worktree claim/reclaim = %+v, want ten accepted", report.Scenarios["worktree_claim_reclaim"])
+	}
+	if countOutcome(results, outcomeBusyEscaped) != 0 {
+		t.Fatalf("worktree claim/reclaim escaped SQLITE_BUSY on the conformance population: %+v (CD-0195 D3)", report.Scenarios["worktree_claim_reclaim"])
+	}
+
 	if err := killBeforeCommitAndRetry(ctx, path, s); err != nil {
 		t.Fatal(err)
 	}
@@ -774,6 +786,13 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 			return nil
 		}, observer)
+	case "worktree_claim_reclaim":
+		if err := runWorktreeClaimReclaimScenario(ctx, s, worker); err != nil {
+			result.FailureKind = failureKind(err)
+			result.Outcome = classifyOutcome(result.FailureKind, err, result.Outcome)
+			result.WallDurationMS = durationMS(time.Since(started))
+			return result
+		}
 	default:
 		err = errors.New("unknown conformance scenario")
 	}

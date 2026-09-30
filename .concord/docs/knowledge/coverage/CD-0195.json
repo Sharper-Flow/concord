@@ -1,5 +1,26 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeHoldsNoWriteLockDuringNativeRemove"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimWorktreeHoldsNoWriteLockDuringNativeAdd"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTxSubprocessGuard"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestTenProcessConformance"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-law-coverage.py"
+    }
+  ],
   "id": "CD-0195",
-  "issue": "CON-752",
-  "state": "outstanding"
+  "state": "satisfied"
 }

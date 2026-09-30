@@ -1457,6 +1457,13 @@ type mutationPlan struct {
 	// nativeCleanup compensates nativeCreation when the mutation transaction
 	// fails. Only operations with an out-of-transaction native effect set it.
 	nativeCleanup func(ctx context.Context, cause error) error
+	// nativeFinalize completes the operation's native work after the
+	// transaction commits — the worktree removal a committed reclaim or
+	// destroy still owes (CD-0195 D2). When set, the idempotency record
+	// waits for the finalize: a failed native removal leaves no cached
+	// success, so the same request retries and converges the committed
+	// reclaim instead of replaying it.
+	nativeFinalize func(ctx context.Context) error
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -2545,8 +2552,24 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	if in.HostPID <= 0 {
 		return coreError(base, "invalid_input", "worktree_claim requires the host process pid the adapter injects", "reread_entities", false), nil, true
 	}
+	// The native half runs here, before the mutation transaction opens, so
+	// no write lock spans git worktree add (CD-0195 D2). The creation is
+	// reported at plan time, so a refusal or failure anywhere after it —
+	// authority, approval, the effect, or the commit — compensates it.
+	opID := digest + ":worktree-claim:" + in.ProjectID
+	native, created, err := r.Store.PrepareWorktreeClaimNative(ctx, store.WorktreeClaimRequest{
+		OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
+		BaseSHA:      in.BaseSHA,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		SessionRef:      grant.SessionRef,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		HostPID: in.HostPID,
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.nativeCreation = created
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		opID := digest + ":worktree-claim:" + in.ProjectID
 		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
 			BaseSHA:      in.BaseSHA,
@@ -2554,11 +2577,10 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 			SessionRef:      grant.SessionRef,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			HostPID: in.HostPID,
-		})
+		}, native)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		plan.nativeCreation = claimed.Created
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		result, err := json.Marshal(map[string]any{
 			"changed_refs":       mutationResultChangedRefs(changed),
@@ -2789,6 +2811,26 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The lease set and the git facts are read before the mutation
+	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
+	// compares the lease snapshot against the row's recorded_at, and no
+	// write lock may span a git probe.
+	reclaimReq := store.WorktreeReclaimRequest{
+		WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		RequireTerminal: true, Destructive: in.Destructive,
+		// The consumed operator approval is the declared route that
+		// releases a recorded occupancy that no longer holds; the store
+		// refuses the release without the approval pairing.
+		ReleaseOccupancy: in.Destructive || in.Approval != nil,
+		HostLeases:       r.Store.ReadHostLeases(),
+	}
+	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		// Same hand-off as the takeover planner: the mutation tail records
 		// the consumed approval reference before the effect runs.
@@ -2796,23 +2838,27 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 		if ref, ok := plan.scope["approval_ref"].(string); ok {
 			approvalRef = ref
 		}
-		if _, err := store.DestroyWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
-			WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
-			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
-			// The consumed operator approval is the declared route that
-			// releases a recorded occupancy that no longer holds; the store
-			// refuses the release without the approval pairing.
-			ReleaseOccupancy: in.Destructive || in.Approval != nil,
-			// The legacy-row release proof compares this lease-set snapshot
-			// against the row's recorded_at (CD-0179).
-			HostLeases: r.Store.ReadHostLeases(),
-		}); err != nil {
+		req := reclaimReq
+		req.OperatorApprovalRef = approvalRef
+		if req.Destructive {
+			// The forced facts name the approval the transaction just
+			// consumed, so the recorded event carries the live reference.
+			probe.Facts, _ = json.Marshal(map[string]any{"forced": true, "operator_override": approvalRef})
+		}
+		result, err := store.DestroyWorktreeTx(ctx, tx, req, probe)
+		if err != nil {
 			return nil, nil, nil, err
 		}
+		removal = result.Removal
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + project + ":worktree-destroyed"}, changed, nil
+	}
+	// The native removal follows the commit with no transaction open
+	// (CD-0195 D2); the idempotency record waits for it, so a failed
+	// removal leaves the same request free to converge the committed
+	// reclaim.
+	plan.nativeFinalize = func(ctx context.Context) error {
+		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }
@@ -3254,6 +3300,21 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The lease set and the git facts are read before the mutation
+	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
+	// compares the lease snapshot against the row's recorded_at, and no
+	// write lock may span a git probe.
+	leaseSet := r.Store.ReadHostLeases()
+	probe, err := r.Store.PrepareWorktreeReclaim(ctx, store.WorktreeReclaimRequest{
+		WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		HostLeases: leaseSet,
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		// Issue #674 amends the CD-0092 D2 surface for this operation: a
 		// main-checkout grant may reclaim once the work item is terminal,
@@ -3272,18 +3333,27 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 				return nil, nil, nil, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)
 			}
 		}
-		if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
+		result, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			// The legacy-row release proof compares this lease-set snapshot
 			// against the row's recorded_at (CD-0179).
-			HostLeases: r.Store.ReadHostLeases(),
-		}); err != nil {
+			HostLeases: leaseSet,
+		}, probe)
+		if err != nil {
 			return nil, nil, nil, err
 		}
+		removal = result.Removal
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
+	}
+	// The native removal follows the commit with no transaction open
+	// (CD-0195 D2); the idempotency record waits for it, so a failed
+	// removal leaves the same request free to converge the committed
+	// reclaim.
+	plan.nativeFinalize = func(ctx context.Context) error {
+		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }
@@ -4003,7 +4073,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
 }
 
 // planSupersede plans concord_work_relate.supersede.
@@ -4709,9 +4779,13 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	return response
 }
 
-func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error) (Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
+	// A native finalize defers the idempotency record until the committed
+	// event's native work completes, so a failed removal never leaves a
+	// cached success for the same key to replay (CD-0195 D2).
+	var deferredInsert *store.MutationIdempotencyInsert
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -4859,8 +4933,39 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		changedJSON, _ := json.Marshal(changed)
 		authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+		insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
+		if nativeFinalize != nil {
+			// The native removal runs after this commit; the record waits
+			// for it so the same request can converge a failed removal.
+			deferredInsert = &insert
+			return nil
+		}
+		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 	})
+	if err == nil && nativeFinalize != nil {
+		if err := nativeFinalize(ctx); err != nil {
+			// The event is committed; the retryable failure names the native
+			// work still owed, and no idempotency record replays over it.
+			return failureEnvelope(base, err), nil
+		}
+		if deferredInsert != nil {
+			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+				return store.InsertMutationIdempotencyTx(ctx, tx, *deferredInsert)
+			}); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+		}
+	}
+	if err == nil && response.Outcome == OutcomeError && nativeCleanup != nil {
+		// The mutation refused after the native half ran — an approval
+		// challenge is the live case for a claim whose tree already exists.
+		// The refusal must leave no effect, so the creation compensates; a
+		// removal that cannot be proven reports the possible effect through
+		// the failure envelope instead of the refusal.
+		if cleanupErr := nativeCleanup(ctx, errors.New("mutation refused after the native worktree was created")); cleanupErr != nil {
+			return failureEnvelope(base, cleanupErr), nil
+		}
+	}
 	if err != nil {
 		// The transaction failed after the effect ran. An operation that
 		// created native state outside it — the worktree_claim's git tree and

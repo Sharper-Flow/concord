@@ -943,6 +943,33 @@ func validateExistingBootstrapRequest(req ExistingBootstrapRequest) error {
 
 func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, location WorktreeLocation, runner GitRunner) (bootstrapPrepared, error) {
 	var out bootstrapPrepared
+	// The pre-transaction observation (CD-0195 D2): the journal row, the
+	// claim row a completed replay reads, and every git probe run with no
+	// write transaction open. The transaction re-reads both rows and refuses
+	// an observation that drifted.
+	var preDigest, preState, preClaimState string
+	preJournalErr := s.db.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&preDigest, &preState)
+	preLocation := location
+	if preJournalErr == nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT b.repo_path,c.pinned_branch,c.pinned_base_sha,c.pinned_path,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, operationID).Scan(&preLocation.Repo, &preLocation.Branch, &preLocation.BaseSHA, &preLocation.Path, &preClaimState); err != nil {
+			return out, wrapFailure(KindInvariantViolation, "work_bootstrap", "bootstrap journal has no pinned worktree intent", false, "contact_operator", err)
+		}
+	}
+	// A fresh journal probes the canonical path and branch with no
+	// transaction open; a reopen re-pins the branch head the same way.
+	var branchSHA string
+	var branchExists bool
+	if preJournalErr == sql.ErrNoRows {
+		if err := validateBootstrapNativeAbsent(ctx, runner, location); err != nil {
+			return out, err
+		}
+	} else if preJournalErr == nil && preState == "completed" && preClaimState == worktreeStateReclaimed {
+		sha, exists, headErr := bootstrapBranchHead(ctx, runner, preLocation.Repo, preLocation.Branch)
+		if headErr != nil {
+			return out, headErr
+		}
+		branchSHA, branchExists = sha, exists
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)
@@ -954,6 +981,11 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	journalMissing := false
 	expectedVersion := int64(0)
 	err = tx.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&storedDigest, &state)
+	switch {
+	case preJournalErr == sql.ErrNoRows && err != nil && err != sql.ErrNoRows,
+		preJournalErr == nil && (err != nil || storedDigest != preDigest || state != preState):
+		return out, wrapFailure(KindUnavailable, "work_bootstrap", "bootstrap journal changed under the prepare probe", true, "retry the same idempotency key", err)
+	}
 	journalMissing = err == sql.ErrNoRows
 	if err == nil {
 		replayed = true
@@ -964,12 +996,15 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		if err := tx.QueryRowContext(ctx, `SELECT b.repo_path,c.pinned_branch,c.pinned_base_sha,c.pinned_path,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, operationID).Scan(&location.Repo, &location.Branch, &location.BaseSHA, &location.Path, &claimState); err != nil {
 			return out, wrapFailure(KindInvariantViolation, "work_bootstrap", "bootstrap journal has no pinned worktree intent", false, "contact_operator", err)
 		}
+		if location != preLocation || claimState != preClaimState {
+			return out, wrapFailure(KindUnavailable, "work_bootstrap", "bootstrap claim changed under the prepare probe", true, "retry the same idempotency key", nil)
+		}
 		if state == "completed" {
 			switch claimState {
 			case worktreeStatePending, worktreeStateVerified:
 				return replayCompletedBootstrapTx(ctx, tx, req, operationID, workID, state, location)
 			case worktreeStateReclaimed:
-				location, expectedVersion, err = reopenReclaimedBootstrapTx(ctx, tx, operationID, workID, location, s.Clock, runner)
+				location, expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx, operationID, workID, location, branchSHA, branchExists, s.Clock)
 				if err != nil {
 					return out, err
 				}
@@ -993,11 +1028,6 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			}
 			if handled {
 				return replay, nil
-			}
-		}
-		if !restarted {
-			if err := validateBootstrapNativeAbsent(ctx, runner, location); err != nil {
-				return out, err
 			}
 		}
 		if existing && !restarted {
@@ -1131,12 +1161,11 @@ func replayExistingBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapReq
 	return bootstrapPrepared{}, false, nil
 }
 
-func reopenReclaimedBootstrapTx(ctx context.Context, tx *sql.Tx, operationID, workID string, location WorktreeLocation, clock func() time.Time, runner GitRunner) (WorktreeLocation, int64, error) {
+// reopenReclaimedBootstrapStoreTx is the SQL half of a reclaimed bootstrap
+// reopen: it re-pins the branch head the pre-transaction git probe read and
+// starts a new claim incarnation. It runs SQL only (CD-0195 D2).
+func reopenReclaimedBootstrapStoreTx(ctx context.Context, tx *sql.Tx, operationID, workID string, location WorktreeLocation, branchSHA string, branchExists bool, clock func() time.Time) (WorktreeLocation, int64, error) {
 	version, err := workVersionTx(ctx, tx, workID)
-	if err != nil {
-		return location, 0, err
-	}
-	branchSHA, branchExists, err := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch)
 	if err != nil {
 		return location, 0, err
 	}

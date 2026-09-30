@@ -1512,34 +1512,26 @@ func TestClaimWorktreeKeepsPreExistingWorktreeWhenItCreatedNothing(t *testing.T)
 }
 
 // The caller that owns the commit can only compensate what the claim reports.
-// claimWorktreeRawTx reports the tree and branch this operation created, so a
-// caller whose transaction fails after the claim returns — a failed Commit, or
-// the agent mutation envelope's post-effect writes — compensates from the
-// reported facts instead of leaving the creation stranded.
+// PrepareWorktreeClaimNative reports the tree and branch this operation
+// created, so a caller whose transaction fails after the native half — a
+// failed Commit, or the agent mutation envelope's post-effect writes —
+// compensates from the reported facts instead of leaving the creation
+// stranded.
 func TestClaimWorktreeRawTxReportsCreatedNativeState(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	request := baseClaim(git)
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
+	native, created, prepErr := s.PrepareWorktreeClaimNative(ctx, request)
+	if prepErr != nil {
+		t.Fatal(prepErr)
 	}
-	out, rawErr := claimWorktreeRawTx(ctx, tx, s.Path(), request)
-	if rawErr != nil {
-		t.Fatal(rawErr)
+	if created == nil || created.Path != claimPath(s) || created.Branch != claimBranch() || created.Base != request.BaseSHA || created.RepoRoot == "" || !created.CreatedBranch {
+		t.Fatalf("created report=%+v, want this operation's tree and branch", created)
 	}
-	if out.Created == nil || out.Created.Path != claimPath(s) || out.Created.Branch != claimBranch() || out.Created.Base != request.BaseSHA || out.Created.RepoRoot == "" || !out.Created.CreatedBranch {
-		t.Fatalf("created report=%+v, want this operation's tree and branch", out.Created)
-	}
-	// The commit owner fails and rolls the transaction back; compensation
-	// from the reported creation must remove both native artifacts and
-	// return the cause unchanged, with no effect-possible marking.
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
+	_ = native
 	cause := errors.New("cannot commit claim")
-	if compErr := CompensateWorktreeClaimCreation(ctx, git, *out.Created, cause); compErr != cause {
+	if compErr := CompensateWorktreeClaimCreation(ctx, git, *created, cause); compErr != cause {
 		var failure *Failure
 		if errors.As(compErr, &failure) && failure.EffectPossible {
 			t.Fatalf("compensation could not prove removal: %v", compErr)

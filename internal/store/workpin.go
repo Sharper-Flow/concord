@@ -17,6 +17,7 @@ type WorkPin struct {
 	ProjectDisplayName      string                    `json:"project_display_name"`
 	Version                 int64                     `json:"version"`
 	Lifecycle               string                    `json:"lifecycle"`
+	CancelledInstanceCloses int64                     `json:"cancelled_instance_closes"`
 	WorkflowType            string                    `json:"workflow_type"`
 	Step                    string                    `json:"step"`
 	SelfRepair              *WorkflowSelfRepair       `json:"self_repair,omitempty"`
@@ -118,6 +119,9 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read work item", true, "retry once the database is readable", err)
 	}
 	pin.WorkID = workID
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_instances wi INDEXED BY workflow_instances_state JOIN work_items w ON w.id=wi.work_id JOIN work_projects wp ON wp.work_id=w.id WHERE wi.instance_state='cancelled' AND w.lifecycle='completed' AND wp.project_id=?`, pin.ProjectID).Scan(&pin.CancelledInstanceCloses); err != nil {
+		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot read cancelled-instance lifecycle closes", true, "retry once the database is readable", err)
+	}
 	// The watermark belongs on every pin this function returns with a nil
 	// error, including the partial pin the ambiguity escape hatch below
 	// returns. Assigning it last left that pin with an empty watermark, and

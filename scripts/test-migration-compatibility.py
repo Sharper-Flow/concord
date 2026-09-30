@@ -1070,6 +1070,34 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "a bare unicode suffix hides no column add",
+        "CREATE TABLE a\u2603 (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a bare emoji suffix hides no column add",
+        "CREATE TABLE a\U0001F600 (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a combining-mark name is one identifier",
+        "CREATE TABLE a\u0308 (a TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a bare unicode name is one identity under its own form",
+        "CREATE TABLE a\u2603 (a TEXT);"
+        "ALTER TABLE a\u2603 ADD COLUMN c TEXT DEFAULT 0;",
+        0,
+        [],
+    ),
+    (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
@@ -1137,6 +1165,16 @@ expect(
 expect(
     "dropped own non-ASCII born table",
     'CREATE TABLE "Ä" (a TEXT);DROP TABLE "Ä";',
+    breaking=False,
+)
+expect(
+    "dropped table with a bare unicode sibling",
+    "CREATE TABLE a\u2603 (a TEXT);DROP TABLE a;",
+    breaking=True,
+)
+expect(
+    "dropped own bare unicode born table",
+    "CREATE TABLE a\u2603 (a TEXT);DROP TABLE a\u2603;",
     breaking=False,
 )
 expect("dropped column", "ALTER TABLE existing DROP COLUMN c;", breaking=True)

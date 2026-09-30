@@ -56,7 +56,17 @@ FOLD_VOCABULARY = ("advance", "origin")
 # value can carry keeps it from colliding with a real residue.
 FOLD_VALUE_ELSEWHERE = "<value on a later line>"
 
-SQL_REF = r"(?:\"(?:[^\"]|\"\")+\"|\[[^\]]+\]|`[^`]+`|'(?:[^']|'')+'|[A-Za-z_][\w$]*)"
+# SQLite's tokenizer admits A-Z, a-z, 0-9, _, $ and every code point at or
+# above U+0080 inside a bare identifier, and a bare name does not start with a
+# digit. The regex must consume the whole token: a prefix match records table
+# a as born where SQLite creates a-with-suffix, and every later reference to a
+# then looks owned.
+SQL_ID_START = r"[A-Za-z_$\u0080-\U0010FFFF]"
+SQL_ID_CONT = r"[A-Za-z0-9_$\u0080-\U0010FFFF]"
+SQL_REF = (
+    rf"(?:\"(?:[^\"]|\"\")+\"|\[[^\]]+\]|`[^`]+`|'(?:[^']|'')+'"
+    rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
+)
 SQL_QUAL = rf"(?:{SQL_REF}(?:\s*\.\s*{SQL_REF})*)"
 CREATE_TABLE = re.compile(
     rf"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"

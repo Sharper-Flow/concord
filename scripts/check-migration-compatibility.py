@@ -107,6 +107,21 @@ def sql_parts(ref: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+ASCII_CASE_FOLD = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
+)
+
+
+def fold_ascii(name: str) -> str:
+    """Fold identifier case the way SQLite compares names: ASCII only.
+
+    SQLite folds A-Z when it compares identifiers and keeps every
+    non-ASCII code point distinct. Python's Unicode lowercasing would
+    merge names SQLite keeps apart and hide a pre-existing table.
+    """
+    return name.translate(ASCII_CASE_FOLD)
+
+
 def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
     """Return the (schema, table) identity of one SQL table reference.
 
@@ -114,7 +129,7 @@ def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
     CREATE carries temp when the statement says TEMP or TEMPORARY and main
     otherwise. Quoting comes off the name with its escapes resolved, so
     "t", 't', [t], `t`, and t are one table, while main.t and temp.t stay
-    distinct identities.
+    distinct identities. Case folds with SQLite's ASCII-only comparison.
     """
     def unquote(part: str) -> str:
         if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "'", "`"):
@@ -129,7 +144,7 @@ def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
         name = parts[0]
     else:
         schema, name = parts[0], parts[-1]
-    return (unquote(schema).lower(), unquote(name).lower())
+    return (fold_ascii(unquote(schema)), fold_ascii(unquote(name)))
 
 
 def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None:

@@ -1042,6 +1042,34 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "SQLite case folding keeps non-ASCII name variants apart",
+        'CREATE TABLE "Ä" (a TEXT);'
+        'ALTER TABLE "ä" ADD COLUMN c TEXT DEFAULT \'\';',
+        1,
+        [],
+    ),
+    (
+        "the non-ASCII variants collide in neither direction",
+        'CREATE TABLE "ä" (a TEXT);'
+        'ALTER TABLE "Ä" ADD COLUMN c TEXT DEFAULT \'\';',
+        1,
+        [],
+    ),
+    (
+        "a mixed-quoting non-ASCII pair stays distinct",
+        "CREATE TABLE [K] (a TEXT);"
+        "ALTER TABLE 'k' ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "ASCII case equivalence survives the SQLite folding rule",
+        'CREATE TABLE "Kept" (a TEXT);'
+        "ALTER TABLE kept ADD COLUMN c TEXT DEFAULT '';",
+        0,
+        [],
+    ),
+    (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
@@ -1099,6 +1127,16 @@ expect(
 expect(
     "dropped own single-quoted born table",
     "CREATE TABLE 'a.b.c' (a TEXT);DROP TABLE 'a.b.c';",
+    breaking=False,
+)
+expect(
+    "dropped table with a distinct non-ASCII name",
+    'CREATE TABLE "Ä" (a TEXT);DROP TABLE "ä";',
+    breaking=True,
+)
+expect(
+    "dropped own non-ASCII born table",
+    'CREATE TABLE "Ä" (a TEXT);DROP TABLE "Ä";',
     breaking=False,
 )
 expect("dropped column", "ALTER TABLE existing DROP COLUMN c;", breaking=True)

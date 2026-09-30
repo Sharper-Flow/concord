@@ -243,10 +243,15 @@ OpenCode config:
 `{command}` must be one whole element and appear once. Unknown placeholders
 refuse. Registering the opener is the operator's standing consent for
 coordinators to open sessions and spend model quota. `concord zl <work>
---project <project>` is the launch the opener carries: the named Project
-must be a member of the work, and the session lands in that Project's active
+--project <project>` is the launch the opener carries. The named Project
+must be a member of the work. The session lands in that Project's active
 worktree when one is usable, else its canonical path (CD-0093 D3 fail-closed
-stands).
+stands). The named Project also owns the session's Product scope: an
+inherited Product selection applies only when it names one of that
+Project's Products, and a Project spanning Products refuses until the
+operator names one. Resuming in the second repository's coordinator needs
+no environment variables, no added Product memberships, and no trust-scope
+grant changes.
 
 ### The host launch command
 

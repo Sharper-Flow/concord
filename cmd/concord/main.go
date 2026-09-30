@@ -521,9 +521,10 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// An explicit --project selector lands the session in that member
 	// Project of the work (CD-0182): the session runs in that Project's
-	// active worktree when one is usable, else its canonical path. The
-	// selector changes the landing only; the default primary landing stays
-	// as CD-0093 and CD-0176 decide it.
+	// active worktree when one is usable, else its canonical path, and the
+	// landing Project also owns the session's Product scope. The selector
+	// changes the landing only; the default primary landing stays as
+	// CD-0093 and CD-0176 decide it.
 	project, forwarded, diagnostic := parseZLForwarding(args)
 	if diagnostic != "" {
 		writeDiagnostic(errOut, "concord zl: "+diagnostic)
@@ -550,28 +551,37 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		prompt = strings.Join(forwarded[2:], " ")
 	}
+	inherited := inheritedForwardedProduct()
 	if issueKey, issueURL, ok := linearIssueReference(work); ok {
-		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL)
+		resolvedWork, resolvedProduct, err := resolveZLLinearReference(issueKey, issueURL, project, inherited)
 		if err != nil {
 			writeDiagnostic(errOut, "concord zl: "+err.Error())
 			return 1
 		}
 		work, product := resolvedWork, resolvedProduct
-		return launchForwardedSession(product, work, prompt, project, in, out, errOut)
+		return forwardSession(product, work, prompt, project, in, out, errOut)
 	}
-	product := os.Getenv(selectedProductEnv)
-	if product == "" {
-		product = os.Getenv("CONCORD_PRODUCT_ID")
+	product, err := resolveForwardedProduct(work, project, inherited)
+	if err != nil {
+		writeDiagnostic(errOut, "concord zl: "+err.Error())
+		return 1
 	}
-	if product == "" {
-		resolved, err := resolveForwardedProduct(work)
-		if err != nil {
-			writeDiagnostic(errOut, "concord zl: "+err.Error())
-			return 1
-		}
-		product = resolved
+	return forwardSession(product, work, prompt, project, in, out, errOut)
+}
+
+// forwardSession starts the forwarded session. Tests replace it to observe
+// the handoff runZLForwarding derives without executing a host.
+var forwardSession = launchForwardedSession
+
+// inheritedForwardedProduct reads the launcher's inherited Product selection.
+// runZLForwarding passes it to the landing-Project resolver, which honors it
+// only when it names one of the landing Project's Products; it never decides
+// the scope on its own.
+func inheritedForwardedProduct() string {
+	if product := os.Getenv(selectedProductEnv); product != "" {
+		return product
 	}
-	return launchForwardedSession(product, work, prompt, project, in, out, errOut)
+	return os.Getenv("CONCORD_PRODUCT_ID")
 }
 
 var linearIssueKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*-[0-9]+$`)
@@ -594,7 +604,7 @@ func linearIssueReference(reference string) (key, issueURL string, ok bool) {
 	return "", "", false
 }
 
-func resolveZLLinearReference(issueKey, issueURL string) (string, string, error) {
+func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct string) (string, string, error) {
 	path, err := databasePath()
 	if err != nil {
 		return "", "", err
@@ -610,21 +620,32 @@ func resolveZLLinearReference(issueKey, issueURL string) (string, string, error)
 		return "", "", err
 	}
 	defer func() { _ = s.Close() }()
-	linked, err := s.ResolveLauncherLinearIssue(context.Background(), issueKey, issueURL)
+	// The unlinked question stays separate from the landing-Project Product
+	// rule, so the adoption fallback fires only when no confirmed link
+	// exists and never swallows a Product-scope refusal.
+	work, err := s.ResolveLauncherLinearIssueWork(context.Background(), issueKey, issueURL)
 	if err == nil {
-		return linked.WorkID, linked.ProductID, nil
+		product, err := s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
+		if err != nil {
+			return "", "", err
+		}
+		return work, product, nil
 	}
 	var failure *store.Failure
 	if !errors.As(err, &failure) || failure.Kind != store.KindUnknownScope {
 		return "", "", err
 	}
-	product := os.Getenv(selectedProductEnv)
-	if product == "" {
-		product = os.Getenv("CONCORD_PRODUCT_ID")
+	// Adoption creates the work in the selected Product's primary Project, so
+	// no named Project can own its landing yet. Refuse before any remote read
+	// or durable effect rather than launch into a Project the operator did
+	// not name.
+	if project != "" {
+		return "", "", errors.New("--project needs a Linear issue already linked to a work item; start the unlinked issue without --project")
 	}
-	if product == "" {
+	if preferredProduct == "" {
 		return "", "", errors.New("an unlinked Linear issue requires CONCORD_PRODUCT_ID")
 	}
+	product := preferredProduct
 	client, err := linearclient.FromEnv()
 	if err != nil {
 		return "", "", err
@@ -633,7 +654,7 @@ func resolveZLLinearReference(issueKey, issueURL string) (string, string, error)
 	if err != nil {
 		return "", "", err
 	}
-	work, err := s.EnsureLinearIssueWork(context.Background(), product, issue.ID, issue.Title, issue.Description)
+	work, err = s.EnsureLinearIssueWork(context.Background(), product, issue.ID, issue.Title, issue.Description)
 	if err != nil {
 		return "", "", err
 	}
@@ -643,7 +664,12 @@ func resolveZLLinearReference(issueKey, issueURL string) (string, string, error)
 	return work, product, nil
 }
 
-func resolveForwardedProduct(work string) (string, error) {
+// resolveForwardedProduct derives the forwarded session's Product from the
+// landing Project: the Project the operator named, else the work's primary
+// Project. preferredProduct is the launcher's inherited selection; the
+// landing Project owns the scope, so it applies only when it names one of
+// that Project's Products.
+func resolveForwardedProduct(work, project, preferredProduct string) (string, error) {
 	path, err := databasePath()
 	if err != nil {
 		return "", err
@@ -659,7 +685,7 @@ func resolveForwardedProduct(work string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = s.Close() }()
-	return s.ResolveLauncherWorkProduct(context.Background(), work)
+	return s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
 }
 
 func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {

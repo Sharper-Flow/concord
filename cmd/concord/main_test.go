@@ -92,7 +92,7 @@ func TestResolveZLLinearReferenceUsesConfirmedLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, dbPath)
-	work, product, err := resolveZLLinearReference("CON-30", "")
+	work, product, err := resolveZLLinearReference("CON-30", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestResolveZLLinearReferenceQueuesIssueAdoptionForUnlinkedIssue(t *testing.
 	t.Setenv("CONCORD_PRODUCT_ID", "adopt-product")
 	t.Setenv(linearclient.EnvEndpoint, server.URL)
 	t.Setenv(linearclient.EnvAPIKey, "lin_api_test")
-	work, product, err := resolveZLLinearReference("CON-30", "")
+	work, product, err := resolveZLLinearReference("CON-30", "", "", "adopt-product")
 	if err != nil {
 		t.Fatal(err)
 	}

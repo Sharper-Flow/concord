@@ -271,7 +271,9 @@ func (p *Port) ResolveIssue(ctx context.Context, key, issueURL string) (launcher
 	if p == nil || p.Store == nil {
 		return launcher.SessionHandoff{}, errors.New("launcher store is not open")
 	}
-	linked, err := p.Store.ResolveLauncherLinearIssue(ctx, key, issueURL)
+	// The picker has no Project selector on this path, so the link resolves
+	// under the work's primary Project and no inherited selection.
+	linked, err := p.Store.ResolveLauncherLinearIssue(ctx, key, issueURL, "", "")
 	if err != nil {
 		return launcher.SessionHandoff{}, err
 	}

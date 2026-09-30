@@ -174,6 +174,51 @@ expect_evaluate(
     breaking=[],
 )
 
+# A present field never reads as an absent one. The value parser strips a
+# trailing // comment and comma, unquotes only a fully double-quoted literal,
+# and leaves any other Go expression as text the vocabulary check refuses.
+COMMENTED_ORIGIN_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 110,\n\t\tName: \"quoted_with_comment\",\n"
+    '\t\tFoldMaintained: "origin", // first derivation wins\n'
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+RAW_STRING_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 111,\n\t\tName: \"raw_string\",\n"
+    "\t\tFoldMaintained: `origin`,\n"
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+parsed_folds(
+    "commented declaration parses",
+    COMMENTED_ORIGIN_SOURCE,
+    ["origin"],
+)
+parsed_folds(
+    "raw-string declaration stays unparsed text",
+    RAW_STRING_SOURCE,
+    ["`origin`"],
+)
+
+# A trailing comment on a valid origin declaration keeps rule (a) satisfied.
+expect_evaluate(
+    "commented origin declaration on a column add passes",
+    check.migrations(COMMENTED_ORIGIN_SOURCE),
+    failures=0,
+    breaking=[],
+)
+
+# A raw-string value is a present declaration the vocabulary refuses, and on
+# a migration that adds no column it does not slip past rule (c) either.
+expect_evaluate(
+    "raw-string declaration is refused, not read as absent",
+    check.migrations(RAW_STRING_SOURCE),
+    failures=2,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

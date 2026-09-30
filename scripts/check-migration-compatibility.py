@@ -50,7 +50,7 @@ RULE_FLOOR = 108
 # field pattern here tolerates that alignment rather than pinning one width.
 ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
 DECLARES_BREAKING = re.compile(r"^\t\tBreaking:\s+true,$", re.MULTILINE)
-DECLARES_FOLD = re.compile(r'^\t\tFoldMaintained:\s+"([^"]*)",$', re.MULTILINE)
+DECLARES_FOLD = re.compile(r"^\t\tFoldMaintained:[ \t]*(.*)$", re.MULTILINE)
 FOLD_VOCABULARY = ("advance", "origin")
 
 CREATE_TABLE = re.compile(
@@ -168,13 +168,24 @@ SQL_LITERAL = re.compile(r"\n\t\tSQL:\s+`([\s\S]*?)`,\n", re.MULTILINE)
 
 
 def fold_maintained(entry: str) -> str:
-    """Return the entry's FoldMaintained declaration, or "" when absent.
+    """Return the entry's FoldMaintained declaration, or "" when the field
+    is absent.
 
-    The declaration is a signed human claim (see the migration struct), so a
-    missing line is a genuine empty declaration rather than a parse error.
+    The value is the field's Go expression: a trailing // comment and comma
+    come off, and only a fully double-quoted literal unquotes. Any other
+    form the line carries, such as a raw string or a concatenated
+    expression, stays as unparsed text and fails the vocabulary check, so a
+    present field never reads as an absent one. The declaration is a signed
+    human claim (see the migration struct), so a genuinely missing line is
+    an empty declaration rather than a parse error.
     """
     match = DECLARES_FOLD.search(entry)
-    return match.group(1) if match else ""
+    if not match:
+        return ""
+    value = re.sub(r"//.*$", "", match.group(1)).strip().rstrip(",").strip()
+    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+    return value
 
 
 def adds_preexisting_column(sql: str) -> bool:

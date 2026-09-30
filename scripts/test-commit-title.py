@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 
 spec = importlib.util.spec_from_file_location(
@@ -14,13 +16,6 @@ spec = importlib.util.spec_from_file_location(
 )
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
-
-# Subjects that reached main before this guard existed. Published history
-# cannot be rewritten, so the assertion below names them rather than bounding
-# itself to a recent window that would hide them by accident. This set must
-# never grow: a new entry means the pr-title workflow did not run, or did not
-# block, and that is the finding.
-PRE_GUARD_EXCEPTIONS = frozenset({"Update priorities (#61)"})
 
 
 def rejects(subject: str) -> bool:
@@ -135,74 +130,131 @@ def test_cli_exit_codes() -> None:
     assert missing.returncode == 2, "a missing subject must not pass"
 
 
-def git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args], cwd=ROOT, capture_output=True, text=True
+def workflow_text() -> str:
+    return (ROOT / ".github" / "workflows" / "pr-title.yml").read_text(
+        encoding="utf-8"
     )
 
 
-def test_default_branch_history_is_clean() -> None:
-    """The subjects already on the default branch must satisfy the guard.
+def workflow_document() -> dict:
+    """Parse pr-title.yml so the workflow tests assert structure, not text.
 
-    This is a bootstrap assertion, not an ongoing guarantee: once the pr-title
-    workflow is required, every new subject on main has been validated before
-    the merge, and this test only proves the guard was not introduced red.
-
-    Scope is deliberately the default branch rather than HEAD. The repository
-    squashes, so a pull request's intermediate commit subjects never become
-    commits on main, and asserting against HEAD would enforce a rule stricter
-    than the one release.py reads.
-
-    The assertion needs real history and says so. GitHub Actions checks out
-    refs/pull/N/merge at depth 1, where the synthetic merge commit's parents
-    are absent from the object graph — git cannot count them, `--no-merges`
-    cannot filter on them, and the merge subject reaches the guard as though it
-    were repository history. Skipping an unanswerable question is honest;
-    answering it against a synthetic commit is not.
+    The assertions below navigate the parsed YAML tree (CD-0055 D1): a deleted
+    merge_group trigger, or a step whose condition is edited to `if: false`,
+    fails here instead of certifying a gate that will not fire. BaseLoader
+    keeps every scalar a string, so the `on:` key stays "on" and a disabled
+    condition stays visible as the literal "false". Matching inside a step's
+    run value is the tree's boundary: the shell command is a leaf.
     """
-    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-        return
-    ref = next(
-        (
-            candidate
-            for candidate in ("origin/main", "main")
-            if git("rev-parse", "--verify", "--quiet", candidate).returncode == 0
-        ),
-        None,
+    return yaml.load(workflow_text(), Loader=yaml.BaseLoader)
+
+
+def test_workflow_declares_merge_group() -> None:
+    # The pull_request trigger alone cannot see the subject that lands: the
+    # merge queue builds the squashed commit before a late rename is checked.
+    triggers = workflow_document()["on"]
+    assert "merge_group" in triggers, "pr-title.yml must trigger on merge_group"
+    assert triggers["merge_group"]["types"] == ["checks_requested"], (
+        "the merge queue reports required checks through checks_requested"
     )
-    if ref is None:
-        return
-    subjects = git("log", "--format=%s", "--no-merges", ref)
-    assert subjects.returncode == 0, subjects.stderr
-    lines = subjects.stdout.splitlines()
-    assert lines, "default-branch history is empty"
-    offenders = []
-    for subject in lines:
-        # Strip the reference GitHub appends when squashing.
-        trimmed = subject.rsplit(" (#", 1)[0] if subject.endswith(")") else subject
-        if rejects(trimmed) and subject not in PRE_GUARD_EXCEPTIONS:
-            offenders.append(subject)
-    assert not offenders, f"history subjects rejected: {offenders}"
+    assert "pull_request" in triggers, "pr-title.yml must still gate pull requests"
+    assert "edited" in triggers["pull_request"]["types"], (
+        "a renamed title must re-run the pull-request check"
+    )
 
 
-def test_pre_guard_exceptions_are_still_needed() -> None:
-    """An exception that has become unnecessary must not linger.
+def test_workflow_keeps_the_pull_request_title_check() -> None:
+    steps = workflow_document()["jobs"]["title"]["steps"]
+    gates = [
+        step
+        for step in steps
+        if step.get("if") == "github.event_name == 'pull_request'"
+    ]
+    assert len(gates) == 1, "exactly one pull_request-gated validation step"
+    assert gates[0]["env"]["COMMIT_TITLE"] == (
+        "${{ github.event.pull_request.title }}"
+    )
+    assert gates[0]["run"] == "python3 scripts/check-commit-title.py"
 
-    Published history cannot be rewritten, so the exception set is permanent in
-    practice; this test exists so that if one ever stops being reachable — a
-    rebase before publication, say — it is removed rather than quietly
-    weakening the assertion above.
-    """
-    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-        return
-    if git("rev-parse", "--verify", "--quiet", "origin/main").returncode != 0:
-        return
-    history = set(git("log", "--format=%s", "--no-merges", "origin/main").stdout.splitlines())
-    for subject in PRE_GUARD_EXCEPTIONS:
-        assert subject in history, f"unused pre-guard exception: {subject!r}"
-        assert rejects(subject.rsplit(" (#", 1)[0]), (
-            f"exception no longer needed, the guard accepts it: {subject!r}"
-        )
+
+def test_workflow_validates_the_queue_head_subject() -> None:
+    # The landed-subject gate must be live on merge_group: a step whose
+    # condition is disabled, or whose command drops the guard, cannot certify
+    # the subject the queue is about to land.
+    job = workflow_document()["jobs"]["title"]
+    assert job["name"] == "title", "the required check registers under this name"
+    gates = [
+        step
+        for step in job["steps"]
+        if step.get("if") == "github.event_name == 'merge_group'"
+    ]
+    assert len(gates) == 1, "exactly one merge_group-gated validation step"
+    run = gates[0]["run"]
+    assert run.startswith(
+        "python3 scripts/check-commit-title.py --landed-subject"
+    ), "the merge_group step must validate the queue head through the guard"
+    assert "git log -1 --format=%s" in run, (
+        "the merge_group step must read the queue head commit's subject"
+    )
+
+
+def test_landed_subject_strips_the_squash_reference() -> None:
+    assert (
+        guard.landed_subject("feat: add worker evidence (#123)")
+        == "feat: add worker evidence"
+    )
+    assert guard.landed_subject("feat: add worker evidence") == (
+        "feat: add worker evidence"
+    )
+    # Only the appended reference is stripped, not a description that ends in
+    # a parenthesised word without a reference number.
+    assert (
+        guard.landed_subject("feat: handle the boundary (edge)")
+        == "feat: handle the boundary (edge)"
+    )
+
+
+def test_landed_subject_path_rejects_a_violating_subject() -> None:
+    # The exact shape that reached main as `Update priorities (#61)`: stripping
+    # the reference must not rescue a subject outside the grammar.
+    assert rejects(guard.landed_subject("Update priorities (#61)"))
+    long_body = "a" * (guard.MAX_TITLE_BYTES - len("feat: ") + 1)
+    assert rejects(guard.landed_subject(f"feat: {long_body} (#1473)"))
+
+
+def test_landed_subject_path_accepts_a_valid_subject() -> None:
+    raw = "fix(store): consume a correction record only when the retry lands (#1473)"
+    assert not rejects(guard.landed_subject(raw))
+    # The accepted subject measures within the same budget a PR title has.
+    assert len(guard.landed_subject(raw).encode("utf-8")) <= guard.MAX_TITLE_BYTES
+
+
+def test_landed_subject_cli_mode() -> None:
+    script = ROOT / "scripts" / "check-commit-title.py"
+    ok = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--landed-subject",
+            "feat: add worker evidence (#12)",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert ok.returncode == 0, ok.stderr
+    bad = subprocess.run(
+        [sys.executable, str(script), "--landed-subject", "Update priorities (#61)"],
+        capture_output=True,
+        text=True,
+    )
+    assert bad.returncode == 1, bad.stdout
+    missing = subprocess.run(
+        [sys.executable, str(script), "--landed-subject"],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert missing.returncode == 2, "a missing subject must not pass"
 
 
 if __name__ == "__main__":

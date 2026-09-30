@@ -27,6 +27,7 @@ bump nothing downstream.
 Usage:
     check-commit-title.py "feat(store): add worker evidence"
     check-commit-title.py --stdin < title.txt
+    check-commit-title.py --landed-subject "feat: add worker evidence (#123)"
 """
 import os
 import sys
@@ -63,6 +64,21 @@ ALLOWED_TYPES = set(RELEASING_TYPES) | NON_RELEASING_TYPES
 MAX_SUBJECT_BYTES = 100
 SQUASH_REFERENCE_RESERVE = len(" (#99999)")
 MAX_TITLE_BYTES = MAX_SUBJECT_BYTES - SQUASH_REFERENCE_RESERVE
+
+# A squashed subject carries the pull-request reference GitHub appends when it
+# builds the merge-queue commit, and that commit's subject is the exact subject
+# that lands on main. The merge_group job in pr-title.yml validates the queue
+# head through landed_subject: the same grammar and byte budget as a
+# pull-request title, measured without the appended reference.
+
+
+def landed_subject(raw: str) -> str:
+    """Return the queue subject without GitHub's appended pull-request reference."""
+    subject = raw.strip()
+    cut = subject.rfind(" (#")
+    if cut != -1 and subject.endswith(")") and subject[cut + 3:-1].isdigit():
+        return subject[:cut]
+    return subject
 
 
 def findings_for(subject: str) -> list[str]:
@@ -133,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "--stdin":
         lines = sys.stdin.read().splitlines()
         subject = lines[0] if lines else ""
+    elif args and args[0] == "--landed-subject":
+        subject = landed_subject(args[1] if len(args) > 1 else "")
     elif args:
         subject = args[0]
     else:

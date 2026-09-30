@@ -66,11 +66,9 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 		return attemptID, epoch, err
 	}
 	lane := reviewGateLane(t, "review")
-	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{
-		EventID: "refine-completed-" + label + "-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "refine-completed-"+label+"-"+workID, attemptID, lane, time.Unix(41, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID, epoch, nil
@@ -116,7 +114,7 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) (workflowReturnRo
 	}
 	for _, event := range []Event{
 		{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: executionAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: executionAttempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})},
+		workerCompleteEventForLane(workID, "completed-"+workID, executionAttempt, lane, time.Unix(31, 0).UTC()),
 	} {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
 			t.Fatal(err)
@@ -348,7 +346,7 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 	}
 	for _, event := range []Event{
 		{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: executionAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		{EventID: "completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: executionAttempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})},
+		workerCompleteEventForLane(workID, "completed-"+workID, executionAttempt, lane, time.Unix(31, 0).UTC()),
 	} {
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
 			t.Fatal(err)
@@ -435,11 +433,9 @@ func seedReturnedRefineWithRecordedFailure(t *testing.T, workID string) (workflo
 		t.Fatalf("first-pass refine recovery dispatch after the recorded failure: %v", err)
 	}
 	reviewLane := reviewGateLane(t, "review")
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "refine-completed-refine-review-2-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(41, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: reviewAttempt, ReadbackModel: preferredModelForLane(reviewLane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "refine-completed-refine-review-2-"+workID, reviewAttempt, reviewLane, time.Unix(41, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, acceptor); err != nil {
@@ -481,11 +477,9 @@ func TestReturnedRefineRecordedFailureKeepsCorrectionClosed(t *testing.T) {
 	// The live worker route itself stays intact: the attempt completes its
 	// report and the accept disposes it.
 	lane := reviewGateLane(t, "review")
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "refine-completed-refine-live-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(43, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: liveAttempt, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "refine-completed-refine-live-"+workID, liveAttempt, lane, time.Unix(43, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/refine-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}

@@ -51,11 +51,9 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 	}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
-		EventID: "review-gate-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
-		Actor: "worker:test", OccurredAt: time.Unix(at+1, 0).UTC(), PayloadVersion: 1,
-		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
-	}}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		workerCompleteEventForLane(workID, "review-gate-completed-"+attemptID, attemptID, lane, time.Unix(at+1, 0).UTC()),
+	}}); err != nil {
 		t.Fatal(err)
 	}
 }

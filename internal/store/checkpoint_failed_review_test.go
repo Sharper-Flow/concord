@@ -190,7 +190,7 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	staleAttemptID := "attempt:" + workID + ":stale"
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
 		{EventID: "effect-stale-dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: staleAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		{EventID: "effect-stale-completed-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: staleAttemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})},
+		workerCompleteEventForLane(workID, "effect-stale-completed-"+workID, staleAttemptID, lane, time.Unix(31, 0).UTC()),
 	}}); err != nil {
 		t.Fatal(err)
 	}

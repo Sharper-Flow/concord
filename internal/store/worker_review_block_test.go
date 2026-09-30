@@ -358,3 +358,50 @@ func TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock(t *testing.T) {
 		t.Fatalf("completion under a legacy digest was refused: %v", err)
 	}
 }
+
+// The review-block requirement binds every live completion, whatever evidence
+// origin the completion claims: a live review completion that declares
+// legacy_unavailable carries no evidence to cover, but it still cannot make
+// the attempt terminal without the typed block the lane requires.
+func TestLiveLegacyUnavailableReviewCompletionStillRequiresTheBlock(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	lane := BuiltinLaneDefinitions()[3]
+	if lane.ID != "review" {
+		t.Fatalf("fixture lane = %s, want review", lane.ID)
+	}
+	workID := "review-block-legacy-origin"
+	legacyComplete := func(attemptID string, review *WorkerReviewBlock) Event {
+		payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable, Review: review}
+		return Event{EventID: attemptID + "-complete", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(payload)}
+	}
+	attemptID := "review-block-legacy-origin-attempt"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	before := workerProjectionSnapshot(t, s)
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyComplete(attemptID, nil)}})
+	if !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("blockless legacy_unavailable completion error = %v, want %s", err, KindInvalidPayload)
+	}
+	if detail := failureDetail(t, err); !strings.Contains(detail, "typed review block the review lane requires") {
+		t.Fatalf("failure detail = %q, want it to name the required block", detail)
+	}
+	if after := workerProjectionSnapshot(t, s); after != before {
+		t.Fatalf("refused completion changed the worker projection:\n%s\nwant\n%s", after, before)
+	}
+	second := "review-block-legacy-origin-attempt-2"
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, second, lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyComplete(second, reviewBlockFixture())}}); err != nil {
+		t.Fatalf("legacy_unavailable completion carrying the typed review block was refused: %v", err)
+	}
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, second).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "completed" {
+		t.Fatalf("lifecycle_state = %q, want completed", state)
+	}
+}

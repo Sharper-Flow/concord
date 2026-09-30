@@ -495,6 +495,11 @@ func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, wo
 type WorkflowLawContext struct {
 	Laws    []WorkflowLawContextLaw    `json:"laws"`
 	Domains []WorkflowLawContextDomain `json:"domains"`
+	// RegistryPath is the repository path of the Domain registry shard, set
+	// when the context binds at least one Domain. A dispatched lane holds no
+	// Concord tool access (CD-0017 D4), so the path is how it reads Domain
+	// structure: from the file, never from a tool call.
+	RegistryPath string `json:"registry_path,omitempty"`
 }
 
 type WorkflowLawContextLaw struct {
@@ -612,6 +617,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 			return nil, err
 		}
 		context.Domains = domains
+		context.RegistryPath = knowledgeRegistryPath
 	}
 	return context, nil
 }

@@ -339,6 +339,7 @@ const LAW_CONTEXT = {
     { domain_id: "root", name: "Root", purpose: "Product law" },
     { domain_id: "child", name: "Child", purpose: "Child law" },
   ],
+  registry_path: ".concord/docs/knowledge/domain-registry.json",
 }
 const PROPOSAL = { problem: "Workers receive bare law IDs", user_outcomes: ["Workers read the binding law"], constraints: ["Overflow stays fail-closed"] }
 
@@ -361,9 +362,21 @@ test("the context carries the resolved law block and proposal after the design r
   expect(context).toContain("- added law law:new")
   expect(context).toContain("- Domain root: Root — Product law")
   expect(context).toContain("- Domain child: Child — Child law")
+  expect(context).toContain("Domain registry: .concord/docs/knowledge/domain-registry.json")
   expect(context).toContain("Problem: Workers receive bare law IDs")
   expect(context).toContain("- Workers read the binding law")
   expect(context).toContain("- Overflow stays fail-closed")
+})
+
+// The registry path rides the law context only when the core sets it, so a
+// context without one renders no registry line for the lane to follow.
+test("a law context without a registry path renders no registry line", async () => {
+  const { registry_path: _omitted, ...withoutRegistry } = LAW_CONTEXT
+  const continuity = continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, withoutRegistry, PROPOSAL)
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
+  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+  expect(built.packet!.inputs.context).toContain("- Domain root: Root — Product law")
+  expect(built.packet!.inputs.context).not.toContain("Domain registry:")
 })
 
 test("a contract with no bound law dispatches without a law block", async () => {

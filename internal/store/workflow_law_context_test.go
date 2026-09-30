@@ -117,6 +117,46 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	if !reflect.DeepEqual(snapshot.LawContext.Domains, wantDomains) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
 	}
+	// The lane reads Domain structure from the repository file, so a contract
+	// that binds Domains carries the registry path in the packet's law block.
+	if snapshot.LawContext.RegistryPath != knowledgeRegistryPath {
+		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, knowledgeRegistryPath)
+	}
+}
+
+// A contract read that binds law but no Domain carries no registry path: the
+// law entries already name their own repository paths, and the registry file
+// would be a pointer the packet gives the lane no reason to follow. The
+// approval route always binds the home Domain, so this state is reachable
+// only through the read function's nil-binding contract, which is what the
+// field's presence rule keys on.
+func TestContinuityLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-law-only"
+	seedLawContextFixture(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	lawContext, err := readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, SpecMandate: []string{"spec:one"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lawContext == nil {
+		t.Fatal("law-only contract resolved no law context")
+	}
+	if len(lawContext.Laws) == 0 {
+		t.Fatal("law-only context carried no laws")
+	}
+	if lawContext.RegistryPath != "" {
+		t.Fatalf("law-only context registry path = %q, want empty", lawContext.RegistryPath)
+	}
+	if len(lawContext.Domains) != 0 {
+		t.Fatalf("law-only context Domains = %+v, want empty", lawContext.Domains)
+	}
 }
 
 // Constitution records are law-bearing under the accepted knowledge taxonomy

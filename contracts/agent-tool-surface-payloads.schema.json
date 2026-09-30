@@ -2655,6 +2655,12 @@
           "items": {
             "$ref": "#/$defs/workflow_law_context_domain"
           }
+        },
+        "registry_path": {
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
         }
       }
     },

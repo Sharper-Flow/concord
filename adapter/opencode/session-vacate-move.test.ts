@@ -51,9 +51,11 @@ async function fakeHost(post: (body: any) => { status: number; body: any }, get:
           const result = post(request.body)
           return { data: result.body, response: new Response(null, { status: result.status }) }
         },
-        get: async () => {
+        get: async (request: any) => {
           const result = get()
-          return { data: result.body, response: new Response(null, { status: result.status }) }
+          // The real session route answers the asked identity, so the record
+          // carries the id the caller's scope walk reads back.
+          return { data: { id: request?.path?.id ?? "session-1", ...(result.body as Record<string, unknown>) }, response: new Response(null, { status: result.status }) }
         },
       },
     } as never,

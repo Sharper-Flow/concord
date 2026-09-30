@@ -808,6 +808,59 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   return appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings])
 }
 
+// CD-0017 D4, extended by CD-0196: a dispatched worker lane runs under a
+// managed parent and holds no Concord tool access — the dispatch packet is
+// its complete Concord context. The guard consults the host parent boundary,
+// which does not trust the selected agent or its prompt, and refuses before
+// the core is invoked, so a lane call records nothing. The guard is
+// fail-closed: only a host answer that positively resolves the caller as an
+// unparented coordinator session passes. A session with a managed parent, a
+// session whose scope the host cannot resolve, and a control plane that
+// cannot answer at all all refuse unauthorized with effect_state none — each
+// leaves the caller unproven, and an unproven caller may be a lane. No
+// coordinator route changes: a coordinator session resolves unparented and
+// passes unchanged. A caller-cancelled signal is not a scope answer: the
+// boundary stands down for it, so the transport keeps the typed cancelled
+// envelope and the reconciliation retry paths stay reachable.
+const laneToolBoundary = "Concord worker lanes hold no Concord tool access (CD-0017 D4, extended by CD-0196): the dispatch packet is the lane's complete Concord context"
+async function laneConcordRefusalReason(context: ToolContext): Promise<string | null> {
+  if (context.abort.aborted) return null
+  // Without a bound control plane the parent boundary cannot answer, so the
+  // caller cannot be proven a coordinator session and the call refuses.
+  if (!hostControlPlane().available()) {
+    return `${laneToolBoundary}; the host control plane is unbound, so the caller cannot be proven a coordinator session`
+  }
+  let managedParent: boolean
+  try {
+    managedParent = await hostControlPlane().hasManagedParent(context.sessionID, context.abort)
+  } catch (error) {
+    if (context.abort.aborted) return null
+    const detail = error instanceof Error ? error.message : String(error)
+    return `${laneToolBoundary}; Concord cannot resolve this session's managed Task scope, so it cannot prove the caller is a coordinator session (${detail})`
+  }
+  if (!managedParent) return null
+  return `${laneToolBoundary}; the caller session runs under a managed parent`
+}
+
+function laneConcordRefusalEnvelope(toolName: string, operation: string, context: ToolContext, reason: string): ToolResult {
+  const requestID = `${context.sessionID}-${context.messageID}`
+  const envelope = adapterError(toolName, operation, requestID, "unauthorized", "lane_tool_refusal", `${reason}; the call is refused with effect_state none and records nothing.`, "none", "contact_operator")
+  return encodeHostResult(toolName, operation, requestID, envelope)
+}
+
+// laneGuarded fronts one concord_* tool entry with the lane guard, so every
+// entry checks the caller before its transport runs. work_start carries its
+// own closed result shape, so it supplies the refusal builder that speaks it.
+function laneGuarded(toolName: string, run: (args: any, context: ToolContext) => Promise<ToolResult>, refuse: (operation: string, context: ToolContext, reason: string) => ToolResult = (operation, context, reason) => laneConcordRefusalEnvelope(toolName, operation, context, reason)) {
+  return async (args: any, context: ToolContext): Promise<ToolResult> => {
+    const wrapped = args !== null && typeof args === "object" && args.request !== null && typeof args.request === "object"
+    const operation = wrapped ? String(hostRequest(args)?.operation ?? "") : ""
+    const reason = await laneConcordRefusalReason(context)
+    if (reason !== null) return refuse(operation, context, reason)
+    return run(args, context)
+  }
+}
+
 type WorkStartCaptureArgs = {
   title: string
   value_statement: string
@@ -1460,18 +1513,18 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
   }
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
-export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context) })
+export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: laneGuarded("concord_product_view", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context)) })
+export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: laneGuarded("concord_work_browse", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context)) })
+export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: laneGuarded("concord_work_trace", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context)) })
+export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: laneGuarded("concord_knowledge", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context)) })
+export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
+export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
+export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: laneGuarded("concord_work_initiative", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context)) })
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context)) })
 export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
-  execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
+  execute: laneGuarded("concord_work_relate", async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
     // Same shape as the transition tool: a supersede that terminalizes the
     // work whose worktree this session runs in carries a vacate_target the
     // adapter applies before the result is reported (CD-0179).
@@ -1482,10 +1535,10 @@ export const work_relate = tool({
     const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
     return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings])
-  },
+  }),
 })
-export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context) })
-export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
+export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: laneGuarded("concord_work_compact", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context)) })
+export const work_start = tool({ description: `${hostToolDescriptions.concord_work_start} ${workStartUsage}`, args: workStartArgsSchema(), execute: laneGuarded("concord_work_start", async (args: any, context: ToolContext): Promise<ToolResult> => {
   const staleness = releaseStaleness()
   // The work_start result envelope is the adapter's own closed shape with no
   // warnings member, so the staleness notice rides the output layer the
@@ -1495,7 +1548,7 @@ export const work_start = tool({ description: `${hostToolDescriptions.concord_wo
   let output = JSON.stringify(envelope)
   if (Buffer.byteLength(output) > maxEnvelopeBytes) output = JSON.stringify(workStartError("output_exceeded", `work_start result exceeds ${maxEnvelopeBytes} bytes`, { product_id: envelope.product_id, project_id: envelope.project_id, work_id: envelope.work_id, worktree_path: envelope.worktree_path }))
   return appendWarnings({ title: "concord_work_start", output, metadata: {} }, warnings)
-} })
+}, (operation, context, reason) => ({ title: "concord_work_start", output: JSON.stringify(workStartError("unauthorized", `${reason}; the call is refused with effect_state none and records nothing.`, {}, "contact_operator")), metadata: {} })) })
 
 // laneDispatchRequest decides whether a work_transition invocation routes to
 // the lane dispatcher (CD-0067 D5) or falls through to the generic core

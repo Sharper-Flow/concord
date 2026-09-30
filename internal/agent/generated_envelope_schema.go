@@ -588,7 +588,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "malformed_response",
                       "timeout",
                       "cancelled",
-                      "operation_conflict"
+                      "operation_conflict",
+                      "unauthorized"
                     ],
                     "type": "string"
                   }
@@ -2615,7 +2616,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "manifest_mismatch",
             "grant_bootstrap_failed",
             "unknown_effect",
-            "session_occupancy_unreadable"
+            "session_occupancy_unreadable",
+            "session_directory_unreadable",
+            "lane_tool_refusal"
           ],
           "type": "string"
         },

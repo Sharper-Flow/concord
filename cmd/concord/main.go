@@ -74,8 +74,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
-	// Continuity block is a read-only transport for launcher hooks. It must run
-	// before project and JSON routing so it does not consume stdin.
+	// Continuity block is a read-only transport for the adapter's per-turn
+	// hook. It must run before project and JSON routing so it does not
+	// consume stdin.
 	if len(args) > 0 && args[0] == "continuity-block" {
 		return runContinuityBlockCommand(args[1:], out, errOut)
 	}
@@ -251,7 +252,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
-	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
 	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")

@@ -7,7 +7,7 @@ Usage:
   concord zl <work> --project <project>   # land in that member Project of the work
   concord zl --resume-last   # resume the last workspace
   concord session    # internal TTY bootstrap; launcher identity env required
-  concord continuity-block             # read-only continuity packet; launcher identity env required
+  concord continuity-block <directory>   # read-only continuity packet for the session directory
   concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade                      # apply pending migrations; refuses under an older live session

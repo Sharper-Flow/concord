@@ -146,11 +146,13 @@ func TestSessionRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
 	}
 }
 
-func TestContinuityBlockPrintsDeterministicPacket(t *testing.T) {
-	t.Setenv(selectedProductEnv, "product-1")
-	t.Setenv(selectedWorkEnv, "work-1")
+func TestContinuityBlockPrintsDeterministicPacketForDirectory(t *testing.T) {
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
-	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
+	directory := "/session/worktree"
+	bootstrap := func(_ context.Context, _, dir string) ([]byte, error) {
+		if dir != directory {
+			t.Fatalf("continuity-block resolved %q, want the supplied directory %q", dir, directory)
+		}
 		return sessionboot.Build("product-1", store.ContinuitySnapshot{
 			WorkID: "work-1", ProductIdentity: []string{"product-1"}, WorkflowStep: "planning",
 			SpecMandate: []string{}, Boundaries: []store.ContextBoundary{}, Watermark: "seq:42",
@@ -160,7 +162,7 @@ func TestContinuityBlockPrintsDeterministicPacket(t *testing.T) {
 	var packets []string
 	for range 2 {
 		var out, errOut bytes.Buffer
-		if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code != 0 {
+		if code := runContinuityBlockCommandWithDirectory([]string{directory}, &out, &errOut, bootstrap); code != 0 {
 			t.Fatalf("continuity-block exit=%d stderr=%q", code, errOut.String())
 		}
 		packets = append(packets, out.String())
@@ -176,33 +178,42 @@ func TestContinuityBlockPrintsDeterministicPacket(t *testing.T) {
 	}
 }
 
-func TestContinuityBlockWithEmptyWorkIDDoesNothing(t *testing.T) {
-	t.Setenv(selectedProductEnv, "product-1")
-	t.Setenv(selectedWorkEnv, "")
+func TestContinuityBlockWithoutResolvedClaimPrintsNothing(t *testing.T) {
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
-	called := false
-	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
-		called = true
-		return nil, errors.New("bootstrap must not run")
+	bootstrap := func(context.Context, string, string) ([]byte, error) {
+		return nil, nil
 	}
 	var out, errOut bytes.Buffer
-	if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code != 0 {
+	if code := runContinuityBlockCommandWithDirectory([]string{"/session/main-checkout"}, &out, &errOut, bootstrap); code != 0 {
 		t.Fatalf("continuity-block exit=%d stderr=%q", code, errOut.String())
 	}
-	if called || out.Len() != 0 || errOut.Len() != 0 {
-		t.Fatalf("continuity-block empty-work output=%q stderr=%q called=%t", out.String(), errOut.String(), called)
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("continuity-block unresolved output=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestContinuityBlockRefusesArgumentCountsOtherThanOne(t *testing.T) {
+	bootstrap := func(context.Context, string, string) ([]byte, error) {
+		return nil, errors.New("bootstrap must not run")
+	}
+	for _, args := range [][]string{nil, {"one", "two"}} {
+		var out, errOut bytes.Buffer
+		if code := runContinuityBlockCommandWithDirectory(args, &out, &errOut, bootstrap); code != 2 {
+			t.Fatalf("continuity-block %v exit=%d stderr=%q", args, code, errOut.String())
+		}
+		if out.Len() != 0 || !strings.Contains(errOut.String(), "supply exactly one session directory") {
+			t.Fatalf("continuity-block %v output=%q stderr=%q", args, out.String(), errOut.String())
+		}
 	}
 }
 
 func TestContinuityBlockReadFailureIsSilentOnStdout(t *testing.T) {
-	t.Setenv(selectedProductEnv, "product-1")
-	t.Setenv(selectedWorkEnv, "work-1")
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "fixture.db"))
-	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
+	bootstrap := func(context.Context, string, string) ([]byte, error) {
 		return nil, errors.New("continuity read failed")
 	}
 	var out, errOut bytes.Buffer
-	if code := runContinuityBlockCommandWithBootstrap(nil, &out, &errOut, bootstrap); code == 0 {
+	if code := runContinuityBlockCommandWithDirectory([]string{"/session/worktree"}, &out, &errOut, bootstrap); code == 0 {
 		t.Fatal("continuity-block succeeded after continuity read failure")
 	}
 	if out.Len() != 0 || !strings.Contains(errOut.String(), "continuity read failed") {

@@ -1,0 +1,35 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-09-30T00:00:00Z",
+  "evidence": [
+    "internal/store/workpin.go",
+    "internal/store/lifecycle.go",
+    "internal/store/workflow_completion.go",
+    "docs/decisions/CD-0183-workflow-actions-start-the-lifecycle-and-the-completion-closes-it.md"
+  ],
+  "id": "lesson-drive-live-workflow-to-complete",
+  "kind": "lesson",
+  "path": "docs/lessons/2026-09-30-drive-a-live-workflow-to-complete-keep-the-cance.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "explicit",
+    "product_ids": [
+      "concord"
+    ],
+    "project_ids": [
+      "concord"
+    ],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3b791fa82cc18286b2c4a5ba24cf4d6b6bc80739ac1ec1fecfc3ffcf31d70007",
+  "status": "published",
+  "summary": "Close delivered work through the workflow complete action, which records verdicts, the premise confirmation, and verified_criteria. The lifecycle close on a cancelled instance (CD-0183 D4) is a repair route for items whose workflow cannot advance. The work pin field cancelled_instance_closes counts its use in the Project.",
+  "tags": [
+    "workflow",
+    "lifecycle",
+    "completion"
+  ],
+  "title": "Drive a live workflow to complete; keep the cancelled-instance close for stranded items"
+}

@@ -36,6 +36,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema.go"
 
@@ -49,8 +50,6 @@ RULE_FLOOR = 108
 # field name depends on the longest field name present in that literal. Every
 # field pattern here tolerates that alignment rather than pinning one width.
 ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
-DECLARES_BREAKING = re.compile(r"^\t\tBreaking:\s+true,$", re.MULTILINE)
-DECLARES_FOLD = re.compile(r"^[ \t]*FoldMaintained:[ \t]*(.*)$", re.MULTILINE)
 FOLD_VOCABULARY = ("advance", "origin")
 # What fold_maintained returns for a field whose value is not on the field's
 # own line: present, unreadable, and outside every vocabulary. Text no Go
@@ -171,72 +170,129 @@ def classify(sql: str) -> list[str]:
 SQL_LITERAL = re.compile(r"\n\t\tSQL:\s+`([\s\S]*?)`,\n", re.MULTILINE)
 
 
-def go_code_text(region: str) -> str:
-    """Return the region's Go code with comments blanked and literals kept.
+class Tok(NamedTuple):
+    kind: str  # ident, string, raw, number, punct, newline
+    text: str
 
-    Comments leave whitespace behind, so line structure survives: a field
-    line commented out is absent, and a block comment ahead of a field name
-    still leaves the field findable. String literals stay intact, because a
-    declaration's value is one; a literal's content can never carry a line
-    the field regex matches, since interpreted literals hold no newline and
-    raw literals in an entry are the SQL the caller already removed.
+
+GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+GO_NUMBER = re.compile(r"\d[\w.]*")
+
+
+def go_tokens(region: str) -> list[Tok]:
+    """Tokenize the region's Go code enough to find keyed struct fields.
+
+    Comments produce no tokens, string and raw literals are each one token,
+    and newlines survive as tokens. Field recognition therefore never
+    depends on how source is laid out on lines: text inside a literal or a
+    comment cannot pose as a field, a comment cannot hide one wherever it
+    sits, and two fields on one line are still two fields.
     """
-    out: list[str] = []
+    out: list[Tok] = []
     i, n = 0, len(region)
     while i < n:
         ch = region[i]
-        if ch == '"':
-            j = i + 1
-            while j < n and region[j] != '"':
-                j += 2 if region[j] == "\\" else 1
-            out.append(region[i : min(j + 1, n)])
-            i = j + 1
-        elif ch == "`":
-            end = region.find("`", i + 1)
-            end = n if end < 0 else end + 1
-            out.append(region[i:end])
-            i = end
-        elif region.startswith("/*", i):
-            end = region.find("*/", i + 2)
-            end = n if end < 0 else end + 2
-            out.append(" ")
-            i = end
+        if ch == "\n":
+            out.append(Tok("newline", "\n"))
+            i += 1
+        elif ch in " \t\r":
+            i += 1
         elif region.startswith("//", i):
             end = region.find("\n", i)
             i = n if end < 0 else end
+        elif region.startswith("/*", i):
+            end = region.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif ch == '"':
+            j = i + 1
+            while j < n and region[j] != '"':
+                j += 2 if region[j] == "\\" else 1
+            j = min(j, n - 1)
+            out.append(Tok("string", region[i : j + 1]))
+            i = j + 1
+        elif ch == "`":
+            end = region.find("`", i + 1)
+            end = n - 1 if end < 0 else end
+            out.append(Tok("raw", region[i : end + 1]))
+            i = end + 1
         else:
-            out.append(ch)
-            i += 1
-    return "".join(out)
+            match = GO_IDENT.match(region, i) or GO_NUMBER.match(region, i)
+            if match:
+                out.append(Tok("ident", match.group(0)))
+                i = match.end()
+            else:
+                out.append(Tok("punct", ch))
+                i += 1
+    return out
+
+
+def field_run(entry: str, name: str) -> list[Tok] | None:
+    """Return the value tokens of the entry's keyed field `name`.
+
+    None means the entry never declares the field in code position. The
+    run spans from after the colon to the comma that closes the value at
+    bracket depth zero, so a function-valued field's internal commas stay
+    inside it. A run holding only a newline means the value starts on a
+    later line than its colon.
+    """
+    tokens = go_tokens(entry)
+    for i, tok in enumerate(tokens):
+        if tok.kind != "ident" or tok.text != name:
+            continue
+        if i + 1 >= len(tokens) or tokens[i + 1].text != ":":
+            continue
+        run: list[Tok] = []
+        depth = 0
+        for value in tokens[i + 2 :]:
+            if value.kind == "newline" and not run:
+                return [value]
+            if value.kind == "punct":
+                if value.text in "([{":
+                    depth += 1
+                elif value.text in ")]}":
+                    depth -= 1
+                elif value.text == "," and depth <= 0:
+                    break
+            run.append(value)
+        return run
+    return None
 
 
 def fold_maintained(entry: str) -> str:
     """Return the entry's FoldMaintained declaration, or "" when the field
     is absent.
 
-    The search runs over the entry's Go code with comments blanked, so a
-    commented-out field line is not a declaration and a block comment
-    before the field name does not hide it. The value is the field's Go
-    expression: a trailing // comment and comma come off, and only a fully
-    double-quoted literal unquotes. Any other form the line carries, such
-    as a raw string or a concatenated expression, stays as unparsed text
-    and fails the vocabulary check, so a present field never reads as an
-    absent one. A field whose value starts on a later line returns
+    The field is recognized as Go tokens, never as a text shape: comments
+    and literal contents cannot supply or hide it. Only a value that is
+    exactly one interpreted string literal unquotes; any other expression,
+    such as a raw string, a constant, or a concatenation, stays as unparsed
+    text and fails the vocabulary check, so a present field never reads as
+    an absent one. A value that starts on a later line returns
     FOLD_VALUE_ELSEWHERE: the checker refuses the multiline form rather
     than guess at it, so the declaration keeps its value on the field's
     own line. The declaration is a signed human claim (see the migration
-    struct), so a genuinely missing line is an empty declaration rather
+    struct), so a genuinely missing field is an empty declaration rather
     than a parse error.
     """
-    match = DECLARES_FOLD.search(go_code_text(entry))
-    if not match:
+    run = field_run(entry, "FoldMaintained")
+    if run is None:
         return ""
-    value = re.sub(r"//.*$", "", match.group(1)).strip().rstrip(",").strip()
-    if not value:
+    if not run or run[0].kind == "newline":
         return FOLD_VALUE_ELSEWHERE
-    if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
-        return value[1:-1]
-    return value
+    if len(run) == 1 and run[0].kind == "string":
+        return run[0].text[1:-1]
+    return " ".join(tok.text for tok in run)
+
+
+def declares_breaking(entry: str) -> bool:
+    """Return whether the entry declares Breaking as the literal true.
+
+    The same token recognition governs this field: a true inside a comment
+    or a literal is not a declaration, and any value other than the single
+    identifier true reads as undeclared, which fails closed.
+    """
+    run = field_run(entry, "Breaking")
+    return bool(run) and len(run) == 1 and run[0].kind == "ident" and run[0].text == "true"
 
 
 def adds_preexisting_column(sql: str) -> bool:
@@ -293,7 +349,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     failures: list[str] = []
     breaking_versions: list[int] = []
     for version, entry, sql in entries:
-        declared = bool(DECLARES_BREAKING.search(entry))
+        declared = declares_breaking(entry)
         fold = fold_maintained(entry)
         reasons = classify(sql)
         if version > RULE_FLOOR:

@@ -336,6 +336,102 @@ expect_evaluate(
     breaking=[],
 )
 
+# A raw-string Name cannot impersonate or override the declaration: literal
+# contents are one token and never a field.
+RAW_NAME_IMPERSONATION_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 118,\n"
+    "\t\tName: `probe\n"
+    '\t\tFoldMaintained: "origin",\n'
+    "\t\t`,\n"
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a declaration-shaped line inside a raw Name satisfies nothing",
+    check.migrations(RAW_NAME_IMPERSONATION_SOURCE),
+    failures=1,
+    breaking=[],
+)
+RAW_NAME_OVERRIDE_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 119,\n"
+    "\t\tName: `probe\n"
+    '\t\tFoldMaintained: "origin",\n'
+    "\t\t`,\n"
+    '\t\tFoldMaintained: "advance",\n'
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a real advance behind a decoy raw Name still forces the breaking declaration",
+    check.migrations(RAW_NAME_OVERRIDE_SOURCE),
+    failures=1,
+    breaking=[119],
+)
+
+# Field layout the line-anchored search missed: a comment between the field
+# name and its colon, and two fields sharing a line.
+COMMENT_BEFORE_COLON_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 120,\n\t\tName: \"comment_before_colon\",\n"
+    '\t\tFoldMaintained /* signed claim */: "later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+INLINE_FIELD_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 121,\n"
+    '\t\tName: "inline", FoldMaintained: "later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+for name, source in (
+    ("comment between name and colon", COMMENT_BEFORE_COLON_SOURCE),
+    ("inline field on a shared line", INLINE_FIELD_SOURCE),
+):
+    parsed_folds(f"{name} parses", source, ["later"])
+    expect_evaluate(
+        f"{name} is refused, not read as absent",
+        check.migrations(source),
+        failures=2,
+        breaking=[],
+    )
+
+# A block comment that begins mid-line and ends beside the field must not
+# merge the field away: comments carry no line structure of their own.
+COMMENT_MERGE_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 122,\n\t\tName: \"merge\",\n"
+    "\t\t/* spans\n"
+    '\t\tlines */ FoldMaintained: "later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+parsed_folds("field after a merged block comment parses", COMMENT_MERGE_SOURCE, ["later"])
+expect_evaluate(
+    "field after a merged block comment is refused, not read as absent",
+    check.migrations(COMMENT_MERGE_SOURCE),
+    failures=2,
+    breaking=[],
+)
+
+# Breaking gets the same token recognition: a commented true inside a
+# breaking migration reads as undeclared and fails closed.
+BREAKING_COMMENTED_TRUE_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 123,\n\t\tName: \"commented_true\",\n"
+    "\t\tBreaking: /* why */ true,\n"
+    "\t\tSQL: `DROP TABLE existing;`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a commented-true Breaking declaration still counts",
+    check.migrations(BREAKING_COMMENTED_TRUE_SOURCE),
+    failures=0,
+    breaking=[123],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

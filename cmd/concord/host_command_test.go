@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // probeStub records the argv of every probe it receives and answers each one
@@ -315,4 +318,72 @@ func TestResolveHostCommandRefusesAnUnreadableBootstrapDocument(t *testing.T) {
 			t.Fatalf("err=%v, want the unreadable-document refusal", err)
 		}
 	})
+}
+
+// A probe that ends before the host prints is transient, and the resolution
+// carries the typed interrupted-probe error through both probes: the bare
+// probe's failure is not a refused document, and a configured command that
+// has not answered yet is not a refused host_command option.
+func TestResolveHostCommandPreservesAnInterruptedProbe(t *testing.T) {
+	t.Run("bare probe", func(t *testing.T) {
+		probe := func(context.Context, []string, string) ([]byte, error) {
+			return nil, &hostProbeInterruptedError{DeadlinePassed: true, Cause: errors.New("signal: killed")}
+		}
+		_, err := resolveHostCommand(context.Background(), "/resolved/dir", probe)
+		var interrupted *hostProbeInterruptedError
+		if !errors.As(err, &interrupted) {
+			t.Fatalf("bare probe error=%v, want the typed interrupted-probe error", err)
+		}
+		var invalid *hostCommandInvalidError
+		if errors.As(err, &invalid) {
+			t.Fatalf("bare probe error=%v, want it not to be a host_command refusal", err)
+		}
+	})
+	t.Run("configured command probe", func(t *testing.T) {
+		bare := concordTuple(t, map[string]any{"host_command": []string{"host-wrapper"}}, "concord-plugin.ts")
+		probe := func(_ context.Context, argv []string, _ string) ([]byte, error) {
+			if argv[0] == "opencode" {
+				return []byte(bare), nil
+			}
+			return nil, &hostProbeInterruptedError{Cause: errors.New("signal: killed")}
+		}
+		_, err := resolveHostCommand(context.Background(), "/resolved/dir", probe)
+		var interrupted *hostProbeInterruptedError
+		if !errors.As(err, &interrupted) {
+			t.Fatalf("configured probe error=%v, want the typed interrupted-probe error", err)
+		}
+		var invalid *hostCommandInvalidError
+		if errors.As(err, &invalid) {
+			t.Fatalf("configured probe error=%v, want it not to be a host_command refusal", err)
+		}
+		if !strings.Contains(err.Error(), "signal: killed") {
+			t.Fatalf("diagnostic %q, want it to name the signal", err.Error())
+		}
+	})
+}
+
+// probeHostConfig classifies the probe's own deadline as an interrupted
+// probe: the error is the typed interrupted-probe error, it names the
+// deadline, and it is not a host_command refusal.
+func TestTimedOutRegistryProbeIsTheTypedInterruptedError(t *testing.T) {
+	binDir := t.TempDir()
+	script := "#!/bin/sh\nwhile true; do :; done\n"
+	if err := os.WriteFile(filepath.Join(binDir, "sleepy-host"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := probeHostConfig(probeCtx, hostProbeArgv([]string{"sleepy-host"}), t.TempDir())
+	var interrupted *hostProbeInterruptedError
+	if !errors.As(err, &interrupted) || !interrupted.DeadlinePassed {
+		t.Fatalf("probe error=%v, want the typed interrupted-probe error naming the deadline", err)
+	}
+	if !strings.Contains(err.Error(), "deadline") {
+		t.Fatalf("diagnostic %q, want it to name the probe deadline", err.Error())
+	}
+	var invalid *hostCommandInvalidError
+	if errors.As(err, &invalid) {
+		t.Fatalf("probe error=%v, want it not to be a host_command refusal", err)
+	}
 }

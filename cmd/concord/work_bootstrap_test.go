@@ -561,6 +561,156 @@ func TestSessionPrepareRunsLaneIdentityBeforeOrchestratorAndBoot(t *testing.T) {
 	}
 }
 
+// TestSessionPrepareReportsAKilledRegistryProbeAsRetryable covers a host
+// registry probe that the kernel or the probe timeout kills. The host
+// process never printed a document, so the registry is unestablished, but
+// nothing about the configuration refuses: the same request passes once
+// the host answers. session-prepare reports the ordinary failure status,
+// which the adapter maps to retry_same_request, and never the refusal
+// status, which the adapter maps to contact_operator.
+func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nkill -9 $$\n")
+	t.Chdir(result.Entry.Path)
+	identityCalls := 0
+	var out, errOut bytes.Buffer
+	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
+		func(string) error { return nil },
+		hostSessionHostCommand,
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			identityCalls++
+			return "concord-1", nil
+		},
+		func(context.Context, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+	if code != 1 || identityCalls != 0 {
+		t.Fatalf("killed probe code=%d identity_calls=%d stderr=%q, want the retryable failure status 1", code, identityCalls, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "killed") {
+		t.Fatalf("diagnostic=%q, want it to name the killed probe", errOut.String())
+	}
+}
+
+// TestTimedOutRegistryProbeTypedAndExit1 covers a host that answers slower
+// than the probe deadline. probeHostConfig returns the typed
+// interrupted-probe error naming the deadline, and session-prepare reports
+// the ordinary failure status, which the adapter maps to retry_same_request,
+// instead of the refusal status. The short deadline comes from the parent
+// context: probeHostConfig applies whichever deadline expires first.
+func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nwhile true; do :; done\n")
+	t.Chdir(result.Entry.Path)
+	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, probeErr := probeHostConfig(probeCtx, hostProbeArgv(defaultHostCommand), result.Entry.Path)
+	var interrupted *hostProbeInterruptedError
+	if !errors.As(probeErr, &interrupted) || !interrupted.DeadlinePassed {
+		t.Fatalf("timed-out probe error=%v, want the typed interrupted-probe error naming the deadline", probeErr)
+	}
+	identityCalls := 0
+	var out, errOut bytes.Buffer
+	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
+		func(string) error { return nil },
+		func(ctx context.Context, dir string) (hostCommandResolution, error) {
+			timedCtx, timedCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+			defer timedCancel()
+			return hostSessionHostCommand(timedCtx, dir)
+		},
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			identityCalls++
+			return "concord-1", nil
+		},
+		func(context.Context, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+	if code != 1 || identityCalls != 0 {
+		t.Fatalf("timed-out probe code=%d identity_calls=%d stderr=%q, want the retryable failure status 1", code, identityCalls, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "deadline") {
+		t.Fatalf("diagnostic=%q, want it to name the probe deadline", errOut.String())
+	}
+}
+
+// TestDeterministicHostRegistryRefusalsExit2 covers the probe outcomes that
+// refuse: a host that exits nonzero on its own, and a host executable the
+// PATH does not carry. Neither condition clears on a replay, so
+// session-prepare keeps the refusal status; only an interrupted probe is
+// retryable.
+func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
+	newFixture := func(t *testing.T) (workID string, worktree string, dbPath string) {
+		repo := initLocatorRepo(t)
+		path := filepath.Join(t.TempDir(), "concord.db")
+		s := mustOpenStore(t, path)
+		seedLocatorAuthority(t, s, repo)
+		result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(dbOverrideEnv, path)
+		return result.WorkID, result.Entry.Path, path
+	}
+	run := func(t *testing.T, dbPath, workID string) (int, string) {
+		var out, errOut bytes.Buffer
+		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
+			func(string) error { return nil },
+			hostSessionHostCommand,
+			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+				t.Fatal("the identity step ran after a refused probe")
+				return "", nil
+			},
+			func(context.Context, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+		return code, errOut.String()
+	}
+	t.Run("a host that exits nonzero on its own refuses", func(t *testing.T) {
+		workID, worktree, dbPath := newFixture(t)
+		installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nexit 3\n")
+		t.Chdir(worktree)
+		code, diagnostic := run(t, dbPath, workID)
+		if code != sessionPrepareRefusalExit {
+			t.Fatalf("nonzero-exit probe code=%d stderr=%q, want the refusal status %d", code, diagnostic, sessionPrepareRefusalExit)
+		}
+		if !strings.Contains(diagnostic, "exit status 3") {
+			t.Fatalf("diagnostic=%q, want it to name the exit status", diagnostic)
+		}
+	})
+	t.Run("a missing host executable refuses", func(t *testing.T) {
+		workID, worktree, dbPath := newFixture(t)
+		// A PATH without opencode but with git, which the Project
+		// resolution shells out to before the probe runs.
+		gitPath, err := exec.LookPath("git")
+		if err != nil {
+			t.Fatal(err)
+		}
+		binDir := t.TempDir()
+		if err := os.Symlink(gitPath, filepath.Join(binDir, "git")); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		t.Chdir(worktree)
+		code, diagnostic := run(t, dbPath, workID)
+		if code != sessionPrepareRefusalExit {
+			t.Fatalf("missing-executable probe code=%d stderr=%q, want the refusal status %d", code, diagnostic, sessionPrepareRefusalExit)
+		}
+		if !strings.Contains(diagnostic, "executable file not found") {
+			t.Fatalf("diagnostic=%q, want it to name the missing executable", diagnostic)
+		}
+	})
+}
+
 func mustOpenStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	s, err := store.Open(context.Background(), path)

@@ -79,6 +79,43 @@ func (e *hostCommandInvalidError) Error() string {
 
 func (e *hostCommandInvalidError) Unwrap() error { return e.Cause }
 
+// hostProbeInterruptedError reports a host registry probe that ended before
+// the host printed a configuration document: the probe deadline passed, or a
+// signal ended the host process. Nothing about the host's configuration
+// refused — the same request passes once the host answers — so the failure
+// is transient, and session-prepare reports it with the ordinary failure
+// status instead of the refusal status. The diagnostic names the deadline or
+// the signal that ended the probe.
+type hostProbeInterruptedError struct {
+	DeadlinePassed bool
+	Cause          error
+}
+
+func (e *hostProbeInterruptedError) Error() string {
+	message := "host registry probe was interrupted"
+	if e.DeadlinePassed {
+		message += "; the probe deadline passed"
+	}
+	if e.Cause != nil {
+		message += "; cause: " + e.Cause.Error()
+	}
+	return message
+}
+
+func (e *hostProbeInterruptedError) Unwrap() error { return e.Cause }
+
+// probeSignaled reports whether a probe error reports a host process a
+// signal ended, including the kill exec.CommandContext delivers when the
+// probe's deadline passes. A process cmd.Run waited on reports ExitCode -1
+// exactly when a signal ended it (os.ProcessState.ExitCode).
+func probeSignaled(probeErr error) bool {
+	var exit *exec.ExitError
+	if errors.As(probeErr, &exit) && exit.ProcessState != nil {
+		return exit.ProcessState.ExitCode() == -1
+	}
+	return false
+}
+
 // hostProbeArgv returns the argv a host command resolves its configuration
 // with. The bare default probe is hostProbeArgv(defaultHostCommand).
 func hostProbeArgv(command []string) []string {
@@ -97,6 +134,10 @@ func hostProbeArgv(command []string) []string {
 func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFunc) (hostCommandResolution, error) {
 	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
 	if err != nil {
+		var interrupted *hostProbeInterruptedError
+		if errors.As(err, &interrupted) {
+			return hostCommandResolution{}, interrupted
+		}
 		return hostCommandResolution{}, fmt.Errorf("host registry probe failed: %w", err)
 	}
 	command, present, err := hostCommandFromDocument(document)
@@ -112,6 +153,10 @@ func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFu
 	}
 	configuredDocument, err := probe(ctx, hostProbeArgv(command), dir)
 	if err != nil {
+		var interrupted *hostProbeInterruptedError
+		if errors.As(err, &interrupted) {
+			return hostCommandResolution{}, interrupted
+		}
 		return hostCommandResolution{}, &hostCommandInvalidError{Problem: "could not be probed through the configured command", Cause: err}
 	}
 	confirmed, present, err := hostCommandFromDocument(configuredDocument)
@@ -263,6 +308,10 @@ func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, er
 	// mixing the two would corrupt the JSON.
 	cmd.Stdout = sink
 	if err := cmd.Run(); err != nil {
+		deadlinePassed := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		if deadlinePassed || probeSignaled(err) {
+			return nil, &hostProbeInterruptedError{DeadlinePassed: deadlinePassed, Cause: err}
+		}
 		return nil, err
 	}
 	if err := sink.Close(); err != nil {

@@ -290,3 +290,74 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 		t.Fatalf("correction wall detail = %q, want the unchanged CD-0164 refusal", failure.Detail)
 	}
 }
+
+// The CON-729 journey: the escalated retry approval arms at three failed
+// attempts, the approved retry dispatch folds, and the session dies before the
+// host dispatches the worker. The half-materialized dispatch must leave the
+// correction record live, so the retry binding keeps naming the failed attempt
+// identity and epoch, the unapproved re-dispatch still refuses at the wall, and
+// the approved re-dispatch passes it exactly as the refusal message promises.
+func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
+	const workID = "same-step-wall-half-dispatch"
+	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
+	defer s.Close()
+	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	failedID := "attempt:" + workID + ":3"
+	if pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.FailedAttemptID != failedID {
+		t.Fatalf("escalated correction = %#v, want the failed attempt %s", pin.Correction, failedID)
+	}
+
+	// The approved retry folds, then the interruption: no worker.dispatched
+	// event, no worker_attempts row.
+	interrupted := "attempt:" + workID + ":4"
+	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", interrupted, pin.Correction)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "half-dispatch-approved-" + workID, OperationID: "half-dispatch-approved-" + workID,
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-approved-" + workID, RequestID: "request:half-dispatch-approved-" + workID,
+		ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(), EscalatedRetryApproved: true,
+	}); err != nil {
+		t.Fatalf("approved interrupted retry: %v", err)
+	}
+
+	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	if err != nil {
+		t.Fatalf("read retry binding after the interruption: %v", err)
+	}
+	if binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != 5 {
+		t.Fatalf("retry binding after the interruption = %+v, want the failed attempt identity and epoch", binding)
+	}
+
+	// The wall keeps refusing the re-dispatch without the operator approval.
+	retry := "attempt:" + workID + ":5"
+	payload = issue1013CorrectionDispatchPayload(t, workID, "repair", retry, pin.Correction)
+	_, dispatchErr := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "half-dispatch-retry-" + workID, OperationID: "half-dispatch-retry-" + workID,
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-retry-" + workID, RequestID: "request:half-dispatch-retry-" + workID,
+		ContractDigest: testManifestDigest, Now: time.Unix(41, 0).UTC(),
+	})
+	var refusal *Failure
+	if !errors.As(dispatchErr, &refusal) || refusal.Kind != KindApprovalRequired {
+		t.Fatalf("unapproved re-dispatch failure=%v, want approval_required", dispatchErr)
+	}
+
+	// The approved re-dispatch passes the wall, and its materialization
+	// consumes the record.
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "half-dispatch-retry-approved-" + workID, OperationID: "half-dispatch-retry-approved-" + workID,
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-retry-approved-" + workID, RequestID: "request:half-dispatch-retry-approved-" + workID,
+		ContractDigest: testManifestDigest, Now: time.Unix(42, 0).UTC(), EscalatedRetryApproved: true,
+	}); err != nil {
+		t.Fatalf("approved re-dispatch after the interruption: %v", err)
+	}
+	issue1013RecordWorkerDispatch(t, s, workID, retry)
+	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, workID)
+	if err != nil {
+		t.Fatalf("read retry binding after the materialized re-dispatch: %v", err)
+	}
+	if binding != nil {
+		t.Fatalf("retry binding after the materialized re-dispatch = %+v, want the consumed record", binding)
+	}
+}

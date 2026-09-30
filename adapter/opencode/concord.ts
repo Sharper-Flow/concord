@@ -1264,6 +1264,15 @@ async function openSecondCoordinatorSession(workID: string, projectID: string, d
 // other session-prepare failure stays retryable.
 export const sessionPrepareRefusalExit = 2
 
+// The core reports a deterministic work-bootstrap refusal — invalid input,
+// an idempotency key bound to different input, or an origin or Project check
+// that fails the same way until state changes — with this typed exit status,
+// declared in the core's work-bootstrap help. Classification uses the status
+// alone, never stderr text: replaying the same request cannot clear a
+// refusal, so it maps to contact_operator, while any other work-bootstrap
+// failure stays retryable.
+export const workBootstrapRefusalExit = 2
+
 // renameZellijPaneFrame names the zellij pane frame after the work a
 // successful work_start just entered (issue #917). The session-prepare
 // contract returns the title alone, and the adapter does not add a database
@@ -1393,6 +1402,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // identity from creation (CD-0179); the landing re-records it.
       const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID, host_pid: process.pid }
       const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
+      if (boot.exitCode === workBootstrapRefusalExit) throw new AdapterFailure("bootstrap_failure", "bootstrap_refused", boot.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown
       try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }

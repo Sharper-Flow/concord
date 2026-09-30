@@ -824,3 +824,108 @@ func TestSessionPrepareVerifiesTheConfiguredCommandDocument(t *testing.T) {
 		}
 	})
 }
+
+func TestWorkBootstrapCaptureIdentitySurvivesTheSessionMove(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	input, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-wl", Title: "Bootstrap work", ValueStatement: "A worktree is ready", Kind: "task", Task: "run the task", IdempotencyKey: "bootstrap-move-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	var out, errOut bytes.Buffer
+	if code := runWorkBootstrap(input, s, &out, &errOut); code != 0 {
+		t.Fatalf("trunk capture code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	var captured workBootstrapOutput
+	if err := json.Unmarshal(out.Bytes(), &captured); err != nil {
+		t.Fatal(err)
+	}
+
+	// The session moved into the claimed worktree. The identical capture
+	// replayed from there stays the original work item and worktree: the
+	// directory-derived default branch is resolution, not identity.
+	t.Chdir(captured.Worktree.Path)
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	if code := runWorkBootstrap(input, s, &out, &errOut); code != 0 {
+		t.Fatalf("moved replay code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	var replayed workBootstrapOutput
+	if err := json.Unmarshal(out.Bytes(), &replayed); err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.Replayed || replayed.WorkID != captured.WorkID || replayed.OperationID != captured.OperationID || replayed.Worktree.Path != captured.Worktree.Path {
+		t.Fatalf("moved replay=%+v captured=%+v", replayed, captured)
+	}
+	var operations int
+	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&operations); err != nil || operations != 1 {
+		t.Fatalf("bootstrap operations=%d err=%v", operations, err)
+	}
+}
+
+func TestWorkBootstrapDeterministicRefusalsExit2(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	var out, errOut bytes.Buffer
+	if code := runWorkBootstrap([]byte("[]"), s, &out, &errOut); code != workBootstrapRefusalExit {
+		t.Fatalf("invalid input code=%d stderr=%q", code, errOut.String())
+	}
+	sessionless, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-wl", Title: "T", ValueStatement: "V", Kind: "task", Task: "run", IdempotencyKey: "sessionless", SessionRef: "session-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkBootstrap(sessionless, s, &out, &errOut); code != workBootstrapRefusalExit {
+		t.Fatalf("session_ref without host_pid code=%d stderr=%q", code, errOut.String())
+	}
+
+	t.Chdir(repo)
+	capture, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-wl", Title: "Bootstrap work", ValueStatement: "A worktree is ready", Kind: "task", Task: "run the task", IdempotencyKey: "refusal-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkBootstrap(capture, s, &out, &errOut); code != 0 {
+		t.Fatalf("capture code=%d stderr=%q", code, errOut.String())
+	}
+	var captured workBootstrapOutput
+	if err := json.Unmarshal(out.Bytes(), &captured); err != nil {
+		t.Fatal(err)
+	}
+	conflict, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-wl", Title: "A different capture", ValueStatement: "A worktree is ready", Kind: "task", Task: "run the task", IdempotencyKey: "refusal-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	if code := runWorkBootstrap(conflict, s, &out, &errOut); code != workBootstrapRefusalExit || !strings.Contains(errOut.String(), "bound to different input") {
+		t.Fatalf("idempotency conflict code=%d stderr=%q", code, errOut.String())
+	}
+	mismatch, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-other", Title: "Bootstrap work", ValueStatement: "A worktree is ready", Kind: "task", Task: "run the task", IdempotencyKey: "refusal-mismatch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkBootstrap(mismatch, s, &out, &errOut); code != workBootstrapRefusalExit || !strings.Contains(errOut.String(), "requested Project") {
+		t.Fatalf("project mismatch code=%d stderr=%q", code, errOut.String())
+	}
+
+	t.Chdir(captured.Worktree.Path)
+	if err := os.WriteFile("dirty.txt", []byte("dirty the origin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := json.Marshal(workBootstrapInput{ProductID: "product-wl", ProjectID: "project-wl", Title: "Chained", ValueStatement: "Chained capture", Kind: "task", Task: "run", IdempotencyKey: "refusal-dirty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkBootstrap(dirty, s, &out, &errOut); code != workBootstrapRefusalExit || !strings.Contains(errOut.String(), "dirty worktree") {
+		t.Fatalf("dirty origin code=%d stderr=%q", code, errOut.String())
+	}
+	if err := os.Remove("dirty.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if code := workBootstrapReadFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: true}); code != 1 {
+		t.Fatalf("retryable read failure code=%d, want 1", code)
+	}
+	if code := workBootstrapReadFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: false}); code != workBootstrapRefusalExit {
+		t.Fatalf("unsafe read failure code=%d, want %d", code, workBootstrapRefusalExit)
+	}
+}

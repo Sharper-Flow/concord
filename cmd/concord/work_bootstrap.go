@@ -57,11 +57,29 @@ type workBootstrapTree struct {
 	State   string `json:"state"`
 }
 
+// workBootstrapRefusalExit is the typed exit status work-bootstrap reports
+// for a deterministic refusal: invalid input, an idempotency key bound to
+// different input, or a Project, origin, or default-branch check that fails
+// the same way until state changes. Callers classify by this status alone,
+// never by stderr text; the work-bootstrap commandSpecs entry declares it.
+const workBootstrapRefusalExit = 2
+
+// workBootstrapReadFailureExit classifies a store read or mutation failure.
+// A typed failure the store marks unsafe to repeat is a refusal; every other
+// failure may clear on a replay, so it keeps the ordinary failure status.
+func workBootstrapReadFailureExit(err error) int {
+	var failure *store.Failure
+	if errors.As(err, &failure) && !failure.RetrySafe {
+		return workBootstrapRefusalExit
+	}
+	return 1
+}
+
 func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workBootstrapInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-		return 1
+		return workBootstrapRefusalExit
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -70,24 +88,32 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	if input.SessionRef != "" && input.HostPID <= 0 {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", "session_ref requires the recording host_pid, so the claimed worktree's occupancy row carries process identity")
-		return 1
+		return workBootstrapRefusalExit
 	}
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
-	if err != nil || resolution.ProjectID != input.ProjectID {
-		writeOperatorDiagnostic(errOut, "work-bootstrap", "invocation must resolve to the requested Project")
-		return 1
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
+		return workBootstrapReadFailureExit(err)
 	}
+	if resolution.ProjectID != input.ProjectID {
+		writeOperatorDiagnostic(errOut, "work-bootstrap", "invocation must resolve to the requested Project")
+		return workBootstrapRefusalExit
+	}
+	// An omitted ref stays the capture's caller intent; the directory-derived
+	// default branch rides along as resolution and applies after identity,
+	// so the same caller input hashes identically from any directory.
+	resolvedRef := ""
 	if !resolution.MainWorktree {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
 			writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-			return 1
+			return workBootstrapReadFailureExit(err)
 		}
 		if input.Ref == "" {
-			input.Ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
+			resolvedRef, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
 			if err != nil {
 				writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-				return 1
+				return workBootstrapReadFailureExit(err)
 			}
 		}
 	}
@@ -96,12 +122,12 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		ValueStatement: input.ValueStatement, Kind: input.Kind, Task: input.Task,
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,
 		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef, RaisedFromWorkID: input.RaisedFromWorkID,
-		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref, SessionRef: input.SessionRef,
+		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref, ResolvedRef: resolvedRef, SessionRef: input.SessionRef,
 		HostPID: input.HostPID,
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-		return 1
+		return workBootstrapReadFailureExit(err)
 	}
 	return writeJSON(out, workBootstrapOutput{
 		SchemaVersion: "1.0", OperationID: result.OperationID, Replayed: result.Replayed,

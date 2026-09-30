@@ -235,13 +235,30 @@ const ciWatchArgsSchema = {
 const CI_WATCH_BOUNDARY =
   "Concord worker lanes hold no Concord tool access; the CI watcher is a coordinator surface"
 
-// The Code Mode bridge can deliver tool arguments wrapped one extra time
-// under a `request` property; no legitimate argument payload carries that
-// key, so it names the wrapper.
+// Two host bridges can each deliver tool arguments wrapped one extra time:
+// the Code Mode bridge under a `request` property, and schema-presenting
+// callers under the JSON Schema envelope itself (`properties` holding the
+// real fields beside `type`, `required`, and `additionalProperties`). No
+// legitimate argument payload carries those keys at the top level, so each
+// shape names its wrapper.
 function unwrapArgs(args: unknown): unknown {
-  const outer = args as { request?: unknown } | null
+  const outer = args as { request?: unknown; properties?: unknown } | null
   if (outer !== null && typeof outer === "object" && outer.request !== null && typeof outer.request === "object") {
     return outer.request
+  }
+  if (
+    outer !== null &&
+    typeof outer === "object" &&
+    outer.properties !== null &&
+    typeof outer.properties === "object" &&
+    !Array.isArray(outer.properties)
+  ) {
+    const keys = Object.keys(outer)
+    const envelopeKeys = keys.every((key) => key === "type" || key === "properties" || key === "required" || key === "additionalProperties")
+    const inner = outer.properties as Record<string, unknown>
+    if (envelopeKeys && (inner.repo !== undefined || inner.selector !== undefined)) {
+      return inner
+    }
   }
   return args
 }

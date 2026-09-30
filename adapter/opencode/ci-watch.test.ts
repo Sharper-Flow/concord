@@ -379,3 +379,22 @@ test("the plugin registers the watcher tool and drains a queued report on the ne
   expect((output.parts[0] as { synthetic: boolean }).synthetic).toBe(true)
   expect(calls).toHaveLength(1)
 })
+
+test("a JSON-Schema envelope of the arguments still starts the watch", async () => {
+  const fixture = hostFixture({ messages: [] })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const enveloped = {
+    type: "object",
+    additionalProperties: false,
+    required: ["repo", "selector"],
+    properties: { repo: "owner/name", selector: { kind: "pr", value: "12" } },
+  }
+  const started = result(await concord_ci_watch.execute(enveloped, context))
+  expect(started.status).toBe("started")
+  await ciWatchSettled(String(started.watch_id))
+})

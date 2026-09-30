@@ -241,6 +241,14 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	host, err := hostCommand(context.Background(), cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		// An interrupted registry probe is transient: the host was too slow
+		// or was ended by a signal, and nothing about its configuration
+		// refused. The ordinary failure status sends the adapter down the
+		// retry route instead of escalating to the operator.
+		var interrupted *hostProbeInterruptedError
+		if errors.As(err, &interrupted) {
+			return 1
+		}
 		return sessionPrepareRefusalExit
 	}
 	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)

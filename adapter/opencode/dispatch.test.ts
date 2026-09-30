@@ -1993,13 +1993,13 @@ test("a reported failure is recorded as the worker's own failure, not an invalid
   expect(result.error?.kind).toBe("error")
 })
 
-// A rendered failure detail full of multi-byte characters once exceeded the
-// store's UTF-8 byte bound at the same 4096-unit cut (CON-729): String.slice
-// counts UTF-16 code units, while validateWorkerFailedPayload counts
-// len(payload.Detail) UTF-8 bytes, so the store refused the worker-fail write
-// and the attempt stayed dispatched with no recovery route. Every evidence
-// detail below sits at the 512-byte admission bound, so the overflow the
-// rendered detail hits is the one the final byte bound owns.
+// A rendered failure detail can hold multi-byte characters whose UTF-16 code
+// unit count fits 4096 while its UTF-8 byte count exceeds the store's bound.
+// The bound that matters is the UTF-8 one: validateWorkerFailedPayload counts
+// len(payload.Detail) bytes, so a code-unit slice would overflow it and the
+// worker-fail write would be refused. Every evidence detail below sits at the
+// 512-byte admission bound, so the overflow the rendered detail hits is the
+// one the final byte bound owns.
 test("a multi-byte reported failure detail is bounded in UTF-8 bytes before the CLI write", async () => {
   const detail = "🎉".repeat(128)
   const evidence = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => ({ obligation: ["source_citations", "bounded_findings", "uncertainties"][index % 3], detail }))

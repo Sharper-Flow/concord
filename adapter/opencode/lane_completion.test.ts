@@ -501,12 +501,10 @@ describe("host task failure", () => {
     expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   })
 
-  // A multi-byte failure detail once exceeded the store's UTF-8 byte bound at
-  // the 4096-unit cut, and the store refused the worker-fail write, stranding
-  // the attempt in dispatched state with no recovery route (CON-729). The
-  // bound is byte-exact now: the multi-byte detail records through worker-fail
-  // and the attempt's in-flight authorization is consumed, so the work item
-  // can dispatch again.
+  // The byte bound holds at the worker-fail write itself: a multi-byte detail
+  // records through worker-fail and the attempt's in-flight authorization is
+  // consumed, so the work item can dispatch again instead of stranding in
+  // dispatched state.
   test("a multi-byte failure detail records through worker-fail instead of stranding the attempt", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())

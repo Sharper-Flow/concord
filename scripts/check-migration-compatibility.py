@@ -55,6 +55,9 @@ FOLD_VOCABULARY = ("advance", "origin")
 # own line: present, unreadable, and outside every vocabulary. Text no Go
 # value can carry keeps it from colliding with a real residue.
 FOLD_VALUE_ELSEWHERE = "<value on a later line>"
+# A migrations list element that is not a composite literal cannot supply a
+# Version field to read, and the checker refuses it instead of omitting it.
+UNSUPPORTED_ELEMENT = -2
 
 # SQLite's tokenizer admits A-Z, a-z, 0-9, _, $ and every code point at or
 # above U+0080 inside a bare identifier, and a bare name does not start with a
@@ -644,8 +647,17 @@ def adds_preexisting_column(sql: str) -> bool:
         track_born(born, conditional, statement)
         match = ALTER.match(statement)
         if match:
-            key = resolve_born(match.group(1), born)
-            if key is not None and key not in conditional:
+            ref = match.group(1)
+            key = resolve_born(ref, born)
+            # A qualified reference owns exactly its schema. An unqualified
+            # one resolves temp before main at runtime, so this migration's
+            # own main table does not own it: a pre-existing temp shadow
+            # takes the statement, and connection-local tables are invisible
+            # here. Only a temp-born name is provably owned unqualified.
+            provably_owned = key is not None and (
+                len(sql_parts(ref)) >= 2 or key[0] == "temp"
+            )
+            if provably_owned and key not in conditional:
                 continue
             if ADD_COLUMN.match(match.group(2).strip(SQL_TRIM)):
                 return True
@@ -727,10 +739,21 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
     out: list[tuple[int, str, str]] = []
     depth = 1
     entry_start: int | None = None
+    element_start: int | None = None
+    element_grouped = False
     for tok in tokens[opener + 1 :]:
+        if tok.kind == "punct" and tok.text == "," and depth == 1:
+            if element_start is not None and not element_grouped:
+                out.append((UNSUPPORTED_ELEMENT, source[element_start:tok.at], ""))
+            element_start = None
+            element_grouped = False
+            continue
         if tok.kind == "punct" and tok.text == "{":
             if depth == 1:
                 entry_start = tok.at + 1
+                element_grouped = True
+                if element_start is None:
+                    element_start = tok.at
             depth += 1
             continue
         if tok.kind == "punct" and tok.text == "}":
@@ -744,7 +767,17 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
                 out.append((version, entry, sql_literal(entry)))
                 entry_start = None
             if depth == 0:
+                if element_start is not None and not element_grouped:
+                    out.append((UNSUPPORTED_ELEMENT, source[element_start:tok.at], ""))
                 break
+            continue
+        if (
+            depth == 1
+            and element_start is None
+            and not element_grouped
+            and tok.kind != "newline"
+        ):
+            element_start = tok.at
     return out
 
 
@@ -759,6 +792,13 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     failures: list[str] = []
     breaking_versions: list[int] = []
     for version, entry, sql in entries:
+        if version == UNSUPPORTED_ELEMENT:
+            label = " ".join(entry.split())[:60]
+            failures.append(
+                f"migration list element {label} is not a composite literal; "
+                "the checker refuses to evaluate it"
+            )
+            continue
         if version < 0:
             name_run = field_run(entry, "Name")
             label = "<unnamed>"
@@ -783,7 +823,8 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
                 failures.append(
                     f"migration {version} adds a column to a pre-existing table "
                     'without a FoldMaintained declaration; declare "advance" '
-                    'with Breaking: true, or declare "origin"'
+                    'with Breaking: true, declare "origin", or qualify the '
+                    "reference with its schema so the migration owns it"
                 )
             if fold and not adds_column:
                 failures.append(

@@ -121,7 +121,7 @@ expect_evaluate(
 expect_evaluate(
     "column on a table born here needs no declaration",
     check.migrations(
-        fold_source(entry(109, "CREATE TABLE t (a TEXT);\nALTER TABLE t ADD COLUMN b TEXT DEFAULT '';"))
+        fold_source(entry(109, "CREATE TABLE t (a TEXT);\nALTER TABLE main.t ADD COLUMN b TEXT DEFAULT '';"))
     ),
     failures=0,
     breaking=[],
@@ -809,7 +809,7 @@ expect_evaluate(
         "var migrations = []migration{\n"
         "\t{\n\t\tVersion: 142,\n\t\tName: \"m142\",\n"
         "\t\tSQL: `CREATE TABLE \"notes\" (a TEXT);"
-        "ALTER TABLE notes ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "ALTER TABLE main.notes ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
         "}\n"
     ),
     failures=0,
@@ -1033,7 +1033,7 @@ for label, sql, failures, breaking in (
     (
         "an escaped-quote name is one identity under its own form",
         'CREATE TABLE "a""b" (a TEXT);'
-        'ALTER TABLE "a""b" ADD COLUMN c TEXT DEFAULT \'\';',
+        'ALTER TABLE main."a""b" ADD COLUMN c TEXT DEFAULT \'\';',
         0,
         [],
     ),
@@ -1047,14 +1047,14 @@ for label, sql, failures, breaking in (
     (
         "a single-quoted name is the same identity as its quoted form",
         "CREATE TABLE 'a.b.c' (a TEXT);"
-        'ALTER TABLE "a.b.c" ADD COLUMN c TEXT DEFAULT \'\';',
+        'ALTER TABLE main."a.b.c" ADD COLUMN c TEXT DEFAULT \'\';',
         0,
         [],
     ),
     (
         "a string-literal table name is the same identity as its bare form",
         "CREATE TABLE 'existing' (a TEXT);"
-        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        "ALTER TABLE main.existing ADD COLUMN c TEXT DEFAULT '';",
         0,
         [],
     ),
@@ -1082,7 +1082,7 @@ for label, sql, failures, breaking in (
     (
         "ASCII case equivalence survives the SQLite folding rule",
         'CREATE TABLE "Kept" (a TEXT);'
-        "ALTER TABLE kept ADD COLUMN c TEXT DEFAULT '';",
+        "ALTER TABLE main.kept ADD COLUMN c TEXT DEFAULT '';",
         0,
         [],
     ),
@@ -1110,7 +1110,7 @@ for label, sql, failures, breaking in (
     (
         "a bare unicode name is one identity under its own form",
         "CREATE TABLE a\u2603 (a TEXT);"
-        "ALTER TABLE a\u2603 ADD COLUMN c TEXT DEFAULT 0;",
+        "ALTER TABLE main.a\u2603 ADD COLUMN c TEXT DEFAULT 0;",
         0,
         [],
     ),
@@ -1167,6 +1167,27 @@ for label, sql, failures, breaking in (
         "a string-literal table reference still requires the declaration",
         "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
+        [],
+    ),
+    (
+        "an unqualified reference does not claim a main-born table",
+        "CREATE TABLE a (v TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "an explicit schema claims the born table",
+        "CREATE TABLE a (v TEXT);"
+        "ALTER TABLE main.a ADD COLUMN c TEXT DEFAULT 0;",
+        0,
+        [],
+    ),
+    (
+        "a temp-born table owns its unqualified reference",
+        "CREATE TEMP TABLE a (v TEXT);"
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT 0;",
+        0,
         [],
     ),
 ):
@@ -1249,6 +1270,49 @@ for label, gap in [
         failures=1,
         breaking=[150],
     )
+
+# Every top-level list element is accounted for. A named migration value is
+# not a composite literal the checker can read, so it is refused rather than
+# silently omitted from the four declaration rules.
+expect_evaluate(
+    "a named migration element is refused, never omitted",
+    check.migrations(
+        "var hidden = migration{Version: 110, Name: \"hidden_column\", "
+        "SQL: `ALTER TABLE existing ADD COLUMN c TEXT DEFAULT 0;`, "
+        "FoldMaintained: \"advance\"};\n"
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 109,\n\t\tName: \"safe\",\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "\thidden,\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_evaluate(
+    "a mixed literal and reference list keeps both elements visible",
+    check.migrations(
+        "var tail = migration{Version: 110, Name: \"tail\", "
+        "SQL: `SELECT 2;`};\n"
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 109,\n\t\tName: \"head\",\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "\ttail,\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+expect_entries(
+    "a named element parses as an unsupported entry",
+    "var hidden = migration{Version: 110, Name: \"hidden_column\", SQL: `SELECT 1;`};\n"
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 109,\n\t\tName: \"safe\",\n"
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "\thidden,\n"
+    "}\n",
+    [109, -2],
+)
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

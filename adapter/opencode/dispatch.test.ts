@@ -2238,6 +2238,28 @@ test("an unknown lane digest is refused as an unregistered lane identity", () =>
   expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
 })
 
+test("a completion under a legacy lane digest signs and records the packet's digest", async () => {
+  // CD-0017 D5: the evidence binds the digest the core authorized in the
+  // packet, not the resolved current definition. The CLI compares assertions
+  // against the stored attempt row, so a substituted digest would refuse the
+  // completion of a legacy-digest dispatch.
+  const legacy = "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb"
+  expect(legacy).not.toBe(lane.digest)
+  const records: { verb: string; body: Record<string, unknown> }[] = []
+  const result = await complete(workerBody(report()), {
+    evidenceRunner: { async run(argv, input) {
+      records.push({ verb: argv[1], body: JSON.parse(input) as Record<string, unknown> })
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  }, { ...packet(), lane_digest: legacy })
+  expect(result.outcome).toBe("ok")
+  expect(records.map((record) => record.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  for (const record of records) {
+    expect((record.body.assertion as Record<string, unknown>).lane_digest).toBe(legacy)
+    if (record.verb === "worker-dispatch") expect(record.body.lane_digest).toBe(legacy)
+  }
+})
+
 test("the review lane refuses a free-text severity entry beside the typed review block", () => {
   const resolved = resolveWorkerReportFromText(JSON.stringify(reviewReport({ evidence: reviewEvidenceWithSeverity() })), reviewPacket())
   expect("detail" in resolved && resolved.detail).toContain("free-text severity entry beside the typed review block")

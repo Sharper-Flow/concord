@@ -1133,7 +1133,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   try {
     assertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch", work_id: packet.work_id, attempt_id: packet.attempt_id,
-      lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+      lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
       readback_model: "", failure_kind: failureKind, host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
     })
   } catch (error) {
@@ -1141,7 +1141,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
-    lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
     readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
@@ -1855,13 +1855,17 @@ async function completeWorkerSession(
   }
   let dispatchAssertion: Record<string, unknown>
   try {
+    // The evidence binds the digest the core authorized in the packet, never
+    // the resolved current definition: a legacy-digest dispatch keeps its
+    // dispatched-contract identity (CD-0017 D5), and the CLI compares terminal
+    // assertions against the stored attempt row's lane digest.
     dispatchAssertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch",
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       lane_id: lane.id,
       lane_version: lane.version,
-      lane_digest: lane.digest,
+      lane_digest: packet.lane_digest,
       readback_model: readback.readback_model,
       host_provenance_digest: provenance.digest,
       packet_digest: options.packetDigest,
@@ -1877,7 +1881,7 @@ async function completeWorkerSession(
     attempt_id: packet.attempt_id,
     lane_id: lane.id,
     lane_version: lane.version,
-    lane_digest: lane.digest,
+    lane_digest: packet.lane_digest,
     readback_model: readback.readback_model,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
@@ -1904,7 +1908,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
       })
       // Both terminal verbs bind lane identity: the CLI enriches lane_id,
@@ -1921,7 +1925,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
       })
@@ -1980,7 +1984,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: "invalid_report",
       })

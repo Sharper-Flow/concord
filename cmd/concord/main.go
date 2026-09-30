@@ -193,6 +193,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
 	{Canonical: "project-canonical-path", TwoWord: "project canonical-path", RequiredFields: requiredFields(field("project_id")), Optional: "none", Enums: "none"},
+	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout, with checkout_work_id naming the work that owns the checkout; read-only"},
 	{Canonical: "backup", RequiredFields: requiredFields(field("destination")), Optional: "none", Enums: "destination: absolute clean path that does not yet exist; a manifest is written beside it"},
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
@@ -2727,6 +2728,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runProjectResolve(raw, s, out, errOut)
 	case "project-canonical-path":
 		return runProjectCanonicalPath(raw, s, out, errOut)
+	case "cd-reservations":
+		return runCDReservations(raw, s, out, errOut)
 	case "restore":
 		var request struct {
 			Source      string `json:"source"`

@@ -7,6 +7,14 @@ and the merge queue is the first place the collision appears. This module also
 reads the manifest at every peer ref, so a claim on an unmerged branch is
 visible at the first check that runs after both branches are pushed.
 
+Git cannot see a store reservation: a contract holds its CD id from approval
+until the reservation is released, so an unmerged reservation is invisible to
+every peer ref. When a reachable concord binary answers ``cd-reservations`` for this
+checkout, this module folds those reservations into ``--next`` and reports two
+store-backed warnings. The warnings never change the exit status, and a
+missing binary, an older binary, or an unreachable store leaves the check
+git-only with a notice on stderr, so CI stays deterministic.
+
 Ownership is deterministic. The earliest claim on a CD id keeps it, so exactly
 one branch is told to renumber and the other proceeds unchanged.
 """
@@ -15,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -30,6 +39,8 @@ MANIFEST = Path(knowledge_index.KNOWLEDGE_ROOT)
 CD_ID_RE = re.compile(r"^CD-[0-9]{4}$")
 HEADING_CD_RE = re.compile(r"^#\s+(CD-[0-9]{4})\b")
 PEER_NAMESPACE = "refs/remotes/origin"
+CONCORD = os.environ.get("CONCORD_BIN", "concord")
+STORE_PROBE_TIMEOUT = 30
 
 
 class DuplicateKeyError(ValueError):
@@ -289,6 +300,127 @@ def highest_allocated(root: Path, against: str, namespace: str, tree_ids: set[st
     return max(numbers, default=0)
 
 
+def store_reservations(root: Path) -> tuple[dict[str, object] | None, str]:
+    """Ask the concord CLI for the calling checkout's law-addition
+    reservations.
+
+    Returns the parsed ``cd-reservations`` payload, or None with a reason when
+    the binary is absent, too old, or the store is unreachable. The caller
+    turns every None into a git-only run with a stderr notice, so a checkout
+    with no Concord store behaves exactly like CI.
+    """
+    try:
+        result = subprocess.run(
+            [CONCORD, "cd-reservations"],
+            input=json.dumps({"directory": str(root)}).encode("utf-8"),
+            capture_output=True,
+            check=False,
+            timeout=STORE_PROBE_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"the concord CLI is unavailable: {exc}"
+    if result.returncode != 0:
+        lines = [
+            line
+            for line in result.stderr.decode("utf-8", "replace").strip().splitlines()
+            if line.strip()
+        ]
+        reason = lines[0] if lines else f"exit {result.returncode}"
+        return None, reason
+    try:
+        payload = json.loads(result.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"unreadable reservation payload: {exc}"
+    if not isinstance(payload, dict) or not isinstance(payload.get("reservations"), list):
+        return None, "reservation payload is missing its reservations array"
+    try:
+        reservation_rows(payload)
+    except ReservationPayloadError as exc:
+        return None, str(exc)
+    return payload, ""
+
+
+class ReservationPayloadError(ValueError):
+    """A reservation row the reduction cannot trust.
+
+    ``--next`` and the reservation warnings fold the payload wholesale, so a
+    partial reservation presented as authoritative would hand out an id the
+    store holds. The caller degrades the whole payload to a git-only run
+    instead of keeping the readable rows.
+    """
+
+
+def reservation_rows(payload: dict[str, object]) -> list[tuple[str, str]]:
+    """Reduce the payload to (law id, owner work id) pairs this module uses.
+
+    A row whose law id is a string but not a CD id cannot collide with a CD
+    allocation, so the reduction drops it rather than widening the check to
+    non-CD laws. Any other malformed row makes the payload untrustworthy and
+    raises ReservationPayloadError: keeping the readable rows would present
+    partial reservations as the whole answer.
+    """
+    rows: list[tuple[str, str]] = []
+    reservations = payload.get("reservations")
+    assert isinstance(reservations, list)
+    for index, row in enumerate(reservations):
+        if not isinstance(row, dict):
+            raise ReservationPayloadError(f"reservation row {index} is not an object")
+        law_id = row.get("law_id")
+        owner = row.get("owner_work_id")
+        if not isinstance(law_id, str) or not isinstance(owner, str):
+            raise ReservationPayloadError(
+                f"reservation row {index} is missing its law id or owner work id"
+            )
+        if not CD_ID_RE.fullmatch(law_id):
+            continue
+        rows.append((law_id, owner))
+    return rows
+
+
+def store_findings(
+    root: Path,
+    payload: dict[str, object],
+    against: str,
+    peer_namespace: str,
+) -> list[str]:
+    """Report what the store knows that git cannot see.
+
+    Two warnings, both local-only: a new tree CD id that another work
+    reserves is a collision waiting for the merge queue, and a reservation of
+    the work that owns this checkout that the branch does not add is the
+    contract the renumber left behind. The caller prints these findings
+    without counting them, so the exit status stays a git-only decision.
+    """
+    tree = load_tree_manifest(root, [])
+    comparison = load_comparison_manifest(root, against, True, [])
+    if tree is None or comparison is None:
+        return []
+    tree_counts = cd_id_counts(tree)
+    new_ids = sorted(set(tree_counts) - set(cd_id_counts(comparison)))
+    checkout = payload.get("checkout_work_id")
+    checkout_work = checkout if isinstance(checkout, str) else ""
+    rows = reservation_rows(payload)
+    owners = dict(rows)
+    warnings: list[str] = []
+    for identifier in new_ids:
+        owner = owners.get(identifier)
+        if owner is not None and owner != checkout_work:
+            warnings.append(
+                f"store-reservation: CD id {identifier} is reserved by {owner}, which does not own "
+                "this checkout; the branch adds it too, so one claim must renumber "
+                f"(python3 scripts/renumber-cd.py {identifier} CD-XXXX)"
+            )
+    added = set(new_ids)
+    for law_id, owner in sorted(rows):
+        if checkout_work and owner == checkout_work and law_id not in added:
+            warnings.append(
+                f"store-reservation: CD id {law_id} is reserved by this checkout's work {owner} "
+                "but the branch does not add it; check the current work pin for the admitted "
+                "contract-correction route"
+            )
+    return warnings
+
+
 def check(
     *,
     root: Path = ROOT,
@@ -329,10 +461,22 @@ def next_free(
     root: Path = ROOT,
     against: str = "origin/main",
     peer_namespace: str = PEER_NAMESPACE,
+    reserved: set[str] | None = None,
 ) -> str:
+    """Return the smallest CD id above the highest git-allocated id that no
+    reservation holds.
+
+    A reservation removes only its own id from the allocation, so a sparse
+    reservation leaves the gap below it allocatable: with git maximum CD-0193
+    and reservation CD-0195, the next free id is CD-0194.
+    """
     tree = load_tree_manifest(root, [])
     tree_ids = set(cd_id_counts(tree)) if tree is not None else set()
-    return f"CD-{highest_allocated(root, against, peer_namespace, tree_ids) + 1:04d}"
+    taken = {identifier for identifier in (reserved or set()) if CD_ID_RE.fullmatch(identifier)}
+    candidate = highest_allocated(root, against, peer_namespace, tree_ids) + 1
+    while f"CD-{candidate:04d}" in taken:
+        candidate += 1
+    return f"CD-{candidate:04d}"
 
 
 def main() -> int:
@@ -355,13 +499,22 @@ def main() -> int:
     parser.add_argument(
         "--next",
         action="store_true",
-        help="print the next CD id free across the comparison ref and every pushed branch",
+        help="print the next CD id free across the comparison ref, every pushed branch, and every store reservation",
     )
     args = parser.parse_args()
 
+    payload, note = store_reservations(ROOT)
+    if payload is None:
+        print(f"store reservations unavailable ({note}); CD allocation stays git-only", file=sys.stderr)
+
     if args.next:
-        print(next_free(against=args.against, peer_namespace=args.peer_namespace))
+        reserved = {law_id for law_id, _ in reservation_rows(payload)} if payload is not None else None
+        print(next_free(against=args.against, peer_namespace=args.peer_namespace, reserved=reserved))
         return 0
+
+    if payload is not None:
+        for warning in store_findings(ROOT, payload, args.against, args.peer_namespace):
+            print(warning)
 
     findings = check(
         against=args.against,

@@ -50,7 +50,7 @@ RULE_FLOOR = 108
 # field pattern here tolerates that alignment rather than pinning one width.
 ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
 DECLARES_BREAKING = re.compile(r"^\t\tBreaking:\s+true,$", re.MULTILINE)
-DECLARES_FOLD = re.compile(r"^\t\tFoldMaintained:[ \t]*(.*)$", re.MULTILINE)
+DECLARES_FOLD = re.compile(r"^[ \t]*FoldMaintained:[ \t]*(.*)$", re.MULTILINE)
 FOLD_VOCABULARY = ("advance", "origin")
 # What fold_maintained returns for a field whose value is not on the field's
 # own line: present, unreadable, and outside every vocabulary. Text no Go
@@ -171,22 +171,64 @@ def classify(sql: str) -> list[str]:
 SQL_LITERAL = re.compile(r"\n\t\tSQL:\s+`([\s\S]*?)`,\n", re.MULTILINE)
 
 
+def go_code_text(region: str) -> str:
+    """Return the region's Go code with comments blanked and literals kept.
+
+    Comments leave whitespace behind, so line structure survives: a field
+    line commented out is absent, and a block comment ahead of a field name
+    still leaves the field findable. String literals stay intact, because a
+    declaration's value is one; a literal's content can never carry a line
+    the field regex matches, since interpreted literals hold no newline and
+    raw literals in an entry are the SQL the caller already removed.
+    """
+    out: list[str] = []
+    i, n = 0, len(region)
+    while i < n:
+        ch = region[i]
+        if ch == '"':
+            j = i + 1
+            while j < n and region[j] != '"':
+                j += 2 if region[j] == "\\" else 1
+            out.append(region[i : min(j + 1, n)])
+            i = j + 1
+        elif ch == "`":
+            end = region.find("`", i + 1)
+            end = n if end < 0 else end + 1
+            out.append(region[i:end])
+            i = end
+        elif region.startswith("/*", i):
+            end = region.find("*/", i + 2)
+            end = n if end < 0 else end + 2
+            out.append(" ")
+            i = end
+        elif region.startswith("//", i):
+            end = region.find("\n", i)
+            i = n if end < 0 else end
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 def fold_maintained(entry: str) -> str:
     """Return the entry's FoldMaintained declaration, or "" when the field
     is absent.
 
-    The value is the field's Go expression: a trailing // comment and comma
-    come off, and only a fully double-quoted literal unquotes. Any other
-    form the line carries, such as a raw string or a concatenated
-    expression, stays as unparsed text and fails the vocabulary check, so a
-    present field never reads as an absent one. A field whose value starts
-    on a later line returns FOLD_VALUE_ELSEWHERE: the checker refuses the
-    multiline form rather than guess at it, so the declaration keeps its
-    value on the field's own line. The declaration is a signed human claim
-    (see the migration struct), so a genuinely missing line is an empty
-    declaration rather than a parse error.
+    The search runs over the entry's Go code with comments blanked, so a
+    commented-out field line is not a declaration and a block comment
+    before the field name does not hide it. The value is the field's Go
+    expression: a trailing // comment and comma come off, and only a fully
+    double-quoted literal unquotes. Any other form the line carries, such
+    as a raw string or a concatenated expression, stays as unparsed text
+    and fails the vocabulary check, so a present field never reads as an
+    absent one. A field whose value starts on a later line returns
+    FOLD_VALUE_ELSEWHERE: the checker refuses the multiline form rather
+    than guess at it, so the declaration keeps its value on the field's
+    own line. The declaration is a signed human claim (see the migration
+    struct), so a genuinely missing line is an empty declaration rather
+    than a parse error.
     """
-    match = DECLARES_FOLD.search(entry)
+    match = DECLARES_FOLD.search(go_code_text(entry))
     if not match:
         return ""
     value = re.sub(r"//.*$", "", match.group(1)).strip().rstrip(",").strip()
@@ -230,7 +272,13 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
     for i in range(1, len(parts), 2):
         version, entry = int(parts[i]), parts[i + 1]
         literal = SQL_LITERAL.search(entry)
-        out.append((version, entry, literal.group(1) if literal else ""))
+        sql = literal.group(1) if literal else ""
+        if literal:
+            # The returned entry is the declaration block: the entry with
+            # the SQL raw string's content removed. SQL text must never
+            # read as a Go field, in either direction.
+            entry = entry[: literal.start(1)] + entry[literal.end(1) :]
+        out.append((version, entry, sql))
     return out
 
 

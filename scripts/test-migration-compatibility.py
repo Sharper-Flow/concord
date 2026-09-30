@@ -261,6 +261,81 @@ expect_evaluate(
     breaking=[],
 )
 
+# A block comment ahead of the field name does not hide the declaration.
+BLOCK_COMMENT_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 114,\n\t\tName: \"block_comment\",\n"
+    '\t\t/* signed claim */ FoldMaintained: "later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+parsed_folds(
+    "block comment before the field name still parses",
+    BLOCK_COMMENT_SOURCE,
+    ["later"],
+)
+expect_evaluate(
+    "block-commented invalid value on a no-column migration is refused twice",
+    check.migrations(BLOCK_COMMENT_SOURCE),
+    failures=2,
+    breaking=[],
+)
+
+# SQL text never reads as a declaration: the field search runs over the
+# declaration block with the SQL raw string's content removed, so an
+# origin-shaped line embedded in executed SQL satisfies nothing.
+SQL_IMPERSONATION_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 115,\n\t\tName: \"sql_impersonation\",\n"
+    "\t\tSQL: `ALTER TABLE existing ADD COLUMN c TEXT NOT NULL DEFAULT '';\n"
+    "INSERT INTO notes(body) VALUES('\n"
+    '\t\tFoldMaintained: "origin",\n'
+    "\t\t');`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a declaration-shaped SQL line satisfies nothing",
+    check.migrations(SQL_IMPERSONATION_SOURCE),
+    failures=1,
+    breaking=[],
+)
+
+# The combined bypass: a real advance field behind a block comment plus a
+# decoy origin line inside the SQL. The real declaration governs, so rule
+# (b) fires and the entry breaks an older binary.
+COMBINED_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 116,\n\t\tName: \"combined\",\n"
+    '\t\t/* signed claim */ FoldMaintained: "advance",\n'
+    "\t\tSQL: `ALTER TABLE existing ADD COLUMN c TEXT NOT NULL DEFAULT '';\n"
+    "INSERT INTO notes(body) VALUES('\n"
+    '\t\tFoldMaintained: "origin",\n'
+    "\t\t');`,\n\t},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a block-commented advance still forces the breaking declaration",
+    check.migrations(COMBINED_SOURCE),
+    failures=1,
+    breaking=[116],
+)
+
+# A field line commented out is absent, not declared.
+COMMENTED_OUT_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 117,\n\t\tName: \"commented_out\",\n"
+    '\t\t/* FoldMaintained: "origin",\n'
+    "\t\t*/\n"
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+expect_evaluate(
+    "a commented-out field line reads as undeclared",
+    check.migrations(COMMENTED_OUT_SOURCE),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

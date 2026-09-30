@@ -1215,6 +1215,36 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "a quoted column name may follow ADD directly",
+        'ALTER TABLE existing ADD"c" TEXT DEFAULT 0;',
+        1,
+        [],
+    ),
+    (
+        "a bracketed column name may follow ADD directly",
+        "ALTER TABLE existing ADD[c] TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a string-literal column name may follow ADD directly",
+        "ALTER TABLE existing ADD'c' TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a quoted column name may follow the COLUMN keyword directly",
+        'ALTER TABLE existing ADD COLUMN"c" TEXT DEFAULT 0;',
+        1,
+        [],
+    ),
+    (
+        "an empty quoted table name is a table reference",
+        'ALTER TABLE "" ADD COLUMN c TEXT DEFAULT 0;',
+        1,
+        [],
+    ),
+    (
         "adjacent quoted names keep their identities",
         'CREATE TABLE"t" (a TEXT);'
         'ALTER TABLE main."t"ADD COLUMN c TEXT DEFAULT 0;',
@@ -1333,6 +1363,45 @@ expect_evaluate(
         )
     ),
     failures=2,
+    breaking=[],
+)
+expect_evaluate(
+    "origin satisfies the duty on a quoted column name after ADD",
+    check.migrations(
+        fold_source(
+            entry(
+                150,
+                'ALTER TABLE existing ADD"c" TEXT DEFAULT 0;',
+                fold="origin",
+            )
+        )
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "advance with breaking satisfies the duty on a quoted column name",
+    check.migrations(
+        fold_source(
+            entry(
+                150,
+                'ALTER TABLE existing ADD"c" TEXT DEFAULT 0;',
+                breaking=True,
+                fold="advance",
+            )
+        )
+    ),
+    failures=0,
+    breaking=[150],
+)
+expect_evaluate(
+    "origin satisfies the duty on an empty quoted table name",
+    check.migrations(
+        fold_source(
+            entry(150, 'ALTER TABLE "" ADD COLUMN c TEXT DEFAULT 0;', fold="origin")
+        )
+    ),
+    failures=0,
     breaking=[],
 )
 expect_evaluate(

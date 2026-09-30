@@ -76,7 +76,7 @@ SQL_SQ = f"{SQL_SPACE}*"
 SQL_NOT_SPACE = "[^ \\t\\n\\f\\r]"
 SQL_TRIM = " \t\n\f\r"
 SQL_REF = (
-    rf"(?:\"(?:[^\"]|\"\")+\"|\[[^\]]+\]|`[^`]+`|'(?:[^']|'')+'"
+    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`[^`]*`|'(?:[^']|'')*'"
     rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
 )
 SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
@@ -206,7 +206,9 @@ ALTER = re.compile(
     rf"^ALTER{SQL_SP}TABLE{SQL_NAME_SEP}({SQL_QUAL}){SQL_NAME_END}([\s\S]*)$",
     re.IGNORECASE,
 )
-ADD_COLUMN = re.compile(rf"^ADD{SQL_SP}(?:COLUMN{SQL_SP})?{SQL_NOT_SPACE}", re.IGNORECASE)
+ADD_COLUMN = re.compile(
+    rf"^ADD{SQL_NAME_SEP}(?:COLUMN{SQL_NAME_SEP})?{SQL_NOT_SPACE}", re.IGNORECASE
+)
 INDEX_ON = re.compile(
     rf"^CREATE{SQL_SP}(UNIQUE{SQL_SP})?INDEX(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
     rf"{SQL_NAME_SEP}(?:{SQL_REF}){SQL_NAME_END}ON{SQL_NAME_SEP}({SQL_QUAL})",

@@ -384,7 +384,7 @@ test("a registered utility id refuses dispatch_worker before any core call with 
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
   const windows = new DispatchWindows()
-  const utility = agentUtilities.find((candidate) => candidate.id === "ci-wait")!
+  const utility = agentUtilities.find((candidate) => candidate.id === "explore")!
   const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-utility-route", lane_id: utility.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")

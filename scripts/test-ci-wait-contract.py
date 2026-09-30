@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the deterministic ci-wait wait contract (CD-0160)."""
+"""Validate the deterministic ci-wait verb contract (CD-0160, as amended by CD-0199)."""
 from __future__ import annotations
 
 import json
@@ -11,7 +11,6 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "contracts/agent-lanes.v1.json"
 
 
 def go_build(t: unittest.TestCase, binary: Path) -> None:
@@ -108,27 +107,10 @@ class CiWaitDeterministicWaitContract(unittest.TestCase):
         self.assertEqual(out.get("status"), "timeout")
         self.assertLessEqual(out.get("elapsed_seconds", 9999), 1800)
 
-    def test_generated_prompt_names_the_cli_verb(self):
-        """The generated utility body must delegate waiting to `concord ci-wait`."""
-        installed = ROOT / ".opencode/agents/concord-ci-wait.md"
-        text = installed.read_text(encoding="utf-8")
-        self.assertIn("concord ci-wait", text)
-        self.assertNotIn("Count your iterations", text)
-
-    def test_generated_prompt_has_no_model_maintained_counter(self):
-        """The loop must not ask the model to count iterations or sleep."""
-        text = (ROOT / ".opencode/agents/concord-ci-wait.md").read_text(encoding="utf-8")
-        self.assertNotIn("sleep 15", text)
-
     def test_generator_check_clean(self):
         """Registry, generator, and generated projections agree."""
         result = run_generator_check()
         self.assertEqual(result.returncode, 0, f"generator drift: {result.stderr}")
-
-    def test_registry_declares_bounded_wait(self):
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        utility = next(u for u in manifest["utilities"] if u["id"] == "ci-wait")
-        self.assertEqual(utility["time_seconds_max"], 1800)
 
 
 if __name__ == "__main__":

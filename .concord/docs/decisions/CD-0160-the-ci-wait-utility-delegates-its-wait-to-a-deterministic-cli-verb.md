@@ -12,6 +12,10 @@
 - **Supersedes:** The model-maintained wait procedure in the generated
   `ci-wait` body: polling by `sleep 15`, the 120-iteration count, and the
   `sleep *` and `date *` command allowances
+- **Amended by:** [CD-0199](CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md)
+  at D6's utility half: the utility registry entry and its generated model
+  session are removed, and the plugin-owned `concord_ci_watch` watcher owns
+  the invocation loop. D1 through D5 and D7 stand unchanged.
 
 ## Context
 

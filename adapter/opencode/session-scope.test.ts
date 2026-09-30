@@ -92,25 +92,25 @@ test("an unmarked child inherits managed participation from its host parent", as
   expect(fixture.reads).toEqual(["scope-child", "scope-parent"])
 })
 
-test("a coordinator can auto-start the CI wait utility without a dispatch window", async () => {
+test("a coordinator can auto-start a generated utility without a dispatch window", async () => {
   const fixture = host([session("scope-coordinator", true)])
   const plugin = await fixture.plugin()
-  const output = { args: { ...args(), subagent_type: "concord-ci-wait" } }
+  const output = { args: { ...args(), subagent_type: "concord-explore" } }
   const original = structuredClone(output.args)
   await plugin["tool.execute.before"](task("scope-coordinator"), output)
   expect(output.args).toEqual(original)
   expect(fixture.reads).toEqual(["scope-coordinator"])
   expect(fixture.writes).toEqual([])
-  const result = { title: "CI wait", output: "result", metadata: {} }
+  const result = { title: "Explore", output: "result", metadata: {} }
   await plugin["tool.execute.after"]({ ...task("scope-coordinator"), args: output.args }, result)
-  expect(result).toEqual({ title: "CI wait", output: "result", metadata: {} })
+  expect(result).toEqual({ title: "Explore", output: "result", metadata: {} })
   expect(dispatchWindows().takeInFlight("scope-coordinator")).toBeNull()
 })
 
-test("a lane session cannot auto-start the CI wait utility", async () => {
+test("a lane session cannot auto-start a generated utility", async () => {
   const fixture = host([session("scope-parent", true), { ...session("scope-lane"), parentID: "scope-parent" }])
   const plugin = await fixture.plugin()
-  const output = { args: { ...args(), subagent_type: "concord-ci-wait" } }
+  const output = { args: { ...args(), subagent_type: "concord-explore" } }
   const original = structuredClone(output.args)
   await expect(plugin["tool.execute.before"](task("scope-lane"), output)).rejects.toThrow("managed parent")
   expect(output.args).toEqual(original)

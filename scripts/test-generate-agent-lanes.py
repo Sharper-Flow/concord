@@ -123,19 +123,34 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("host-connected options", normalized)
         self.assertIn("Never invent a lookup result", normalized)
 
-    def test_projection_instructs_the_lane_to_conform_to_bound_law(self):
+    def test_projection_keeps_the_file_change_rules_for_editing_lanes(self):
         # The dispatched packet carries the approved contract's bound law and
-        # Domains as recorded state. Every generated lane definition must
-        # itself state what the block means: read each named law before
-        # changing files, conform to it, edit a law document only when the
-        # block lists it as modified or added, report conflicts in evidence,
-        # and return failed when a conflict blocks the assigned result.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        # Domains as recorded state. A lane whose capabilities grant
+        # edit_scoped_files is told to read each named law before changing
+        # files, conform to it, and edit a law document only when the block
+        # lists it as modified or added.
+        lane = dict(self.LANE, capabilities=["read_repository", "edit_scoped_files", "run_tests", "report_evidence"])
+        projection = generator.agent_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("Approved law and architecture block", projection)
         self.assertIn("Read each named law document before you change files", normalized)
         self.assertIn("Conform to it.", normalized)
         self.assertIn("`modified` or `added`", normalized)
+        self.assertIn("Report any conflict between that law and the assigned result in your evidence", normalized)
+        self.assertIn("`status` `failed`", normalized)
+
+    def test_projection_gives_non_editing_lanes_the_assess_rule(self):
+        # The shared block previously told every lane to change files, which
+        # implied edit authority review, verify, and research do not hold. A
+        # lane without edit_scoped_files reads each named law before it
+        # assesses the result, and receives no file-change rule.
+        lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
+        projection = generator.agent_projection(lane, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("Approved law and architecture block", projection)
+        self.assertIn("Read each named law document before you assess the result", normalized)
+        self.assertNotIn("before you change files", normalized)
+        self.assertNotIn("`modified` or `added`", normalized)
         self.assertIn("Report any conflict between that law and the assigned result in your evidence", normalized)
         self.assertIn("`status` `failed`", normalized)
 
@@ -268,6 +283,106 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("one real source lookup", projection)
         self.assertIn("line range", projection)
         self.assertIn("10 minutes", projection)
+
+
+class RepositoryEditBoundaryTests(unittest.TestCase):
+    # D1: the boundary is derived from the edit_scoped_files capability in
+    # contracts/agent-lanes.v1.json, never from the lane id and never from a
+    # hand-written per-lane text.
+    EDITING = ["read_repository", "edit_scoped_files", "run_tests", "report_evidence"]
+    NON_EDITING = ["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"]
+
+    @staticmethod
+    def lane(**overrides):
+        base = {
+            "id": "review",
+            "purpose": "Review a bounded change against its contract.",
+            "budgets": {"time_seconds_max": 1200},
+            "evidence_obligations": ["findings", "verdict"],
+            "capabilities": list(RepositoryEditBoundaryTests.NON_EDITING),
+        }
+        base.update(overrides)
+        return base
+
+    @staticmethod
+    def boundary(lane):
+        # The generator wraps prose at 80 columns; assert on normalized text.
+        return " ".join(generator.repository_edit_boundary(lane).split())
+
+    def test_editing_capability_yields_the_scoped_edit_boundary(self):
+        boundary = self.boundary(self.lane(capabilities=self.EDITING))
+        self.assertIn("change only files inside the approved contract scope", boundary)
+        self.assertIn("Report a needed out-of-scope change instead of making it", boundary)
+        self.assertNotIn("do not commit", boundary)
+
+    def test_missing_capability_grants_no_edit_boundary_text(self):
+        lane = self.lane()
+        del lane["capabilities"]
+        boundary = self.boundary(lane)
+        self.assertIn("do not create, change, or delete repository source files", boundary)
+        self.assertIn("do not commit", boundary)
+
+    def test_running_checks_stays_permitted_for_non_editing_lanes(self):
+        # Test-running roles keep their allowed commands: the boundary must
+        # not call them globally read-only, and command artifacts are not
+        # source edits.
+        boundary = self.boundary(self.lane())
+        self.assertIn("Running the tests and validators the role allows is permitted", boundary)
+        self.assertIn("files those commands produce are not source edits", boundary)
+        self.assertIn("Report a needed source change as evidence", boundary)
+
+    def test_flipping_the_capability_flips_the_boundary_not_the_lane_name(self):
+        for lane_id in ("review", "implement"):
+            without = self.boundary(self.lane(id=lane_id, capabilities=self.NON_EDITING))
+            with_edit = self.boundary(self.lane(id=lane_id, capabilities=self.EDITING))
+            self.assertNotEqual(without, with_edit, lane_id)
+            self.assertIn("do not create, change, or delete repository source files", without, lane_id)
+            self.assertIn("change only files inside the approved contract scope", with_edit, lane_id)
+
+    def test_projection_carries_the_boundary_in_description_and_body_section(self):
+        cases = (
+            (self.lane(id="design", capabilities=self.EDITING), "Edits only files inside the approved contract scope.", "change only files inside the approved contract scope"),
+            (self.lane(id="verify"), "Does not edit repository source.", "do not create, change, or delete repository source files"),
+        )
+        for lane, clause, boundary_text in cases:
+            projection = generator.agent_projection(lane, REPORT_SCHEMA)
+            description = next(line for line in projection.splitlines() if line.startswith("description:"))
+            self.assertIn(clause, description, lane["id"])
+            self.assertIn("## Repository edit boundary", projection, lane["id"])
+            self.assertIn(boundary_text, " ".join(projection.split()), lane["id"])
+
+    def test_boundary_section_sits_between_the_intro_and_the_packet_rule(self):
+        projection = generator.agent_projection(self.lane(), REPORT_SCHEMA)
+        self.assertLess(projection.index("spawn nested workers."), projection.index("## Repository edit boundary"))
+        self.assertLess(
+            projection.index("## Repository edit boundary"),
+            projection.index("Before any work, verify the first message you received"),
+        )
+
+    def test_utilities_never_carry_the_lane_boundary_section(self):
+        utility = {
+            "id": "ci-wait",
+            "purpose": "Wait for CI.",
+            "allowed_tools": ["bash"],
+            "allowed_commands": ["concord ci-wait"],
+            "time_seconds_max": 1800,
+        }
+        projection = generator.utility_projection(utility)
+        self.assertNotIn("## Repository edit boundary", projection)
+        self.assertNotIn("Does not edit repository source.", projection)
+
+    def test_every_manifest_lane_renders_the_boundary_matching_its_capability(self):
+        manifest, _ = generator.load_manifest()
+        for lane in manifest["lanes"]:
+            projection = generator.agent_projection(lane, REPORT_SCHEMA)
+            self.assertIn("## Repository edit boundary", projection, lane["id"])
+            if "edit_scoped_files" in lane["capabilities"]:
+                self.assertIn("Edits only files inside the approved contract scope.", projection, lane["id"])
+                self.assertIn("change only files inside the approved contract scope", projection, lane["id"])
+                self.assertNotIn("do not commit", projection, lane["id"])
+            else:
+                self.assertIn("Does not edit repository source.", projection, lane["id"])
+                self.assertIn("do not create, change, or delete repository source files", projection, lane["id"])
 
 
 class EvalPacketProjectionTests(unittest.TestCase):

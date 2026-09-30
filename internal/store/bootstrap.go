@@ -53,6 +53,14 @@ type BootstrapRequest struct {
 	// marshalled request with SessionRef: the digest names the capture, not
 	// the recording process.
 	HostPID int `json:"-"`
+	// ResolvedRef carries the directory-derived default branch the calling
+	// host resolved for an omitted ref. It stays out of the marshalled
+	// request with SessionRef and HostPID: the canonical identity names the
+	// caller's capture intent, where an omitted ref stays the empty
+	// sentinel, and the resolution applies after the digest. One capture
+	// intent therefore hashes identically from the main checkout and a
+	// linked worktree.
+	ResolvedRef string `json:"-"`
 }
 
 // BootstrapResult is the durable result of a bootstrap operation.
@@ -392,13 +400,13 @@ type bootstrapPrepared struct {
 type BootstrapPhaseHook func(string) error
 
 // CanonicalBootstrapIdentity returns the stable operation and work IDs for a
-// normalized request.
+// normalized request. The identity is the caller's capture intent: the ref
+// the caller named, with an omitted ref staying the empty sentinel, so the
+// same caller input hashes identically from any invocation directory. The
+// directory-derived default branch applies after the digest, as resolution.
 func CanonicalBootstrapIdentity(req BootstrapRequest) (string, string, string, error) {
 	if req.Urgency == "" {
 		req.Urgency = "standard"
-	}
-	if req.Ref == "" {
-		req.Ref = "HEAD"
 	}
 	if req.Tags == nil {
 		req.Tags = []string{}
@@ -441,11 +449,93 @@ func (s *Store) BootstrapWorktree(ctx context.Context, req BootstrapRequest, pha
 }
 
 func (s *Store) bootstrapWorktree(ctx context.Context, req BootstrapRequest, phaseHook BootstrapPhaseHook, runner GitRunner) (BootstrapResult, error) {
+	if s == nil || s.db == nil {
+		return BootstrapResult{}, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
+	}
 	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive bootstrap identity", false, "supply JSON-safe input", err)
 	}
+	operationID, workID, digest, err = s.resolveBootstrapRowIntent(ctx, req, operationID, workID, digest)
+	if err != nil {
+		return BootstrapResult{}, err
+	}
+	if req.Ref == "" {
+		req.Ref = req.ResolvedRef
+	}
 	return s.bootstrapWorktreeMode(ctx, req, operationID, workID, digest, false, req, phaseHook, runner)
+}
+
+// resolveBootstrapRowIntent reconciles a digest against the row the
+// idempotency key already holds before the capture flow runs. The canonical
+// identity predates the caller-intent rule for recorded rows: a caller
+// capture that differs from the row's stored request only by an omitted ref
+// the row holds resolved adopts the row's persisted operation, work, and
+// digest identities, so the replay returns the row's original work item and
+// worktree. An explicit ref, or any other field change, stays the typed
+// input conflict.
+func (s *Store) resolveBootstrapRowIntent(ctx context.Context, req BootstrapRequest, operationID, workID, digest string) (string, string, string, error) {
+	var rowDigest, rowOperationID, rowWorkID, requestJSON string
+	err := s.db.QueryRowContext(ctx, `SELECT request_digest,operation_id,work_id,request_json FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&rowDigest, &rowOperationID, &rowWorkID, &requestJSON)
+	if err == sql.ErrNoRows {
+		return operationID, workID, digest, nil
+	}
+	if err != nil {
+		return "", "", "", wrapFailure(KindUnavailable, "work_bootstrap", "cannot read bootstrap journal", true, "retry once the database is readable", err)
+	}
+	if rowDigest == digest {
+		return operationID, workID, digest, nil
+	}
+	if !bootstrapRowMatchesCallerIntent(requestJSON, req) {
+		return "", "", "", newFailure(KindInvalidOperation, "work_bootstrap", "idempotency key is bound to different input", false, "use the original request or a new idempotency key")
+	}
+	return rowOperationID, rowWorkID, rowDigest, nil
+}
+
+// bootstrapRowMatchesCallerIntent reports that the caller's capture intent
+// matches a persisted row's stored request in every canonical field, with
+// the ref the only difference and the caller's ref omitted. The row holds
+// the ref its original invocation directory resolved, so an identical
+// capture replayed from another directory stays the same operation. The
+// comparison marshals both sides, which carries exactly the digest-bearing
+// field set and excludes SessionRef, HostPID, and ResolvedRef.
+func bootstrapRowMatchesCallerIntent(requestJSON string, req BootstrapRequest) bool {
+	if req.Ref != "" {
+		return false
+	}
+	var stored BootstrapRequest
+	if err := json.Unmarshal([]byte(requestJSON), &stored); err != nil {
+		return false
+	}
+	caller, row := req, stored
+	caller.Ref, row.Ref = "", ""
+	if caller.Urgency == "" {
+		caller.Urgency = "standard"
+	}
+	if row.Urgency == "" {
+		row.Urgency = "standard"
+	}
+	if caller.Tags == nil {
+		caller.Tags = []string{}
+	}
+	if row.Tags == nil {
+		row.Tags = []string{}
+	}
+	if caller.GoverningRequirements == nil {
+		caller.GoverningRequirements = []string{}
+	}
+	if row.GoverningRequirements == nil {
+		row.GoverningRequirements = []string{}
+	}
+	callerData, err := json.Marshal(caller)
+	if err != nil {
+		return false
+	}
+	rowData, err := json.Marshal(row)
+	if err != nil {
+		return false
+	}
+	return string(callerData) == string(rowData)
 }
 
 func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, phaseHook BootstrapPhaseHook, runner GitRunner) (BootstrapResult, error) {

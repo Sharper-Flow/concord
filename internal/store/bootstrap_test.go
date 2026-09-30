@@ -1311,3 +1311,187 @@ func TestReclaimRefusesBootstrapClaimedWorktreeHeldBySession(t *testing.T) {
 		t.Fatalf("refused removal must leave the worktree active, got %+v", entries)
 	}
 }
+
+// legacyBootstrapIdentity is the pre-fix canonical identity: it hashed an
+// omitted ref as the HEAD sentinel, so one caller capture hashed differently
+// by invocation directory. Tests persist rows with it to exercise the
+// compatibility route the repair keeps for already-recorded operations.
+func legacyBootstrapIdentity(req BootstrapRequest) (string, string, string, error) {
+	if req.Ref == "" {
+		req.Ref = "HEAD"
+	}
+	return CanonicalBootstrapIdentity(req)
+}
+
+func TestBootstrapWorktreeRequiresOpenStore(t *testing.T) {
+	t.Parallel()
+	req := bootstrapStoreRequest()
+	var nilStore *Store
+	_, err := nilStore.BootstrapWorktree(context.Background(), req, nil)
+	if err == nil || !strings.Contains(err.Error(), "store is not open") {
+		t.Fatalf("nil store err=%v", err)
+	}
+	zero := &Store{}
+	_, err = zero.BootstrapWorktree(context.Background(), req, nil)
+	if err == nil || !strings.Contains(err.Error(), "store is not open") {
+		t.Fatalf("zero-value store err=%v", err)
+	}
+}
+
+func TestBootstrapCaptureIdentityIsCallerIntent(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+
+	req := bootstrapStoreRequest()
+	req.Ref = ""
+	linked, main := req, req
+	linked.ResolvedRef = "origin/main"
+	linkedID, linkedWork, linkedDigest, err := CanonicalBootstrapIdentity(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainID, mainWork, mainDigest, err := CanonicalBootstrapIdentity(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkedID != mainID || linkedWork != mainWork || linkedDigest != mainDigest {
+		t.Fatalf("identity depends on the directory resolution: linked=%s/%s main=%s/%s", linkedID, linkedWork, mainID, mainWork)
+	}
+	explicit := req
+	explicit.Ref = "origin/main"
+	explicitID, _, _, err := CanonicalBootstrapIdentity(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicitID == linkedID {
+		t.Fatal("an omitted ref and an explicit ref hashed identically")
+	}
+
+	first, err := s.BootstrapWorktree(context.Background(), linked, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.WorkID != linkedWork {
+		t.Fatalf("capture work=%s want %s", first.WorkID, linkedWork)
+	}
+	defaultSHA := runBootstrapGit(t, repo, "rev-parse", "origin/main")
+	if first.Entry.BaseSHA != defaultSHA {
+		t.Fatalf("pinned base=%s want the resolved default branch %s", first.Entry.BaseSHA, defaultSHA)
+	}
+	replay, err := s.BootstrapWorktree(context.Background(), main, nil)
+	if err != nil || !replay.Replayed {
+		t.Fatalf("main-checkout replay=%+v err=%v", replay, err)
+	}
+	if replay.WorkID != first.WorkID || replay.Entry.Path != first.Entry.Path {
+		t.Fatalf("replay work=%s path=%s want work=%s path=%s", replay.WorkID, replay.Entry.Path, first.WorkID, first.Entry.Path)
+	}
+	var operations int
+	if err := s.db.QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&operations); err != nil || operations != 1 {
+		t.Fatalf("bootstrap operations=%d err=%v", operations, err)
+	}
+}
+
+func TestBootstrapReplaysRowPersistedBeforeCallerIntent(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+
+	// A pre-fix capture outside the main checkout hashed the resolution its
+	// invoking directory derived and stored it as the request ref.
+	resolved := bootstrapStoreRequest()
+	resolved.Ref = "origin/main"
+	resolved.IdempotencyKey = "bootstrap-legacy-resolved"
+	first, err := s.BootstrapWorktree(context.Background(), resolved, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := resolved
+	intent.Ref = ""
+	intent.ResolvedRef = "origin/main"
+	replay, err := s.BootstrapWorktree(context.Background(), intent, nil)
+	if err != nil || !replay.Replayed || replay.OperationID != first.OperationID || replay.WorkID != first.WorkID || replay.Entry.Path != first.Entry.Path {
+		t.Fatalf("resolved-row replay=%+v first=%+v err=%v", replay, first, err)
+	}
+
+	// A pre-fix main-checkout capture kept the omitted ref in its request and
+	// hashed the HEAD sentinel, so the replay digest misses and the row is
+	// adopted by caller intent.
+	legacy := bootstrapStoreRequest()
+	legacy.Ref = ""
+	legacy.IdempotencyKey = "bootstrap-legacy-head"
+	legacyID, legacyWork, legacyDigest, err := legacyBootstrapIdentity(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, err := s.LocateWorktree(context.Background(), legacy.ProjectID, legacyWork, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.prepareBootstrapMode(context.Background(), legacy, legacyID, legacyWork, legacyDigest, false, legacy, location, ExecGitRunner{}); err != nil {
+		t.Fatal(err)
+	}
+	completed := legacy
+	completed.Ref = "HEAD"
+	completedResult, err := s.BootstrapWorktree(context.Background(), completed, nil)
+	if err != nil || completedResult.WorkID != legacyWork {
+		t.Fatalf("legacy completion=%+v err=%v", completedResult, err)
+	}
+	adopted, err := s.BootstrapWorktree(context.Background(), legacy, nil)
+	if err != nil || !adopted.Replayed || adopted.WorkID != legacyWork || adopted.Entry.Path != completedResult.Entry.Path {
+		t.Fatalf("head-sentinel replay=%+v err=%v", adopted, err)
+	}
+	var operations int
+	if err := s.db.QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&operations); err != nil || operations != 2 {
+		t.Fatalf("bootstrap operations=%d err=%v", operations, err)
+	}
+}
+
+func TestBootstrapCallerIntentConflictsStayTyped(t *testing.T) {
+	t.Parallel()
+	repo := initBootstrapStoreRepo(t)
+	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedBootstrapStoreAuthority(t, s, repo)
+
+	req := bootstrapStoreRequest()
+	req.Ref = ""
+	first, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict := func(cause string, changed BootstrapRequest) {
+		t.Helper()
+		_, err := s.BootstrapWorktree(context.Background(), changed, nil)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "idempotency key is bound to different input" {
+			t.Fatalf("%s conflict=%v, want the typed input conflict", cause, err)
+		}
+		if failure.RetrySafe {
+			t.Fatalf("%s conflict is marked retry safe", cause)
+		}
+	}
+	explicit := req
+	explicit.Ref = "origin/main"
+	conflict("explicit ref", explicit)
+	changed := req
+	changed.Title = "A different capture"
+	conflict("changed field", changed)
+	replay, err := s.BootstrapWorktree(context.Background(), req, nil)
+	if err != nil || !replay.Replayed || replay.WorkID != first.WorkID || replay.Entry.Path != first.Entry.Path {
+		t.Fatalf("replay after conflicts=%+v err=%v", replay, err)
+	}
+}

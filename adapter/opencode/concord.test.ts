@@ -2646,6 +2646,45 @@ test("a non-refusal session-prepare failure keeps retry_same_request", async () 
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
 
+// The core reports a deterministic work-bootstrap refusal with its typed
+// exit status. The adapter classifies by that status alone — never by
+// stderr text — and maps it to contact_operator: an idempotency key bound
+// to different input is not repaired by replaying the request.
+test("a work-bootstrap refusal status maps work_start recovery to contact_operator", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(calls, {
+      "work-bootstrap": () => ({ exitCode: adapter.workBootstrapRefusalExit, stdout: "", stderr: "concord work-bootstrap: invalid_operation: idempotency key is bound to different input" }),
+    }),
+  })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("bootstrap_failure")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.retry_safe).toBe(false)
+  expect(result.error.recovery_action.kind).toBe("contact_operator")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap"])
+})
+
+// Any work-bootstrap exit other than the refusal status is not a refusal: a
+// transient core failure stays retry_safe and keeps retry_same_request.
+test("a non-refusal work-bootstrap failure keeps retry_same_request", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({
+    runner: retargetRunner(calls, {
+      "work-bootstrap": () => ({ exitCode: 1, stdout: "", stderr: "concord work-bootstrap: unavailable: cannot read the authority database" }),
+    }),
+  })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("bootstrap_failure")
+  expect(result.error.effect_state).toBe("none")
+  expect(result.error.retry_safe).toBe(true)
+  expect(result.error.recovery_action.kind).toBe("retry_same_request")
+})
+
 // A move the host refuses leaves the claim where it was: the next replay
 // asks the host again, and no compensation runs in between.
 test("work start leaves a resumable claim when the move is refused", async () => {

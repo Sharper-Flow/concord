@@ -17,10 +17,37 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// setIdentityLaunchEnv pins the six CONCORD_SELECTED_* variables
+// runSessionCommand reads from the process environment for a Product/work
+// launch (cmd/concord/session.go), so a test's result does not depend on
+// the coordinator session that ran it. An empty argument pins the
+// variable empty, which reads the same as unset.
+func setIdentityLaunchEnv(t *testing.T, productID, workID, projectID, agent string) {
+	t.Helper()
+	t.Setenv(selectedProductEnv, productID)
+	t.Setenv(selectedWorkEnv, workID)
+	t.Setenv(selectedProjectIDEnv, projectID)
+	t.Setenv(selectedAgentEnv, agent)
+	t.Setenv(selectedProjectEnv, "")
+	t.Setenv(selectedPromptEnv, "")
+}
+
+// setProjectLaunchEnv pins the six CONCORD_SELECTED_* variables for a
+// Project-path launch: path selects the Project directory, and every
+// identity variable pins empty, because a project launch cannot carry
+// Concord identity.
+func setProjectLaunchEnv(t *testing.T, path string) {
+	t.Helper()
+	t.Setenv(selectedProjectEnv, path)
+	t.Setenv(selectedProductEnv, "")
+	t.Setenv(selectedWorkEnv, "")
+	t.Setenv(selectedProjectIDEnv, "")
+	t.Setenv(selectedAgentEnv, "")
+	t.Setenv(selectedPromptEnv, "")
+}
+
 func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	const sessionDir = "/resolved/project-directory"
 	var argv []string
 	var runnerDir string
@@ -67,9 +94,7 @@ func TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts(t *testing.T) 
 }
 
 func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	runs := 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) {
 		return nil, errors.New("manifest digest mismatch")
@@ -90,10 +115,8 @@ func TestSessionBootFailsClosedBeforeOpenCodeOnPacketFailure(t *testing.T) {
 }
 
 func TestProjectSessionStartsWithoutConcordIdentity(t *testing.T) {
-	t.Setenv(selectedProductEnv, "")
-	t.Setenv(selectedWorkEnv, "")
 	project := t.TempDir()
-	t.Setenv(selectedProjectEnv, project)
+	setProjectLaunchEnv(t, project)
 	var runnerDir string
 	var argv []string
 	runner := func(_ context.Context, dir string, got []string, _ []string, _ io.Reader, _, _ io.Writer) error {
@@ -188,8 +211,7 @@ func TestContinuityBlockReadFailureIsSilentOnStdout(t *testing.T) {
 }
 
 func TestSessionRefusesToStartWhenRequiredAgentIdentityIsAbsent(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
 	bootstrapCalls, runs := 0, 0
 	bootstrap := func(context.Context, string, string, string) ([]byte, error) { bootstrapCalls++; return nil, nil }
 	runner := func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
@@ -233,9 +255,7 @@ func TestSessionRefusesWhenOrchestratorIdentityIsAbsent(t *testing.T) {
 		writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), laneAgentFileName(lane.ID))
 	}
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-absent.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
@@ -286,9 +306,7 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	}
 	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-assertion.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
@@ -374,9 +392,7 @@ func TestSessionStartsTheOrchestratorAgentItAsserted(t *testing.T) {
 	}
 	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-selection.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	var argv []string
@@ -470,9 +486,7 @@ func TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact(t *testing.T
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-digest.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	identity := func(dir string) error { return verifyLaneAgentIdentity(home, dir, store.BuiltinLaneDefinitions()) }
@@ -574,9 +588,7 @@ func TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle(t *testing.T) {
 	}
 	writeAgentDefinition(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"))
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	dbPath := filepath.Join(t.TempDir(), "concord-unregistered.db")
 	t.Setenv("CONCORD_DB_PATH", dbPath)
 	runs := 0
@@ -677,9 +689,7 @@ func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.
 	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("op-session-renamed"),
 		[]byte("---\nname: op-session-renamed\nmode: all\n---\norchestrator body\n"))
 	t.Setenv("HOME", home)
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "op-session-renamed")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "op-session-renamed")
 	t.Setenv("CONCORD_DB_PATH", filepath.Join(t.TempDir(), "concord-renamed.db"))
 	var argv []string
 	var runnerDir string
@@ -756,9 +766,7 @@ func TestOrchestratorAssertionRecordsTheRegisteredHandle(t *testing.T) {
 // appends only its fixed --agent and --prompt arguments. The launch runs in
 // the one resolved directory (CD-0093 D2).
 func TestSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
-	t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-	t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-	t.Setenv(selectedAgentEnv, "concord-1")
+	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 	sessionDir := "/resolved/project-directory"
 	configured := hostCommandResolution{Command: []string{"host-wrapper", "--profile", "work"}}
 	var argv []string
@@ -795,9 +803,7 @@ func TestSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 // configured command in the validated Project directory.
 func TestProjectSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 	project := t.TempDir()
-	t.Setenv(selectedProductEnv, "")
-	t.Setenv(selectedWorkEnv, "")
-	t.Setenv(selectedProjectEnv, project)
+	setProjectLaunchEnv(t, project)
 	configured := hostCommandResolution{Command: []string{"host-wrapper", "--login"}}
 	var argv []string
 	var runnerDir string
@@ -833,9 +839,7 @@ func TestProjectSessionLaunchesTheConfiguredHostCommand(t *testing.T) {
 // CD-0049 D4 admits no degraded start).
 func TestSessionRefusesWhenTheHostCommandResolutionRefuses(t *testing.T) {
 	t.Run("product launch", func(t *testing.T) {
-		t.Setenv("CONCORD_SELECTED_PRODUCT_ID", "product-1")
-		t.Setenv("CONCORD_SELECTED_WORK_ID", "work-1")
-		t.Setenv(selectedAgentEnv, "concord-1")
+		setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
 		runs := 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -862,9 +866,7 @@ func TestSessionRefusesWhenTheHostCommandResolutionRefuses(t *testing.T) {
 	})
 	t.Run("project launch", func(t *testing.T) {
 		project := t.TempDir()
-		t.Setenv(selectedProductEnv, "")
-		t.Setenv(selectedWorkEnv, "")
-		t.Setenv(selectedProjectEnv, project)
+		setProjectLaunchEnv(t, project)
 		runs := 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,

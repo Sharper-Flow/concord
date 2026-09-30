@@ -148,7 +148,13 @@ const (
 	// KindWorktreeVerifyMutated marks a verify lease whose tracked files
 	// changed while the command ran (CD-0096 D3 Verify tier). A verifier
 	// that edits its subject verifies nothing, so completion refuses typed.
-	KindWorktreeVerifyMutated       FailureKind = "worktree_verify_mutated"
+	KindWorktreeVerifyMutated FailureKind = "worktree_verify_mutated"
+	// KindWorktreeUnpublishedLesson marks a worktree reclaim whose branch
+	// carries a lesson record the default branch does not hold. The reclaim
+	// deletes the branch, and a pushed-then-abandoned branch holding a
+	// prepared lesson otherwise reclaims with no signal. The refusal names
+	// the records and the merge-or-supersede recovery.
+	KindWorktreeUnpublishedLesson   FailureKind = "worktree_unpublished_lesson"
 	KindInitiativeScopeViolation    FailureKind = "initiative_scope_violation"
 	KindInitiativeEntryConflict     FailureKind = "initiative_entry_conflict"
 	KindInitiativeCompletionBlocked FailureKind = "initiative_completion_blocked"

@@ -1119,8 +1119,13 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 		return out, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
 	}
+	// Every non-destructive reclaim compares the branch against a canonical
+	// default endpoint: the RequireUnstarted commit count, the durability
+	// check, and the unpublished-lesson gate all read it. Derive the
+	// endpoint before any effect, and refuse a repository that cannot name
+	// its default branch instead of reclaiming with a skipped comparison.
 	defaultRef := req.DefaultRef
-	if req.RequireUnstarted && defaultRef == "" {
+	if defaultRef == "" {
 		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
 		if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
 			return out, newFailure(KindGitUnreachable, op, "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
@@ -1133,11 +1138,23 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 			return out, err
 		}
 	} else {
-		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, req.DefaultRef, op)
+		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
 		if durableErr != nil {
 			return out, durableErr
 		}
 		squashMerged = contained
+	}
+	// A branch whose lesson records the default ref does not hold is
+	// prepared delivery the reclaim would delete. The gate runs after
+	// durability, so a pushed branch refuses exactly like an unpushed one,
+	// and a merged lesson (the shard exists on the default endpoint) never
+	// blocks a reclaim.
+	lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
+	if lessonErr != nil {
+		return out, lessonErr
+	}
+	if len(lessons) > 0 {
+		return out, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
 	}
 
 	reclaimFacts := map[string]any{"clean_tree": true}
@@ -2064,6 +2081,13 @@ const (
 	WorktreeDriftUnstartedPresent   = "unstarted_present"
 	WorktreeDriftUncommittedContent = "uncommitted_content"
 	WorktreeDriftUnpushedContent    = "unpushed_content"
+	// WorktreeDriftUnpublishedLesson: the worktree's branch carries a lesson
+	// record shard the default ref does not hold. The lesson is prepared
+	// delivery a merge could still lose, and the branch may already be
+	// pushed, so no content-risk class sees it. The row names inspect, not
+	// reclaim: the reclaim gate refuses the worktree while the record stays
+	// unpublished.
+	WorktreeDriftUnpublishedLesson = "unpublished_lesson"
 )
 
 // Typed recovery actions. Where a Concord operation owns the recovery, the
@@ -2364,6 +2388,15 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		return WorktreeAudit{}, err
 	}
 	drift = append(drift, contentRows...)
+	// Unpublished lesson records: the rows ride after the content classes,
+	// and they do not set content-risk paths, so a terminal worktree stays
+	// classified and the reclaim pass attempts it and reports the typed
+	// refusal the gate produces.
+	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, q, runner, defaultRefOverride, entries, lifecycleByWorkID)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, lessonRows...)
 	// Stale claim: the verified locator points at a path the disk no longer
 	// holds. ReclaimWorktree reconciles exactly this shape (already_absent).
 	for _, c := range claims {
@@ -2709,6 +2742,107 @@ func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, d
 		}
 	}
 	return rows, riskPaths, nil
+}
+
+// branchUnpublishedLessonRecords returns the lesson record shards the branch
+// tree adds beyond the default ref: paths under the record tree present on
+// the branch and absent from the default endpoint, whose committed kind is
+// lesson. The endpoint diff, not a commit range, decides presence, so a
+// merged (including squash-merged) lesson never counts and a
+// pushed-then-abandoned branch does. The audit classification and the
+// reclaim gate probe through this one function, so both surfaces see the
+// same facts.
+func branchUnpublishedLessonRecords(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) ([]string, error) {
+	out, err := runner.Run(ctx, repoRoot, "diff", "--name-only", "--diff-filter=A", defaultRef, branch, "--", knowledgeRecordTree+"/")
+	if err != nil {
+		return nil, wrapFailure(KindGitUnreachable, op, "cannot compare "+branch+" against "+defaultRef+" for unpublished lesson records", true, "retry once the repository is reachable", err)
+	}
+	var lessons []string
+	for _, recordPath := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		recordPath = strings.TrimSpace(recordPath)
+		if recordPath == "" {
+			continue
+		}
+		blob, blobErr := runner.Run(ctx, repoRoot, "show", branch+":"+recordPath)
+		if blobErr != nil {
+			return nil, wrapFailure(KindGitUnreachable, op, "cannot read "+recordPath+" on "+branch, true, "retry once the repository is reachable", blobErr)
+		}
+		var shard struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(blob, &shard) != nil || shard.Kind != "lesson" {
+			continue
+		}
+		lessons = append(lessons, recordPath)
+	}
+	return lessons, nil
+}
+
+// worktreeUnpublishedLessonDetail renders the bounded refusal detail: the
+// count always, and up to the first three record paths.
+func worktreeUnpublishedLessonDetail(count int, lessons []string, defaultRef string) string {
+	shown := lessons
+	if len(shown) > 3 {
+		shown = shown[:3]
+	}
+	return fmt.Sprintf("branch carries %d lesson record(s) absent from %s: %s", count, defaultRef, strings.Join(shown, ", "))
+}
+
+// classifyUnpublishedLessonWorktrees derives the unpublished_lesson rows for
+// one audit pass. The signal is a lesson record shard the default ref does
+// not hold: prepared delivery a merge could still lose, visible whether or
+// not the branch is pushed. Git is probed per present active entry; a
+// project whose default ref cannot be resolved contributes no rows, because
+// the comparison that names an unpublished lesson needs the default
+// endpoint, and the read must stay deliverable (issue #831).
+func classifyUnpublishedLessonWorktrees(ctx context.Context, q queryer, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, error) {
+	repoRoots := map[string]string{}
+	defaultRefs := map[string]string{}
+	var rows []WorktreeDrift
+	for _, entry := range entries {
+		present, err := pathExistsForAudit(entry.path)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			continue
+		}
+		repoRoot, ok := repoRoots[entry.projectID]
+		if !ok {
+			repoRoot, err = worktreeAuditRepoRoot(ctx, q, entry.projectID)
+			if err != nil {
+				return nil, err
+			}
+			repoRoots[entry.projectID] = repoRoot
+		}
+		defaultRef, ok := defaultRefs[entry.projectID]
+		if !ok {
+			resolved, resErr := worktreeAuditDefaultRef(ctx, runner, repoRoot, defaultRefOverride)
+			if resErr != nil {
+				defaultRefs[entry.projectID] = ""
+				continue
+			}
+			defaultRef = resolved
+			defaultRefs[entry.projectID] = defaultRef
+		}
+		if defaultRef == "" {
+			continue
+		}
+		lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.branch, defaultRef, "worktree_audit")
+		if lessonErr != nil {
+			return nil, lessonErr
+		}
+		if len(lessons) == 0 {
+			continue
+		}
+		rows = append(rows, WorktreeDrift{
+			Class: WorktreeDriftUnpublishedLesson, ProjectID: entry.projectID, WorkID: entry.workID,
+			Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycleByWorkID[entry.workID],
+			RecoveryAction: WorktreeRecoveryInspect,
+			Risk:           fmt.Sprintf("%d lesson record(s) absent from %s", len(lessons), defaultRef),
+		})
+	}
+	return rows, nil
 }
 
 type worktreeAuditEntry struct {

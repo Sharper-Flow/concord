@@ -13489,7 +13489,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "terminal_present",
                   "unstarted_present",
                   "uncommitted_content",
-                  "unpushed_content"
+                  "unpushed_content",
+                  "unpublished_lesson"
                 ],
                 "type": "string"
               },
@@ -13640,7 +13641,8 @@ const GeneratedPayloadSchemaDocument = `{
                   "terminal_present",
                   "unstarted_present",
                   "uncommitted_content",
-                  "unpushed_content"
+                  "unpushed_content",
+                  "unpublished_lesson"
                 ],
                 "type": "string"
               },

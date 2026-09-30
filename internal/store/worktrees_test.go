@@ -41,7 +41,13 @@ type fakeWorktreeGit struct {
 	// partialAdd models git leaving the tree directory and the requested new
 	// branch behind before it reports a failed `worktree add`.
 	partialAdd bool
-	calls      [][]string
+	// addedRecordShards models the endpoint diff the unpublished-lesson
+	// probe runs: branch -> record shard paths the branch tree adds beyond
+	// the default tree, and recordShardKinds maps "<branch>:<path>" to the
+	// committed record kind.
+	addedRecordShards map[string][]string
+	recordShardKinds  map[string]string
+	calls             [][]string
 }
 
 // addRepository registers a further repository root the fake answers for.
@@ -65,18 +71,20 @@ func (g *fakeWorktreeGit) treeOf(ref string) string {
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
 	return &fakeWorktreeGit{
-		repoRoot:       repoRoot,
-		extraRoots:     map[string]bool{},
-		worktreeRepos:  map[string]string{},
-		branches:       map[string]string{"main": strings.Repeat("a", 40)},
-		worktrees:      map[string]string{},
-		dirty:          map[string]bool{},
-		content:        map[string]string{},
-		ahead:          map[string]int{},
-		unpushed:       map[string]int{},
-		commitPatchIDs: map[string]string{},
-		headBranch:     "main",
-		defaultRef:     "origin/main",
+		repoRoot:          repoRoot,
+		extraRoots:        map[string]bool{},
+		worktreeRepos:     map[string]string{},
+		branches:          map[string]string{"main": strings.Repeat("a", 40)},
+		worktrees:         map[string]string{},
+		dirty:             map[string]bool{},
+		content:           map[string]string{},
+		ahead:             map[string]int{},
+		unpushed:          map[string]int{},
+		commitPatchIDs:    map[string]string{},
+		addedRecordShards: map[string][]string{},
+		recordShardKinds:  map[string]string{},
+		headBranch:        "main",
+		defaultRef:        "origin/main",
 	}
 }
 
@@ -227,6 +235,22 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return []byte("M file\n"), nil
 		}
 		return nil, nil
+	case strings.HasPrefix(join, "diff --name-only --diff-filter=A "):
+		// diff --name-only --diff-filter=A <from> <to> -- <path>: the fake
+		// names the record shards the branch tree adds beyond the default
+		// tree, exactly the endpoint diff the unpublished-lesson probe runs.
+		parts := strings.Fields(join)
+		if len(parts) < 6 || parts[5] != "--" {
+			return nil, fmt.Errorf("malformed record diff")
+		}
+		return []byte(strings.Join(g.addedRecordShards[strings.TrimPrefix(parts[4], "origin/")], "\n")), nil
+	case strings.HasPrefix(join, "show "):
+		ref := strings.TrimPrefix(join, "show ")
+		kind, ok := g.recordShardKinds[ref]
+		if !ok {
+			return nil, fmt.Errorf("unmodelled blob %s", ref)
+		}
+		return []byte(`{"id":"probe","kind":"` + kind + `"}` + "\n"), nil
 	case strings.HasPrefix(join, "diff "):
 		// diff <from> <to>: the fake's patch text encodes the pair of trees,
 		// and its patch-id is that text, so equal diffs carry equal ids. An
@@ -323,6 +347,18 @@ func (g *fakeWorktreeGit) countCalls(prefix string) int {
 		}
 	}
 	return n
+}
+
+// addBranchRecordShard models one record shard the branch tree adds beyond
+// the default tree, with the record kind its committed JSON carries. An
+// empty kind removes the branch's modelled shards, the shape a merge leaves.
+func (g *fakeWorktreeGit) addBranchRecordShard(branch, path, kind string) {
+	if kind == "" {
+		delete(g.addedRecordShards, branch)
+		return
+	}
+	g.addedRecordShards[branch] = append(g.addedRecordShards[branch], path)
+	g.recordShardKinds[branch+":"+path] = kind
 }
 
 func worktreeFixture(t *testing.T) (*Store, *fakeWorktreeGit, string) {

@@ -7080,7 +7080,8 @@
                   "terminal_present",
                   "unstarted_present",
                   "uncommitted_content",
-                  "unpushed_content"
+                  "unpushed_content",
+                  "unpublished_lesson"
                 ]
               },
               "project_id": {
@@ -8668,7 +8669,8 @@
                   "terminal_present",
                   "unstarted_present",
                   "uncommitted_content",
-                  "unpushed_content"
+                  "unpushed_content",
+                  "unpublished_lesson"
                 ]
               },
               "project_id": {

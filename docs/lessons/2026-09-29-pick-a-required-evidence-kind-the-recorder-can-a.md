@@ -20,13 +20,9 @@ Before naming a `required_evidence` kind at contract approval, establish which r
 - `native_run` — an attributed run report already captured and verified against the work item.
 - `commit` — a git commit SHA.
 - `review`, `approval` — a reviewer or operator decision record.
+- `durable_note`, `artifact` — a durable note or an artifact reference that the work's evidence binding admits.
 
 A required kind no participant can produce is not a stricter contract. It is an unsatisfiable one.
-
-## Two adjacent frictions, both repaired since 2026-09-20
-
-1. One `bind_evidence` call carrying several entries then durably bound only the first. The store now refuses to bind a subset of the submitted subjects and binds one event per submitted kind (internal/store/evidence_bind_subset_refusal_test.go).
-2. `bind_evidence` then accepted a locator containing spaces, which the verdict's whitespace-free `reference` pattern could never name. It now refuses a locator the verdict cannot name (internal/store/evidence_bind_reference_domain_test.go).
 
 ## At completion
 

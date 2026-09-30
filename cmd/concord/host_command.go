@@ -15,8 +15,8 @@ import (
 
 // hostRegistryProbeTimeout bounds each probe. The host resolves plugins and
 // providers before it prints, so this is generous relative to the measured
-// cost; it exists to turn a hung host into a typed refusal rather than a
-// session that never starts.
+// cost; it exists to turn a hung host into a typed, retryable
+// hostProbeInterruptedError rather than a session that never starts.
 const hostRegistryProbeTimeout = 60 * time.Second
 
 // defaultHostCommand is the host command Concord starts when the operator

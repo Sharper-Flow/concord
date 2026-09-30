@@ -6054,6 +6054,11 @@ const GeneratedPayloadSchemaDocument = `{
             }
           ]
         },
+        "cancelled_instance_closes": {
+          "description": "All-time count of work items in this item's primary Project that have lifecycle completed while their workflow instance is cancelled (the CD-0183 D4 repair route).",
+          "minimum": 0,
+          "type": "integer"
+        },
         "correction": {
           "oneOf": [
             {
@@ -6188,6 +6193,7 @@ const GeneratedPayloadSchemaDocument = `{
         "project_display_name",
         "version",
         "lifecycle",
+        "cancelled_instance_closes",
         "workflow_type",
         "step",
         "attempt",

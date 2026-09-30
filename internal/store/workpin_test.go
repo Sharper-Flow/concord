@@ -127,8 +127,72 @@ func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.WorkID != workID || pin.ProjectID != "" || pin.ProjectDisplayName != "" {
+	if pin.WorkID != workID || pin.ProjectID != "" || pin.ProjectDisplayName != "" || pin.CancelledInstanceCloses != 0 {
 		t.Fatalf("pin=%+v, want an empty project identity", pin)
+	}
+}
+
+func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	ctx := context.Background()
+	cases := []struct {
+		id        string
+		lifecycle string
+		instance  string
+		project   string
+	}{
+		{id: "pin-count-match", lifecycle: "completed", instance: "cancelled", project: "project"},
+		{id: "pin-count-completed", lifecycle: "completed", instance: "completed", project: "project"},
+		{id: "pin-count-cancelled", lifecycle: "cancelled", instance: "cancelled", project: "project"},
+		{id: "pin-count-running", lifecycle: "needed", instance: "running", project: "project"},
+		{id: "pin-count-other", lifecycle: "completed", instance: "cancelled", project: "project-secondary"},
+	}
+	for i, item := range cases {
+		continuityTestWorkflow(t, s, item.id)
+		if i == 0 {
+			if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+				projectCreatedEvent("project-secondary", "create-project-secondary"),
+				operationEvent("product-project-secondary", "product_project.added", SubjectProduct, "product", map[string]any{"product_id": "product", "project_id": "project-secondary", "role": "secondary", "reason": "test", "expected_version": 2, "resulting_version": 3}),
+			}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-secondary"): 0, VersionRef(SubjectProduct, "product"): 2}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`UPDATE work_items SET lifecycle=? WHERE id=?`, item.lifecycle, item.id); err != nil {
+			t.Fatalf("set lifecycle for %s: %v", item.id, err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, item.instance, item.id); err != nil {
+			t.Fatalf("set instance for %s: %v", item.id, err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM work_projects WHERE work_id=?`, item.id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,'primary')`, item.id, item.project); err != nil {
+			t.Fatalf("seed %s: %v", item.id, err)
+		}
+		if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('pin-count-other','project','secondary'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(ctx, s, "pin-count-completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.CancelledInstanceCloses != 2 {
+		t.Fatalf("cancelled instance closes=%d, want 2", pin.CancelledInstanceCloses)
+	}
+	other, err := ReadWorkPin(ctx, s, "pin-count-other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.ProjectID != "project-secondary" || other.CancelledInstanceCloses != 1 {
+		t.Fatalf("other project pin=%s closes=%d, want project-secondary with 1", other.ProjectID, other.CancelledInstanceCloses)
 	}
 }
 

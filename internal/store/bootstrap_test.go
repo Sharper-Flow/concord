@@ -1323,6 +1323,21 @@ func legacyBootstrapIdentity(req BootstrapRequest) (string, string, string, erro
 	return CanonicalBootstrapIdentity(req)
 }
 
+func TestBootstrapWorktreeRequiresOpenStore(t *testing.T) {
+	t.Parallel()
+	req := bootstrapStoreRequest()
+	var nilStore *Store
+	_, err := nilStore.BootstrapWorktree(context.Background(), req, nil)
+	if err == nil || !strings.Contains(err.Error(), "store is not open") {
+		t.Fatalf("nil store err=%v", err)
+	}
+	zero := &Store{}
+	_, err = zero.BootstrapWorktree(context.Background(), req, nil)
+	if err == nil || !strings.Contains(err.Error(), "store is not open") {
+		t.Fatalf("zero-value store err=%v", err)
+	}
+}
+
 func TestBootstrapCaptureIdentityIsCallerIntent(t *testing.T) {
 	t.Parallel()
 	repo := initBootstrapStoreRepo(t)

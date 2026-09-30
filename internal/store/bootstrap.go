@@ -449,6 +449,9 @@ func (s *Store) BootstrapWorktree(ctx context.Context, req BootstrapRequest, pha
 }
 
 func (s *Store) bootstrapWorktree(ctx context.Context, req BootstrapRequest, phaseHook BootstrapPhaseHook, runner GitRunner) (BootstrapResult, error) {
+	if s == nil || s.db == nil {
+		return BootstrapResult{}, newFailure(KindUnavailable, "work_bootstrap", "store is not open", false, "open the authority database")
+	}
 	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive bootstrap identity", false, "supply JSON-safe input", err)

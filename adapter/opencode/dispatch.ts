@@ -21,7 +21,10 @@ export const MAX_READBACK_MESSAGE_PAGES = 16
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
-// internal/store/worker_lanes.go; a longer detail would be refused at the fold.
+// internal/store/worker_lanes.go, counted in UTF-8 bytes; a longer detail
+// would be refused at the fold. Every site that fills this bound routes
+// through boundedTextPrefix, so the bytes the store counts are the bytes the
+// adapter bounded, never a UTF-16 code-unit count.
 const MAX_FAILURE_DETAIL_BYTES = 4_096
 // A refused readback retains diagnostics on the recorded failed attempt: a
 // prefix of the received export body, what ran, how the child ended, and a
@@ -958,7 +961,7 @@ export function resolveWorkerReportFromText(text: string, packet: AgentLanePacke
 // reclassified as an invalid report.
 function workerReportedFailureDetail(report: AgentLaneReport): string {
   const rendered = report.evidence.map((entry) => `${entry.obligation}: ${entry.detail}`).join("; ")
-  return `worker reported failure: ${rendered}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+  return boundedTextPrefix(`worker reported failure: ${rendered}`, MAX_FAILURE_DETAIL_BYTES)
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
@@ -1131,7 +1134,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
-  const detail = readbackFailureDetail(refusal, workerResult).slice(0, MAX_FAILURE_DETAIL_BYTES)
+  const detail = boundedTextPrefix(readbackFailureDetail(refusal, workerResult), MAX_FAILURE_DETAIL_BYTES)
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   let assertion: Record<string, unknown>
   try {
@@ -1696,7 +1699,7 @@ export async function abandonWorkerAttempt(
     event_id: options.abandonEventID ?? crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
-    detail: detail.slice(0, MAX_FAILURE_DETAIL_BYTES),
+    detail: boundedTextPrefix(detail, MAX_FAILURE_DETAIL_BYTES),
     assertion,
   }, signal)
   if (failure) return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because abandonment could not be recorded: ${failure}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
@@ -1840,9 +1843,9 @@ async function completeWorkerSession(
 
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined
-      ? { verb: "worker-fail", failure_kind: "worker_error", detail: hostFailure.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES) }
       : "detail" in resolution
-      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES) }
       : resolution.report.status === "failed"
         ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
         : { verb: "worker-complete", report: resolution.report }
@@ -1979,7 +1982,7 @@ async function completeWorkerSession(
     // close while the lane runs inside the live coordinator process. The
     // failed attempt lets the coordinator record_worker_failure and request
     // an operator-approved retry.
-    const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+    const detail = boundedTextPrefix(`worker-complete refused: ${completionFailure}`, MAX_FAILURE_DETAIL_BYTES)
     let closeAssertion: Record<string, unknown>
     try {
       closeAssertion = await signWorkerEvidence(credentials, {

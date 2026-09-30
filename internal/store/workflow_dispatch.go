@@ -327,6 +327,16 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		if correction != nil && correction.Escalated && !request.EscalatedRetryApproved {
 			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
 		}
+		// The same-step wall mirrors the packet wall without depending on a
+		// recorded correction: failed attempts dispatched at this step since
+		// the window anchor count whatever route re-dispatched them.
+		sameStepFailed, sameStepErr := workflowSameStepFailedAttemptCount(ctx, tx, entry.Definition, request.WorkID, currentStep, "workflow_action")
+		if sameStepErr != nil {
+			return result, sameStepErr
+		}
+		if sameStepFailed >= workflowCorrectionAttemptLimit && !request.EscalatedRetryApproved {
+			return result, workflowSameStepWallRefusal(currentStep, sameStepFailed)
+		}
 		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {
 			return result, err
 		}

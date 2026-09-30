@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const workflowCorrectionAttemptLimit int64 = 3
@@ -414,6 +415,66 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil
+}
+
+// workflowSameStepFailedAttemptCount counts the failed worker attempts whose
+// dispatch completed at the current step after the window anchor: the later of
+// the last accepted worker result (the CD-0164 D2 reset) and the latest step
+// entry. An entry is a completion whose fold moves the instance between steps:
+// an advancing action's completion or a correction request's return. A
+// supersede_contract completion holds the step except at the pinned complete
+// step, and CD-0164 D3 keeps counted dispatches across an operator-approved
+// supersession, so only the complete-step correction shape opens the window.
+// Dispatch actions and fresh fenced starts do not reset the window, so a
+// coordinator that re-dispatches a failed lane without a correction record
+// climbs the same wall a recorded correction climbs.
+func workflowSameStepFailedAttemptCount(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep, subject string) (int64, error) {
+	var acceptedSeq int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&acceptedSeq); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker results", true, "retry once the workflow projection is readable", err)
+	}
+	anchor := acceptedSeq
+	entries := append(advancingWorkflowActions(definition), "request_correction")
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(entries)), ",")
+	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted}
+	for _, action := range entries {
+		args = append(args, action)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.action_id'),json_extract(payload,'$.step_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's entries", true, "retry once the workflow event log is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int64
+		var actionID, stepID string
+		if err := rows.Scan(&seq, &actionID, &stepID); err != nil {
+			return 0, wrapFailure(KindUnavailable, subject, "cannot scan the workflow step's entries", true, "retry once the workflow event log is readable", err)
+		}
+		if actionID == "supersede_contract" && !stepDeclaresAction(definition, stepID, "complete") {
+			continue
+		}
+		if seq > anchor {
+			anchor = seq
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot scan the workflow step's entries", true, "retry once the workflow event log is readable", err)
+	}
+	var count int64
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id AND dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker' AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id AND json_extract(dc.payload,'$.step_id')=? WHERE a.work_id=? AND a.lifecycle_state='failed' AND dc.seq>?`, string(SubjectWorkItem), WorkflowActionCompleted, currentStep, workID, anchor).Scan(&count); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot count same-step failed attempts", true, "retry once the worker attempt projection is readable", err)
+	}
+	return count, nil
+}
+
+// workflowSameStepWallRefusal is the operator approval wall a dispatch faces
+// when the same-step failed count reaches the CD-0164 limit. The message names
+// the counted population, and the escalated retry approval is the one escape.
+func workflowSameStepWallRefusal(currentStep string, count int64) error {
+	return newFailure(KindApprovalRequired, "workflow_action",
+		fmt.Sprintf("worker dispatch at step %s reached the three-failed-attempt limit: %d failed attempts dispatched at this step since the last accepted result or step entry", currentStep, count),
+		false, "escalate the failed attempts to the operator")
 }
 
 func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
@@ -979,7 +1040,7 @@ func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workI
 // current correction context. An escalated correction is admissible only
 // through the approval-gated boundary, which sets escalatedRetryApproved after
 // it consumed the operator approval bound to this correction.
-func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, currentStep string, packetRaw json.RawMessage, escalatedRetryApproved bool) error {
+func validateWorkerPacketCorrection(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, packetRaw json.RawMessage, escalatedRetryApproved bool) error {
 	var packet struct {
 		AttemptID string `json:"attempt_id"`
 		Inputs    struct {
@@ -988,6 +1049,17 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, curr
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+	}
+	// The same-step wall does not depend on a recorded correction: it counts
+	// the failed attempts the step's own dispatch completions show since the
+	// window anchor, so a re-dispatch loop with no correction record reaches
+	// the same operator escalation a recorded correction reaches.
+	sameStepFailed, err := workflowSameStepFailedAttemptCount(ctx, q, definition, workID, currentStep, "workflow_action")
+	if err != nil {
+		return err
+	}
+	if sameStepFailed >= workflowCorrectionAttemptLimit && !escalatedRetryApproved {
+		return workflowSameStepWallRefusal(currentStep, sameStepFailed)
 	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, currentStep, packet.AttemptID)
 	if err != nil {

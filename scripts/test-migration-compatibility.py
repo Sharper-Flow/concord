@@ -219,6 +219,48 @@ expect_evaluate(
     breaking=[],
 )
 
+# A field whose value starts on a later line is present and refused, never
+# read as absent: the comment-only residue after stripping must not become
+# the empty declaration.
+MULTILINE_INVALID_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 112,\n\t\tName: \"value_on_next_line\",\n"
+    "\t\tFoldMaintained: // signed claim\n"
+    '\t\t"later",\n'
+    "\t\tSQL: `SELECT 1;`,\n\t},\n"
+    "}\n"
+)
+MULTILINE_ORIGIN_SOURCE = (
+    "var migrations = []migration{\n"
+    "\t{\n\t\tVersion: 113,\n\t\tName: \"multiline_origin\",\n"
+    "\t\tFoldMaintained:\n"
+    '\t\t"origin",\n'
+    f"\t\tSQL: `{ADD_COLUMN_SQL}`,\n\t}},\n"
+    "}\n"
+)
+parsed_folds(
+    "multiline declarations return the elsewhere sentinel",
+    MULTILINE_INVALID_SOURCE,
+    [check.FOLD_VALUE_ELSEWHERE],
+)
+parsed_folds(
+    "multiline valid origin also returns the sentinel",
+    MULTILINE_ORIGIN_SOURCE,
+    [check.FOLD_VALUE_ELSEWHERE],
+)
+expect_evaluate(
+    "multiline invalid value on a no-column migration is refused twice",
+    check.migrations(MULTILINE_INVALID_SOURCE),
+    failures=2,
+    breaking=[],
+)
+expect_evaluate(
+    "multiline valid origin draws only the vocabulary refusal, not rule (a)",
+    check.migrations(MULTILINE_ORIGIN_SOURCE),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

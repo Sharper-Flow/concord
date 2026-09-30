@@ -52,6 +52,10 @@ ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
 DECLARES_BREAKING = re.compile(r"^\t\tBreaking:\s+true,$", re.MULTILINE)
 DECLARES_FOLD = re.compile(r"^\t\tFoldMaintained:[ \t]*(.*)$", re.MULTILINE)
 FOLD_VOCABULARY = ("advance", "origin")
+# What fold_maintained returns for a field whose value is not on the field's
+# own line: present, unreadable, and outside every vocabulary. Text no Go
+# value can carry keeps it from colliding with a real residue.
+FOLD_VALUE_ELSEWHERE = "<value on a later line>"
 
 CREATE_TABLE = re.compile(
     r"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
@@ -175,14 +179,19 @@ def fold_maintained(entry: str) -> str:
     come off, and only a fully double-quoted literal unquotes. Any other
     form the line carries, such as a raw string or a concatenated
     expression, stays as unparsed text and fails the vocabulary check, so a
-    present field never reads as an absent one. The declaration is a signed
-    human claim (see the migration struct), so a genuinely missing line is
-    an empty declaration rather than a parse error.
+    present field never reads as an absent one. A field whose value starts
+    on a later line returns FOLD_VALUE_ELSEWHERE: the checker refuses the
+    multiline form rather than guess at it, so the declaration keeps its
+    value on the field's own line. The declaration is a signed human claim
+    (see the migration struct), so a genuinely missing line is an empty
+    declaration rather than a parse error.
     """
     match = DECLARES_FOLD.search(entry)
     if not match:
         return ""
     value = re.sub(r"//.*$", "", match.group(1)).strip().rstrip(",").strip()
+    if not value:
+        return FOLD_VALUE_ELSEWHERE
     if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
         return value[1:-1]
     return value

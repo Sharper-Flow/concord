@@ -2,11 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestContinuityBlockPrintsDeterministicPacket"
+      "value": "cmd/concord.TestContinuityBlockPrintsDeterministicPacketForDirectory"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestContinuityBlockWithEmptyWorkIDDoesNothing"
+      "value": "cmd/concord.TestContinuityBlockWithoutResolvedClaimPrintsNothing"
     },
     {
       "kind": "scenario",
@@ -15,6 +15,14 @@
     {
       "kind": "scenario",
       "value": "adapter-continuity-byte-stable-across-turns"
+    },
+    {
+      "kind": "scenario",
+      "value": "adapter-continuity-work-start-retarget"
+    },
+    {
+      "kind": "scenario",
+      "value": "adapter-continuity-lane-leak-absent"
     },
     {
       "kind": "validator",

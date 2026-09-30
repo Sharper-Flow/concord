@@ -15,7 +15,7 @@
       "target_id": "CD-0056"
     }
   ],
-  "path": "docs/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
+  "path": ".concord/docs/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",

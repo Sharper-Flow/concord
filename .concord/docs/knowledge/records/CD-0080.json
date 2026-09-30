@@ -1,0 +1,37 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-28T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/agent/authority.go",
+    "internal/agent/worker_evidence.go",
+    "internal/store/schema.go",
+    "internal/store/blocked_sessions.go",
+    ".concord/docs/reachability-exceptions.v1.json"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0080",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0080-capability-scoping-replaces-the-grant-token.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:46e0e07a69ea15a5369183a89422c3ec6a49a98eb3c4de11c832af02444a78ec",
+  "status": "accepted",
+  "summary": "Authorization becomes the registered client policy intersected with git-derived scope resolved from the invoke envelope on every call. The grant token, the agent_grants table, expiry, and use counts are removed, and host approval keeps its scope, challenge, and consequence bindings without a signature. Worker evidence signing under CD-0067 D6 is out of scope and keeps the client key registry and the nonce table. Approval challenges re-anchor to the session identity tuple, blocked-session Product scope moves to the session record, and the three unbuilt revocation methods are removed. This declines the core-issued opaque session handle CD-0071 D4 anticipated.",
+  "tags": [
+    "authority",
+    "grants",
+    "capability-scoping",
+    "boundary"
+  ],
+  "title": "Capability scoping replaces the grant token"
+}

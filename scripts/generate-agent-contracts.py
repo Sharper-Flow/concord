@@ -993,7 +993,7 @@ def main() -> int:
             ROOT / "adapter/opencode/generated-contracts.ts": ts_projection(manifest, digest, host_manifest, host_digest),
             ROOT / "contracts/agent-tool-surface.digest": digest + "\n",
             ROOT / "contracts/agent-tool-surface.fixtures.json": fixtures_projection(manifest),
-            ROOT / "docs/generated-agent-tool-surface.md": docs_projection(manifest),
+            ROOT / ".concord/docs/generated-agent-tool-surface.md": docs_projection(manifest),
             ROOT / "adapter/opencode/generated-contract-tests.ts": ts_validator_projection(manifest),
             ROOT / "internal/payloadschema/generated_schemas.go": go_payload_schema_projection(),
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,

@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_file_location(
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
-MANIFEST = ROOT / "docs/complexity-budget.v1.json"
+MANIFEST = ROOT / ".concord/docs/complexity-budget.v1.json"
 SCHEMA = ROOT / "contracts/complexity-budget.schema.json"
 
 

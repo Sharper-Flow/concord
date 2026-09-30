@@ -42,7 +42,7 @@ func TestApprovalGateStepHasNoOtherAdvancingAction(t *testing.T) {
 // removes.
 func TestWorkflowConformanceCorpusWalksApproveContract(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("../../scenarios/workflow-engine.v1.json")
+	raw, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

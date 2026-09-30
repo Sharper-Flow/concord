@@ -16,7 +16,7 @@ Scope — repository-owned agent surfaces only:
 
 Out of scope, deliberately: the operator's host configuration outside this
 repository (the check cannot and must not own that surface) and every path
-under docs/, where predecessor evidence is legitimately cited — the
+under .concord/docs/, where predecessor evidence is legitimately cited — the
 operational-coverage table, the postmortem, and the predecessor-lessons
 records depend on those names. A citation is not a dependency: what this
 check rejects is a tool grant or a tool call shape, not a mention.

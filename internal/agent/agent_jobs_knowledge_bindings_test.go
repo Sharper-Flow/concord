@@ -140,7 +140,7 @@ func bindAJ7SearchKnowledge(t *testing.T, sc jobScenario) jobObservation {
 			}
 		}
 	}
-	body, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash("docs/decisions/CD-0002-state-authority.md")))
+	body, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(".concord/docs/decisions/CD-0002-state-authority.md")))
 	if err != nil {
 		t.Fatalf("read committed decision body: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestKnowledgeUnprocessedReadEnumeratesSortedPaths(t *testing.T) {
 		t.Fatalf("paths are not sorted: %v", page.Paths)
 	}
 	for _, path := range page.Paths {
-		if !strings.HasPrefix(path, "docs/") || !strings.HasSuffix(path, ".md") {
+		if !strings.HasPrefix(path, ".concord/docs/") || !strings.HasSuffix(path, ".md") {
 			t.Fatalf("path is outside the knowledge root: %q", path)
 		}
 	}

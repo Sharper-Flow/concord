@@ -205,7 +205,7 @@ func durableTierEffects(t *testing.T, repoPath, locator string) map[string]any {
 		t.Fatalf("published note is not readable at %s: %v", locator, err)
 	}
 	markdownOnly := true
-	root := filepath.Join(repoPath, filepath.FromSlash("docs/work"))
+	root := filepath.Join(repoPath, filepath.FromSlash(".concord/docs/work"))
 	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -347,7 +347,7 @@ func TestPartialPublicationLeavesNoDraftUntracked(t *testing.T) {
 	if resp.Outcome != OutcomePartial {
 		t.Fatalf("outcome=%s, want partial", resp.Outcome)
 	}
-	entries, err := os.ReadDir(filepath.Join(home.RepoPath, "docs", "work"))
+	entries, err := os.ReadDir(filepath.Join(home.RepoPath, ".concord", "docs", "work"))
 	if err != nil {
 		t.Fatalf("read work notes: %v", err)
 	}

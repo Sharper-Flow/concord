@@ -55,7 +55,7 @@ func seedObservationLawBoundary(t *testing.T) (*store.Store, *Service, Authority
 
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	execProjection(t, s,
-		[]string{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','docs/spec.md','Synthetic boundary law',?,'test')`,
+		[]string{`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','.concord/docs/spec.md','Synthetic boundary law',?,'test')`,
 			`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','agent','2026-08-08T12:00:00Z')`,
 			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'accept the merge result','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',?,?,'[]',1,'prototype_internal')`,
 			`INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,1,?,?)`},
@@ -80,7 +80,7 @@ func supersedeObservationBoundaryLaw(t *testing.T, s *store.Store) {
 	t.Helper()
 	execProjection(t, s,
 		[]string{`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project-1' AND home_locator_id=? AND law_id=?`,
-			`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','docs/spec-two.md','Synthetic successor law',?,'test')`,
+			`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project-1',?,?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law',?,'test')`,
 			`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project-1',?,?,'supersedes',?,'test')`},
 		[][]any{
 			{observationBoundaryLocatorID, observationBoundaryOldLaw},

@@ -132,7 +132,7 @@ class Ts2BudgetTests(unittest.TestCase):
 
     def test_document_budget_matches_manifest(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text()
+        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text()
         matches = re.findall(r"always_visible_tools: (\d+)", document)
         self.assertEqual(len(matches), 1, "TS2 must state the budget exactly once")
         declared = int(matches[0])
@@ -143,7 +143,7 @@ class Ts2BudgetTests(unittest.TestCase):
 
     def test_a_shrunk_document_budget_is_rejected(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
-        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text().replace(
+        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text().replace(
             "always_visible_tools: 10", "always_visible_tools: 9")
         with self.assertRaises(AssertionError):
             matches = re.findall(r"always_visible_tools: (\d+)", document)
@@ -154,7 +154,7 @@ class Ts2BudgetTests(unittest.TestCase):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
         drifted = copy.deepcopy(manifest)
         drifted["surface"]["tool_count"] = drifted["surface"]["tool_count"] - 1
-        document = (ROOT / "docs/agent-tool-surface-budget.md").read_text()
+        document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text()
         matches = re.findall(r"always_visible_tools: (\d+)", document)
         declared = int(matches[0])
         self.assertNotEqual(drifted["surface"]["tool_count"], declared)
@@ -372,7 +372,7 @@ class AdapterHostPinTests(unittest.TestCase):
     """
 
     def setUp(self):
-        self.pin = json.loads((ROOT / "docs/adapter-host-pin.v1.json").read_text())
+        self.pin = json.loads((ROOT / ".concord/docs/adapter-host-pin.v1.json").read_text())
         self.schema = json.loads((ROOT / "contracts/adapter-host-pin.schema.json").read_text())
         # Tamper cases run against a synthetic pin, not the shipped one. A test
         # that mutates the real manifest's allowances asserts the repository

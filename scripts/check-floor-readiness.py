@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from evidence_anchors import check_anchor  # noqa: E402
 
-MANIFEST = ROOT / "docs/floor-readiness.v1.json"
+MANIFEST = ROOT / ".concord/docs/floor-readiness.v1.json"
 SCHEMA = ROOT / "contracts/floor-readiness.schema.json"
 SCHEMA_VERSION = "2.0"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Harvest a predecessor snapshot without an interactive agent session.
 
-`docs/predecessor-migration-runbook.md` harvested the predecessor by asking an
+`.concord/docs/predecessor-migration-runbook.md` harvested the predecessor by asking an
 agent to read its sanctioned tool surface and transcribe the result. Host tool
 output budgets truncate large listings, so the v1 capture lost wisdom for three
 Products and one Project's totals. A Product whose listings exceed that budget

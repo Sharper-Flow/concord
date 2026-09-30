@@ -1,0 +1,34 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-20T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/agent/worker_evidence.go",
+    "cmd/concord/worker_evidence_test.go",
+    "adapter/opencode/credentials.ts"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0044",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0044-worker-evidence-caller-authentication.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f71fca24868947d6e8042dc9fcb01bbd89051ba893d9e90aaa79f163a39df0e6",
+  "status": "accepted",
+  "summary": "Worker-evidence CLI writes carry a signed worker-evidence-v1 assertion bound to the exact attempt, lane, readback, and provenance identity; the nonce is consumed in the appending transaction, worker_evidence is client-policy authority no grant can carry, terminal attempts refuse further evidence, and the recorded actor is a verified client.",
+  "tags": [
+    "typed-workers",
+    "authority",
+    "evidence"
+  ],
+  "title": "Worker evidence writes authenticate their caller"
+}

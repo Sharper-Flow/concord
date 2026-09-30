@@ -99,12 +99,12 @@ def test_generator_input_with_tool_prefix_fails() -> None:
 
 
 def test_docs_citation_is_not_a_dependency() -> None:
-    """The prohibition is tool grants and calls, not mentions: docs/ is out of
+    """The prohibition is tool grants and calls, not mentions: .concord/docs/ is out of
     scope by construction (never scanned), and the real repository's docs
     freely cite predecessor evidence while the check passes."""
     code, out = run_check(ROOT)
     assert code == 0, out
-    docs = ROOT / "docs" / "predecessor-operational-coverage.md"
+    docs = ROOT / ".concord" / "docs" / "predecessor-operational-coverage.md"
     assert "Advance" in docs.read_text(encoding="utf-8")
 
 

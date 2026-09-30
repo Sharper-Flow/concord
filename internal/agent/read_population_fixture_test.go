@@ -38,7 +38,7 @@ const (
 	readPopulationSpec          = "SPEC-0201"
 	readPopulationLesson        = "knowledge-lesson-population"
 	readPopulationResource      = "population-queue"
-	readPopulationUnprocessed   = "docs/notes/unprocessed-observation.md"
+	readPopulationUnprocessed   = ".concord/docs/notes/unprocessed-observation.md"
 
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
@@ -250,10 +250,10 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	gitRun(t, repo, "config", "user.email", "concord@example.invalid")
 	gitRun(t, repo, "config", "user.name", "Concord Population Test")
 
-	const constitutionPath = "docs/constitution.md"
-	const decisionPath = "docs/decisions/" + readPopulationDecision + ".md"
-	const specPath = "docs/specs/" + readPopulationSpec + ".md"
-	const lessonPath = "docs/lessons/population-lesson.md"
+	const constitutionPath = ".concord/docs/constitution.md"
+	const decisionPath = ".concord/docs/decisions/" + readPopulationDecision + ".md"
+	const specPath = ".concord/docs/specs/" + readPopulationSpec + ".md"
+	const lessonPath = ".concord/docs/lessons/population-lesson.md"
 	bodies := map[string]string{
 		constitutionPath: "The child Domain owns population constitution law.\n",
 		decisionPath:     "The child Domain owns synchronization decisions.\n",

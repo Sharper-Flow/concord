@@ -1,0 +1,28 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md",
+    "internal/store/schema.go"
+  ],
+  "id": "product-data-model",
+  "kind": "reference",
+  "path": ".concord/docs/product-data-model.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:139439d26cace5a495970cc7e4b23f1fd5cd42d8ad39e1aaee8f3bb7f6a7a161",
+  "status": "published",
+  "summary": "Canonical Product data model with Domains and Initiative, aligned v4 under CD-0041.",
+  "tags": [
+    "data-model",
+    "domains"
+  ],
+  "title": "product data model"
+}

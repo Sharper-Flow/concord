@@ -41,7 +41,7 @@ const (
 )
 
 // productionLikePaceInterval paces each long-profile worker at a constant rate
-// calibrated to the measured production envelope in docs/research/R4 (below 0.1
+// calibrated to the measured production envelope in .concord/docs/research/R4 (below 0.1
 // writes/second system-wide). 100 ms per worker is 10 writes/second per worker
 // and 100 writes/second system-wide: 1000x the measured envelope with the
 // interval equal to the P99 target, so lock-hold regressions still trip the

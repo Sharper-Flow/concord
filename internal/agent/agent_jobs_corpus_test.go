@@ -16,7 +16,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Typed corpus structs — decode scenarios/agent-jobs.v1.json
+// Typed corpus structs — decode .concord/scenarios/agent-jobs.v1.json
 // ---------------------------------------------------------------------------
 
 type jobCorpus struct {
@@ -180,7 +180,7 @@ type jobObservation struct {
 var jobBindings = map[string]func(t *testing.T, sc jobScenario) jobObservation{}
 var jobDeferrals = map[string]string{}
 
-const agentJobsCorpusPath = "../../scenarios/agent-jobs.v1.json"
+const agentJobsCorpusPath = "../../.concord/scenarios/agent-jobs.v1.json"
 
 // ---------------------------------------------------------------------------
 // Shared invariants

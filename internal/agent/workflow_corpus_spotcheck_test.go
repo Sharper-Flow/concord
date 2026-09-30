@@ -132,7 +132,7 @@ func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
 			Expected corpusExpected `json:"expected"`
 		} `json:"scenarios"`
 	}{}
-	raw, err := os.ReadFile("../../scenarios/workflow-engine.v1.json")
+	raw, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

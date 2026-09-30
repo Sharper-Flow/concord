@@ -1,0 +1,34 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-14T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/work_observations.go",
+    "internal/store/work_observations_test.go",
+    "internal/agent/observation_dispatch_test.go"
+  ],
+  "home_domain_id": "work-coordination",
+  "id": "CD-0030",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0030-mid-execution-observations.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:30df4765ec371069f28b8509483320e1fa9982ce23d4e1d8c7f33e97867ce9b1",
+  "status": "accepted",
+  "summary": "Observations are the durable form of noticing: a lightweight mid-life record on work items, visible at resume, carrying no authority; promotion to work stays the unchanged capture+raised_from path.",
+  "tags": [
+    "observations",
+    "discovery",
+    "continuity"
+  ],
+  "title": "Mid-execution observations"
+}

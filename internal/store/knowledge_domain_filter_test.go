@@ -25,7 +25,7 @@ func TestQ9DomainFilterAdmitsLawByHomeAndApplicability(t *testing.T) {
 		{"CD-0002", "product-root:concord", []string{}},
 		{"CD-0003", "storage", []string{"sync"}},
 	} {
-		path := "docs/decisions/" + law.id + ".md"
+		path := ".concord/docs/decisions/" + law.id + ".md"
 		content := law.id + " domain law\n"
 		writeKnowledgeFile(t, repo, path, content)
 		sum := sha256.Sum256([]byte(content))

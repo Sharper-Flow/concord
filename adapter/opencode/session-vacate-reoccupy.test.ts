@@ -57,19 +57,18 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 
 async function repositoryFixture(root: string, name: string): Promise<{ repo: string }> {
   const repo = join(root, name)
-  await mkdir(join(repo, "docs"), { recursive: true })
-  await Bun.write(join(repo, "docs", "concord-knowledge-index.v1.json"), JSON.stringify({
+  await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
+  await Bun.write(join(repo, ".concord/docs/knowledge", "manifest.json"), JSON.stringify({
     schema_version: "1.2",
     supported_kinds: [],
     indexed_kinds: [],
     knowledge_roots: [],
-    domain_registry: {
-      schema_version: "1.0",
-      product_key: PRODUCT_ID,
-      root_domain_id: `product-root:${PRODUCT_ID}`,
-      domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
-    },
-    records: [],
+  }, null, 2))
+  await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
+    schema_version: "1.0",
+    product_key: PRODUCT_ID,
+    root_domain_id: `product-root:${PRODUCT_ID}`,
+    domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
   }, null, 2))
   await Bun.write(join(repo, "opencode.jsonc"), JSON.stringify({ instructions: ["https://example.invalid/synthetic-instructions"] }))
   await Bun.write(join(repo, "README.md"), "synthetic vacate reoccupy fixture\n")

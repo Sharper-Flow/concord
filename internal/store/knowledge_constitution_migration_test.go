@@ -38,10 +38,10 @@ func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	hashA, hashB := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','CD-0001','decision','accepted','docs/decisions/CD-0001.md','A',?,'c')`, hashA); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001.md','A',?,'c')`, hashA); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','spec-9','spec','accepted','docs/specs/spec.md','B',?,'c')`, hashB); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','spec-9','spec','accepted','.concord/docs/specs/spec.md','B',?,'c')`, hashB); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('p','l','CD-0001','refines','spec-9','c')`); err != nil {
@@ -85,10 +85,10 @@ func TestMigrateV80WidensLawSubjectsAndInvalidatesWatermark(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','proc-1','constitution','accepted','docs/proc.md','C',?,'c')`, "sha256:"+strings.Repeat("c", 64)); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','proc-1','constitution','accepted','.concord/docs/proc.md','C',?,'c')`, "sha256:"+strings.Repeat("c", 64)); err != nil {
 		t.Fatalf("constitution law subject insert refused after migration 80: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','lesson-1','lesson','published','docs/lessons/l.md','D',?,'c')`, "sha256:"+strings.Repeat("d", 64)); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','lesson-1','lesson','published','.concord/docs/lessons/l.md','D',?,'c')`, "sha256:"+strings.Repeat("d", 64)); err == nil {
 		t.Fatal("non-law lesson kind admitted into law_subjects after migration 80")
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard WHERE active=1`); err != nil {

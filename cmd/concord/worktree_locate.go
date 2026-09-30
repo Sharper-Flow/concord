@@ -31,7 +31,7 @@ import (
 // Placement: a core CLI verb rather than a host script because the inputs are
 // authority data (the Project's registered locator) that only the core can
 // read; a host script would duplicate database access or double-hop through
-// this verb anyway. Recorded in docs/capability-placement.md §6.
+// this verb anyway. Recorded in .concord/docs/capability-placement.md §6.
 func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var request struct {
 		ProjectID string `json:"project_id"`

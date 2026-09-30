@@ -71,12 +71,12 @@ func TestRecordStatusFollowsTheKindTier(t *testing.T) {
 		valid     string
 		forbidden string
 	}{
-		{kind: "constitution", path: "docs/constitution.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "decision", path: "docs/decisions/CD-0001.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "spec", path: "docs/spec.md", lawHome: true, valid: "accepted", forbidden: "published"},
-		{kind: "lesson", path: "docs/lessons/one.md", valid: "published", forbidden: "accepted"},
-		{kind: "reference", path: "docs/installation.md", valid: "published", forbidden: "accepted"},
-		{kind: "research", path: "docs/market-landscape.md", valid: "published", forbidden: "accepted"},
+		{kind: "constitution", path: ".concord/docs/constitution.md", lawHome: true, valid: "accepted", forbidden: "published"},
+		{kind: "decision", path: ".concord/docs/decisions/CD-0001.md", lawHome: true, valid: "accepted", forbidden: "published"},
+		{kind: "spec", path: ".concord/docs/spec.md", lawHome: true, valid: "accepted", forbidden: "published"},
+		{kind: "lesson", path: ".concord/docs/lessons/one.md", valid: "published", forbidden: "accepted"},
+		{kind: "reference", path: ".concord/docs/installation.md", valid: "published", forbidden: "accepted"},
+		{kind: "research", path: ".concord/docs/market-landscape.md", valid: "published", forbidden: "accepted"},
 	}
 	for _, test := range cases {
 		t.Run(test.kind, func(t *testing.T) {
@@ -107,9 +107,9 @@ func TestRecordStatusFollowsTheKindTier(t *testing.T) {
 func TestNonLawRecordsCannotAuthorLawHomeFields(t *testing.T) {
 	t.Parallel()
 	for kind, path := range map[string]string{
-		"lesson":    "docs/lessons/one.md",
-		"reference": "docs/installation.md",
-		"research":  "docs/market-landscape.md",
+		"lesson":    ".concord/docs/lessons/one.md",
+		"reference": ".concord/docs/installation.md",
+		"research":  ".concord/docs/market-landscape.md",
 	} {
 		t.Run(kind, func(t *testing.T) {
 			raw := taxonomyManifestBytes(t, taxonomyManifest{
@@ -131,12 +131,12 @@ func TestLawRelationsRemainDecisionAndSpecOnly(t *testing.T) {
 	t.Parallel()
 	raw := taxonomyManifestBytes(t, taxonomyManifest{
 		Records: []json.RawMessage{
-			taxonomyRecord(t, "CO-0001", "constitution", "docs/constitution.md", "accepted", map[string]any{
+			taxonomyRecord(t, "CO-0001", "constitution", ".concord/docs/constitution.md", "accepted", map[string]any{
 				"home_domain_id":         "product-root:concord",
 				"product_wide_rationale": "Fixture law binds every child Domain.",
 				"law_relations":          []map[string]string{{"kind": "refines", "target_id": "CD-0001"}},
 			}),
-			taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", map[string]any{
+			taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", map[string]any{
 				"home_domain_id":         "product-root:concord",
 				"product_wide_rationale": "Fixture law binds every child Domain.",
 			}),
@@ -156,30 +156,30 @@ func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
 		}
 		return encoded
 	}
-	record := taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", map[string]any{
+	record := taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", map[string]any{
 		"home_domain_id":         "product-root:concord",
 		"product_wide_rationale": "Fixture law binds every child Domain.",
 	})
 
 	valid := taxonomyManifestBytes(t, taxonomyManifest{
 		Records:      []json.RawMessage{record},
-		Dispositions: []json.RawMessage{disposition("docs/scratch.md", "archived", "Superseded working note kept for provenance only.")},
+		Dispositions: []json.RawMessage{disposition(".concord/docs/scratch.md", "archived", "Superseded working note kept for provenance only.")},
 	})
 	manifest, err := parseKnowledgeManifest(valid)
 	if err != nil {
 		t.Fatalf("valid disposition rejected: %v", err)
 	}
-	if len(manifest.Dispositions) != 1 || manifest.Dispositions[0].Path != "docs/scratch.md" {
+	if len(manifest.Dispositions) != 1 || manifest.Dispositions[0].Path != ".concord/docs/scratch.md" {
 		t.Fatalf("disposition did not survive the parse: %+v", manifest.Dispositions)
 	}
 
 	for name, entry := range map[string]json.RawMessage{
-		"record path":       disposition("docs/decisions/CD-0001.md", "archived", "Already recorded."),
-		"empty reason":      disposition("docs/scratch.md", "archived", ""),
-		"unclosed kind":     disposition("docs/scratch.md", "ignored", "Not a closed disposition."),
-		"non markdown path": disposition("docs/scratch.txt", "archived", "The closure walk only sees markdown."),
+		"record path":       disposition(".concord/docs/decisions/CD-0001.md", "archived", "Already recorded."),
+		"empty reason":      disposition(".concord/docs/scratch.md", "archived", ""),
+		"unclosed kind":     disposition(".concord/docs/scratch.md", "ignored", "Not a closed disposition."),
+		"non markdown path": disposition(".concord/docs/scratch.txt", "archived", "The closure walk only sees markdown."),
 		"absolute path":     disposition("/docs/scratch.md", "archived", "Absolute paths escape the repository."),
-		"traversal path":    disposition("docs/../scratch.md", "archived", "Traversal escapes the knowledge roots."),
+		"traversal path":    disposition(".concord/docs/../scratch.md", "archived", "Traversal escapes the knowledge roots."),
 	} {
 		t.Run(name, func(t *testing.T) {
 			raw := taxonomyManifestBytes(t, taxonomyManifest{
@@ -192,7 +192,7 @@ func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
 	}
 
 	t.Run("duplicate path", func(t *testing.T) {
-		entry := disposition("docs/scratch.md", "archived", "Superseded working note.")
+		entry := disposition(".concord/docs/scratch.md", "archived", "Superseded working note.")
 		raw := taxonomyManifestBytes(t, taxonomyManifest{
 			Records: []json.RawMessage{record}, Dispositions: []json.RawMessage{entry, entry},
 		})
@@ -206,7 +206,7 @@ func TestDispositionsAreBoundedAndExcludeRecordPaths(t *testing.T) {
 	t.Run("unknown field", func(t *testing.T) {
 		raw := taxonomyManifestBytes(t, taxonomyManifest{
 			Records:      []json.RawMessage{record},
-			Dispositions: []json.RawMessage{json.RawMessage(`{"path":"docs/scratch.md","disposition":"archived","reason":"Reason.","owner":"operator"}`)},
+			Dispositions: []json.RawMessage{json.RawMessage(`{"path":".concord/docs/scratch.md","disposition":"archived","reason":"Reason.","owner":"operator"}`)},
 		})
 		manifest, err := parseKnowledgeManifest(raw)
 		if err != nil {

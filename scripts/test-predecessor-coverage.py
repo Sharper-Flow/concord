@@ -79,7 +79,7 @@ def test_excluded_outcome_requires_a_reason() -> None:
 
 
 def test_unknown_state_is_rejected() -> None:
-    findings = run(document("| An outcome | Probably fine | `docs/priorities.md` |") + tally(0, 0, 0, 0))
+    findings = run(document("| An outcome | Probably fine | `.concord/docs/priorities.md` |") + tally(0, 0, 0, 0))
     assert any("unknown state" in f for f in findings), findings
 
 
@@ -117,7 +117,7 @@ def test_malformed_row_is_reported() -> None:
 def test_row_missing_trailing_pipe_is_not_silently_dropped() -> None:
     # A row without its closing pipe renders wrong and must not vanish from the
     # count; the tally cross-check is what surfaces it.
-    findings = run(document(COVERED, "| Lost | Covered | `docs/priorities.md`") + tally(2, 0, 0, 2))
+    findings = run(document(COVERED, "| Lost | Covered | `.concord/docs/priorities.md`") + tally(2, 0, 0, 2))
     assert any("table has 1" in f for f in findings), findings
 
 
@@ -137,7 +137,7 @@ def test_path_candidates_exclude_traversal_and_absolute_paths() -> None:
 
 
 def test_relative_doc_links_resolve() -> None:
-    assert checker.existing_paths("[`priorities.md`](./priorities.md)") == ["docs/priorities.md"]
+    assert checker.existing_paths("[`priorities.md`](./priorities.md)") == [".concord/docs/priorities.md"]
 
 
 FLOOR_STATES = {"fc2-context-freshness": "satisfied", "fc3-lane-pipeline": "outstanding"}

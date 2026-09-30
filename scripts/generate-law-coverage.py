@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Compose the law-coverage record from its shards and keep them canonical.
 
-The shards under docs/knowledge/coverage/ are the committed authority
+The shards under .concord/docs/knowledge/coverage/ are the committed authority
 (CD-0114). No aggregate file is written; readers compose the record through
 scripts/knowledge_index.py.
 
 Every coverage record is authored as a single JSON object under
-docs/knowledge/coverage/<id>.json. This script globs those shards, validates
+.concord/docs/knowledge/coverage/<id>.json. This script globs those shards, validates
 their closed field set and state obligations, sorts the resulting records by
 id, and emits the aggregate manifest that check-law-coverage.py continues to
 read. The aggregate shape is unchanged: {schema_version, source, records}.
@@ -23,10 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-SHARD_DIR = ROOT / "docs/knowledge/coverage"
+SHARD_DIR = ROOT / ".concord/docs/knowledge/coverage"
 
 SOURCE = {
-    "path": "docs/knowledge",
+    "path": ".concord/docs/knowledge",
     "description": (
         "Every record indexed as Concord law is a subject here. This manifest "
         "never decides what counts as law; check-law-coverage.py derives the "
@@ -95,7 +95,7 @@ def validate_shard(record: object, findings: list[str]) -> dict | None:
 
 
 def load_records(root: Path, findings: list[str]) -> list[dict]:
-    shard_dir = root / "docs/knowledge/coverage"
+    shard_dir = root / ".concord/docs/knowledge/coverage"
     records: list[dict] = []
     if not shard_dir.is_dir():
         findings.append(f"shard directory missing: {shard_dir.relative_to(root)}")
@@ -162,7 +162,7 @@ def main() -> int:
         print(f"law coverage composition failed: {len(findings)} finding(s)", file=sys.stderr)
         return 1
 
-    shards = sorted((args.root / "docs/knowledge/coverage").glob("*.json"))
+    shards = sorted((args.root / ".concord/docs/knowledge/coverage").glob("*.json"))
     if args.check:
         unformatted = shard_format.drifted(shards)
         if unformatted:

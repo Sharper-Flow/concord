@@ -28,7 +28,7 @@ func additiveManifestBytes(t *testing.T) []byte {
 		},
 		Records: []KnowledgeRecord{
 			{
-				ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-fixture.md", Status: "accepted",
+				ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-fixture.md", Status: "accepted",
 				Date: "2026-08-10T00:00:00Z", Title: "Fixture decision", Summary: "Decision summary", Tags: []string{},
 				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 				Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
@@ -37,7 +37,7 @@ func additiveManifestBytes(t *testing.T) []byte {
 				SHA256:       "sha256:" + strings.Repeat("a", 64),
 			},
 			{
-				ID: "spec-1", Kind: "spec", Path: "docs/specs/fixture.md", Status: "accepted",
+				ID: "spec-1", Kind: "spec", Path: ".concord/docs/specs/fixture.md", Status: "accepted",
 				Date: "2026-08-10T00:00:00Z", Title: "Fixture spec", Summary: "Spec summary", Tags: []string{},
 				Authority:    KnowledgeAuthority{Tier: "derived"},
 				Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
@@ -45,7 +45,7 @@ func additiveManifestBytes(t *testing.T) []byte {
 				SHA256: "sha256:" + strings.Repeat("b", 64),
 			},
 		},
-		Dispositions: []KnowledgeDisposition{{Path: "docs/scratch/retired.md", Disposition: "archived", Reason: "Superseded working note kept for provenance only."}},
+		Dispositions: []KnowledgeDisposition{{Path: ".concord/docs/scratch/retired.md", Disposition: "archived", Reason: "Superseded working note kept for provenance only."}},
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -82,7 +82,7 @@ func additiveDocument(t *testing.T) map[string]any {
 	// KnowledgeManifest.MarshalJSON emits the head fields only, so the
 	// disposition enters the document here rather than by mutation.
 	document["dispositions"] = []any{map[string]any{
-		"path": "docs/scratch/retired.md", "disposition": "archived",
+		"path": ".concord/docs/scratch/retired.md", "disposition": "archived",
 		"reason": "Superseded working note kept for provenance only.", "future_disposition": 1,
 	}}
 	return document

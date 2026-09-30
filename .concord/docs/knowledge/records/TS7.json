@@ -1,0 +1,55 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Envelope closure is a per-call schema property. The guarantee is proved by TestEnvelopeRejectsUnknownVariantsAndFields and TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome (internal/agent/envelope_test.go)."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Authority semantics are per-call properties. The guarantee is proved by TestEnvelopeGoldenOutcomes (internal/agent/envelope_test.go)."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Output bounds are producer-enforced per call. The guarantee is proved by TestEnvelopeHasHardSerializedLimit and TestMutationResultProducerAcceptsCanonicalPayload (internal/agent/envelope_test.go), and TestBudgetFieldsRefuseOrBoundResultsStructurally (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Cursor binding is a dispatch property. The guarantee is proved by TestAuthenticatedCursorBindsOperationAndRejectsTampering (internal/agent/runtime_test.go)."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Durable-outcome honesty is proved at both levels: TestOutcomeMismatchIsClosedAndCannotDowngrade (internal/agent/envelope_test.go) and the AJ6-partial-publication scenario of the agent-jobs corpus under TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go)."
+    }
+  ],
+  "date": "2026-08-06T00:00:00Z",
+  "evidence": [
+    "internal/agent/envelope_test.go",
+    "internal/agent/runtime_test.go",
+    ".concord/scenarios/agent-jobs.v1.json",
+    "internal/agent/agent_jobs_corpus_test.go",
+    "contracts/agent-tool-envelope.schema.json"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "TS7",
+  "kind": "spec",
+  "path": ".concord/docs/agent-result-envelope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:5bb52d1175006befad15237cf74e2f26f2350479dd1e7e82cb14a0a8db517961",
+  "status": "accepted",
+  "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
+  "tags": [
+    "ts7",
+    "agents",
+    "errors"
+  ],
+  "title": "Agent result envelope"
+}

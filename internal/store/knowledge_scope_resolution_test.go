@@ -103,7 +103,7 @@ func TestQ10RejectsCallerHomeMismatchBeforeHistoricalRead(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('historical','lesson','Historical','2026-08-10T00:00:00Z','published','[]','completed',1,'summary',? ,? ,'docs/lessons/historical.md','commit','sha256:`+strings.Repeat("a", 64)+`','home')`, authoritative.HomeProjectID, authoritative.HomeLocatorID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('historical','lesson','Historical','2026-08-10T00:00:00Z','published','[]','completed',1,'summary',? ,? ,'.concord/docs/lessons/historical.md','commit','sha256:`+strings.Repeat("a", 64)+`','home')`, authoritative.HomeProjectID, authoritative.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
@@ -120,7 +120,7 @@ func TestQ10HomeScopeUsesCurrentMembershipAndRecordedLocator(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeManifestFixture(t, repo, manifestFixture{ID: "historical-home", Kind: "lesson", Path: "docs/lessons/historical-home.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Historical home", Summary: "Historical summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "historical-home", Kind: "lesson", Path: ".concord/docs/lessons/historical-home.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Historical home", Summary: "Historical summary", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	commitKnowledgeRepo(t, repo, "historical home")
 	s := openTemp(t)
 	firstHome := KnowledgeHome{HomeProjectID: "first-project", HomeLocatorID: "first-locator", RepoPath: repo, HeadRef: "HEAD"}
@@ -174,7 +174,7 @@ func TestQ10WorkNoteProductScopeRemainsFrozenAfterMembershipMove(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/2026-08-10-frozen-work.md"
+	path := ".concord/docs/work/2026-08-10-frozen-work.md"
 	content := canonicalWorkNote("frozen-work", "2026-08-10T00:00:00Z")
 	writeKnowledgeFile(t, repo, path, content)
 	commit := commitKnowledgeRepo(t, repo, "frozen work note")
@@ -226,7 +226,7 @@ func TestQ10MissingCurrentLocatorIsUnavailableAndProofCanDegrade(t *testing.T) {
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "historical-project", HomeLocatorID: "historical-locator", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, home)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('missing-locator','work_note','Missing locator','2026-08-10T00:00:00Z','completed','[]','completed',1,'summary',?,?, 'docs/work/missing.md','deadbeef','sha256:`+strings.Repeat("a", 64)+`','explicit'); DELETE FROM fold_guard`, home.HomeProjectID, home.HomeLocatorID); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('missing-locator','work_note','Missing locator','2026-08-10T00:00:00Z','completed','[]','completed',1,'summary',?,?, '.concord/docs/work/missing.md','deadbeef','sha256:`+strings.Repeat("a", 64)+`','explicit'); DELETE FROM fold_guard`, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RemoveProjectLocator(ctx, home.HomeProjectID, home.HomeLocatorID, 1); err == nil {

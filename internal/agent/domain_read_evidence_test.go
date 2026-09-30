@@ -143,7 +143,7 @@ func TestAgentDomainDetailReturnsCurrentLawDecisionsAndGitEvidence(t *testing.T)
 	if law.Kind != "decision" || law.Title != "Domain authority" {
 		t.Fatalf("decision record is not typed as a decision: %#v", law)
 	}
-	if law.Path != "docs/decisions/CD-0041.md" {
+	if law.Path != ".concord/docs/decisions/CD-0041.md" {
 		t.Fatalf("law path = %q", law.Path)
 	}
 	if law.ContentHash != pm1fixture.ContentDigest(pm1fixture.DomainEvidenceLawBody) {

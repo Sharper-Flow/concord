@@ -201,10 +201,10 @@ def check_primary_prompts(root: Path) -> list[str]:
     if frontmatter_field(split_frontmatter(shaping), "permission") != frontmatter_field(split_frontmatter(driving), "permission"):
         findings.append("concord-1.md and concord-2.md have different permission frontmatter")
 
-    evidence = (root / "instructions" / "evidence.md").read_text(encoding="utf-8")
+    evidence = (root / ".concord/instructions" / "evidence.md").read_text(encoding="utf-8")
     for marker in LOOKUP_OBLIGATION_MARKERS:
         if marker not in evidence:
-            findings.append(f"instructions/evidence.md is missing the lookup obligation marker {marker!r}")
+            findings.append(f".concord/instructions/evidence.md is missing the lookup obligation marker {marker!r}")
 
     intake_frontmatter = split_frontmatter(texts["concord-0.md"])
     for boundary in (

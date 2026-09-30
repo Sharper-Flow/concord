@@ -15,7 +15,7 @@ func TestContinuityPayloadProjectsLawContextAndProposal(t *testing.T) {
 	t.Parallel()
 	snapshot := store.ContinuitySnapshot{
 		WorkID:         "work-1",
-		LawContext:     &store.WorkflowLawContext{Laws: []store.WorkflowLawContextLaw{{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: "docs/spec.md", ObligationIDs: []string{"verification"}}}, Domains: []store.WorkflowLawContextDomain{{DomainID: "root", Name: "Root", Purpose: "Product law"}}},
+		LawContext:     &store.WorkflowLawContext{Laws: []store.WorkflowLawContextLaw{{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: ".concord/docs/spec.md", ObligationIDs: []string{"verification"}}}, Domains: []store.WorkflowLawContextDomain{{DomainID: "root", Name: "Root", Purpose: "Product law"}}},
 		ProposalRecord: &store.WorkflowProposalRecord{WorkVersion: 2, Problem: "Workers receive bare law IDs", UserOutcomes: []string{"Workers read the binding law"}, Constraints: nil},
 	}
 	payload := ContinuityPayload(snapshot)
@@ -59,7 +59,7 @@ func TestContinuityPayloadValidatesResolvedConstitutionAgainstSchema(t *testing.
 		Boundaries:               []store.ContextBoundary{},
 		Watermark:                "seq:1",
 		LawContext: &store.WorkflowLawContext{
-			Laws:    []store.WorkflowLawContextLaw{{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: "docs/constitution.md"}},
+			Laws:    []store.WorkflowLawContextLaw{{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: ".concord/docs/constitution.md"}},
 			Domains: []store.WorkflowLawContextDomain{{DomainID: "root", Name: "Root", Purpose: "Product law"}},
 		},
 	}

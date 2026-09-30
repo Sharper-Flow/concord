@@ -19,7 +19,7 @@ import (
 func rootHomeRecord(t *testing.T, extra map[string]any) []byte {
 	t.Helper()
 	return taxonomyManifestBytes(t, taxonomyManifest{
-		Records: []json.RawMessage{taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", extra)},
+		Records: []json.RawMessage{taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", extra)},
 	})
 }
 
@@ -53,7 +53,7 @@ func TestChildHomeCannotCarryProductWideRationale(t *testing.T) {
 		`{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law","status":"current","architecture_relations":[]},` +
 		`{"domain_id":"workflow-engine","name":"Workflow engine","purpose":"Work lifecycle","parent_domain_id":"product-root:concord","status":"current","architecture_relations":[]}]}`
 	manifest := taxonomyManifest{
-		Records: []json.RawMessage{taxonomyRecord(t, "CD-0001", "decision", "docs/decisions/CD-0001.md", "accepted", map[string]any{
+		Records: []json.RawMessage{taxonomyRecord(t, "CD-0001", "decision", ".concord/docs/decisions/CD-0001.md", "accepted", map[string]any{
 			"home_domain_id":         "workflow-engine",
 			"product_wide_rationale": "Binds every child Domain.",
 		})},
@@ -88,7 +88,7 @@ func TestRootHomeRationaleSurvivesTheQ10Projection(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	decision := "docs/decisions/CD-0001.md"
+	decision := ".concord/docs/decisions/CD-0001.md"
 	writeManifestFixture(t, repo, manifestFixture{
 		ID: "decision-root", Kind: "decision", Path: decision, Status: "accepted",
 		Date: "2026-08-10T00:00:00Z", Title: "Decision", Summary: "Decision summary",

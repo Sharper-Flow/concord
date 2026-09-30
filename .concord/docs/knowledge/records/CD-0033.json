@@ -1,0 +1,32 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-16T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/workflow_supersession_confirmation_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0033",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0033-out-of-band-direction.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cbe1aec76975566acf3442f2c0e74a6f4b8462f908646bc39d9c081c732423a3",
+  "status": "accepted",
+  "summary": "Direction of labor is legitimate and out-of-band; changing a declared end-state binds through the single operator-approved supersession path, with clause 5 as the visible check and the unverifiable trigger documented.",
+  "tags": [
+    "direction",
+    "outcome-binding",
+    "operator"
+  ],
+  "title": "Out-of-band operator direction binds through contract supersession"
+}

@@ -207,7 +207,7 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 		t.Fatalf("commit with no manifest: missing=%t err=%v", missing, err)
 	}
 
-	writeManifestFixture(t, repo, manifestFixture{ID: "shard-one", Kind: "lesson", Path: "docs/lessons/shard-one.md", Status: "published", Date: "2026-09-01T00:00:00Z", Title: "Shard one", Summary: "Composed from a shard", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "shard-one", Kind: "lesson", Path: ".concord/docs/lessons/shard-one.md", Status: "published", Date: "2026-09-01T00:00:00Z", Title: "Shard one", Summary: "Composed from a shard", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	run("add", ".")
 	run("commit", "--quiet", "-m", "shards")
 	sharded := run("rev-parse", "HEAD")

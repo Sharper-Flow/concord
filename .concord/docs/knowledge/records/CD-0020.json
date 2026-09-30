@@ -1,0 +1,30 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-13T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "home_domain_id": "product-memory",
+  "id": "CD-0020",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:90aaa1a8e19201f4dbe1587ff0c829228f2e5d767a0d7e7f7afb7bc97e83c85c",
+  "status": "accepted",
+  "summary": "Retains the Git-authoritative, SQLite-derived knowledge-index shape and the bounded Q9/Q10 boundary; names exact lookup, closed filters, and ranked body discovery as distinct non-authoritative retrieval jobs; reconciles the record-kind vocabulary and the CD-0159 authority-tier interaction.",
+  "tags": [
+    "knowledge-index",
+    "query",
+    "authority",
+    "research"
+  ],
+  "title": "Retain the manifest-primary knowledge-index shape"
+}

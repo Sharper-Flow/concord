@@ -58,7 +58,7 @@ OBLIGATION_FIELDS = frozenset(STATE_OBLIGATION.values())
 MAX_REASON = 1024
 MAX_EVIDENCE = 32
 
-ISSUE_STATE = ROOT / "docs/issue-state.v1.json"
+ISSUE_STATE = ROOT / ".concord/docs/issue-state.v1.json"
 ISSUE_REPO = "Sharper-Flow/concord"
 REFRESH_COMMAND = "scripts/update-issue-state.py"
 
@@ -67,8 +67,8 @@ REFRESH_COMMAND = "scripts/update-issue-state.py"
 # would let a plane be added without its pointers being covered, which is the
 # absence this registry exists to make impossible.
 ISSUE_STATE_MANIFESTS = (
-    (ROOT / "docs/knowledge/coverage", "records"),
-    (ROOT / "docs/reachability-exceptions.v1.json", "exceptions"),
+    (ROOT / ".concord/docs/knowledge/coverage", "records"),
+    (ROOT / ".concord/docs/reachability-exceptions.v1.json", "exceptions"),
 )
 
 LINEAR_ISSUE = re.compile(r"^[A-Z][A-Z0-9]*-[1-9][0-9]*$")

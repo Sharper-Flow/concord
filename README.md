@@ -15,7 +15,7 @@ Concord is a workflow engine over a durable record. It keeps approved
 requirements, work state, evidence, knowledge, and research in one local SQLite
 database. Agents reach that state only through typed, authorized operations, and
 the engine decides whether each operation is admissible. The
-[core architecture](docs/core-architecture.md) describes these boundaries.
+[core architecture](.concord/docs/core-architecture.md) describes these boundaries.
 
 ## Why it is different
 
@@ -34,11 +34,11 @@ Concord puts the process in state that an agent cannot write around.
 - **The goal is fixed before the work starts.** The operator approves the
   outcome predicates first. At acceptance, Concord compares the delivered result
   against those predicates rather than against the agent's account of them.
-  ([CD-0012](docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md))
+  ([CD-0012](.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md))
 - **Colliding work is refused, not merged later.** Each change declares the
   architectural Domains it writes. A second change into a claimed Domain refuses
   to start until the overlap is resolved.
-  ([CD-0041](docs/decisions/CD-0041-architecture-bound-product-law.md))
+  ([CD-0041](.concord/docs/decisions/CD-0041-architecture-bound-product-law.md))
 - **A refusal names its remedy.** Every refusal is typed and states which
   condition failed, so a blocked agent reads the route out instead of guessing.
 
@@ -47,7 +47,7 @@ skips a step is refused rather than obeyed.
 
 ## Install a release
 
-Concord supports Linux amd64. Read the [full prerequisites](docs/installation.md#prerequisites)
+Concord supports Linux amd64. Read the [full prerequisites](.concord/docs/installation.md#prerequisites)
 before you install. Run the installer with Python 3.
 
 > **Warning:** On a headless host without a login collection, the installer
@@ -66,7 +66,7 @@ The installer verifies the published checksum and bundle before it changes the
 operator environment. It does not overwrite user-authored files and can recover
 an interrupted operation. Restart OpenCode after installation.
 
-The [installation guide](docs/installation.md) covers artifact verification,
+The [installation guide](.concord/docs/installation.md) covers artifact verification,
 managed paths, repair, upgrade, uninstall, and first-use requirements.
 
 ## First use
@@ -106,10 +106,10 @@ The adapter test command needs Bun.
 
 ## Learn more
 
-- [Installation guide](docs/installation.md)
+- [Installation guide](.concord/docs/installation.md)
 - [OpenCode adapter guide](adapter/opencode/README.md)
-- [Development authority](docs/development-authority.md)
-- [Documentation index](docs/README.md)
+- [Development authority](.concord/docs/development-authority.md)
+- [Documentation index](.concord/docs/README.md)
 
 ## Contributing
 

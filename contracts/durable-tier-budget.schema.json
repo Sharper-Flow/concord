@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/durable-tier-budget.schema.json",
   "title": "Concord durable-tier budget",
-  "description": "Closed contract for the CD-0002 durable-tier binding rules, made executable by CD-0069. The bounds live once in docs/durable-tier-budget.v1.json, whose closed shape this schema states: scripts/check-durable-tier.py reads them at check time, and the future compaction producer and the AJ6 scenario extension read the same numbers, so no surface restates them. An allowance is permission for one named note to exceed the byte bound while an issue tracks it - never permission to be non-markdown or to embed a state dump. The decisions inventory declares every non-markdown artifact under docs/decisions/ with a reason, so the markdown-only rule is falsifiable there without a byte bound: a new artifact fails until acknowledged, and a removed artifact fails as a stale entry.",
+  "description": "Closed contract for the CD-0002 durable-tier binding rules, made executable by CD-0069. The bounds live once in .concord/docs/durable-tier-budget.v1.json, whose closed shape this schema states: scripts/check-durable-tier.py reads them at check time, and the future compaction producer and the AJ6 scenario extension read the same numbers, so no surface restates them. An allowance is permission for one named note to exceed the byte bound while an issue tracks it - never permission to be non-markdown or to embed a state dump. The decisions inventory declares every non-markdown artifact under .concord/docs/decisions/ with a reason, so the markdown-only rule is falsifiable there without a byte bound: a new artifact fails until acknowledged, and a removed artifact fails as a stale entry.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,7 +22,7 @@
     "source": {
       "description": "The accepted decision that owns this budget.",
       "type": "string",
-      "pattern": "^docs/decisions/CD-[0-9]{4}-[a-z0-9-]+\\.md$"
+      "pattern": "^.concord/docs/decisions/CD-[0-9]{4}-[a-z0-9-]+\\.md$"
     },
     "note_roots": {
       "description": "The compaction-note roots CD-0002 names for distilled terminal notes. Markdown only, byte-bounded, dump-free.",
@@ -31,7 +31,7 @@
       "maxItems": 8,
       "items": {
         "type": "string",
-        "pattern": "^docs/[a-z0-9/_-]+$"
+        "pattern": "^.concord/docs/[a-z0-9/_-]+$"
       }
     },
     "max_note_bytes": {
@@ -58,7 +58,7 @@
           "path": {
             "description": "Repository-relative path of one markdown note. Byte-bound exemptions are per-note; markdown-only and dump-free have no exemptions.",
             "type": "string",
-            "pattern": "^docs/[a-z0-9/_-]+/([a-z0-9._-]+)\\.md$"
+            "pattern": "^.concord/docs/[a-z0-9/_-]+/([a-z0-9._-]+)\\.md$"
           },
           "state": {
             "type": "string",
@@ -87,9 +87,9 @@
         "required": ["path", "reason"],
         "properties": {
           "path": {
-            "description": "One non-markdown artifact under docs/decisions/, acknowledged with a reason. Anything not listed fails.",
+            "description": "One non-markdown artifact under .concord/docs/decisions/, acknowledged with a reason. Anything not listed fails.",
             "type": "string",
-            "pattern": "^docs/decisions/.+\\.(?<!md)$"
+            "pattern": "^.concord/docs/decisions/.+\\.(?<!md)$"
           },
           "reason": {
             "type": "string",

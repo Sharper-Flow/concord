@@ -138,7 +138,7 @@ def test_generated_anchor_requires_the_generator_marker() -> None:
 
 def test_unknown_anchor_kind_is_rejected() -> None:
     findings: list[str] = []
-    guard.check_anchor({"kind": "path", "value": "docs/priorities.md"}, "test", findings)
+    guard.check_anchor({"kind": "path", "value": ".concord/docs/priorities.md"}, "test", findings)
     assert findings, "a repository path must not be usable as an anchor"
 
 
@@ -206,8 +206,8 @@ def test_linear_issue_identifier_is_a_valid_outstanding_pointer() -> None:
 
 def test_outstanding_linear_pointer_must_be_live() -> None:
     """A Linear pointer dies with its issue exactly as a GitHub number does."""
-    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
-    snapshot = ROOT / "docs/issue-state.v1.json"
+    shard = ROOT / ".concord/docs/knowledge/coverage/CD-0006.json"
+    snapshot = ROOT / ".concord/docs/issue-state.v1.json"
     originals = (
         shard.read_text(encoding="utf-8"),
         snapshot.read_text(encoding="utf-8"),
@@ -244,8 +244,8 @@ def test_outstanding_linear_pointer_must_be_live() -> None:
 
 def test_outstanding_issue_pointer_must_be_live() -> None:
     """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
-    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
-    snapshot = ROOT / "docs/issue-state.v1.json"
+    shard = ROOT / ".concord/docs/knowledge/coverage/CD-0006.json"
+    snapshot = ROOT / ".concord/docs/issue-state.v1.json"
     originals = (
         shard.read_text(encoding="utf-8"),
         snapshot.read_text(encoding="utf-8"),
@@ -281,7 +281,7 @@ def test_outstanding_issue_pointer_must_be_live() -> None:
 
 
 def test_issue_snapshot_presence_and_shape() -> None:
-    snapshot = ROOT / "docs/issue-state.v1.json"
+    snapshot = ROOT / ".concord/docs/issue-state.v1.json"
     original = snapshot.read_text(encoding="utf-8")
     try:
         snapshot.unlink()
@@ -318,7 +318,7 @@ def test_green_repository_passes_offline_pointer_validation() -> None:
 
 
 def test_cli_exits_nonzero_on_a_missing_coverage_shard() -> None:
-    shard = ROOT / "docs/knowledge/coverage/CD-0006.json"
+    shard = ROOT / ".concord/docs/knowledge/coverage/CD-0006.json"
     original = shard.read_text(encoding="utf-8")
     try:
         shard.unlink()

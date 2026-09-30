@@ -147,7 +147,7 @@ func TestLauncherPortfolioCorpusMutationFails(t *testing.T) {
 
 func loadLauncherPortfolioCorpus(t *testing.T) launcherPortfolioCorpus {
 	t.Helper()
-	data, err := os.ReadFile("../../scenarios/launcher-portfolio.v1.json")
+	data, err := os.ReadFile("../../.concord/scenarios/launcher-portfolio.v1.json")
 	if err != nil {
 		t.Fatalf("load launcher portfolio corpus: %v", err)
 	}

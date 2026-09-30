@@ -19,7 +19,7 @@ func lawSubjectRow(t *testing.T, s *Store, lawID, tier string) {
 	if _, err := s.DatabaseForTesting().Exec(
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier)
 		 VALUES('p','l',?,'decision','accepted',?,?,?,'commit',?)`,
-		lawID, "docs/decisions/CD-0001-"+lawID+".md", strings.ToUpper(lawID), contentHash, tier); err != nil {
+		lawID, ".concord/docs/decisions/CD-0001-"+lawID+".md", strings.ToUpper(lawID), contentHash, tier); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
@@ -186,7 +186,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 	const contentHash = "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	if _, err := s.DatabaseForTesting().Exec(
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid)
-		 VALUES('p','l','legacy','decision','accepted','docs/decisions/CD-0001-legacy.md','Legacy',?,'commit')`, contentHash); err != nil {
+		 VALUES('p','l','legacy','decision','accepted','.concord/docs/decisions/CD-0001-legacy.md','Legacy',?,'commit')`, contentHash); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
@@ -208,7 +208,7 @@ func TestPopulatedLawSubjectsUpgradeToTheDerivedTier(t *testing.T) {
 	}
 	_, err := s.DatabaseForTesting().Exec(
 		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid,authority_tier)
-		 VALUES('p','l','bogus','decision','accepted','docs/decisions/CD-0002-bogus.md','Bogus',?,'commit','advisory')`, contentHash)
+		 VALUES('p','l','bogus','decision','accepted','.concord/docs/decisions/CD-0002-bogus.md','Bogus',?,'commit','advisory')`, contentHash)
 	if err == nil {
 		t.Fatal("law_subjects accepted a tier outside the closed pair")
 	}

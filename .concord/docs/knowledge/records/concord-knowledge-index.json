@@ -1,0 +1,29 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-08-24T00:00:00Z",
+  "evidence": [
+    ".concord/docs/knowledge/manifest.json",
+    "contracts/concord-knowledge-index.v1.schema.json",
+    "scripts/generate-knowledge-index.py"
+  ],
+  "id": "concord-knowledge-index",
+  "kind": "reference",
+  "path": ".concord/docs/concord-knowledge-index.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:b90c5d33a90d856a4c5b186292aa12a308766a3dddf523dfa6e8c0596f39e59a",
+  "status": "published",
+  "summary": "Describes the knowledge manifest, its shards, and the authoring flow that produces them.",
+  "tags": [
+    "knowledge",
+    "manifest"
+  ],
+  "title": "concord knowledge index"
+}

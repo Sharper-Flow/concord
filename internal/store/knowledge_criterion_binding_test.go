@@ -23,7 +23,7 @@ func criterionBindingManifestBytes(t *testing.T, bindings []KnowledgeCriterionBi
 			},
 		},
 		Records: []KnowledgeRecord{{
-			ID: "spec-1", Kind: "spec", Path: "docs/specs/fixture.md", Status: "accepted",
+			ID: "spec-1", Kind: "spec", Path: ".concord/docs/specs/fixture.md", Status: "accepted",
 			Date: "2026-08-10T00:00:00Z", Title: "Fixture spec", Summary: "Spec summary", Tags: []string{},
 			Authority:    KnowledgeAuthority{Tier: "derived"},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},

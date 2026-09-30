@@ -429,7 +429,7 @@ func TestMigrateV18ToV19AddsClosedKnowledgeCoverageAndScopeGuards(t *testing.T) 
 	if _, err := db.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('p','l','HEAD','invalid','indexed','test','`+strings.Repeat("a", 40)+`')`); err == nil {
 		t.Fatal("invalid coverage kind passed CHECK")
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('w','lesson','T','2026-08-10T00:00:00Z','published','[]','completed',0,'S','p','l','docs/lessons/t.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`','invalid')`); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES('w','lesson','T','2026-08-10T00:00:00Z','published','[]','completed',0,'S','p','l','.concord/docs/lessons/t.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`','invalid')`); err == nil {
 		t.Fatal("invalid scope mode passed CHECK")
 	}
 	// The migration 52 pair binding makes the anchor a precondition for a
@@ -533,7 +533,7 @@ func TestMigrateV20ToV21AddsDerivedLawProjectionAndAmendmentField(t *testing.T) 
 			t.Fatalf("table %s count=%d err=%v", table, count, err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','commit')`); err == nil {
 		t.Fatal("law subject write bypassed fold guard")
 	}
 	var lawModifies, lawBoundaryVersion int
@@ -1651,7 +1651,7 @@ func seedArchivedWorkKindHome(t *testing.T, db *sql.DB) {
 }
 
 func insertArchivedWorkKind(ctx context.Context, db *sql.DB, id, kind string) error {
-	_, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Archived work", "2026-08-27T00:00:00Z", "completed", "[]", "completed", 0, "summary", "archived-kind-project", "archived-kind-locator", "docs/work/archived.md", strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64))
+	_, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Archived work", "2026-08-27T00:00:00Z", "completed", "[]", "completed", 0, "summary", "archived-kind-project", "archived-kind-locator", ".concord/docs/work/archived.md", strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64))
 	return err
 }
 

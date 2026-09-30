@@ -16,8 +16,8 @@ func seedAuthorityTierHome(t *testing.T) KnowledgeHome {
 
 	const decisionBody = "# Tiered decision\n\nA legislated commitment.\n"
 	const specBody = "# Tiered spec\n\nA derived specification.\n"
-	decisionPath := "docs/decisions/CD-0001-tiered.md"
-	specPath := "docs/specs/SPEC-0001-tiered.md"
+	decisionPath := ".concord/docs/decisions/CD-0001-tiered.md"
+	specPath := ".concord/docs/specs/SPEC-0001-tiered.md"
 	writeKnowledgeFile(t, repo, decisionPath, decisionBody)
 	writeKnowledgeFile(t, repo, specPath, specBody)
 	decisionSum := sha256.Sum256([]byte(decisionBody))
@@ -68,7 +68,7 @@ func TestRebuildProjectsDerivedForALegacyCorpus(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	const decisionBody = "# Legacy decision\n\nAuthored before the tier existed.\n"
-	decisionPath := "docs/decisions/CD-0001-legacy.md"
+	decisionPath := ".concord/docs/decisions/CD-0001-legacy.md"
 	writeKnowledgeFile(t, repo, decisionPath, decisionBody)
 	decisionSum := sha256.Sum256([]byte(decisionBody))
 

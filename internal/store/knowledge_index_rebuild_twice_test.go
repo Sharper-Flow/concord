@@ -66,8 +66,8 @@ func TestKnowledgeIndexRebuildsTwiceWithGoverningLaws(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-alpha-law.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Alpha law", Summary: "Governs alpha", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"alpha"}}},
-		manifestFixture{ID: "CD-0002", Kind: "decision", Path: "docs/decisions/CD-0002-zeta-law.md", Status: "accepted", Date: "2026-08-11T00:00:00Z", Title: "Zeta law", Summary: "Governs zeta", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"zeta"}}},
+		manifestFixture{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-alpha-law.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Alpha law", Summary: "Governs alpha", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"alpha"}}},
+		manifestFixture{ID: "CD-0002", Kind: "decision", Path: ".concord/docs/decisions/CD-0002-zeta-law.md", Status: "accepted", Date: "2026-08-11T00:00:00Z", Title: "Zeta law", Summary: "Governs zeta", Scopes: KnowledgeRecordScopes{Mode: "explicit", DomainIDs: []string{"zeta"}}},
 	)
 	setManifestGoverningLaw(t, repo, "zeta", "alpha", "CD-0001")
 	commitKnowledgeRepo(t, repo, "laws with a governing relation")

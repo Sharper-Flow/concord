@@ -68,7 +68,7 @@ def test_paths_ignore_prose_that_is_not_a_repository_path() -> None:
 def test_paths_ignore_placeholders_and_globs() -> None:
     findings: list[str] = []
     guard.check_paths(
-        ["records live at `docs/decisions/CD-NNNN-*.md`"], {"docs"}, findings
+        ["records live at `.concord/docs/decisions/CD-NNNN-*.md`"], {"docs"}, findings
     )
     assert findings == [], f"a placeholder cannot be resolved: {findings}"
 

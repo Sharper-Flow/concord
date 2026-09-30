@@ -25,7 +25,7 @@ RESOLVED_ANCHOR = {"kind": "go_test", "value": "internal/store.TestOpenAppliesRe
 def fixture() -> dict:
     return {
         "schema_version": "2.0",
-        "source": {"path": "docs/priorities.md", "section": "First-usable floor"},
+        "source": {"path": ".concord/docs/priorities.md", "section": "First-usable floor"},
         "conditions": [
             {"id": "fc1", "ordinal": 1, "title": "First condition"},
             {"id": "fc2", "ordinal": 2, "title": "Second condition"},
@@ -53,8 +53,8 @@ def fixture() -> dict:
 
 def build_root(directory: str) -> Path:
     root = Path(directory)
-    (root / "docs").mkdir()
-    (root / "docs/priorities.md").write_text(
+    (root / ".concord/docs").mkdir(parents=True)
+    (root / ".concord/docs/priorities.md").write_text(
         "## First-usable floor\n\n"
         "Use this when it is usable:\n\n"
         "1. First condition\n"
@@ -103,13 +103,13 @@ def test_duplicate_keys_at_every_level() -> None:
 def test_evidence_as_bare_path_string_is_rejected() -> None:
     # Issue #187: "it cannot become satisfied from a cited path alone".
     value = fixture()
-    value["items"][0]["evidence"] = ["docs/priorities.md"]
+    value["items"][0]["evidence"] = [".concord/docs/priorities.md"]
     assert_rejected(value, "evidence must be typed anchors, not paths")
 
 
 def test_unknown_anchor_kind_is_rejected() -> None:
     value = fixture()
-    value["items"][0]["evidence"] = [{"kind": "path", "value": "docs/priorities.md"}]
+    value["items"][0]["evidence"] = [{"kind": "path", "value": ".concord/docs/priorities.md"}]
     assert_rejected(value, "anchor kind must be one of")
 
 
@@ -266,7 +266,7 @@ def test_unknown_fields_are_rejected() -> None:
 
 def test_source_path_must_exist() -> None:
     value = fixture()
-    value["source"]["path"] = "docs/missing.md"
+    value["source"]["path"] = ".concord/docs/missing.md"
     assert_rejected(value, "path does not exist")
 
 
@@ -368,7 +368,7 @@ def test_condition_correspondence_override_section() -> None:
     # not-found message.
     value = fixture()
     value["conditions"][0]["source"] = {
-        "path": "docs/priorities.md",
+        "path": ".concord/docs/priorities.md",
         "section": "Does not exist",
     }
     assert_rejected(value, "section 'Does not exist' not found")
@@ -382,7 +382,7 @@ def test_condition_correspondence_section_with_no_items() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         # Add an empty section after the existing one.
-        root.joinpath("docs/priorities.md").write_text(
+        root.joinpath(".concord/docs/priorities.md").write_text(
             "## First-usable floor\n\n"
             "1. First condition\n"
             "2. Second condition\n\n"
@@ -392,7 +392,7 @@ def test_condition_correspondence_section_with_no_items() -> None:
             encoding="utf-8",
         )
         value["conditions"][0]["source"] = {
-            "path": "docs/priorities.md",
+            "path": ".concord/docs/priorities.md",
             "section": "Empty section",
         }
         found, _ = checker.validate(value, root=root)
@@ -406,7 +406,7 @@ def test_condition_correspondence_override_to_bulleted_source() -> None:
     value = fixture()
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
-        root.joinpath("docs/priorities.md").write_text(
+        root.joinpath(".concord/docs/priorities.md").write_text(
             "## First-usable floor\n\n"
             "1. First condition\n"
             "2. Second condition\n\n"
@@ -417,19 +417,19 @@ def test_condition_correspondence_override_to_bulleted_source() -> None:
             encoding="utf-8",
         )
         value["conditions"][0]["source"] = {
-            "path": "docs/priorities.md",
+            "path": ".concord/docs/priorities.md",
             "section": "Bulleted section",
         }
         value["conditions"][0]["title"] = "bullet one is exact."
         value["conditions"][1]["source"] = {
-            "path": "docs/priorities.md",
+            "path": ".concord/docs/priorities.md",
             "section": "Bulleted section",
         }
         value["conditions"][1]["title"] = "bullet two is exact."
         # Manifest-level source still has to resolve; the priority stub
         # already has the section we built earlier, so an unused but valid
         # path is sufficient.
-        value["source"] = {"path": "docs/priorities.md", "section": "First-usable floor"}
+        value["source"] = {"path": ".concord/docs/priorities.md", "section": "First-usable floor"}
         found, _ = checker.validate(value, root=root)
         assert found == [], found
 

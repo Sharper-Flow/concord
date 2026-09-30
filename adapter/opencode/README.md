@@ -1,7 +1,7 @@
 # Concord OpenCode adapter
 
 The release installer owns adapter placement and version registration. Follow
-the [installation guide](../../docs/installation.md) for release artifacts,
+the [installation guide](../../.concord/docs/installation.md) for release artifacts,
 Secret Service prerequisites, upgrade, and uninstall behavior.
 
 The release installer places the adapter under `~/.config/opencode/tools/` and
@@ -158,7 +158,7 @@ closed lane packet from recorded state, obtains core authorization, and opens
 one window for the next native Task call. The plugin replaces that call's
 agent and prompt with the authorized packet. OpenCode owns the native worker
 card, child session, progress, and cancellation. See
-[CD-0102](../../docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
+[CD-0102](../../.concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md).
 
 The adapter selects the registered `concord-<lane>` agent, not a model.
 OpenCode resolves the model from host configuration. The worker ends with its

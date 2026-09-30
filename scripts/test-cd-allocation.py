@@ -36,8 +36,8 @@ class RepoFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
-        (self.root / "docs/knowledge/records").mkdir(parents=True)
-        (self.root / "docs/knowledge/manifest.json").write_text(
+        (self.root / ".concord/docs/knowledge/records").mkdir(parents=True)
+        (self.root / ".concord/docs/knowledge/manifest.json").write_text(
             json.dumps({"schema_version": "1.2", "supported_kinds": [], "indexed_kinds": []}) + "\n",
             encoding="utf-8",
         )
@@ -53,7 +53,7 @@ class RepoFixture(unittest.TestCase):
     def write_manifest(
         self, identifiers: list[str], paths: dict[str, str] | None = None
     ) -> None:
-        shard_dir = self.root / "docs/knowledge/records"
+        shard_dir = self.root / ".concord/docs/knowledge/records"
         for stale in shard_dir.glob("*.json"):
             stale.unlink()
         for identifier in identifiers:
@@ -63,7 +63,7 @@ class RepoFixture(unittest.TestCase):
             (shard_dir / f"{identifier}.json").write_text(json.dumps(record) + "\n", encoding="utf-8")
 
     def commit(self, message: str, when: str | None = None) -> None:
-        git(self.root, "add", "-A", "docs/knowledge")
+        git(self.root, "add", "-A", ".concord/docs/knowledge")
         git(self.root, "commit", "--quiet", "-m", message, when=when)
 
     def seed_peer(
@@ -130,7 +130,7 @@ class CDAllocationTests(RepoFixture):
     def test_duplicate_new_id_is_reported(self) -> None:
         self.write_manifest(["CD-0001", "CD-0002"])
         # A second shard whose id repeats CD-0002 under another filename.
-        (self.root / "docs/knowledge/records/CD-0002-copy.json").write_text(
+        (self.root / ".concord/docs/knowledge/records/CD-0002-copy.json").write_text(
             json.dumps({"id": "CD-0002"}) + "\n", encoding="utf-8"
         )
 
@@ -148,10 +148,10 @@ class CDAllocationTests(RepoFixture):
         )
 
     def write_decision(self, name: str, heading: str) -> str:
-        decisions = self.root / "docs/decisions"
+        decisions = self.root / ".concord/docs/decisions"
         decisions.mkdir(parents=True, exist_ok=True)
         (decisions / name).write_text(f"{heading}\n", encoding="utf-8")
-        return f"docs/decisions/{name}"
+        return f".concord/docs/decisions/{name}"
 
     def test_heading_number_must_match_record_id(self) -> None:
         path = self.write_decision("CD-0002-title.md", "# CD-0001: Wrong number")
@@ -180,7 +180,7 @@ class CDAllocationTests(RepoFixture):
             ["CD-0001", "CD-0002", "CD-0003"],
             paths={
                 "CD-0002": path,
-                "CD-0003": "docs/decisions/CD-0003-absent.md",
+                "CD-0003": ".concord/docs/decisions/CD-0003-absent.md",
             },
         )
 
@@ -190,7 +190,7 @@ class CDAllocationTests(RepoFixture):
 
     def test_duplicate_json_keys_are_rejected(self) -> None:
         self.write_manifest(["CD-0001"])
-        (self.root / "docs/knowledge/records/CD-0001.json").write_text(
+        (self.root / ".concord/docs/knowledge/records/CD-0001.json").write_text(
             '{"id": "CD-0001", "id": "CD-0001"}\n', encoding="utf-8"
         )
 
@@ -254,7 +254,7 @@ class ConcurrentClaimTests(RepoFixture):
         # already on the remote and the queue ref both carry the same claim.
         # Ref identity reports that branch as colliding with itself, and no
         # renumber escapes it: the next push reproduces the pair at the new id.
-        shared = {"CD-0002": "docs/decisions/CD-0002-shared.md"}
+        shared = {"CD-0002": ".concord/docs/decisions/CD-0002-shared.md"}
         self.seed_peer(
             ["CD-0001", "CD-0002"],
             when="2026-01-01T00:00:00Z",
@@ -271,11 +271,11 @@ class ConcurrentClaimTests(RepoFixture):
         self.seed_peer(
             ["CD-0001", "CD-0002"],
             when="2026-01-01T00:00:00Z",
-            paths={"CD-0002": "docs/decisions/CD-0002-theirs.md"},
+            paths={"CD-0002": ".concord/docs/decisions/CD-0002-theirs.md"},
         )
         self.start_branch()
         self.write_manifest(
-            ["CD-0001", "CD-0002"], {"CD-0002": "docs/decisions/CD-0002-mine.md"}
+            ["CD-0001", "CD-0002"], {"CD-0002": ".concord/docs/decisions/CD-0002-mine.md"}
         )
         self.commit("mine claim", when="2026-01-02T00:00:00Z")
 

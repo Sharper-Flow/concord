@@ -105,7 +105,7 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	}
 	wantLaws := []WorkflowLawContextLaw{
 		{Roles: []string{"added", "mandated"}, LawID: "law:new"},
-		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: "docs/spec.md", ObligationIDs: []string{"verification"}},
+		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: ".concord/docs/spec.md", ObligationIDs: []string{"verification"}},
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
 		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)
@@ -130,7 +130,7 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 	workID := "law-context-constitution"
 	seedLawContextFixture(t, s, workID)
 	constitutionHash := "sha256:" + strings.Repeat("c", 64)
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
 		t.Fatal(err)
 	}
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
@@ -143,7 +143,7 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 		t.Fatal("continuity resolved no law context for a contract that mandates a constitution")
 	}
 	wantLaws := []WorkflowLawContextLaw{
-		{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: "docs/constitution.md"},
+		{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: ".concord/docs/constitution.md"},
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
 		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)

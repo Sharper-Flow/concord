@@ -16,7 +16,7 @@ func TestQueryQ9FindsLawByBodyOnlyText(t *testing.T) {
 	writeManifestFixture(t, repo, manifestFixture{
 		ID:      "body-law",
 		Kind:    "decision",
-		Path:    "docs/decisions/CD-0999-body-law.md",
+		Path:    ".concord/docs/decisions/CD-0999-body-law.md",
 		Status:  "accepted",
 		Date:    "2026-09-20T00:00:00Z",
 		Title:   "Storage decision",
@@ -26,7 +26,7 @@ func TestQueryQ9FindsLawByBodyOnlyText(t *testing.T) {
 	}, manifestFixture{
 		ID:      "title-law",
 		Kind:    "decision",
-		Path:    "docs/decisions/CD-0998-title-law.md",
+		Path:    ".concord/docs/decisions/CD-0998-title-law.md",
 		Status:  "accepted",
 		Date:    "2026-09-20T00:00:00Z",
 		Title:   "Body-only-discovery title",
@@ -71,8 +71,8 @@ func seedSupersededLawHome(t *testing.T) KnowledgeHome {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	retiredBody, currentBody := "retired storage rule\n", "current storage rule\n"
-	writeKnowledgeFile(t, repo, "docs/decisions/CD-0001.md", retiredBody)
-	writeKnowledgeFile(t, repo, "docs/decisions/CD-0002.md", currentBody)
+	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0001.md", retiredBody)
+	writeKnowledgeFile(t, repo, ".concord/docs/decisions/CD-0002.md", currentBody)
 	retiredSum, currentSum := sha256.Sum256([]byte(retiredBody)), sha256.Sum256([]byte(currentBody))
 	manifest := KnowledgeManifest{
 		SchemaVersion:  "1.2",
@@ -86,11 +86,11 @@ func seedSupersededLawHome(t *testing.T) KnowledgeHome {
 			},
 		},
 		Records: []KnowledgeRecord{
-			{ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001.md", Status: "superseded", Successor: "CD-0002",
+			{ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001.md", Status: "superseded", Successor: "CD-0002",
 				Date: "2026-09-20T00:00:00Z", Title: "Retired storage rule", Summary: "A retired storage rule", Tags: []string{},
 				Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 				Scopes:    homeScope(), HomeDomainID: "storage", SHA256: "sha256:" + hex.EncodeToString(retiredSum[:])},
-			{ID: "CD-0002", Kind: "decision", Path: "docs/decisions/CD-0002.md", Status: "accepted",
+			{ID: "CD-0002", Kind: "decision", Path: ".concord/docs/decisions/CD-0002.md", Status: "accepted",
 				Date: "2026-09-20T00:00:00Z", Title: "Current storage rule", Summary: "A current storage rule", Tags: []string{},
 				Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
 				LawRelations: []KnowledgeRelation{{Kind: "supersedes", TargetID: "CD-0001"}},

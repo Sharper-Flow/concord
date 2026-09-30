@@ -15,8 +15,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCUMENT = ROOT / "docs/predecessor-operational-coverage.md"
-FLOOR_MANIFEST = ROOT / "docs/floor-readiness.v1.json"
+DOCUMENT = ROOT / ".concord/docs/predecessor-operational-coverage.md"
+FLOOR_MANIFEST = ROOT / ".concord/docs/floor-readiness.v1.json"
 
 # Closed state vocabulary. A qualified state is deliberate and must be added
 # here, so a new qualifier cannot enter the table unnoticed.
@@ -49,7 +49,7 @@ EXTENSIONS = (".go", ".py", ".ts", ".md", ".json", ".yaml", ".yml", ".sql")
 TALLY_ROW = re.compile(r"^\|\s*(Covered|Not covered|Excluded with reason)\s*\|\s*([0-9]+)\s*\|$")
 TALLY_TOTAL = re.compile(r"^\*\*Total enumerated outcomes: ([0-9]+)\.\*\*$")
 
-# This table and docs/floor-readiness.v1.json are both authorizing records, and
+# This table and .concord/docs/floor-readiness.v1.json are both authorizing records, and
 # rows here cite manifest items by identifier. Nothing previously compared the
 # cited state against the manifest, so the two drifted silently: a row claimed
 # `fc2-context-freshness` was `unmeasured` after issue #110 had measured it.
@@ -76,7 +76,7 @@ def existing_paths(cell: str) -> list[str]:
     for token in BACKTICK.findall(cell) + LINK_TARGET.findall(cell):
         token = token.strip()
         if token.startswith("./"):
-            token = "docs/" + token[2:]
+            token = ".concord/docs/" + token[2:]
         if not is_path_candidate(token):
             continue
         if (ROOT / token).exists():

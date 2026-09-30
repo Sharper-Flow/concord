@@ -30,7 +30,7 @@ func TestMaximalScalarRecordEncodesWithinTheRecordBound(t *testing.T) {
 	record := KnowledgeRecord{
 		ID:      strings.Repeat("i", maxManifestID),
 		Kind:    "decision",
-		Path:    "docs/decisions/CD-0000-" + strings.Repeat("p", maxManifestPath-len("docs/decisions/CD-0000-.md")) + ".md",
+		Path:    ".concord/docs/decisions/CD-0000-" + strings.Repeat("p", maxManifestPath-len(".concord/docs/decisions/CD-0000-.md")) + ".md",
 		Status:  "accepted",
 		Date:    "2026-09-16T00:00:00Z",
 		Title:   strings.Repeat("t", maxManifestTitle),
@@ -79,7 +79,7 @@ func TestKnowledgeRecordAtCollectionCountCapsExceedsTheRecordBound(t *testing.T)
 	}
 	evidence := make([]string, 32)
 	for index := range evidence {
-		prefix := fmt.Sprintf("docs/evidence/%04d-", index)
+		prefix := fmt.Sprintf(".concord/docs/evidence/%04d-", index)
 		evidence[index] = prefix + strings.Repeat("e", 512-len(prefix))
 	}
 	bindings := make([]KnowledgeCriterionBinding, maxCriterionBindings)
@@ -90,7 +90,7 @@ func TestKnowledgeRecordAtCollectionCountCapsExceedsTheRecordBound(t *testing.T)
 	record := KnowledgeRecord{
 		ID:      strings.Repeat("i", maxManifestID),
 		Kind:    "spec",
-		Path:    "docs/specs/" + strings.Repeat("p", maxManifestPath-len("docs/specs/.md")) + ".md",
+		Path:    ".concord/docs/specs/" + strings.Repeat("p", maxManifestPath-len(".concord/docs/specs/.md")) + ".md",
 		Status:  "accepted",
 		Date:    "2026-09-16T00:00:00Z",
 		Title:   strings.Repeat("t", maxManifestTitle),
@@ -120,8 +120,10 @@ func TestKnowledgeRecordAtCollectionCountCapsExceedsTheRecordBound(t *testing.T)
 
 // TestReadKnowledgeManifestAtHeadParsesTheLiveCorpus reads the working
 // repository at HEAD through the bounded archive reader, so the live record
-// corpus parses under the per-shard record bound and composes exactly the
-// shards the record tree carries.
+// corpus parses under the per-shard record bound and composes exactly
+// the shards the record tree carries. The reader walks the newest layout
+// tier HEAD carries (CD-0194 D5), so the shard count reads the tree of
+// that same tier.
 func TestReadKnowledgeManifestAtHeadParsesTheLiveCorpus(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
@@ -130,7 +132,18 @@ func TestReadKnowledgeManifestAtHeadParsesTheLiveCorpus(t *testing.T) {
 	if err != nil || missing {
 		t.Fatalf("live corpus at HEAD: missing=%t err=%v", missing, err)
 	}
-	entries := strings.Split(strings.TrimSpace(runKnowledgeGit(t, root, "ls-tree", "-r", "--name-only", head, knowledgeRecordTree)), "\n")
+	recordTree := ""
+	for _, layout := range knowledgeShardLayouts {
+		entries, err := parseTreeEntries([]byte(runKnowledgeGit(t, root, "ls-tree", "-z", head, "--", layout.recordTree)))
+		if err == nil && len(entries) > 0 {
+			recordTree = layout.recordTree
+			break
+		}
+	}
+	if recordTree == "" {
+		t.Fatal("HEAD carries no knowledge record tree in any layout tier")
+	}
+	entries := strings.Split(strings.TrimSpace(runKnowledgeGit(t, root, "ls-tree", "-r", "--name-only", head, recordTree)), "\n")
 	shardCount := 0
 	for _, entry := range entries {
 		if strings.HasSuffix(entry, ".json") {

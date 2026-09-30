@@ -25,13 +25,13 @@ SPEC.loader.exec_module(generator)
 
 def build_root(directory: str) -> Path:
     root = Path(directory)
-    shard_dir = root / "docs/knowledge/coverage"
+    shard_dir = root / ".concord/docs/knowledge/coverage"
     shard_dir.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def write_shard(root: Path, record: dict) -> None:
-    shard_path = root / "docs/knowledge/coverage" / f"{record['id']}.json"
+    shard_path = root / ".concord/docs/knowledge/coverage" / f"{record['id']}.json"
     shard_path.write_text(
         json.dumps(record, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
@@ -71,10 +71,10 @@ def test_composition_sorted_by_id_and_rejects_unformatted_shard() -> None:
             text=True,
         )
         assert result.returncode == 0, result.stderr
-        assert not (root / "docs/law-coverage.v1.json").exists()
+        assert not (root / ".concord/docs/law-coverage.v1.json").exists()
 
         # A shard that is not canonical fails --check and names itself.
-        shard = root / "docs/knowledge/coverage/AA-0001.json"
+        shard = root / ".concord/docs/knowledge/coverage/AA-0001.json"
         shard.write_text(json.dumps(json.loads(shard.read_text(encoding="utf-8"))) + "\n", encoding="utf-8")
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts/generate-law-coverage.py"), "--check", "--root", str(root)],

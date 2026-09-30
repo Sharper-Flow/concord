@@ -1993,6 +1993,41 @@ test("a reported failure is recorded as the worker's own failure, not an invalid
   expect(result.error?.kind).toBe("error")
 })
 
+// A rendered failure detail can hold multi-byte characters whose UTF-16 code
+// unit count fits 4096 while its UTF-8 byte count exceeds the store's bound.
+// The bound that matters is the UTF-8 one: validateWorkerFailedPayload counts
+// len(payload.Detail) bytes, so a code-unit slice would overflow it and the
+// worker-fail write would be refused. Every evidence detail below sits at the
+// 512-byte admission bound, so the overflow the rendered detail hits is the
+// one the final byte bound owns.
+test("a multi-byte reported failure detail is bounded in UTF-8 bytes before the CLI write", async () => {
+  const detail = "🎉".repeat(128)
+  const evidence = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => ({ obligation: ["source_citations", "bounded_findings", "uncertainties"][index % 3], detail }))
+  const rendered = `worker reported failure: ${evidence.map((entry) => `${entry.obligation}: ${entry.detail}`).join("; ")}`
+  expect(rendered.length).toBeLessThanOrEqual(4096)
+  expect(Buffer.byteLength(rendered, "utf8")).toBeGreaterThan(4096)
+  const { verbs, payloads } = await terminalEvidence(report({ status: "failed", evidence }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("worker_error")
+  const recorded = payloads[1].detail as string
+  expect(recorded.startsWith("worker reported failure: source_citations: ")).toBe(true)
+  expect(Buffer.byteLength(recorded, "utf8")).toBeLessThanOrEqual(4096)
+})
+
+// The byte bound cuts on a code-point boundary: the recorded detail decodes
+// to itself byte for byte, so the store readback never sees U+FFFD in place
+// of a split multi-byte sequence, and the truncation provably engaged.
+test("the multi-byte failure detail cut never splits a code point", async () => {
+  const detail = "🎉".repeat(128)
+  const evidence = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => ({ obligation: ["source_citations", "bounded_findings", "uncertainties"][index % 3], detail }))
+  const { payloads } = await terminalEvidence(report({ status: "failed", evidence }))
+  const recorded = payloads[1].detail as string
+  expect(Buffer.byteLength(recorded, "utf8")).toBeGreaterThan(4000)
+  expect(Buffer.byteLength(recorded, "utf8")).toBeLessThanOrEqual(4096)
+  expect(recorded).not.toContain("\uFFFD")
+  expect(Buffer.from(recorded, "utf8").toString("utf8")).toBe(recorded)
+})
+
 test("the report scan reads part.text only and separates absence from malformed content", () => {
   expect(readWorkerReport(runOutput()).report).toEqual(report())
   expect(readWorkerReport(runOutput("", null))).toEqual({ report: null, malformed: false })

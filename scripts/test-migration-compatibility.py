@@ -657,6 +657,53 @@ expect_evaluate(
     breaking=[],
 )
 
+# A local variable named migrations never redirects the walk: only the
+# package-level binding is the migration list.
+LOCAL_BINDING_PREFIX = (
+    "func seed() []migration {\n"
+    "\tvar migrations = []migration{\n"
+    "\t\t{Version: 1, Name: \"local\", SQL: `SELECT 1;`},\n"
+    "\t}\n"
+    "\treturn migrations\n"
+    "}\n\n"
+)
+expect_evaluate(
+    "a function-local migrations binding does not hide the package list",
+    check.migrations(LOCAL_BINDING_PREFIX + REAL_LIST),
+    failures=1,
+    breaking=[134],
+)
+CLOSURE_BINDING_PREFIX = (
+    "var seed = func() {\n"
+    "\tmigrations := []migration{\n"
+    "\t\t{Version: 2, Name: \"closure\", SQL: `SELECT 1;`},\n"
+    "\t}\n"
+    "\t_ = migrations\n"
+    "}\n\n"
+)
+expect_evaluate(
+    "a closure-local migrations binding does not hide the package list",
+    check.migrations(CLOSURE_BINDING_PREFIX + REAL_LIST),
+    failures=1,
+    breaking=[134],
+)
+
+# The unreadable-Version refusal names the entry however its Name is
+# written; a raw-string Name is still a name.
+RAW_NAME_UNREADABLE_FAILURES, _ = check.evaluate(
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 110.0,\n\t\tName: `raw_name`,\n"
+        "\t\tSQL: `SELECT 1;`,\n\t},\n"
+        "}\n"
+    )
+)
+if not any("raw_name" in failure for failure in RAW_NAME_UNREADABLE_FAILURES):
+    FAILURES.append(
+        f"a raw-string Name must appear in the unreadable-Version refusal: "
+        f"{RAW_NAME_UNREADABLE_FAILURES}"
+    )
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

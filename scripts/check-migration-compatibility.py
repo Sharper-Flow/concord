@@ -371,22 +371,34 @@ def sql_field_sound(entry: str) -> bool:
 
 
 def migrations_binding(tokens: list[Tok]) -> int:
-    """Return the index of the migrations literal's opening brace token.
+    """Return the index of the package-level migrations literal's opening
+    brace token.
 
     The binding is the token sequence var migrations = []migration followed
-    by an opening brace, all in code position: a lookalike sequence inside a
-    comment or a literal is never these tokens and cannot redirect the
-    walk to a decoy list.
+    by an opening brace, at package scope: bracket depth zero. A lookalike
+    sequence inside a comment, a literal, or a function body is never these
+    tokens at this scope and cannot redirect the walk to a decoy list.
     """
     keys = ("var", "migrations", "=", "[", "]", "migration")
-    for i in range(len(tokens) - len(keys)):
-        window = tokens[i : i + len(keys)]
-        if all(
-            t.kind in ("ident", "punct") and t.text == key for t, key in zip(window, keys)
-        ):
-            brace = tokens[i + len(keys)]
-            if brace.kind == "punct" and brace.text == "{":
+    depth = 0
+    for i, tok in enumerate(tokens):
+        if i + len(keys) < len(tokens):
+            window = tokens[i : i + len(keys)]
+            if (
+                depth == 0
+                and all(
+                    t.kind in ("ident", "punct") and t.text == key
+                    for t, key in zip(window, keys)
+                )
+                and tokens[i + len(keys)].kind == "punct"
+                and tokens[i + len(keys)].text == "{"
+            ):
                 return i + len(keys)
+        if tok.kind == "punct":
+            if tok.text in "([{":
+                depth += 1
+            elif tok.text in ")]}":
+                depth = max(0, depth - 1)
     raise ValueError("no migrations binding in source")
 
 
@@ -446,7 +458,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
         if version < 0:
             name_run = field_run(entry, "Name")
             label = "<unnamed>"
-            if name_run and len(name_run) == 1 and name_run[0].kind == "string":
+            if name_run and len(name_run) == 1 and name_run[0].kind in ("string", "raw"):
                 label = name_run[0].text[1:-1]
             failures.append(
                 f"migration entry {label} carries no readable Version field; "

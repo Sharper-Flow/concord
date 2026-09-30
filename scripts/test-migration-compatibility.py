@@ -983,6 +983,22 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "select aliases named trigger, begin, and end open no body",
+        "CREATE TABLE scratch (trigger TEXT, b TEXT);"
+        "SELECT trigger, b AS begin, trigger AS end FROM scratch;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "select aliases hide no destructive statement",
+        "CREATE TABLE scratch (trigger TEXT, b TEXT);"
+        "SELECT trigger, b AS begin, trigger AS end FROM scratch;"
+        "DROP TABLE existing;",
+        1,
+        [150],
+    ),
+    (
         "a comment after a trigger END closes the body",
         "CREATE TABLE notes (a TEXT);"
         "CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "

@@ -246,10 +246,13 @@ def statements(sql: str) -> list[str]:
     i, n = 0, len(sql)
 
     def trigger_head() -> bool:
-        # The statement's second keyword decides: CREATE [TEMP|TEMPORARY]
-        # TRIGGER opens a body; CREATE TABLE names a table, whatever the
-        # table or a column is called.
+        # Only a full CREATE [TEMP|TEMPORARY] TRIGGER head opens a body.
+        # The second keyword alone is not enough: a SELECT whose second
+        # token is trigger would arm the body and swallow the statements
+        # after its begin and end aliases.
         words = head_words
+        if not words or words[0] != "CREATE":
+            return False
         at = 1
         if at < len(words) and words[at] in ("TEMP", "TEMPORARY"):
             at += 1

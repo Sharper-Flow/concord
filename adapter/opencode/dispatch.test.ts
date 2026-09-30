@@ -2223,6 +2223,21 @@ test("a block-only review report is admitted without a severity entry", () => {
   expect("detail" in admitted).toBe(false)
 })
 
+test("a valid typed review report under the legacy review digest is admitted", () => {
+  // CD-0197 D5: a packet pinned to a pre-CD-0197 digest still resolves to the
+  // current review definition, so the typed report is admitted against the
+  // requirement the current contract carries.
+  const legacy = "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15"
+  expect(legacy).not.toBe(reviewLane.digest)
+  const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: legacy })
+  expect("detail" in admitted).toBe(false)
+})
+
+test("an unknown lane digest is refused as an unregistered lane identity", () => {
+  const refused = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: "sha256:" + "0".repeat(64) })
+  expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
+})
+
 test("the review lane refuses a free-text severity entry beside the typed review block", () => {
   const resolved = resolveWorkerReportFromText(JSON.stringify(reviewReport({ evidence: reviewEvidenceWithSeverity() })), reviewPacket())
   expect("detail" in resolved && resolved.detail).toContain("free-text severity entry beside the typed review block")

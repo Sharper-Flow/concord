@@ -15,7 +15,7 @@ import { completeWorkerAttempt, failWorkerAttempt, abandonWorkerAttempt, type Ag
 import type { CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindows, TASK_TOOL_ID, type DispatchRecord } from "./dispatch-window"
 import type { SessionReader } from "./move-session"
-import { agentLanes } from "./generated-agent-lanes"
+import { laneForIdentity } from "./generated-agent-lanes"
 
 export interface LaneCompletionInput {
   tool: string
@@ -92,7 +92,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   // the attempt, recording the worker as having run a contract it never
   // received. The attempt row is written from those same values, so nothing
   // downstream can catch the substitution.
-  const lane = agentLanes.find((candidate) => candidate.id === record.packet.lane_id && candidate.version === record.packet.lane_version && candidate.digest === record.packet.lane_digest)
+  const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
   if (!lane) {
     output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } })
     return
@@ -128,7 +128,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const windows = deps.windows ?? dispatchWindows()
   const pending = windows.inFlight(part.sessionID, part.callID)
   if (!pending) return null
-  const lane = agentLanes.find((candidate) => candidate.id === pending.packet.lane_id && candidate.version === pending.packet.lane_version && candidate.digest === pending.packet.lane_digest)
+  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_version, pending.packet.lane_digest)
   if (!lane) return unavailableEnvelope(pending, "in-flight attempt names a lane the registry does not carry")
   const metadata = state.metadata
   if (!object(metadata) || typeof metadata.sessionId !== "string" || !/^ses_[a-zA-Z0-9]+$/.test(metadata.sessionId)) {
@@ -174,7 +174,7 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
   // the child session identity.
   const errorName = object(properties.error) ? properties.error.name : undefined
   if (errorName === "MessageAbortedError") return null
-  const lane = agentLanes.find((candidate) => candidate.id === pending.packet.lane_id && candidate.version === pending.packet.lane_version && candidate.digest === pending.packet.lane_digest)
+  const lane = laneForIdentity(pending.packet.lane_id, pending.packet.lane_version, pending.packet.lane_digest)
   if (!lane) return unavailableEnvelope(pending, "in-flight attempt names a lane the registry does not carry")
   const detail = `spawn failed before any result or error part; closing the attempt as abandoned: ${spawnFailureDiagnostic(properties.error)}`
   if (!windows.claimSettlement(sessionID)) return null

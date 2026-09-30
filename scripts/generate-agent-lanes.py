@@ -77,6 +77,19 @@ def load_manifest() -> tuple[dict, str]:
         if "digest" in lane:
             raise ValueError("lane digest is generated, not authored")
         lane["digest"] = lane_digest(lane)
+    # The legacy digest set (CD-0197 D5) is registry contract: one declared
+    # owner in the manifest, projected into both generated layers. Every key
+    # must name a registered lane identity, and no entry may carry the
+    # identity's current digest.
+    legacy = manifest.get("legacy_lane_digests")
+    if not isinstance(legacy, dict):
+        raise ValueError("manifest must declare legacy_lane_digests: the pre-policy digests each lane identity still resolves")
+    identities = {f"{lane['id']}:{lane['version']}": lane["digest"] for lane in manifest["lanes"]}
+    for key, digests in legacy.items():
+        if key not in identities:
+            raise ValueError(f"legacy_lane_digests names unregistered lane identity {key!r}")
+        if identities[key] in digests:
+            raise ValueError(f"legacy_lane_digests for {key!r} carries the lane's current digest")
     return manifest, manifest_digest
 
 
@@ -248,6 +261,20 @@ def go_projection(manifest: dict, manifest_digest: str) -> str:
             "\t},",
         ])
     lines.extend(["}", ""])
+    lines.extend([
+        "// generatedLegacyLaneDigests records, per lane identity, every digest an",
+        "// earlier registry generation gave that lane. A persisted worker packet may",
+        "// pin one of them, and it resolves to the current definition (CD-0197 D5).",
+        "var generatedLegacyLaneDigests = map[string][]string{",
+    ])
+    # gofmt aligns map values to the longest key, so the projection pads the
+    # same way and the generated file is gofmt-stable as emitted.
+    legacy = manifest["legacy_lane_digests"]
+    width = max((len(go_string(key)) for key in legacy), default=0)
+    for key, digests in legacy.items():
+        pad = " " * (width - len(go_string(key)) + 1)
+        lines.append(f"\t{go_string(key)}:{pad}{go_slice(list(digests))},")
+    lines.extend(["}", ""])
     return "\n".join(lines)
 
 
@@ -260,17 +287,31 @@ export const agentUtilities = %s as const;
 export const agentLanePacketSchema = %s as const;
 export const agentLaneReportSchema = %s as const;
 export const workerScopeAssignments = %s as const;
+export const laneLegacyDigests = %s as const;
 export type AgentLane = (typeof agentLanes)[number];
 export type AgentUtility = (typeof agentUtilities)[number];
 // workerScopeAssignedResult returns the one evidence obligation whose
 // discharge completes a lane's worker attempt, or null when the lane carries
 // no assignment. The dispatch packet embeds it and the report admission
-// requires it, so a worker attempt completes only its assigned result and the
-// parent workflow keeps every other required result explicit.
+// requires it, so a worker attempt can complete only its assigned result and
+// the parent workflow keeps every other required result explicit.
 export function workerScopeAssignedResult(laneId: string): string | null {
   return (workerScopeAssignments as Record<string, string>)[laneId] ?? null;
 }
-""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments)
+// laneForIdentity resolves a dispatched packet's lane identity to its
+// registered definition. The current digest and every legacy digest the
+// registry declared for the identity (CD-0197 D5) resolve; anything else is
+// unregistered. A legacy digest resolves to the current definition, so a
+// completion under it answers to the requirement the current contract
+// carries — the same rule the store's registry Lookup applies.
+export function laneForIdentity(laneId: string, laneVersion: number, laneDigest: string): AgentLane | null {
+  const lane = agentLanes.find((candidate) => candidate.id === laneId && candidate.version === laneVersion);
+  if (!lane) return null;
+  if (lane.digest === laneDigest) return lane;
+  const legacy = (laneLegacyDigests as Record<string, readonly string[]>)[`${laneId}:${laneVersion}`];
+  return legacy?.includes(laneDigest) ? lane : null;
+}
+""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments, json.dumps(manifest["legacy_lane_digests"], ensure_ascii=False, indent=2))
 
 
 def packet_refusal_instructions() -> str:

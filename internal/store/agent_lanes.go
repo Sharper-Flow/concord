@@ -42,38 +42,14 @@ var laneIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
 var laneRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,127}$`)
 var laneDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// Persisted worker events may carry a pre-policy lane digest. Those digests
-// remain valid only for the matching lane identity and current definition.
-// Each lane keeps every digest an earlier registry generation gave it: the
-// first row predates the worker-scope assignments, and the later rows are the
-// registries before CD-0197 added the per-lane required-report-block
-// contract.
-var legacyLaneDigests = map[string][]string{
-	laneKey("research", 1): {
-		"sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb",
-		"sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b",
-	},
-	laneKey("implement", 1): {
-		"sha256:84f204c2145897411b16e16f5d6d099ee792213042aecb01f59059090636de85",
-		"sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
-	},
-	laneKey("design", 1): {
-		"sha256:50b73594e743bf14dc4ba2fdd8294bb7de64f695ea571a2fff572b5329c649a5",
-	},
-	laneKey("review", 1): {
-		"sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56",
-		"sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15",
-	},
-	laneKey("verify", 1): {
-		"sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c",
-		"sha256:7999bab09a266d4e5bcda060e0cc75786f7c0678acbde09df7f30dd19fd9eff2",
-	},
-}
-
 // isLegacyLaneDigest reports whether digest is a recorded pre-policy digest
-// for the lane identity key.
+// for the lane identity key. The set is generated into
+// generated_agent_lanes.go from the manifest's legacy_lane_digests
+// declaration: each lane keeps every digest an earlier registry generation
+// gave it, and a persisted worker packet pinned to one still resolves to the
+// current definition (CD-0197 D5).
 func isLegacyLaneDigest(key, digest string) bool {
-	for _, legacy := range legacyLaneDigests[key] {
+	for _, legacy := range generatedLegacyLaneDigests[key] {
 		if legacy == digest {
 			return true
 		}

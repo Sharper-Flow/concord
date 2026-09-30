@@ -1,7 +1,7 @@
 import { createHash, sign as signBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
@@ -962,7 +962,7 @@ function workerReportedFailureDetail(report: AgentLaneReport): string {
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
-  return agentLanes.find((lane) => lane.id === packet.lane_id && lane.version === packet.lane_version && lane.digest === packet.lane_digest) ?? null
+  return laneForIdentity(packet.lane_id, packet.lane_version, packet.lane_digest)
 }
 
 // laneRequiresReportBlock reports whether the lane's contract names the

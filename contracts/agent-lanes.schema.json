@@ -10,6 +10,17 @@
     "registry": {"const": "agent_lanes"},
     "version": {"const": 1},
     "lanes": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/lane"}},
+    "legacy_lane_digests": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 64,
+        "uniqueItems": true,
+        "items": {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"}
+      },
+      "propertyNames": {"type": "string", "minLength": 3, "maxLength": 40, "pattern": "^[a-z][a-z0-9_-]{1,31}:[0-9]+$"}
+    },
     "utilities": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/utility"}}
   },
   "$defs": {

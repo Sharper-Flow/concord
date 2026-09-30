@@ -1191,6 +1191,37 @@ for label, sql, failures, breaking in (
         [],
     ),
     (
+        "a quoted name may follow the TABLE keyword directly",
+        'ALTER TABLE"existing" ADD COLUMN c TEXT DEFAULT 0;',
+        1,
+        [],
+    ),
+    (
+        "a quoted name may precede the ADD keyword directly",
+        'ALTER TABLE "existing"ADD COLUMN c TEXT DEFAULT 0;',
+        1,
+        [],
+    ),
+    (
+        "a bracketed name may follow the TABLE keyword directly",
+        "ALTER TABLE[existing] ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "a string-literal name may follow the TABLE keyword directly",
+        "ALTER TABLE'existing' ADD COLUMN c TEXT DEFAULT 0;",
+        1,
+        [],
+    ),
+    (
+        "adjacent quoted names keep their identities",
+        'CREATE TABLE"t" (a TEXT);'
+        'ALTER TABLE main."t"ADD COLUMN c TEXT DEFAULT 0;',
+        0,
+        [],
+    ),
+    (
         "an unqualified rename transfers no main ownership",
         "CREATE TABLE a (v TEXT);"
         "ALTER TABLE a RENAME TO b;"
@@ -1286,6 +1317,53 @@ for label, gap in [
         failures=1,
         breaking=[150],
     )
+
+# The declaration duty survives a Breaking declaration that the recognized
+# shape makes pointless: the unclassified-statement reason can no longer
+# mask the missing FoldMaintained refusal.
+expect_evaluate(
+    "breaking masks no declaration duty on an adjacent quoted name",
+    check.migrations(
+        fold_source(
+            entry(
+                150,
+                'ALTER TABLE"existing" ADD COLUMN c TEXT DEFAULT 0;',
+                breaking=True,
+            )
+        )
+    ),
+    failures=2,
+    breaking=[],
+)
+expect_evaluate(
+    "origin satisfies the duty on an adjacent quoted name",
+    check.migrations(
+        fold_source(
+            entry(
+                150,
+                'ALTER TABLE"existing" ADD COLUMN c TEXT DEFAULT 0;',
+                fold="origin",
+            )
+        )
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "advance with breaking satisfies the duty on an adjacent quoted name",
+    check.migrations(
+        fold_source(
+            entry(
+                150,
+                'ALTER TABLE"existing" ADD COLUMN c TEXT DEFAULT 0;',
+                breaking=True,
+                fold="advance",
+            )
+        )
+    ),
+    failures=0,
+    breaking=[150],
+)
 
 # Every top-level list element is accounted for. A named migration value is
 # not a composite literal the checker can read, so it is refused rather than

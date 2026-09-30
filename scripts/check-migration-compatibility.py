@@ -80,14 +80,19 @@ SQL_REF = (
     rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
 )
 SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
+# SQLite separates two bare tokens with whitespace; a quoted or bracketed
+# token carries its own boundary, so keyword and name adjacency needs no
+# space on the quoted side.
+SQL_NAME_SEP = "(?:%s+|(?=[\"'`[]))" % SQL_SP
+SQL_NAME_END = "(?:%s+|(?<=[\"'`\\]]))" % SQL_SP
 CREATE_TABLE = re.compile(
     rf"^CREATE{SQL_SP}(?:VIRTUAL{SQL_SP}|TEMP{SQL_SP}|TEMPORARY{SQL_SP})*"
     rf"TABLE(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
-    rf"{SQL_SP}({SQL_QUAL})",
+    rf"{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 DROP_TABLE = re.compile(
-    rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_SP}({SQL_QUAL})",
+    rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 
@@ -193,22 +198,24 @@ def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
 # One SQL table reference: quoted, bracketed, backticked, string-literal, or
 # bare, alone or schema-qualified. Comparisons normalize through sql_table_key.
 DROP_INDEX = re.compile(
-    rf"^DROP{SQL_SP}(?:INDEX|TRIGGER|VIEW)(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_SP}{SQL_QUAL}",
+    rf"^DROP{SQL_SP}(?:INDEX|TRIGGER|VIEW)(?:{SQL_SP}IF{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}{SQL_QUAL}",
     re.IGNORECASE,
 )
 ALTER = re.compile(
-    rf"^ALTER{SQL_SP}TABLE{SQL_SP}({SQL_QUAL}){SQL_SP}([\s\S]*)$", re.IGNORECASE
+    rf"^ALTER{SQL_SP}TABLE{SQL_NAME_SEP}({SQL_QUAL}){SQL_NAME_END}([\s\S]*)$",
+    re.IGNORECASE,
 )
 ADD_COLUMN = re.compile(rf"^ADD{SQL_SP}(?:COLUMN{SQL_SP})?{SQL_NOT_SPACE}", re.IGNORECASE)
 INDEX_ON = re.compile(
     rf"^CREATE{SQL_SP}(UNIQUE{SQL_SP})?INDEX(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
-    rf"{SQL_SP}(?:{SQL_REF}){SQL_SP}ON{SQL_SP}({SQL_QUAL})",
+    rf"{SQL_NAME_SEP}(?:{SQL_REF}){SQL_NAME_END}ON{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 TRIGGER_ON = re.compile(
     rf"^CREATE{SQL_SP}TRIGGER(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
-    rf"{SQL_SP}(?:{SQL_REF}){SQL_SP}(?:BEFORE|AFTER|INSTEAD)"
-    rf"[\s\S]*?(?<!{SQL_ID_CONT})ON{SQL_SP}({SQL_QUAL})",
+    rf"{SQL_NAME_SEP}(?:{SQL_REF}){SQL_NAME_END}(?:BEFORE|AFTER|INSTEAD)"
+    rf"[\s\S]*?(?<!{SQL_ID_CONT})ON{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 VIEW_OR_PRAGMA = re.compile(
@@ -360,7 +367,9 @@ def statements(sql: str) -> list[str]:
     return out
 
 
-RENAMES = re.compile(rf"^RENAME{SQL_SP}(?:TO|AS){SQL_SP}({SQL_QUAL})", re.IGNORECASE)
+RENAMES = re.compile(
+    rf"^RENAME{SQL_SP}(?:TO|AS){SQL_NAME_SEP}({SQL_QUAL})", re.IGNORECASE
+)
 CONDITIONAL_CREATE = re.compile(
     rf"(?<!{SQL_ID_CONT})IF{SQL_SP}NOT{SQL_SP}EXISTS(?!{SQL_ID_CONT})",
     re.IGNORECASE,

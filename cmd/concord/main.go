@@ -74,8 +74,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
-	// Continuity block is a read-only transport for launcher hooks. It must run
-	// before project and JSON routing so it does not consume stdin.
+	// Continuity block is a read-only transport for the adapter's per-turn
+	// hook. It must run before project and JSON routing so it does not
+	// consume stdin.
 	if len(args) > 0 && args[0] == "continuity-block" {
 		return runContinuityBlockCommand(args[1:], out, errOut)
 	}
@@ -161,7 +162,7 @@ func formatRequiredFields(fields []commandField) string {
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.correct_delivery | concord_work_transition.session_vacate | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034)", Enums: "none"},
-	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every obligation the dispatching lane declares; base_comparison.checks[] results: pass | fail | not_run"},
+	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, review, evidence[] — required when evidence_origin is reported", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "none", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "none", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
@@ -251,7 +252,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
 	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
-	_, _ = fmt.Fprintln(out, "  concord continuity-block             # read-only continuity packet; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
 	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")
@@ -748,11 +749,14 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	s.Clock = clock
 	service := agent.NewService(s)
 	service.Now = clock
-	service.ProjectResolver = func(ctx context.Context, tx *store.Transaction, directory, worktree string) (store.ProjectResolution, error) {
+	service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
+		return store.ResolveProjectHost(ctx, directory, worktree, store.ExecGitRunner{})
+	}
+	service.ProjectHostMatcher = func(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost) (store.ProjectResolution, error) {
 		if tx == nil {
-			return s.ResolveProject(ctx, directory, worktree)
+			return s.MatchResolvedProjectHost(ctx, host)
 		}
-		return store.ResolveProjectTx(ctx, tx, directory, worktree)
+		return store.MatchResolvedProjectHostTx(ctx, tx, host)
 	}
 	switch command {
 	case "invoke":
@@ -848,6 +852,10 @@ type workerCompleteRequest struct {
 	// It joins no obligation vocabulary and no workflow route reads it
 	// (CD-0043 D1).
 	BaseComparison *store.WorkerBaseComparison `json:"base_comparison,omitempty"`
+	// Review is the optional typed review block the worker reported
+	// (CD-0197). Whether the dispatching lane requires it is decided in the
+	// fold against the stored attempt, live only.
+	Review *store.WorkerReviewBlock `json:"review,omitempty"`
 }
 
 type workerFailRequest struct {
@@ -952,8 +960,8 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			AttemptID:     request.AttemptID,
 			ReadbackModel: request.ReadbackModel,
 		}
-		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison}
-		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 2, Payload: mustMarshalWorkerPayload(payload)}
+		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison, Review: request.Review}
+		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest

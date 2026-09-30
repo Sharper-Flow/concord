@@ -1270,12 +1270,18 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
+	// The host probes before any transaction this mutation opens (CD-0195 D2);
+	// each authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	if requiresApproval && approval == "" {
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
 		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 			var err error
-			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			return err
 		})
 		if txErr != nil {
@@ -1336,11 +1342,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return err
 			}
 		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
-			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
+			verifiedOperator, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef, RequireOperatorIdentity: in.ActionID == "confirm_premise" || operatorVerdict || in.ActionID == "supersede_contract" || retryApproval})
 			if err != nil {
 				return err
 			}
@@ -1457,6 +1463,13 @@ type mutationPlan struct {
 	// nativeCleanup compensates nativeCreation when the mutation transaction
 	// fails. Only operations with an out-of-transaction native effect set it.
 	nativeCleanup func(ctx context.Context, cause error) error
+	// nativeFinalize completes the operation's native work after the
+	// transaction commits — the worktree removal a committed reclaim or
+	// destroy still owes (CD-0195 D2). When set, the idempotency record
+	// waits for the finalize: a failed native removal leaves no cached
+	// success, so the same request retries and converges the committed
+	// reclaim instead of replaying it.
+	nativeFinalize func(ctx context.Context) error
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -2545,8 +2558,24 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	if in.HostPID <= 0 {
 		return coreError(base, "invalid_input", "worktree_claim requires the host process pid the adapter injects", "reread_entities", false), nil, true
 	}
+	// The native half runs here, before the mutation transaction opens, so
+	// no write lock spans git worktree add (CD-0195 D2). The creation is
+	// reported at plan time, so a refusal or failure anywhere after it —
+	// authority, approval, the effect, or the commit — compensates it.
+	opID := digest + ":worktree-claim:" + in.ProjectID
+	native, created, err := r.Store.PrepareWorktreeClaimNative(ctx, store.WorktreeClaimRequest{
+		OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
+		BaseSHA:      in.BaseSHA,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		SessionRef:      grant.SessionRef,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		HostPID: in.HostPID,
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.nativeCreation = created
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		opID := digest + ":worktree-claim:" + in.ProjectID
 		claimed, err := store.ClaimWorktreeTx(ctx, tx, store.WorktreeClaimRequest{
 			OpID: opID, WorkID: in.WorkID, ProjectID: in.ProjectID,
 			BaseSHA:      in.BaseSHA,
@@ -2554,11 +2583,10 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 			SessionRef:      grant.SessionRef,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			HostPID: in.HostPID,
-		})
+		}, native)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		plan.nativeCreation = claimed.Created
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		result, err := json.Marshal(map[string]any{
 			"changed_refs":       mutationResultChangedRefs(changed),
@@ -2789,6 +2817,26 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The lease set and the git facts are read before the mutation
+	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
+	// compares the lease snapshot against the row's recorded_at, and no
+	// write lock may span a git probe.
+	reclaimReq := store.WorktreeReclaimRequest{
+		WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		RequireTerminal: true, Destructive: in.Destructive,
+		// The consumed operator approval is the declared route that
+		// releases a recorded occupancy that no longer holds; the store
+		// refuses the release without the approval pairing.
+		ReleaseOccupancy: in.Destructive || in.Approval != nil,
+		HostLeases:       r.Store.ReadHostLeases(),
+	}
+	probe, err := r.Store.PrepareWorktreeReclaim(ctx, reclaimReq)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		// Same hand-off as the takeover planner: the mutation tail records
 		// the consumed approval reference before the effect runs.
@@ -2796,23 +2844,27 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 		if ref, ok := plan.scope["approval_ref"].(string); ok {
 			approvalRef = ref
 		}
-		if _, err := store.DestroyWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
-			WorkID: in.WorkID, ProjectID: project, DefaultRef: in.DefaultRef,
-			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
-			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
-			RequireTerminal: true, OperatorApprovalRef: approvalRef, Destructive: in.Destructive,
-			// The consumed operator approval is the declared route that
-			// releases a recorded occupancy that no longer holds; the store
-			// refuses the release without the approval pairing.
-			ReleaseOccupancy: in.Destructive || in.Approval != nil,
-			// The legacy-row release proof compares this lease-set snapshot
-			// against the row's recorded_at (CD-0179).
-			HostLeases: r.Store.ReadHostLeases(),
-		}); err != nil {
+		req := reclaimReq
+		req.OperatorApprovalRef = approvalRef
+		if req.Destructive {
+			// The forced facts name the approval the transaction just
+			// consumed, so the recorded event carries the live reference.
+			probe.Facts, _ = json.Marshal(map[string]any{"forced": true, "operator_override": approvalRef})
+		}
+		result, err := store.DestroyWorktreeTx(ctx, tx, req, probe)
+		if err != nil {
 			return nil, nil, nil, err
 		}
+		removal = result.Removal
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + project + ":worktree-destroyed"}, changed, nil
+	}
+	// The native removal follows the commit with no transaction open
+	// (CD-0195 D2); the idempotency record waits for it, so a failed
+	// removal leaves the same request free to converge the committed
+	// reclaim.
+	plan.nativeFinalize = func(ctx context.Context) error {
+		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }
@@ -3254,6 +3306,35 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{in.ProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_id"}}}
+	// The CD-0092 D2 terminality gate runs before the pre-transaction probe:
+	// a main-checkout reclaim of non-terminal work refuses here with the same
+	// typed refusal the in-transaction re-authorization below enforces, so
+	// the probe's projection gates cannot answer first. The in-transaction
+	// gate stays authoritative; this read only preserves the refusal order.
+	if grant.MainWorktree {
+		lifecycle, lifecycleErr := r.Store.WorkLifecycle(ctx, in.WorkID)
+		if lifecycleErr != nil {
+			return failureEnvelope(base, lifecycleErr), nil, true
+		}
+		if !store.IsTerminalLifecycle(lifecycle) {
+			return failureEnvelope(base, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)), nil, true
+		}
+	}
+	// The lease set and the git facts are read before the mutation
+	// transaction opens (CD-0179, CD-0195 D2): the legacy-row release proof
+	// compares the lease snapshot against the row's recorded_at, and no
+	// write lock may span a git probe.
+	leaseSet := r.Store.ReadHostLeases()
+	probe, err := r.Store.PrepareWorktreeReclaim(ctx, store.WorktreeReclaimRequest{
+		WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
+		PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
+		ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
+		HostLeases: leaseSet,
+	})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	var removal *store.WorktreeNativeRemoval
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		// Issue #674 amends the CD-0092 D2 surface for this operation: a
 		// main-checkout grant may reclaim once the work item is terminal,
@@ -3272,18 +3353,27 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 				return nil, nil, nil, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)", "contact_operator", false)
 			}
 		}
-		if _, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
+		result, err := store.ReclaimWorktreeTx(ctx, tx, store.WorktreeReclaimRequest{
 			WorkID: in.WorkID, ProjectID: in.ProjectID, DefaultRef: in.DefaultRef,
 			PrincipalRef: grant.PrincipalRef, RequestID: in.IdempotencyKey,
 			ExpectedVersion: in.ExpectedVersion, Now: r.Authority.now(),
 			// The legacy-row release proof compares this lease-set snapshot
 			// against the row's recorded_at (CD-0179).
-			HostLeases: r.Store.ReadHostLeases(),
-		}); err != nil {
+			HostLeases: leaseSet,
+		}, probe)
+		if err != nil {
 			return nil, nil, nil, err
 		}
+		removal = result.Removal
 		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
 		return mutationPayload(changed, plan.intents), []string{in.WorkID + ":" + in.ProjectID + ":worktree-reclaimed"}, changed, nil
+	}
+	// The native removal follows the commit with no transaction open
+	// (CD-0195 D2); the idempotency record waits for it, so a failed
+	// removal leaves the same request free to converge the committed
+	// reclaim.
+	plan.nativeFinalize = func(ctx context.Context) error {
+		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }
@@ -3396,6 +3486,12 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 
 	var response Envelope
 	var resultRejected bool
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -3405,7 +3501,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
@@ -3472,7 +3568,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 		}
 		if approval == "" {
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			if challengeErr != nil {
 				return challengeErr
 			}
@@ -3482,7 +3578,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		if _, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+		if _, consumedApprovalRef, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
 			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
 			resultRejected = true
 			return errors.New("approval invalid")
@@ -3586,6 +3682,12 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 
 	var response Envelope
 	var resultRejected bool
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -3595,7 +3697,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		txGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
@@ -3666,7 +3768,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 		}
 		if approval == "" {
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+			challengeRef, challengeErr := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			if challengeErr != nil {
 				return challengeErr
 			}
@@ -3676,7 +3778,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
-		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, inv, txGrant, approvalCheck); approvalErr != nil {
+		if _, _, approvalErr := r.consumeApprovalTx(ctx, tx, host, inv, txGrant, approvalCheck); approvalErr != nil {
 			response = coreError(base, "approval_invalid", approvalErr.Error(), "request_approval", false)
 			resultRejected = true
 			return errors.New("approval invalid")
@@ -4003,7 +4105,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	}
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
 }
 
 // planSupersede plans concord_work_relate.supersede.
@@ -4180,6 +4282,12 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
+	// The host probes before the transactions below open (CD-0195 D2); each
+	// authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return failureEnvelope(base, hostErr), nil
+	}
 	grant, err := r.Authority.Authorize(ctx, inv)
 	if err != nil {
 		return failureEnvelope(base, err), nil
@@ -4191,7 +4299,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			var challengeRef string
 			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 				var err error
-				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
+				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 				return err
 			}); err != nil {
 				return failureEnvelope(base, err), nil
@@ -4216,10 +4324,10 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
 				return err
 			}
-			if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+			if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 				return err
 			}
-			_, _, err := r.consumeApprovalTx(ctx, tx, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: publish.Approval.ApprovalRef, OperationDigest: digest, Scope: scope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
 			return err
 		})
 		if claimErr != nil {
@@ -4709,9 +4817,19 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	return response
 }
 
-func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error) (Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
+	// A native finalize defers the idempotency record until the committed
+	// event's native work completes, so a failed removal never leaves a
+	// cached success for the same key to replay (CD-0195 D2).
+	var deferredInsert *store.MutationIdempotencyInsert
+	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// the authorization inside matches the probed host with SQL only.
+	host, hostErr := r.probeInvocationHost(ctx)
+	if hostErr != nil {
+		return Envelope{}, hostErr
+	}
 	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
@@ -4721,30 +4839,14 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
 		}
-		grant, err := r.Authority.AuthorizeTx(ctx, tx, inv)
+		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
 		if err != nil {
 			return err
 		}
-		derivedProducts, err := deriveMutationProductsTx(ctx, tx, scope)
+		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
 		if err != nil {
 			return err
 		}
-		if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
-			return newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
-		}
-		crossProduct := false
-		for _, product := range derivedProducts {
-			if !contains(grant.ProductScope, product) {
-				return newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
-			}
-			if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
-				crossProduct = true
-				if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
-					return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
-				}
-			}
-		}
-		scope["product_ids"] = derivedProducts
 		if crossProduct {
 			requiresApproval = true
 		}
@@ -4792,38 +4894,19 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return errors.New("budget admission refused")
 		}
 		if requiresApproval && approval == "" {
-			challengeScope := boundedApprovalScope(scope)
-			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
-			challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, inv, spec)
-			if err != nil {
-				return err
+			challenge, challengeErr := r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, base, digest, scope, versions, consequence, governingConflict)
+			if challengeErr != nil {
+				return challengeErr
 			}
-			details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
-			// CD-0037 D2: the coupling is challenge presence. Both branches
-			// below minted this challenge, so both carry the summary — the
-			// governing-conflict envelope as much as the plain refusal.
-			summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
-			if len(governingConflict) > 0 {
-				response = governingConflictEnvelope(base, governingConflict)
-				details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
-			} else {
-				response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
-			}
-			response.Error.ConsequenceSummary = summary
-			for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id", "takeover_owner"} {
-				if value, ok := scope[key]; ok {
-					details[key] = value
-				}
-			}
-			response.Error.Details = details
+			response = challenge
 			return nil
 		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, inv); err != nil {
+		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
 			return err
 		}
 		if requiresApproval {
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
-			if _, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, inv, grant, approvalCheck); err != nil {
+			if _, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck); err != nil {
 				response = coreError(base, "approval_invalid", err.Error(), "request_approval", false)
 				resultRejected = true
 				return errors.New("approval invalid")
@@ -4859,8 +4942,39 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		changedJSON, _ := json.Marshal(changed)
 		authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
-		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+		insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
+		if nativeFinalize != nil {
+			// The native removal runs after this commit; the record waits
+			// for it so the same request can converge a failed removal.
+			deferredInsert = &insert
+			return nil
+		}
+		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 	})
+	if err == nil && nativeFinalize != nil {
+		if err := nativeFinalize(ctx); err != nil {
+			// The event is committed; the retryable failure names the native
+			// work still owed, and no idempotency record replays over it.
+			return failureEnvelope(base, err), nil
+		}
+		if deferredInsert != nil {
+			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+				return store.InsertMutationIdempotencyTx(ctx, tx, *deferredInsert)
+			}); err != nil {
+				return failureEnvelope(base, err), nil
+			}
+		}
+	}
+	if err == nil && response.Outcome == OutcomeError && nativeCleanup != nil {
+		// The mutation refused after the native half ran — an approval
+		// challenge is the live case for a claim whose tree already exists.
+		// The refusal must leave no effect, so the creation compensates; a
+		// removal that cannot be proven reports the possible effect through
+		// the failure envelope instead of the refusal.
+		if cleanupErr := nativeCleanup(ctx, errors.New("mutation refused after the native worktree was created")); cleanupErr != nil {
+			return failureEnvelope(base, cleanupErr), nil
+		}
+	}
 	if err != nil {
 		// The transaction failed after the effect ran. An operation that
 		// created native state outside it — the worktree_claim's git tree and
@@ -4880,6 +4994,66 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		return failureEnvelope(base, err), nil
 	}
+	return response, nil
+}
+
+// deriveAuthorizedProductsTx derives the mutation's Product scope inside the
+// open transaction, refuses a scope the grant does not cover, and reports
+// whether the mutation crosses Products, which raises the approval
+// requirement.
+func (r runtime) deriveAuthorizedProductsTx(ctx context.Context, tx *store.Transaction, scope map[string]any, grant Authority) (bool, error) {
+	derivedProducts, err := deriveMutationProductsTx(ctx, tx, scope)
+	if err != nil {
+		return false, err
+	}
+	if expected, ok := scope["product_ids"].([]string); ok && !equalStrings(expected, derivedProducts) {
+		return false, newRuntimeFailure("version_conflict", "derived Product scope changed after authorization preflight", "reread_entities", false)
+	}
+	crossProduct := false
+	for _, product := range derivedProducts {
+		if !contains(grant.ProductScope, product) {
+			return false, newRuntimeFailure("unauthorized", fmt.Sprintf("mutation work Product %s is outside grant Product scope %v", product, grant.ProductScope), "contact_operator", false)
+		}
+		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
+			crossProduct = true
+			if !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+				return false, newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+			}
+		}
+	}
+	scope["product_ids"] = derivedProducts
+	return crossProduct, nil
+}
+
+// approvalChallengeEnvelopeTx mints the approval challenge for a mutation
+// that requires approval and carries none, and answers with the refusal
+// envelope for it.
+func (r runtime) approvalChallengeEnvelopeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, base Envelope, digest string, scope, versions map[string]any, consequence string, governingConflict []string) (Envelope, error) {
+	challengeScope := boundedApprovalScope(scope)
+	spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
+	challengeRef, err := r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
+	if err != nil {
+		return Envelope{}, err
+	}
+	details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+	// CD-0037 D2: the coupling is challenge presence. Both branches below
+	// minted this challenge, so both carry the summary — the
+	// governing-conflict envelope as much as the plain refusal.
+	summary := consequenceSummaryFor(r.Tool, r.Operation, spec)
+	var response Envelope
+	if len(governingConflict) > 0 {
+		response = governingConflictEnvelope(base, governingConflict)
+		details["summary"] = "Clarify the intent, amend the accepted contract, or approve this scope cut."
+	} else {
+		response = coreError(base, "approval_required", "core approval is required for this mutation", "request_approval", false)
+	}
+	response.Error.ConsequenceSummary = summary
+	for _, key := range []string{"resolution_kind", "from_work_id", "to_work_id", "takeover_owner"} {
+		if value, ok := scope[key]; ok {
+			details[key] = value
+		}
+	}
+	response.Error.Details = details
 	return response, nil
 }
 
@@ -5012,7 +5186,15 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	return false
 }
 
-func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, inv Invocation, grant Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
+// probeInvocationHost resolves the invoking git identity with no transaction
+// open (CD-0195 D2). Every mutation that opens a transaction runs it before
+// the transaction opens, and each authorization inside matches the probed
+// host against Project locators with SQL only.
+func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProjectHost, error) {
+	return r.Authority.ProbeProjectHost(ctx, r.Envelope.Directory, r.Envelope.Worktree)
+}
+
+func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, grant Authority, check ApprovalCheck) (store.WorkflowActor, string, error) {
 	var operator store.WorkflowActor
 	if r.Envelope.HostApproval == nil {
 		return operator, "", fmt.Errorf("signed host approval assertion is required")
@@ -5024,7 +5206,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, i
 	}
 	approvalRef := check.ApprovalRef
 	if challenge {
-		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, inv, check.ApprovalRef)
+		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, host, inv, check.ApprovalRef)
 		if err != nil {
 			return operator, "", err
 		}

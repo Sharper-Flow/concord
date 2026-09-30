@@ -141,6 +141,27 @@ describe("completeDispatchedWorker", () => {
     expect("base_comparison" in (await attemptSummary())).toBe(false)
   })
 
+  // CD-0197: the attempt readback carries a completed review report's typed
+  // verdict and per-severity counts, and stays free of the field when the
+  // report carried none. The verdict is report content only: it records no
+  // workflow verdict.
+  test("the attempt readback carries a reported review verdict and per-severity counts", async () => {
+    const reported = { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "a finding" }, { severity: "P3", confidence: "low", detail: "another" }] }
+    const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+      const windows = new DispatchWindows()
+      windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+      const verbs: string[] = []
+      const output = { title: "verify lane", output: taskWrap(JSON.stringify({ ...report(), ...extra })), metadata: {} }
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-review", args: {} }, output, deps(verbs, windows))
+      expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+      const element = output.output.split("<concord_attempt>")[1]?.split("</concord_attempt>")[0]
+      return JSON.parse(element!.trim()) as Record<string, unknown>
+    }
+    expect((await attemptSummary({ review: reported })).review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 1, P2: 0, P3: 1 } })
+    expect("review" in (await attemptSummary())).toBe(false)
+  })
+
   test("computes prompt provenance from the dispatch-window directory", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
@@ -440,10 +461,10 @@ describe("completeDispatchedWorker", () => {
 })
 
 describe("host task failure", () => {
-  const failedEvent = (callID = "call-cancel", sessionID = SESSION, metadata: unknown = { sessionId: WORKER_SESSION }) => ({
+  const failedEvent = (callID = "call-cancel", sessionID = SESSION, metadata: unknown = { sessionId: WORKER_SESSION }, error = "Task cancelled") => ({
     type: "message.part.updated",
     properties: { part: { type: "tool", tool: "task", sessionID, callID,
-      state: { status: "error", error: "Task cancelled", metadata } } },
+      state: { status: "error", error, metadata } } },
   })
 
   for (const fault of ["export-command", "malformed-export"]) {
@@ -478,6 +499,41 @@ describe("host task failure", () => {
     expect(result?.error?.message).toContain("Task cancelled")
     await failDispatchedWorker(failedEvent(), deps(verbs, windows))
     expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
+  // The byte bound holds at the worker-fail write itself: a multi-byte detail
+  // records through worker-fail and the attempt's in-flight authorization is
+  // consumed, so the work item can dispatch again instead of stranding in
+  // dispatched state.
+  test("a multi-byte failure detail records through worker-fail instead of stranding the attempt", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    const verbs: string[] = []
+    let failureInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+        verbs.push(argv[1])
+        if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const error = `任务取消：${"🎉".repeat(1500)}`
+    await failDispatchedWorker(failedEvent("call-cancel", SESSION, { sessionId: WORKER_SESSION }, error), {
+      windows,
+      credentials: testCredentials,
+      runner,
+      sessionReader: readerFor(exportedSession()),
+      concordBinary: "concord",
+    })
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect(failureInput?.failure_kind).toBe("worker_error")
+    const recorded = failureInput?.detail as string
+    expect(recorded.startsWith("任务取消：")).toBe(true)
+    expect(Buffer.byteLength(recorded, "utf8")).toBeLessThanOrEqual(4096)
+    expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
   test("a refused born-failed write retains settlement without retry", async () => {

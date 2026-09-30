@@ -116,7 +116,7 @@ func TestExecuteMutationCompensatesNativeCreationWhenTheResultIsRefused(t *testi
 		// refused after the effect and before the commit.
 		return json.RawMessage(`{}`), nil, nil, nil
 	}
-	response, err := r.executeMutation(ctx, Envelope{}, raw, digest, scope, versions, "lifecycle", "", false, nil, nil, effect, cleanup)
+	response, err := r.executeMutation(ctx, Envelope{}, raw, digest, scope, versions, "lifecycle", "", false, nil, nil, effect, cleanup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

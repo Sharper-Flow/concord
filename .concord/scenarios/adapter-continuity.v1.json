@@ -29,7 +29,7 @@
     },
     {
       "id": "adapter-continuity-failure-is-absence",
-      "given": "the core verb exits nonzero, emits nothing, or identity env is absent (manual session)",
+      "given": "the core verb exits nonzero, emits nothing, or the session directory resolves no active claim (manual session)",
       "when": "the transform runs",
       "then": [
         {"assertion": "system_prompt_untouched"}
@@ -37,11 +37,30 @@
     },
     {
       "id": "adapter-continuity-ttl-gates-spawn",
-      "given": "a render already cached for the identity within the TTL window",
+      "given": "a render already cached for the session and directory within the TTL window",
       "when": "a second transform runs inside the window",
       "then": [
         {"assertion": "no_child_spawn"},
         {"assertion": "system_prompt_byte_identical"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-work-start-retarget",
+      "given": "a coordinator session that work_start moved from the launch worktree to another work item's claimed worktree",
+      "when": "the next turn's transform runs for the moved session",
+      "then": [
+        {"assertion": "work_start_retarget_renders_landed_item_block"},
+        {"assertion": "sentinel_block_replaced_in_place"},
+        {"assertion": "no_duplicate_sentinel"}
+      ]
+    },
+    {
+      "id": "adapter-continuity-lane-leak-absent",
+      "given": "a dispatched lane session whose parent holds managed participation, so the dispatch packet is its complete Concord context",
+      "when": "the lane session's transform runs",
+      "then": [
+        {"assertion": "lane_session_renders_no_block"},
+        {"assertion": "system_prompt_untouched"}
       ]
     },
     {
@@ -53,7 +72,7 @@
       ]
     },
     {
-      "id": "adapter-session-vacate-then-reclaim-passes-occupancy-gate",
+      "id": "adapter-continuity-session-vacate-then-reclaim-passes-occupancy-gate",
       "given": "a terminal work item whose session runs in its linked worktree",
       "when": "session_vacate moves the session to the registered main checkout and reclaim receives the honest directory observation",
       "then": [

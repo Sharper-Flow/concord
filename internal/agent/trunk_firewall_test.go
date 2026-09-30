@@ -31,9 +31,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 	}
 	service := NewService(s)
 	service.Now = func() time.Time { return fixedTime() }
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree})
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
 	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 	if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: "client-1", KeyID: "key-1", PublicKey: publicKey, Policy: policy}); err != nil {
@@ -98,9 +96,7 @@ func TestLifecycleTransitionAllowsMainCheckout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -123,9 +119,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 	t.Run("missing evidence", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
-		service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-			return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-		}
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -146,9 +140,7 @@ func TestMainCheckoutLifecyclePreservesTerminalGates(t *testing.T) {
 	t.Run("approved evidence", func(t *testing.T) {
 		ctx := context.Background()
 		s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
-		service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-			return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-		}
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 		if err != nil {
 			t.Fatal(err)
@@ -199,9 +191,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 		t.Run(tc.operation, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
-			service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-				return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-			}
+			resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -224,9 +214,7 @@ func TestMainCheckoutDispatchRefusalNamesVacateRoute(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
-	service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-		return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-	}
+	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -312,9 +300,7 @@ func TestAuditReclaimResolvesFromMainCheckout(t *testing.T) {
 
 	t.Run("dispatch runs the pass", func(t *testing.T) {
 		s, service, grant, _ := tiersRepoFixture(t)
-		service.ProjectResolver = func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error) {
-			return store.ProjectResolution{ProjectID: "project-1", MainWorktree: true}, nil
-		}
+		resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 		response := tiersInvoke(t, s, service, grant, "concord_work_transition", "worktree_audit_reclaim", map[string]any{
 			"product_id": "product-1", "default_ref": "main", "idempotency_key": "main-audit-reclaim",
 		})

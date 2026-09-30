@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strconv"
 )
 
@@ -393,6 +394,61 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot enumerate observations", true, "retry once the database is readable", err)
 	}
 	obsRows.Close()
+	return out, nil
+}
+
+// ContinuityWorkResolution names the active work item a session directory
+// resolves to. ProductID is the first Product identity the work's Project
+// carries, so the session boot render always names an identity the
+// continuity snapshot binds.
+type ContinuityWorkResolution struct {
+	WorkID    string
+	ProductID string
+	ProjectID string
+}
+
+// ResolveContinuityWorkByDirectory resolves a session directory through the
+// claimed worktree to the active work item. The read is pure projection over
+// worktree_entries and worktree_claims (CD-0104 D1): it records nothing and
+// binds no session to work. A directory that holds no active claimed
+// worktree — the registered main checkout, an unknown path, a reclaimed
+// claim — resolves an empty WorkID with no error, which the caller renders
+// as no block rather than the launch item's.
+func (s *Store) ResolveContinuityWorkByDirectory(ctx context.Context, directory string) (ContinuityWorkResolution, error) {
+	var out ContinuityWorkResolution
+	if s == nil || s.db == nil {
+		return out, newFailure(KindUnavailable, "continuity_directory", "store is not open", false, "open the authority database")
+	}
+	if directory == "" {
+		return out, nil
+	}
+	// A claimed worktree path is stored clean and absolute. The session
+	// directory the host reports may traverse symlinks, so the symlink-
+	// resolved form is a candidate beside the clean one. A path that cannot
+	// be resolved on this machine still resolves on its clean form: the read
+	// stays a projection over the claims, not a filesystem probe.
+	normalized, err := normalizePath(directory)
+	if err != nil {
+		normalized = ""
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT c.work_id,c.project_id FROM worktree_entries e
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		JOIN work_items w ON w.id=c.work_id
+		WHERE e.state='active' AND c.state IN ('pending','verified') AND e.path IN (?,?)
+		ORDER BY c.work_id LIMIT 1`, filepath.Clean(directory), normalized).Scan(&out.WorkID, &out.ProjectID)
+	if err == sql.ErrNoRows {
+		return ContinuityWorkResolution{}, nil
+	}
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "continuity_directory", "cannot read the claimed worktree", true, "retry once the database is readable", err)
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT product_id FROM product_projects WHERE project_id=? ORDER BY product_id LIMIT 1`, out.ProjectID).Scan(&out.ProductID)
+	if err == sql.ErrNoRows {
+		return ContinuityWorkResolution{}, nil
+	}
+	if err != nil {
+		return out, wrapFailure(KindUnavailable, "continuity_directory", "cannot read the work's Product identity", true, "retry once the database is readable", err)
+	}
 	return out, nil
 }
 

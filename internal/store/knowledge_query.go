@@ -111,9 +111,13 @@ func (s *Store) QueryQ9(ctx context.Context, req Q9Request) (Q9Result, error) {
 	return queryQ9(ctx, s.db, req, s.now())
 }
 
-func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time) (Q9Result, error) {
+// queryQ9 searches the projected knowledge index and probes the home's git
+// head for freshness. It takes *sql.DB because the git probe must never run
+// inside an open transaction (CD-0195 D2): the type makes a transaction
+// caller a compile-time error.
+func queryQ9(ctx context.Context, db *sql.DB, req Q9Request, observedAt time.Time) (Q9Result, error) {
 	var out Q9Result
-	resolvedHome, err := resolveKnowledgeQueryHome(ctx, q, req.Product, req.Project, req.Home, "PM1.Q9")
+	resolvedHome, err := resolveKnowledgeQueryHome(ctx, db, req.Product, req.Project, req.Home, "PM1.Q9")
 	if err != nil {
 		return out, err
 	}
@@ -140,7 +144,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 		return out, err
 	}
 	tags := orderedStrings(nonEmptyStrings(req.Tags))
-	watermark, authority, err := validateKnowledgeHomeForQueryCore(ctx, q, req.Home, req.AllowDegraded, "PM1.Q9")
+	watermark, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, req.Home, req.AllowDegraded, "PM1.Q9")
 	if err != nil {
 		return out, err
 	}
@@ -148,7 +152,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 		watermark = "unindexed"
 	}
 	if authority == "authoritative" {
-		if err := validateKnowledgeCoverageCore(ctx, q, req.Home, watermark, kinds); err != nil {
+		if err := validateKnowledgeCoverageCore(ctx, db, req.Home, watermark, kinds); err != nil {
 			return out, err
 		}
 	}
@@ -158,7 +162,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 		}
 	}
 	query, args := buildKnowledgeQueryForScope(req, kinds, tags, limit)
-	rows, err := q.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q9", "cannot search the git knowledge index", true, "retry once the database is readable", err)
 	}
@@ -186,7 +190,7 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 	meta := knowledgeWatermarkMeta("PM1.Q9", watermark, authority, observedAt)
 	meta.ResolvedScope = ResolvedScope{ProductID: req.Product, ProjectID: req.Project}
 	if authority == "authoritative" {
-		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, q, req.Home, watermark)...)
+		meta.Omissions = append(meta.Omissions, knowledgeCoverageOmissions(ctx, db, req.Home, watermark)...)
 	}
 	if authority != "authoritative" {
 		meta.Omissions = []string{"knowledge_index_lagging_or_unreachable"}
@@ -196,7 +200,10 @@ func queryQ9(ctx context.Context, q queryer, req Q9Request, observedAt time.Time
 	return out, nil
 }
 
-func validateKnowledgeHomeForQueryCore(ctx context.Context, q queryer, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
+// validateKnowledgeHomeForQueryCore reads the freshness verdict for one home.
+// It takes *sql.DB because its probe reaches the home's git head; a
+// transaction caller is a compile-time error (CD-0195 D2).
+func validateKnowledgeHomeForQueryCore(ctx context.Context, db *sql.DB, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
 	current, err := resolveKnowledgeHead(ctx, home)
 	if err != nil {
 		if allowDegraded {
@@ -204,7 +211,7 @@ func validateKnowledgeHomeForQueryCore(ctx context.Context, q queryer, home Know
 		}
 		return "", "", newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
 	}
-	watermark, err := readKnowledgeWatermark(ctx, q, home, current)
+	watermark, err := readKnowledgeWatermark(ctx, db, home, current)
 	if err != nil {
 		if allowDegraded {
 			return "unreachable", "degraded", nil
@@ -292,7 +299,11 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	return queryQ10(ctx, s.db, req)
 }
 
-func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error) {
+// queryQ10 verifies one canonical note against its recorded git proof. It takes
+// *sql.DB because the git verification must never run inside an open
+// transaction (CD-0195 D2): the type makes a transaction caller a compile-time
+// error.
+func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error) {
 	var out Q10Result
 	if (req.Work == "") == (req.KnowledgeID == "") {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
@@ -318,7 +329,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			query += ` AND home_project_id = ? AND home_locator_id = ?`
 			scanArgs = append(scanArgs, req.Home.HomeProjectID, req.Home.HomeLocatorID)
 		}
-		return q.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
 	}
 	err := scanNote(homeSupplied)
 	if err == sql.ErrNoRows && homeSupplied {
@@ -326,7 +337,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	}
 	if !homeSupplied {
 		var homes int
-		if scanErr := q.QueryRowContext(ctx, `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`, lookupID).Scan(&homes); scanErr != nil {
+		if scanErr := db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`, lookupID).Scan(&homes); scanErr != nil {
 			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
 		}
 		if homes > 1 {
@@ -337,7 +348,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	if err == sql.ErrNoRows {
 		if req.Work != "" {
 			var exists bool
-			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
+			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
 			}
 			if exists {
@@ -354,11 +365,11 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 	if req.Product != "" {
 		var inScope bool
 		if kind == "work_note" || scopeMode == "explicit" {
-			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=? AND home_project_id=? AND home_locator_id=?)`, lookupID, req.Product, homeProject, homeLocator).Scan(&inScope); err != nil {
+			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=? AND home_project_id=? AND home_locator_id=?)`, lookupID, req.Product, homeProject, homeLocator).Scan(&inScope); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
 			}
 		} else if scopeMode == "home" {
-			if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
+			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
 				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
 			}
 		}
@@ -366,7 +377,7 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			return out, unknownScope("PM1.Q10", "knowledge note is not in the requested Product scope")
 		}
 	}
-	storedHome, locatorErr := knowledgeHomeForLocator(ctx, q, homeProject, homeLocator, "")
+	storedHome, locatorErr := knowledgeHomeForLocator(ctx, db, homeProject, homeLocator, "")
 	if locatorErr != nil {
 		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
 	}
@@ -405,24 +416,24 @@ func queryQ10(ctx context.Context, q queryer, req Q10Request) (Q10Result, error)
 			table, column string
 			target        *[]string
 		}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
-			values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID, homeProject, homeLocator)
+			values, queryErr := archivedScopeIDs(ctx, db, scope.table, scope.column, lookupID, homeProject, homeLocator)
 			if queryErr != nil {
 				return out, queryErr
 			}
 			*scope.target = values
 		}
-		values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
+		values, queryErr := archivedScopeIDs(ctx, db, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
 		if queryErr != nil {
 			return out, queryErr
 		}
 		record.Scopes.DomainIDs = values
 		if manifestLawBearingKinds[kind] {
-			if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
+			if err := db.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
 				return out, q10LawDomainProjectionFailure(err)
 			}
 			record.homeDomainPresent = true
 			record.productWideRationalePresent = record.ProductWideRationale != ""
-			values, queryErr = archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
+			values, queryErr = archivedLawApplicability(ctx, db, homeProject, homeLocator, lookupID)
 			if queryErr != nil {
 				return out, queryErr
 			}

@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-verify-refuses-repair",
   "lane_id": "verify",
   "lane_version": 1,
-  "lane_digest": "sha256:7999bab09a266d4e5bcda060e0cc75786f7c0678acbde09df7f30dd19fd9eff2",
+  "lane_digest": "sha256:1fda1ccd5f1e9f9add9dc5ecbe6776be9d5a4c83a377edbd7e2b8b4aaf5dfb71",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

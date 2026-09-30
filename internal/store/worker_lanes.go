@@ -125,6 +125,26 @@ type WorkerBaseComparison struct {
 	Checks []WorkerBaseComparisonCheck `json:"checks"`
 }
 
+// WorkerReviewFinding is one typed review finding as the worker reported it
+// (CD-0197): a severity from the closed P0-P3 scale, a confidence from the
+// closed low/medium/high scale, and the bounded detail. Recorded as reported
+// and never rescored.
+type WorkerReviewFinding struct {
+	Severity   string `json:"severity"`
+	Confidence string `json:"confidence"`
+	Detail     string `json:"detail"`
+}
+
+// WorkerReviewBlock is the typed review block of agent-lane-report.v1: the
+// lane's explicit ship or no_ship verdict and its findings. It is report
+// content only (CD-0197): it maps to no workflow field and records no
+// transition, and the coordinator records the workflow verdict through
+// record_verdict.
+type WorkerReviewBlock struct {
+	Verdict  string                `json:"verdict"`
+	Findings []WorkerReviewFinding `json:"findings"`
+}
+
 type WorkerCompletedPayload struct {
 	AttemptID           string `json:"attempt_id"`
 	ReadbackModel       string `json:"readback_model"`
@@ -145,6 +165,11 @@ type WorkerCompletedPayload struct {
 	// branch and base results. Absent on payloads that predate the field;
 	// present or absent never changes obligation coverage or routing.
 	BaseComparison *WorkerBaseComparison `json:"base_comparison,omitempty"`
+	// Review is the typed review block the report carried (CD-0197). Absent
+	// on payloads that predate the field; the per-lane requirement to carry
+	// it is enforced in the fold against the dispatching lane, live only, so
+	// stored completions replay unchanged.
+	Review *WorkerReviewBlock `json:"review,omitempty"`
 }
 
 type WorkerFailedPayload struct {
@@ -211,6 +236,9 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	if err := validateWorkerBaseComparison(payload.BaseComparison); err != nil {
 		return err
 	}
+	if err := validateWorkerReviewBlock(payload.Review); err != nil {
+		return err
+	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
 }
 
@@ -240,6 +268,59 @@ func validateWorkerBaseComparison(comparison *WorkerBaseComparison) error {
 		}
 		if !workerComparisonResultVocabulary[check.BranchResult] || !workerComparisonResultVocabulary[check.BaseResult] {
 			return invalidWorkerPayload("worker.completed base_comparison results must be pass, fail, or not_run")
+		}
+	}
+	return nil
+}
+
+// workerReviewVerdictVocabulary, workerReviewSeverityVocabulary, and
+// workerReviewConfidenceVocabulary are the closed sets the review block's
+// fields draw from (CD-0197), mirroring the report schema's enums.
+var (
+	workerReviewVerdictVocabulary     = map[string]bool{"ship": true, "no_ship": true}
+	workerReviewSeverityVocabulary    = map[string]bool{"P0": true, "P1": true, "P2": true, "P3": true}
+	workerReviewConfidenceVocabulary  = map[string]bool{"low": true, "medium": true, "high": true}
+	workerReviewShipBlockerSeverities = map[string]bool{"P0": true}
+)
+
+// validateWorkerReviewBlock mirrors the closed shape the report schema gives
+// the optional review object, including the two verdict couplings: a P0 is by
+// definition a ship blocker, and a no_ship with no finding is an unexplained
+// verdict. An absent block is legal here because whether the dispatching lane
+// requires the block is per-lane, and the validator cannot reach the lane;
+// that requirement is enforced in the fold.
+func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
+	if review == nil {
+		return nil
+	}
+	if !workerReviewVerdictVocabulary[review.Verdict] {
+		return invalidWorkerPayload("worker.completed review verdict must be ship or no_ship")
+	}
+	if review.Findings == nil {
+		return invalidWorkerPayload("worker.completed review must carry a findings array")
+	}
+	if len(review.Findings) > 64 {
+		return invalidWorkerPayload("worker.completed review must carry at most 64 findings")
+	}
+	if review.Verdict == "no_ship" && len(review.Findings) == 0 {
+		return invalidWorkerPayload("worker.completed review with a no_ship verdict must carry at least one finding")
+	}
+	for _, finding := range review.Findings {
+		if !workerReviewSeverityVocabulary[finding.Severity] {
+			return invalidWorkerPayload("worker.completed review finding severity must be P0, P1, P2, or P3")
+		}
+		if !workerReviewConfidenceVocabulary[finding.Confidence] {
+			return invalidWorkerPayload("worker.completed review finding confidence must be low, medium, or high")
+		}
+		if len(finding.Detail) < 1 || len(finding.Detail) > 512 {
+			return invalidWorkerPayload("worker.completed review finding detail must be between 1 and 512 UTF-8 bytes")
+		}
+	}
+	if review.Verdict == "ship" {
+		for _, finding := range review.Findings {
+			if workerReviewShipBlockerSeverities[finding.Severity] {
+				return invalidWorkerPayload("worker.completed review with a ship verdict cannot carry a P0 finding")
+			}
 		}
 	}
 	return nil
@@ -646,6 +727,16 @@ func invalidWorkerPayload(detail string) error {
 	return newFailure(KindInvalidPayload, "validate_worker_event", detail, false, "repair the worker event payload")
 }
 
+// upcastWorkerCompletedV2 carries a v2 completion into the v3 payload that
+// may carry the typed review block (CD-0197). v2 payloads never carried one,
+// so the upcast is the bytes unchanged at the new version: a replayed
+// completion stays one that reported no review block, which the fold forgives
+// on replay.
+func upcastWorkerCompletedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
+	return event, nil
+}
+
 func validWorkerFailureKind(value string) bool {
 	switch value {
 	case WorkerFailureFallbackBlocked, WorkerFailureWorkerError, WorkerFailureInvalidReport, WorkerFailureAbandoned, WorkerFailureModelIdentity, WorkerFailureModelReadbackMissing, WorkerFailureModelReadbackAmbiguous:
@@ -835,7 +926,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err != nil {
 			return err
 		}
-		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence); err != nil {
+		if err := verifyWorkerEvidenceCoverage(lane, payload.Evidence, payload.Review); err != nil {
 			return err
 		}
 		// The recorded dispatch owns the predicate vocabulary: the typed
@@ -846,6 +937,15 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 		// the live fold now refuses, or a dispatch recorded before the
 		// predicate list existed.
 		if !isWorkflowReplay(ctx) {
+			// CD-0197: a lane that requires the typed review block refuses a
+			// completion without it, live only. Stored completions from
+			// before the requirement replay unchanged, and the per-lane
+			// requirement is exactly why this sits beside the coverage check
+			// rather than in the payload validator, which cannot reach the
+			// dispatching lane.
+			if err := verifyWorkerReportBlockRequirement(lane, payload.Review); err != nil {
+				return err
+			}
 			declared, err := dispatchedPacketPredicateIDsTx(ctx, tx, attempt.WorkID, payload.AttemptID)
 			if err != nil {
 				return err
@@ -1017,7 +1117,16 @@ func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, att
 // the dispatching lane declares appears at least once, and the report names no
 // obligation the lane does not declare. Concord does not count entries, rank
 // them, or judge their content.
-func verifyWorkerEvidenceCoverage(lane LaneDefinition, evidence []WorkerReportEvidence) error {
+//
+// CD-0197 D2: a completion that carries the typed review block discharges the
+// severity obligation through the block, so severity has one source. The
+// block covers a declared severity obligation, and a free-text severity entry
+// beside the block is refused. The gate is the carried block, not the live
+// boundary: stored completions replay exactly as they were accepted — a
+// pre-CD-0197 completion carries a severity entry and no block, a current one
+// carries the block and no severity entry — so a rebuild reaches the same
+// projection.
+func verifyWorkerEvidenceCoverage(lane LaneDefinition, evidence []WorkerReportEvidence, review *WorkerReviewBlock) error {
 	declared := make(map[string]struct{}, len(lane.EvidenceObligations))
 	for _, obligation := range lane.EvidenceObligations {
 		declared[obligation] = struct{}{}
@@ -1036,6 +1145,16 @@ func verifyWorkerEvidenceCoverage(lane LaneDefinition, evidence []WorkerReportEv
 			fmt.Sprintf("worker report names evidence obligations the dispatching lane does not declare: %s", sortedObligationList(undeclared)),
 			false, "record worker.failed with the invalid_report failure kind")
 	}
+	if review != nil {
+		if _, isDeclared := declared["severity"]; isDeclared {
+			if _, reported := discharged["severity"]; reported {
+				return newFailure(KindInvalidPayload, "fold_event",
+					"worker report carries a free-text severity entry beside the typed review block that discharges severity",
+					false, "record worker.failed with the invalid_report failure kind")
+			}
+			discharged["severity"] = struct{}{}
+		}
+	}
 	missing := make(map[string]struct{})
 	for _, obligation := range lane.EvidenceObligations {
 		if _, ok := discharged[obligation]; !ok {
@@ -1048,6 +1167,27 @@ func verifyWorkerEvidenceCoverage(lane LaneDefinition, evidence []WorkerReportEv
 			false, "record worker.failed with the invalid_report failure kind")
 	}
 	return nil
+}
+
+// verifyWorkerReportBlockRequirement enforces the per-lane report block
+// requirement (CD-0197): a live completion for a lane whose contract requires
+// the typed review block is refused without it. The refusal names the block so
+// the caller records worker.failed with the invalid_report kind. Replay
+// forgives: a stored completion predating the requirement cannot invent the
+// block, and replay must reach the same projection it always reached.
+func verifyWorkerReportBlockRequirement(lane LaneDefinition, review *WorkerReviewBlock) error {
+	required := false
+	for _, block := range lane.RequiredReportBlocks {
+		if block == "review" {
+			required = true
+		}
+	}
+	if !required || review != nil {
+		return nil
+	}
+	return newFailure(KindInvalidPayload, "fold_event",
+		fmt.Sprintf("worker report completes without the typed review block the %s lane requires", lane.ID),
+		false, "record worker.failed with the invalid_report failure kind")
 }
 
 func sortedObligationList(values map[string]struct{}) string {

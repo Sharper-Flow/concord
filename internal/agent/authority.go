@@ -72,10 +72,15 @@ type Service struct {
 	Now            Clock
 	MaxClockSkew   time.Duration
 	NonceRetention time.Duration
-	// ProjectResolver is installed by the CLI boundary. Keeping it injectable
-	// gives tests a deterministic git runner while ensuring routine model input
-	// cannot supply a Project or Product authority.
-	ProjectResolver func(context.Context, *store.Transaction, string, string) (store.ProjectResolution, error)
+	// ProjectHostProber probes the invoking directory/worktree git identity
+	// with no transaction open. ProjectHostMatcher matches the probed host
+	// against Project locators with SQL only, inside the caller's
+	// transaction. The CLI boundary installs both. Keeping them injectable
+	// gives tests a deterministic git runner while ensuring routine model
+	// input cannot supply a Project or Product authority, and the split
+	// keeps git work outside every mutation transaction (CD-0195 D2).
+	ProjectHostProber  func(context.Context, string, string) (store.ResolvedProjectHost, error)
+	ProjectHostMatcher func(context.Context, *store.Transaction, store.ResolvedProjectHost) (store.ProjectResolution, error)
 	// publicationObserver, when set, is called with each publication phase as
 	// that phase completes, and may return an error to interrupt the sequence.
 	// It is an unexported white-box surface for conformance tests that must
@@ -460,34 +465,54 @@ func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, erro
 	if err := s.authorityReady("agent_authorize"); err != nil {
 		return Authority{}, err
 	}
-	if s.ProjectResolver == nil {
-		return Authority{}, authorityRefusal("project resolver is required")
+	if s.ProjectHostProber == nil || s.ProjectHostMatcher == nil {
+		return Authority{}, authorityRefusal("project host prober and matcher are required")
 	}
 	client, key, err := s.Store.TrustedClientWithKey(ctx, in.ClientRef)
 	if err != nil || client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
-	return s.authorizeResolved(ctx, nil, in, client)
+	host, err := s.ProbeProjectHost(ctx, in.Directory, in.Worktree)
+	if err != nil {
+		return Authority{}, err
+	}
+	return s.authorizeResolved(ctx, nil, host, in, client)
 }
 
-func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, in Invocation) (Authority, error) {
+// ProbeProjectHost resolves the invoking git identity with no transaction
+// open (CD-0195 D2). Callers run it before opening the mutation transaction
+// whose authorization matches the probed host against Project locators.
+func (s *Service) ProbeProjectHost(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
+	if err := s.authorityReady("agent_authorize"); err != nil {
+		return store.ResolvedProjectHost{}, err
+	}
+	if s.ProjectHostProber == nil {
+		return store.ResolvedProjectHost{}, authorityRefusal("project host prober is required")
+	}
+	return s.ProjectHostProber(ctx, directory, worktree)
+}
+
+func (s *Service) AuthorizeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation) (Authority, error) {
 	if err := s.authorityReady("agent_authorize"); err != nil {
 		return Authority{}, err
 	}
 	if tx == nil {
 		return Authority{}, transactionInvalid("agent_authorize")
 	}
-	if s.ProjectResolver == nil {
-		return Authority{}, authorityRefusal("project resolver is required")
+	if host.Canonical == "" && host.Host.CanonicalPath == "" {
+		return Authority{}, authorityRefusal("project host was not probed; probe it before the transaction opens")
+	}
+	if s.ProjectHostMatcher == nil {
+		return Authority{}, authorityRefusal("project host matcher is required")
 	}
 	client, key, err := store.TrustedClientWithKeyTx(ctx, tx, in.ClientRef)
 	if err != nil || client.Status != "active" || key.Status != "active" {
 		return Authority{}, authorityRefusal("client or key is not active")
 	}
-	return s.authorizeResolved(ctx, tx, in, client)
+	return s.authorizeResolved(ctx, tx, host, in, client)
 }
 
-func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, in Invocation, client store.TrustedClientRecord) (Authority, error) {
+func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, client store.TrustedClientRecord) (Authority, error) {
 	if in.PrincipalRef != "" && in.PrincipalRef != client.PrincipalRef {
 		return Authority{}, authorityRefusal("principal does not match trusted client")
 	}
@@ -516,7 +541,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if !contains(policyAgents, in.AgentRef) {
 		return Authority{}, authorityRefusal(fmt.Sprintf("agent %q is outside the agent scope of trusted client %q; add it with concord client-policy-expand", in.AgentRef, in.ClientRef))
 	}
-	resolved, err := s.ProjectResolver(ctx, tx, in.Directory, in.Worktree)
+	resolved, err := s.ProjectHostMatcher(ctx, tx, host)
 	if err != nil {
 		return Authority{}, err
 	}
@@ -801,15 +826,16 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 }
 
 // CreateApprovalChallengeTx is the only challenge creation path. Identity and
-// scope come from the authorization boundary; callers provide operation intent.
-func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Transaction, in Invocation, spec ApprovalChallengeSpec) (string, error) {
+// scope come from the authorization boundary; callers provide operation intent
+// and the host probed before this transaction opened.
+func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, spec ApprovalChallengeSpec) (string, error) {
 	if err := s.authorityReady("agent_challenge_create"); err != nil {
 		return "", err
 	}
 	if tx == nil || spec.OperationDigest == "" || spec.Scope == nil || spec.Versions == nil || spec.Consequence == "" || spec.HostAssertionDigest == "" || in.HostAssertionDigest != spec.HostAssertionDigest || spec.ExpiresAt.IsZero() {
 		return "", transactionInvalid("agent_challenge_create")
 	}
-	authority, err := s.AuthorizeTx(ctx, tx, in)
+	authority, err := s.AuthorizeTx(ctx, tx, host, in)
 	if err != nil {
 		return "", err
 	}
@@ -839,15 +865,16 @@ func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Trans
 }
 
 // CreateApprovalFromChallengeTx derives identity fields from authorization and
-// atomically consumes the core-issued challenge before recording approval.
-func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.Transaction, in Invocation, challengeRef string) (string, error) {
+// atomically consumes the core-issued challenge before recording approval. The
+// host arrives probed from before this transaction opened.
+func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, in Invocation, challengeRef string) (string, error) {
 	if err := s.authorityReady("agent_approval_create"); err != nil {
 		return "", err
 	}
 	if tx == nil || len(challengeRef) != 64 {
 		return "", transactionInvalid("agent_approval_create")
 	}
-	authority, err := s.AuthorizeTx(ctx, tx, in)
+	authority, err := s.AuthorizeTx(ctx, tx, host, in)
 	if err != nil {
 		return "", err
 	}

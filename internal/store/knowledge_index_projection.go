@@ -865,12 +865,12 @@ type knowledgeWatermark struct {
 	Fresh   bool
 }
 
-// readKnowledgeWatermark is the one freshness predicate. It is queryer-scoped
-// so the same rule serves a plain store read and a read inside an open
-// transaction, which under the single-connection pool must not reach back
-// through the store. An index built before the digest column exists carries
-// an empty digest and reads as stale, so it rebuilds once.
-func readKnowledgeWatermark(ctx context.Context, q queryer, home KnowledgeHome, current string) (knowledgeWatermark, error) {
+// readKnowledgeWatermark is the one freshness predicate. It takes *sql.DB
+// because its digest probe reaches the home's git content; a transaction
+// caller is a compile-time error (CD-0195 D2). An index built before the
+// digest column exists carries an empty digest and reads as stale, so it
+// rebuilds once.
+func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome, current string) (knowledgeWatermark, error) {
 	currentDigest, err := knowledgeContentDigest(ctx, home, current)
 	if err != nil {
 		return knowledgeWatermark{}, err
@@ -878,7 +878,7 @@ func readKnowledgeWatermark(ctx context.Context, q queryer, home KnowledgeHome, 
 	var scanned, scannedDigest string
 	var projectionVersion int
 	var complete bool
-	err = q.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, complete, projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &scannedDigest, &complete, &projectionVersion)
+	err = db.QueryRowContext(ctx, `SELECT scanned_commit_oid, scanned_content_digest, complete, projection_version FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef).Scan(&scanned, &scannedDigest, &complete, &projectionVersion)
 	if err == sql.ErrNoRows {
 		return knowledgeWatermark{}, nil
 	}

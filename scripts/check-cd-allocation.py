@@ -468,7 +468,7 @@ def next_free(
 
     A reservation removes only its own id from the allocation, so a sparse
     reservation leaves the gap below it allocatable: with git maximum CD-0193
-    and reservation CD-0195, the next free id is CD-0194.
+    and reservation CD-0197, the next free id is CD-0194.
     """
     tree = load_tree_manifest(root, [])
     tree_ids = set(cd_id_counts(tree)) if tree is not None else set()

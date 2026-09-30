@@ -175,7 +175,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         // A display can never damage an assistant message.
       }
     },
-    "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
+    // The transform input is the host's typed `{ sessionID?, model }`; only
+    // the session identity matters here, and its absence (the
+    // Agent.generate path) renders no continuity block.
+    "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
       await continuityTransform(input, output)
       await agentSwitch.transform(input, output)
     },

@@ -437,6 +437,20 @@ type WorktreeClaimCreation struct {
 	CreatedBranch bool
 }
 
+// WorktreeClaimNative is the native half of one claim: the located pinned
+// intent and the verified git facts for the created or adopted tree. The
+// caller probes it with no transaction open (CD-0195 D2); the claim's
+// transaction re-validates the durable state against it and records the
+// verified locator.
+type WorktreeClaimNative struct {
+	Location WorktreeLocation
+	Facts    worktreeFacts
+	// CreatedBranch records whether this operation created the branch itself,
+	// as opposed to adopting one a prior attempt left behind. Compensation
+	// may remove only what this operation created.
+	CreatedBranch bool
+}
+
 func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
 	if s == nil || s.db == nil {
 		return WorktreeClaimResult{}, newFailure(KindUnavailable, "worktree_claim", "store is not open", false, "open the authority database")
@@ -445,22 +459,36 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
+	// The native half runs before the transaction opens (CD-0195 D2): the
+	// location derives, the tree is created, and the creation verifies with
+	// no write lock held. A failure after a creation compensates it here.
+	native, created, err := s.PrepareWorktreeClaimNative(ctx, req)
+	if err != nil {
+		if created != nil {
+			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)
+		}
+		return WorktreeClaimResult{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeClaimResult{}, wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := claimWorktreeRawTx(ctx, tx, s.Path(), req)
+	out, err := claimWorktreeStoreTx(ctx, tx, req, native)
 	if err != nil {
+		if created != nil {
+			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)
+		}
 		return WorktreeClaimResult{}, err
 	}
+	out.Created = created
 	if err := tx.Commit(); err != nil {
 		commitErr := wrapFailure(KindUnavailable, "worktree_claim", "cannot commit claim", true, "retry the same operation with the same op id", err)
 		// The claim created native state the rolled-back transaction cannot
 		// reach, so the commit owner compensates it here; a failure the
 		// removal cannot prove reports effect-possible through the cause.
-		if out.Created != nil {
-			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *out.Created, commitErr)
+		if created != nil {
+			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, commitErr)
 		}
 		return WorktreeClaimResult{}, commitErr
 	}
@@ -468,8 +496,11 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 }
 
 // ClaimWorktreeTx is the durable claim on an existing transaction, so the
-// agent tool surface can compose it with its own idempotency envelope.
-func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+// agent tool surface can compose it with its own idempotency envelope. The
+// caller probes the native half with (*Store).PrepareWorktreeClaimNative
+// before its transaction opens and compensates the reported creation when
+// the transaction fails (CD-0195 D2).
+func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeClaimRequest, native WorktreeClaimNative) (WorktreeClaimResult, error) {
 	tx, err := transactionSQL(transaction, "worktree_claim")
 	if err != nil {
 		return WorktreeClaimResult{}, err
@@ -477,43 +508,101 @@ func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktree
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
-	return claimWorktreeRawTx(ctx, tx, transaction.path, req)
+	return claimWorktreeStoreTx(ctx, tx, req, native)
 }
 
-func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
-	out := WorktreeClaimResult{}
+// PrepareWorktreeClaimNative derives the claim's pinned intent and creates
+// the native worktree with no transaction open (CD-0195 D2). It reports the
+// creation as soon as this operation's tree exists, so a caller whose later
+// work fails can compensate exactly what the claim created; a tree that
+// pre-existed the claim stays nil and is never compensation's to remove.
+func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClaimRequest) (WorktreeClaimNative, *WorktreeClaimCreation, error) {
+	native := WorktreeClaimNative{}
 	if req.OpID == "" || req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
-		return out, newFailure(KindInvalidOperation, "worktree_claim", "claim operation is missing identity fields", false, "supply op, work, project, principal, and request ids")
+		return native, nil, newFailure(KindInvalidOperation, "worktree_claim", "claim operation is missing identity fields", false, "supply op, work, project, principal, and request ids")
 	}
 	if !worktreeSHAPattern.MatchString(req.BaseSHA) {
-		return out, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
+		return native, nil, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
 	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	location, err := locateWorktree(ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "HEAD", runner)
+	if err != nil {
+		return native, nil, err
+	}
+	native.Location = location
+	// Probe before creating or retrying. Git worktree creation is not
+	// idempotent; the probe owns retry safety for an interrupted create.
+	created, facts, probeErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
+	if probeErr != nil {
+		return native, nil, probeErr
+	}
+	native.Facts = facts
+	if created {
+		return native, nil, nil
+	}
+	// A branch left by a prior failed claim can be adopted only when it
+	// still points at the pinned base. A divergent branch is native state
+	// that this claim must not overwrite.
+	branchHead, branchExists, branchErr := worktreeBranchHead(ctx, runner, location.Repo, location.Branch)
+	if branchErr != nil {
+		return native, nil, branchErr
+	}
+	if branchExists {
+		if branchHead != req.BaseSHA {
+			return native, nil, newFailure(KindProjectionConflict, "worktree_claim", "existing branch does not match the pinned base", false, "resolve the existing branch before claiming this worktree")
+		}
+		if _, err := runner.Run(ctx, location.Repo, "worktree", "add", location.Path, location.Branch); err != nil {
+			return native, nil, worktreeAddFailure(ctx, runner, location.Repo, location.Path, location.Branch, false, err)
+		}
+	} else {
+		if _, err := runner.Run(ctx, location.Repo, "worktree", "add", location.Path, "-b", location.Branch, req.BaseSHA); err != nil {
+			return native, nil, worktreeAddFailure(ctx, runner, location.Repo, location.Path, location.Branch, true, err)
+		}
+		native.CreatedBranch = true
+	}
+	// From this point the tree is this operation's own creation, so every
+	// later failure is compensated from these facts.
+	createdTree := &WorktreeClaimCreation{RepoRoot: location.Repo, Path: location.Path, Branch: location.Branch, Base: req.BaseSHA, CreatedBranch: native.CreatedBranch}
+	created, facts, verifyErr := probeWorktree(ctx, runner, location.Repo, location.Path, location.Branch, req.BaseSHA)
+	if verifyErr != nil {
+		return native, createdTree, verifyErr
+	}
+	if !created {
+		return native, createdTree, newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator")
+	}
+	native.Facts = facts
+	return native, createdTree, nil
+}
+
+// claimWorktreeStoreTx is the durable half of a claim: it re-validates the
+// durable state against the probed native intent and records the verified
+// locator. It runs SQL only — every git fact arrived in the native half
+// (CD-0195 D2).
+func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, native WorktreeClaimNative) (WorktreeClaimResult, error) {
+	out := WorktreeClaimResult{}
+	location := native.Location
+	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
 	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
 		return out, err
 	}
 	if err := refuseWhenSessionOccupiesAnotherWorktreeTx(ctx, tx, req.SessionRef, WorktreeSetID(req.WorkID)); err != nil {
 		return out, err
 	}
-	runner := req.Runner
-	if runner == nil {
-		runner = ExecGitRunner{}
-	}
 	now := req.Now
 	if now.IsZero() {
 		now = nowFromClock(nil)
 	}
 	setID := WorktreeSetID(req.WorkID)
-	location, err := locateWorktree(ctx, tx, filepath.Dir(dataPath), req.ProjectID, req.WorkID, "HEAD", runner)
-	if err != nil {
-		return out, err
-	}
-	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
 
-	// Phase 1: the durable claim. An existing row for this OpID reconciles
-	// with its pinned intent; the pinned values win over later arguments so
-	// a retry can never redirect the operation.
+	// Phase 1: the durable claim, re-validated against the probed intent. An
+	// existing row for this OpID reconciles with its pinned intent; the
+	// pinned values win over later arguments so a retry can never redirect
+	// the operation.
 	var state, pinnedBranch, pinnedBase, pinnedPath string
-	err = tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=?`, req.OpID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
+	err := tx.QueryRowContext(ctx, `SELECT state,pinned_branch,pinned_base_sha,pinned_path FROM worktree_claims WHERE op_id=?`, req.OpID).Scan(&state, &pinnedBranch, &pinnedBase, &pinnedPath)
 	switch {
 	case err == nil:
 		if pinnedBranch != derivedBranch || pinnedBase != req.BaseSHA || pinnedPath != derivedPath {
@@ -536,6 +625,8 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 	case err == sql.ErrNoRows:
 		// A second active worktree for one Project is refused before git is
 		// ever invoked (CD-0008 D1: at most one active per affected Project).
+		// The native add ran before this transaction under CD-0195 D2, so a
+		// refusal here is the caller's signal to compensate the creation.
 		var active int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_claims WHERE work_id=? AND project_id=? AND state IN ('pending','verified')`, req.WorkID, req.ProjectID).Scan(&active); err != nil {
 			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read active claims", true, "retry once the database is readable", err)
@@ -555,64 +646,14 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 			}
 			return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot persist claim", true, "retry once the database is writable", err)
 		}
-		pinnedBranch, pinnedBase, pinnedPath = derivedBranch, req.BaseSHA, derivedPath
 	default:
 		return out, wrapFailure(KindUnavailable, "worktree_claim", "cannot read claim", true, "retry once the database is readable", err)
 	}
 
-	// Phase 2: probe before creating or retrying. Git worktree creation is
-	// not idempotent; the probe owns retry safety for an interrupted create.
-	created, facts, probeErr := probeWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase)
-	if probeErr != nil {
-		return out, probeErr
-	}
-	// createdBranch records whether this operation created the branch itself,
-	// as opposed to adopting one a prior attempt left behind. Compensation
-	// may remove only what this operation created.
-	createdBranch := false
-	if !created {
-		// A branch left by a prior failed claim can be adopted only when it
-		// still points at the pinned base. A divergent branch is native state
-		// that this claim must not overwrite.
-		branchHead, branchExists, branchErr := worktreeBranchHead(ctx, runner, repoRoot, pinnedBranch)
-		if branchErr != nil {
-			return out, branchErr
-		}
-		if branchExists {
-			if branchHead != pinnedBase {
-				return out, newFailure(KindProjectionConflict, "worktree_claim", "existing branch does not match the pinned base", false, "resolve the existing branch before claiming this worktree")
-			}
-			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, pinnedBranch); err != nil {
-				return out, worktreeAddFailure(ctx, runner, repoRoot, pinnedPath, pinnedBranch, false, err)
-			}
-		} else {
-			if _, err := runner.Run(ctx, repoRoot, "worktree", "add", pinnedPath, "-b", pinnedBranch, pinnedBase); err != nil {
-				return out, worktreeAddFailure(ctx, runner, repoRoot, pinnedPath, pinnedBranch, true, err)
-			}
-			createdBranch = true
-		}
-		// From this point the tree is this operation's own creation, so every
-		// later failure is compensated from these facts and the commit owner
-		// can compensate a failure that lands after this function returns.
-		out.Created = &WorktreeClaimCreation{RepoRoot: repoRoot, Path: pinnedPath, Branch: pinnedBranch, Base: pinnedBase, CreatedBranch: createdBranch}
-		var verifyErr error
-		created, facts, verifyErr = probeWorktree(ctx, runner, repoRoot, pinnedPath, pinnedBranch, pinnedBase)
-		if verifyErr != nil {
-			return out, compensateClaimWorktree(ctx, runner, *out.Created, verifyErr)
-		}
-		if !created {
-			return out, compensateClaimWorktree(ctx, runner, *out.Created,
-				newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator"))
-		}
-	}
-
-	// Phase 3: append the verified locator as domain state and complete the
-	// claim in the same transaction. A failure compensates the tree this
-	// operation created; a tree that pre-existed the claim is native state
-	// this operation must not remove, so its failure returns unchanged.
 	// The occupancy row's process start time is derived from /proc here, on
 	// the live path only: the fold replays the recorded value and never
-	// re-derives it.
+	// re-derives it. A bounded single-file read stays inside the transaction
+	// (CD-0195 D2 scope).
 	var hostPIDStart uint64
 	if req.HostPID > 0 {
 		start, startErr := hostlease.ProcessStart(req.HostPID)
@@ -621,18 +662,12 @@ func claimWorktreeRawTx(ctx context.Context, tx *sql.Tx, dataPath string, req Wo
 		}
 		hostPIDStart = start
 	}
-	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, pinnedBranch, pinnedBase, pinnedPath, facts, hostPIDStart)
+	phase3Err := claimWorktreePhase3Tx(ctx, tx, req, setID, now, derivedBranch, req.BaseSHA, derivedPath, native.Facts, hostPIDStart)
 	if phase3Err != nil {
-		if out.Created != nil {
-			return out, compensateClaimWorktree(ctx, runner, *out.Created, phase3Err)
-		}
 		return out, phase3Err
 	}
 	entry, err := worktreeEntryByClaim(ctx, tx, req.OpID)
 	if err != nil {
-		if out.Created != nil {
-			return out, compensateClaimWorktree(ctx, runner, *out.Created, err)
-		}
 		return out, err
 	}
 	out.Entry = entry
@@ -849,6 +884,45 @@ func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 	return true
 }
 
+// WorktreeNativeRemoval is the native removal one committed reclaim or
+// destroy still owes: the worktree remove and the branch deletion. The
+// transaction commits the reclamation event first; the caller runs this
+// removal after that commit, with no transaction open (CD-0195 D2).
+type WorktreeNativeRemoval struct {
+	RepoRoot string
+	Path     string
+	Branch   string
+	Force    bool
+	Op       string
+}
+
+// WorktreeReclaimResult reports a reclaim or destroy whose event committed on
+// the caller's transaction. Removal is the native work the caller still owes
+// after its own commit; nil means nothing native remains.
+type WorktreeReclaimResult struct {
+	Entry   WorktreeEntry
+	Removal *WorktreeNativeRemoval
+}
+
+// WorktreeReclaimProbe carries the git facts one reclaim probed with no
+// transaction open, plus the entry and repository root the probes ran
+// against. The transaction re-validates the entry identity against the
+// probed entry before it appends the reclamation event (CD-0195 D2).
+type WorktreeReclaimProbe struct {
+	Entry WorktreeEntry
+	// RepoRoot is the canonical repository the probes ran against.
+	RepoRoot string
+	// AlreadyAbsent records that the native worktree is already gone, so the
+	// event records that fact and no removal is owed.
+	AlreadyAbsent bool
+	// AlreadyConverged records a committed reclaim whose native removal also
+	// completed: the retry answers from the folded projection with no event
+	// and no removal.
+	AlreadyConverged bool
+	// Facts are the git facts the reclamation event records.
+	Facts json.RawMessage
+}
+
 // WorktreeDestroyRequest drives the CD-0096 D3 Destroy tier: merged terminal
 // work reclaims under the unchanged CD-0095 git gates; non-terminal work and
 // any destructive removal refuse typed without a consumed operator approval.
@@ -871,7 +945,9 @@ type WorktreeDestroyRequest struct {
 }
 
 // DestroyWorktree reclaims the work item's worktree under the Destroy tier's
-// authority gates. The write owns its transaction.
+// authority gates. The git probes run with no transaction open, the
+// transaction validates and commits the reclamation event, and the native
+// removal follows the commit (CD-0195 D2).
 func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest) (WorktreeEntry, error) {
 	reclaimReq := WorktreeReclaimRequest{
 		WorkID: req.WorkID, ProjectID: req.ProjectID, DefaultRef: req.DefaultRef,
@@ -887,36 +963,55 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 	// release proof compares it against the row's recorded_at (CD-0179), and
 	// a filesystem walk belongs outside the write transaction.
 	reclaimReq.HostLeases = s.ReadHostLeases()
+	runner := reclaimReq.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	probe, err := s.PrepareWorktreeReclaim(ctx, reclaimReq)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot begin destroy", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	transaction := &Transaction{tx: tx, clock: s.Clock}
-	out, err := DestroyWorktreeTx(ctx, transaction, reclaimReq)
+	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, reclaimReq, probe)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot commit destroy", true, "retry the same operation", err)
 	}
-	return out, nil
+	// The event is committed; the native removal follows it with no
+	// transaction open. A retry of the same request converges a committed
+	// reclaim whose native removal failed (CD-0195 D2).
+	if err := RunWorktreeNativeRemoval(ctx, runner, removal); err != nil {
+		return entry, err
+	}
+	return entry, nil
 }
 
 // DestroyWorktreeTx is the destroy on an existing transaction, so the agent
-// tool surface can compose it with its idempotency envelope.
-func DestroyWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+// tool surface can compose it with its idempotency envelope. The caller
+// probes with PrepareWorktreeReclaim before its transaction opens and runs
+// the returned removal after its commit.
+func DestroyWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeReclaimResult, error) {
 	tx, err := transactionSQL(transaction, "worktree_destroy")
 	if err != nil {
-		return WorktreeEntry{}, err
+		return WorktreeReclaimResult{}, err
 	}
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
-	return reclaimWorktreeRawTx(ctx, tx, req)
+	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, req, probe)
+	return WorktreeReclaimResult{Entry: entry, Removal: removal}, err
 }
 
 // ReclaimWorktree reclaims the worktree on its own transaction (CD-0095).
+// The git probes run with no transaction open, the transaction validates and
+// commits the reclamation event, and the native removal follows the commit
+// (CD-0195 D2).
 func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest) (WorktreeEntry, error) {
 	if s == nil || s.db == nil {
 		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_reclaim", "store is not open", false, "open the authority database")
@@ -928,58 +1023,217 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 	if req.HostLeases.Leases == nil && req.HostLeases.Err == nil {
 		req.HostLeases = s.ReadHostLeases()
 	}
+	runner := req.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	probe, err := s.PrepareWorktreeReclaim(ctx, req)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot begin reclaim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := reclaimWorktreeRawTx(ctx, tx, req)
+	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, req, probe)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot commit reclaim", true, "retry the same operation", err)
 	}
-	return out, nil
+	// The event is committed; the native removal follows it with no
+	// transaction open. A retry of the same request converges a committed
+	// reclaim whose native removal failed (CD-0195 D2).
+	if err := RunWorktreeNativeRemoval(ctx, runner, removal); err != nil {
+		return entry, err
+	}
+	return entry, nil
 }
 
-// ReclaimWorktreeTx derives reclamation from git facts on an existing
-// transaction. The verified reclamation event lands inside the caller's
-// transaction; the native remove follows it.
-func ReclaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest) (WorktreeEntry, error) {
+// ReclaimWorktreeTx is the reclaim on an existing transaction, so the agent
+// tool surface can compose it with its idempotency envelope. The caller
+// probes with PrepareWorktreeReclaim before its transaction opens and runs
+// the returned removal after its commit.
+func ReclaimWorktreeTx(ctx context.Context, transaction *Transaction, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeReclaimResult, error) {
 	tx, err := transactionSQL(transaction, "worktree_reclaim")
 	if err != nil {
-		return WorktreeEntry{}, err
+		return WorktreeReclaimResult{}, err
 	}
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
-	return reclaimWorktreeRawTx(ctx, tx, req)
+	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, req, probe)
+	return WorktreeReclaimResult{Entry: entry, Removal: removal}, err
 }
 
-func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest) (WorktreeEntry, error) {
-	var out WorktreeEntry
-	if req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
-		return out, newFailure(KindInvalidOperation, "worktree_reclaim", "reclaim operation is missing identity fields", false, "supply work, project, principal, and request ids")
-	}
-	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_reclaim"); err != nil {
-		return out, err
+// PrepareWorktreeReclaim derives the reclaim's git facts with no transaction
+// open (CD-0195 D2): it reads the entry and repository root, probes the
+// native worktree, and refuses on every git-side gate before any store write
+// is attempted. Callers pass the probe to ReclaimWorktreeTx or
+// DestroyWorktreeTx and re-validate the store state inside their own
+// transaction.
+func (s *Store) PrepareWorktreeReclaim(ctx context.Context, req WorktreeReclaimRequest) (WorktreeReclaimProbe, error) {
+	if err := validateWorktreeReclaimIdentity(req); err != nil {
+		return WorktreeReclaimProbe{}, err
 	}
 	runner := req.Runner
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	now := req.Now
-	if now.IsZero() {
-		now = nowFromClock(nil)
+	op := reclaimOperation(req)
+	if err := worktreeProjectMember(ctx, s.db, req.WorkID, req.ProjectID, op); err != nil {
+		return WorktreeReclaimProbe{}, err
 	}
-	setID := WorktreeSetID(req.WorkID)
-	// The Destroy tier labels its own refusals and keeps its own recovery
-	// actions; the reclaim surface is unchanged beneath it.
-	op := "worktree_reclaim"
-	if req.RequireTerminal {
-		op = "worktree_destroy"
+	entries, err := worktreeEntriesCore(ctx, s.db, req.WorkID)
+	if err != nil {
+		return WorktreeReclaimProbe{}, err
 	}
+	var entry WorktreeEntry
+	for _, candidate := range entries {
+		if candidate.ProjectID == req.ProjectID {
+			entry = candidate
+			break
+		}
+	}
+	if entry.ProjectID == "" || (entry.State != worktreeEntryActive && entry.State != worktreeEntryReclaimed) {
+		return WorktreeReclaimProbe{}, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+	}
+	repoRoot, err := worktreeRepoRootTx(ctx, s.db, WorktreeClaimRequest{ProjectID: req.ProjectID})
+	if err != nil {
+		return WorktreeReclaimProbe{}, err
+	}
+	return probeWorktreeReclaim(ctx, runner, req, op, entry, repoRoot)
+}
+
+// probeWorktreeReclaim runs the reclaim's git probes with no transaction
+// open. Every refusal here is git-derived and leaves no store effect.
+func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeReclaimRequest, op string, entry WorktreeEntry, repoRoot string) (WorktreeReclaimProbe, error) {
+	probe := WorktreeReclaimProbe{Entry: entry, RepoRoot: repoRoot}
+	// A committed reclaim whose native removal also completed answers from
+	// the folded projection; a surviving directory falls through to the
+	// normal gates, which is what converges a failed removal on retry.
+	if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
+		if entry.State == worktreeEntryReclaimed {
+			probe.AlreadyConverged = true
+			return probe, nil
+		}
+		probe.AlreadyAbsent = true
+		if req.Destructive {
+			probe.Facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
+		} else {
+			probe.Facts = jsonMustMarshal(map[string]any{"already_absent": true})
+		}
+		return probe, nil
+	}
+	// A destructive removal runs under its consumed operator approval: the
+	// clean-tree and durable-branch gates are skipped and the native remove
+	// is forced (CD-0096 D3 Destroy).
+	if req.Destructive {
+		probe.Facts = jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
+		return probe, nil
+	}
+	statusOut, statusErr := runner.Run(ctx, entry.Path, "status", "--porcelain")
+	if statusErr != nil {
+		return probe, wrapFailure(KindGitUnreachable, op, "cannot read worktree status", true, "retry once the worktree is reachable", statusErr)
+	}
+	if strings.TrimSpace(string(statusOut)) != "" {
+		recovery := "commit or discard the changes before reclaiming"
+		if req.RequireTerminal {
+			recovery = "commit or discard the changes, or obtain an operator-approved destructive destroy"
+		}
+		return probe, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
+	}
+	// Every non-destructive reclaim compares the branch against a canonical
+	// default endpoint: the RequireUnstarted commit count, the durability
+	// check, and the unpublished-lesson gate all read it. Derive the
+	// endpoint before any effect, and refuse a repository that cannot name
+	// its default branch instead of reclaiming with a skipped comparison.
+	defaultRef := req.DefaultRef
+	if defaultRef == "" {
+		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
+		if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
+			return probe, newFailure(KindGitUnreachable, op, "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
+		}
+		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
+	}
+	squashMerged := false
+	if req.RequireUnstarted {
+		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
+			return probe, err
+		}
+	} else {
+		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
+		if durableErr != nil {
+			return probe, durableErr
+		}
+		squashMerged = contained
+	}
+	// A branch whose lesson records the default ref does not hold is
+	// prepared delivery the reclaim would delete. The gate runs after
+	// durability, so a pushed branch refuses exactly like an unpushed one,
+	// and a merged lesson (the shard exists on the default endpoint) never
+	// blocks a reclaim.
+	lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
+	if lessonErr != nil {
+		return probe, lessonErr
+	}
+	if len(lessons) > 0 {
+		return probe, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
+	}
+	reclaimFacts := map[string]any{"clean_tree": true}
+	if req.RequireUnstarted {
+		reclaimFacts["default_ref"] = defaultRef
+		reclaimFacts["commits_beyond"] = 0
+	} else if squashMerged {
+		reclaimFacts["squash_merged"] = true
+	} else {
+		reclaimFacts["remote_reachable"] = true
+	}
+	probe.Facts = jsonMustMarshal(reclaimFacts)
+	return probe, nil
+}
+
+// RunWorktreeNativeRemoval removes the worktree and deletes the branch one
+// committed reclaim still owes. It runs with no transaction open: the caller
+// commits the reclamation event first (CD-0195 D2).
+func RunWorktreeNativeRemoval(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval) error {
+	if removal == nil {
+		return nil
+	}
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	args := []string{"worktree", "remove"}
+	if removal.Force {
+		args = append(args, "--force")
+	}
+	if _, err := runner.Run(ctx, removal.RepoRoot, append(args, removal.Path)...); err != nil {
+		return wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
+	}
+	// -D, not -d: the durability gate probed remote refs, while git's own -d
+	// check tests branch ancestry.
+	if _, err := runner.Run(ctx, removal.RepoRoot, "branch", "-D", "--", removal.Branch); err != nil {
+		return wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
+	}
+	return nil
+}
+
+// reclaimWorktreeStoreTx is the durable half of a reclaim or destroy: it
+// re-validates the store state against the probed entry, appends the verified
+// reclamation event, and reports the native removal the caller owes after
+// its own commit. It runs SQL only — every git fact arrived in the probe
+// (CD-0195 D2).
+func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRequest, probe WorktreeReclaimProbe) (WorktreeEntry, *WorktreeNativeRemoval, error) {
+	var out WorktreeEntry
+	if err := validateWorktreeReclaimIdentity(req); err != nil {
+		return out, nil, err
+	}
+	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_reclaim"); err != nil {
+		return out, nil, err
+	}
+	op := reclaimOperation(req)
 	// CD-0096 D3 Destroy: merged terminal work reclaims without approval.
 	// Non-terminal work refuses typed unless the operator approved this
 	// exact removal.
@@ -987,16 +1241,16 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
 		if err == sql.ErrNoRows {
-			return out, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+			return out, nil, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
 		}
 		if err != nil {
-			return out, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+			return out, nil, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
 		if !isTerminalLifecycle(lifecycle) && req.OperatorApprovalRef == "" {
-			return out, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
+			return out, nil, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not merged terminal work", false, "complete or cancel the work first, or obtain an operator-approved destroy")
 		}
 		if req.Destructive && req.OperatorApprovalRef == "" {
-			return out, newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
+			return out, nil, newFailure(KindInvalidOperation, op, "destructive removal requires the operator approval it would consume", false, "obtain an operator-approved destructive destroy")
 		}
 	}
 	// CD-0118: unstarted work reclaims without approval when the worktree
@@ -1006,19 +1260,19 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		var lifecycle string
 		err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, req.WorkID).Scan(&lifecycle)
 		if err == sql.ErrNoRows {
-			return out, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
+			return out, nil, newFailure(KindUnknownScope, op, "work item does not exist", false, "select one existing work item")
 		}
 		if err != nil {
-			return out, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
+			return out, nil, wrapFailure(KindUnavailable, op, "cannot read the work item", true, "retry once the database is readable", err)
 		}
 		if lifecycle != "needed" && req.OperatorApprovalRef == "" {
-			return out, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
+			return out, nil, newFailure(KindInvalidTransition, op, "work item is "+lifecycle+", so its worktree is not unstarted work", false, "start, complete, or cancel the work first, or obtain an operator-approved destroy")
 		}
 	}
 
 	entries, err := worktreeEntriesTx(ctx, tx, req.WorkID)
 	if err != nil {
-		return out, err
+		return out, nil, err
 	}
 	var entry WorktreeEntry
 	for _, candidate := range entries {
@@ -1028,46 +1282,42 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 		}
 	}
 	if entry.ProjectID == "" {
-		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+		return out, nil, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
 	}
 	if entry.State != worktreeEntryActive && entry.State != worktreeEntryReclaimed {
-		return out, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
+		return out, nil, newFailure(KindProjectionNotFound, op, "no active worktree for this Project", false, "claim a worktree before reclaiming it")
 	}
-	if entry.State == worktreeEntryReclaimed {
-		// A successful native removal leaves a reclaimed projection behind.
-		// Keep retries of that operation idempotent, while allowing a surviving
-		// directory to pass through the normal removal gates below.
-		if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
-			return entry, nil
-		}
+	// The probes ran against the pre-transaction entry; this identity check
+	// is the cheap re-validation that keeps the committed event honest about
+	// the worktree it names.
+	if entry.Path != probe.Entry.Path || entry.Branch != probe.Entry.Branch || entry.ClaimOpID != probe.Entry.ClaimOpID {
+		return out, nil, wrapFailure(KindProjectionConflict, op, "worktree changed under the reclaim probe", true, "retry the same operation", nil)
+	}
+	if probe.AlreadyConverged {
+		return entry, nil, nil
 	}
 	// Every event this reclaim appends derives its identity from the claim's
 	// incarnation, so a claim row a bootstrap reopen revived records its own
 	// events instead of re-deriving its first incarnation's.
 	incarnation, err := claimIncarnationTx(ctx, tx, entry.ClaimOpID)
 	if err != nil {
-		return out, err
+		return out, nil, err
 	}
-
-	repoRoot, resErr := worktreeRepoRootTx(ctx, tx, WorktreeClaimRequest{ProjectID: req.ProjectID})
-	if resErr != nil {
-		return out, resErr
+	now := req.Now
+	if now.IsZero() {
+		now = nowFromClock(nil)
 	}
-
-	// A stale projection reconciles against stronger git truth: if the native
-	// worktree is already gone, reclamation records that fact instead of
-	// demanding unreachable probes.
-	if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
-		facts := jsonMustMarshal(map[string]any{"already_absent": true})
-		if req.Destructive {
-			facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
+	setID := WorktreeSetID(req.WorkID)
+	// A stale projection reconciles against stronger git truth: the probe
+	// proved the native worktree already gone, so reclamation records that
+	// fact instead of demanding unreachable probes.
+	if probe.AlreadyAbsent {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.Facts); err != nil {
+			return out, nil, err
 		}
-		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, facts); err != nil {
-			return out, err
-		}
-		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+		final, err := worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+		return final, nil, err
 	}
-
 	// Recorded occupancy is the worktree_occupancy projection: one row per
 	// session, with the host process identity recorded by the core from /proc
 	// at landing time (CD-0178 D3). The kernel proves whether a process is
@@ -1083,101 +1333,48 @@ func reclaimWorktreeRawTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaimRe
 	// occupants it released.
 	occupants, err := worktreeOccupancyRowsTx(ctx, tx, setID, entry.ProjectID, entry.ClaimOpID)
 	if err != nil {
-		return out, err
+		return out, nil, err
 	}
 	if err := reclaimOccupancyGateTx(ctx, tx, req, op, entry, setID, occupants, incarnation, now); err != nil {
-		return out, err
+		return out, nil, err
 	}
+	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.Facts); err != nil {
+		return out, nil, err
+	}
+	removal := &WorktreeNativeRemoval{RepoRoot: probe.RepoRoot, Path: entry.Path, Branch: entry.Branch, Force: req.Destructive, Op: op}
+	final, err := worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+	return final, removal, err
+}
 
-	// A destructive removal runs under its consumed operator approval: the
-	// clean-tree and durable-branch gates are skipped and the native remove
-	// is forced (CD-0096 D3 Destroy).
-	if req.Destructive {
-		facts := jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
-		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, facts); err != nil {
-			return out, err
-		}
-		if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", "--force", entry.Path); err != nil {
-			return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
-		}
-		return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+func reclaimOperation(req WorktreeReclaimRequest) string {
+	if req.RequireTerminal {
+		return "worktree_destroy"
 	}
+	return "worktree_reclaim"
+}
 
-	// Derive git facts. Reclamation is refused unless the tree is clean and
-	// the branch is durable in a remote ref. The verified reclamation
-	// event lands before the native remove: a stale directory left by a
-	// failed remove holds no authority, while a removed worktree with an
-	// active projection would.
-	statusOut, statusErr := runner.Run(ctx, entry.Path, "status", "--porcelain")
-	if statusErr != nil {
-		return out, wrapFailure(KindGitUnreachable, op, "cannot read worktree status", true, "retry once the worktree is reachable", statusErr)
+// validateWorktreeReclaimIdentity holds the identity bounds both the probe
+// and the transaction re-check, so a malformed request refuses before any
+// filesystem or SQL work.
+func validateWorktreeReclaimIdentity(req WorktreeReclaimRequest) error {
+	if req.WorkID == "" || req.ProjectID == "" || req.PrincipalRef == "" || req.RequestID == "" {
+		return newFailure(KindInvalidOperation, "worktree_reclaim", "reclaim operation is missing identity fields", false, "supply work, project, principal, and request ids")
 	}
-	if strings.TrimSpace(string(statusOut)) != "" {
-		recovery := "commit or discard the changes before reclaiming"
-		if req.RequireTerminal {
-			recovery = "commit or discard the changes, or obtain an operator-approved destructive destroy"
-		}
-		return out, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
-	}
-	// Every non-destructive reclaim compares the branch against a canonical
-	// default endpoint: the RequireUnstarted commit count, the durability
-	// check, and the unpublished-lesson gate all read it. Derive the
-	// endpoint before any effect, and refuse a repository that cannot name
-	// its default branch instead of reclaiming with a skipped comparison.
-	defaultRef := req.DefaultRef
-	if defaultRef == "" {
-		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
-		if refErr != nil || strings.TrimSpace(string(refOut)) == "" {
-			return out, newFailure(KindGitUnreachable, op, "cannot resolve the default branch", false, "set origin/HEAD or supply the merge target ref")
-		}
-		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
-	}
-	squashMerged := false
-	if req.RequireUnstarted {
-		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
-			return out, err
-		}
-	} else {
-		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
-		if durableErr != nil {
-			return out, durableErr
-		}
-		squashMerged = contained
-	}
-	// A branch whose lesson records the default ref does not hold is
-	// prepared delivery the reclaim would delete. The gate runs after
-	// durability, so a pushed branch refuses exactly like an unpushed one,
-	// and a merged lesson (the shard exists on the default endpoint) never
-	// blocks a reclaim.
-	lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
-	if lessonErr != nil {
-		return out, lessonErr
-	}
-	if len(lessons) > 0 {
-		return out, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
-	}
+	return nil
+}
 
-	reclaimFacts := map[string]any{"clean_tree": true}
-	if req.RequireUnstarted {
-		reclaimFacts["default_ref"] = defaultRef
-		reclaimFacts["commits_beyond"] = 0
-	} else if squashMerged {
-		reclaimFacts["squash_merged"] = true
-	} else {
-		reclaimFacts["remote_reachable"] = true
+// worktreeProjectMember is the plain-read membership check the
+// pre-transaction probe runs; the transaction re-validates through its own
+// handle.
+func worktreeProjectMember(ctx context.Context, q queryer, workID, projectID, operation string) error {
+	var member bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_projects WHERE work_id=? AND project_id=?)`, workID, projectID).Scan(&member); err != nil {
+		return wrapFailure(KindUnavailable, operation, "cannot read work Project membership", true, "retry once the database is readable", err)
 	}
-	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, jsonMustMarshal(reclaimFacts)); err != nil {
-		return out, err
+	if !member {
+		return newFailure(KindUnknownScope, operation, "work item does not hold Project "+projectID, false, "use a Project the work item belongs to")
 	}
-	if _, err := runner.Run(ctx, repoRoot, "worktree", "remove", entry.Path); err != nil {
-		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
-	}
-	// -D, not -d: the durability gate above checks remote refs, while git's
-	// own -d check tests branch ancestry.
-	if _, err := runner.Run(ctx, repoRoot, "branch", "-D", "--", entry.Branch); err != nil {
-		return out, wrapFailure(KindGitUnreachable, op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
-	}
-	return worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
+	return nil
 }
 
 func validateWorktreeProjectMembershipTx(ctx context.Context, tx *sql.Tx, workID, projectID, operation string) error {
@@ -2223,13 +2420,13 @@ func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (Wo
 // worktreeAudit classifies every drift row for one Product. It applies no
 // limit: the callers own the limit, and a reclaim pass must classify every
 // row before its limit consumes anything (CD-0179).
-func worktreeAudit(ctx context.Context, q queryer, root string, productID string, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
+func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID string, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
 	if productID == "" {
 		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
 	}
 
 	var projects []string
-	projectRows, err := q.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
+	projectRows, err := db.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read Product Projects", true, "retry once the database is readable", err)
 	}
@@ -2249,7 +2446,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		workID, projectID, path, state, observedAt string
 	}
 	claims := []auditClaim{}
-	claimRows, err := q.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state,c.observed_at FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
+	claimRows, err := db.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state,c.observed_at FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree claims", true, "retry once the database is readable", err)
 	}
@@ -2266,7 +2463,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	}
 
 	entries := []worktreeAuditEntry{}
-	entryRows, err := q.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path,e.branch FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
+	entryRows, err := db.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path,e.branch FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree entries", true, "retry once the database is readable", err)
 	}
@@ -2287,7 +2484,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	// Only needed-work ids with an active entry in this Product matter for the
 	// stranded class; the join answers exactly that set.
 	strandedIDs := map[string]bool{}
-	strandedRows, err := q.QueryContext(ctx, `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, worktreeSetPrefix, productID)
+	strandedRows, err := db.QueryContext(ctx, `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, worktreeSetPrefix, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read work lifecycle", true, "retry once the database is readable", err)
 	}
@@ -2305,7 +2502,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	// Terminal work with an active entry: the same join, the other side of
 	// the lifecycle. The lifecycle rides along so the row can say which.
 	terminalLifecycle := map[string]string{}
-	terminalRows, err := q.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), worktreeSetPrefix, productID) //nolint:gosec // the IN list is the closed terminal set, never caller input
+	terminalRows, err := db.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), worktreeSetPrefix, productID) //nolint:gosec // the IN list is the closed terminal set, never caller input
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read terminal work", true, "retry once the database is readable", err)
 	}
@@ -2321,7 +2518,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 		return WorktreeAudit{}, err
 	}
 	lifecycleByWorkID := map[string]string{}
-	lifecycleRows, err := q.QueryContext(ctx, `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, worktreeSetPrefix, productID)
+	lifecycleRows, err := db.QueryContext(ctx, `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, worktreeSetPrefix, productID)
 	if err != nil {
 		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree lifecycle", true, "retry once the database is readable", err)
 	}
@@ -2383,7 +2580,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 			drift = append(drift, row)
 		}
 	}
-	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, q, runner, defaultRefOverride, entries, lifecycleByWorkID)
+	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, db, runner, defaultRefOverride, entries, lifecycleByWorkID)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -2392,7 +2589,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 	// and they do not set content-risk paths, so a terminal worktree stays
 	// classified and the reclaim pass attempts it and reports the typed
 	// refusal the gate produces.
-	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, q, runner, defaultRefOverride, entries, lifecycleByWorkID)
+	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, db, runner, defaultRefOverride, entries, lifecycleByWorkID)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -2456,7 +2653,7 @@ func worktreeAudit(ctx context.Context, q queryer, root string, productID string
 			claimObservedAt[c.workID] = c.observedAt
 		}
 	}
-	unstarted, err := classifyUnstartedWorktrees(ctx, q, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt, contentRiskPaths)
+	unstarted, err := classifyUnstartedWorktrees(ctx, db, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt, contentRiskPaths)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -2609,7 +2806,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 // reports those commits separately. A read whose default ref is underivable
 // skips the project's candidates; a pass that will act on the class refuses
 // typed instead (refRequired).
-func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
+func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	var rows []WorktreeDrift
@@ -2629,7 +2826,7 @@ func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner
 		}
 		repoRoot, ok := repoRoots[e.projectID]
 		if !ok {
-			repoRoot, err = worktreeAuditRepoRoot(ctx, q, e.projectID)
+			repoRoot, err = worktreeAuditRepoRoot(ctx, db, e.projectID)
 			if err != nil {
 				return nil, err
 			}
@@ -2686,7 +2883,7 @@ func classifyUnstartedWorktrees(ctx context.Context, q queryer, runner GitRunner
 // Branch commits the default ref already holds as one squash merge (CD-0181)
 // carry no content risk: the class names content a reclaim could lose, and a
 // squash-contained branch loses none.
-func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
+func classifyWorktreeContent(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	rows := []WorktreeDrift{}
@@ -2701,7 +2898,7 @@ func classifyWorktreeContent(ctx context.Context, q queryer, runner GitRunner, d
 		}
 		repoRoot, ok := repoRoots[entry.projectID]
 		if !ok {
-			repoRoot, err = worktreeAuditRepoRoot(ctx, q, entry.projectID)
+			repoRoot, err = worktreeAuditRepoRoot(ctx, db, entry.projectID)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -2795,7 +2992,7 @@ func worktreeUnpublishedLessonDetail(count int, lessons []string, defaultRef str
 // project whose default ref cannot be resolved contributes no rows, because
 // the comparison that names an unpublished lesson needs the default
 // endpoint, and the read must stay deliverable (issue #831).
-func classifyUnpublishedLessonWorktrees(ctx context.Context, q queryer, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, error) {
+func classifyUnpublishedLessonWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	var rows []WorktreeDrift
@@ -2809,7 +3006,7 @@ func classifyUnpublishedLessonWorktrees(ctx context.Context, q queryer, runner G
 		}
 		repoRoot, ok := repoRoots[entry.projectID]
 		if !ok {
-			repoRoot, err = worktreeAuditRepoRoot(ctx, q, entry.projectID)
+			repoRoot, err = worktreeAuditRepoRoot(ctx, db, entry.projectID)
 			if err != nil {
 				return nil, err
 			}
@@ -3165,22 +3362,35 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	commandJSON, _ := json.Marshal(req.Command)
 
-	// Lease phase: resolve the subject, probe it, pin the lease, and
-	// snapshot tracked state before the command runs. Any refusal here
-	// rolls the transaction back, so no lease exists to release.
-	acquireTx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
-	}
-	defer acquireTx.Rollback()
-	entry, err := activeWorktreeEntryForProject(ctx, acquireTx, "worktree_verify", req.WorkID, req.ProjectID)
+	// Lease phase: resolve the subject, probe it, and snapshot tracked state
+	// before any transaction opens, because every git read here is a
+	// subprocess and no write transaction may span one (CD-0195 D2). The
+	// transaction re-validates the entry identity and pins the lease with
+	// SQL only.
+	entry, err := activeWorktreeEntryForProject(ctx, s.db, "worktree_verify", req.WorkID, req.ProjectID)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
 	if err := probeWorktreeReachable(ctx, runner, "worktree_verify", entry); err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	if err := acquireVerifyLeaseTx(ctx, acquireTx, req, entry, string(commandJSON), now); err != nil {
+	before, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	acquireTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
+	}
+	defer acquireTx.Rollback()
+	liveEntry, err := activeWorktreeEntryForProject(ctx, acquireTx, "worktree_verify", req.WorkID, req.ProjectID)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	if liveEntry.Path != entry.Path || liveEntry.Branch != entry.Branch || liveEntry.ClaimOpID != entry.ClaimOpID {
+		return WorktreeVerifyResult{}, wrapFailure(KindProjectionConflict, "worktree_verify", "worktree changed under the verify probe", true, "retry the same operation with the same lease id", nil)
+	}
+	if err := acquireVerifyLeaseTx(ctx, acquireTx, req, liveEntry, string(commandJSON), now); err != nil {
 		var completed *worktreeVerifyCompleted
 		if errors.As(err, &completed) {
 			// The lease already reached its durable outcome (the crash
@@ -3188,10 +3398,6 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 			// Report the recorded result; never run the command twice.
 			return completed.result, completed.failure
 		}
-		return WorktreeVerifyResult{}, err
-	}
-	before, err := snapshotTrackedFiles(ctx, runner, entry.Path)
-	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
 	if err := acquireTx.Commit(); err != nil {
@@ -3214,15 +3420,17 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		output = append([]byte(runErr.Error()+"\n"), output...)
 	}
 
+	// The after snapshot runs before the release transaction opens: a git
+	// subprocess must never span a write transaction (CD-0195 D2).
+	after, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
+	}
 	releaseTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	defer releaseTx.Rollback()
-	after, err := snapshotTrackedFiles(ctx, runner, entry.Path)
-	if err != nil {
-		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
-	}
 	changed := before != after
 	outcome := "completed"
 	if changed {

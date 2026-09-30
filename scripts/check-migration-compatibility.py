@@ -16,6 +16,24 @@ The classification is deliberately conservative: an unrecognized statement
 counts as breaking. Being wrong toward breaking costs a refusal that a newer
 binary resolves. Being wrong toward additive lets an old binary write against
 a shape it does not know, which is silent corruption.
+
+Fold-maintained columns are the additive shape this comparison cannot see.
+One deliberate boundary: the legacy statement rules treat a conditional
+CREATE (IF NOT EXISTS) as ownership, the repair-migration convention
+(migration 60 builds on it), while the FoldMaintained duty holds such a
+table to the stricter standard below because its column may land on the
+table SQLite retained.
+SQLite reads an added column's rows as its constant default and rejects a
+non-constant one, so every ADD COLUMN classifies as additive; whether the
+column stays true is decided by the Go fold writer, which the SQL shape does
+not show. A fold generation from before the migration never runs that writer,
+so under a rolling upgrade (CD-0111 D3) a column the fold advances drifts
+behind the log with no convergence, the way migration 108's last_activity_at
+did. The migration struct therefore carries a FoldMaintained declaration, and
+for every migration above RULE_FLOOR this validator holds that declaration to
+its closed vocabulary and to its consequences. The declaration is the
+author's signed claim beside the SQL: this checker cannot derive it, only
+refuse one that contradicts the SQL's shape or its own terms.
 """
 
 from __future__ import annotations
@@ -23,73 +41,402 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema.go"
 
-# A migration entry: its version, then everything up to the next entry.
-# gofmt aligns the values in a struct literal, so the run of spaces after a
-# field name depends on the longest field name present in that literal. Every
-# field pattern here tolerates that alignment rather than pinning one width.
-ENTRY = re.compile(r"\n\t\{\n\t\tVersion:\s+(\d+),")
-DECLARES_BREAKING = re.compile(r"^\t\tBreaking:\s+true,$", re.MULTILINE)
+# The fold-maintenance rules bind only migrations above this floor. Migration
+# 108 was the last fold-maintained column admitted without a declaration; its
+# repair, migration 109, is the first version the rules could have bound.
+RULE_FLOOR = 108
 
+FOLD_VOCABULARY = ("advance", "origin")
+# What fold_maintained returns for a field whose value is not on the field's
+# own line: present, unreadable, and outside every vocabulary. Text no Go
+# value can carry keeps it from colliding with a real residue.
+FOLD_VALUE_ELSEWHERE = "<value on a later line>"
+# A migrations list element that is not a composite literal cannot supply a
+# Version field to read, and the checker refuses it instead of omitting it.
+UNSUPPORTED_ELEMENT = -2
+
+# SQLite's tokenizer admits A-Z, a-z, 0-9, _, $ and every code point at or
+# above U+0080 inside a bare identifier, and a bare name does not start with a
+# digit. The regex must consume the whole token: a prefix match records table
+# a as born where SQLite creates a-with-suffix, and every later reference to a
+# then looks owned.
+SQL_ID_START = r"[A-Za-z_$\u0080-\U0010FFFF]"
+SQL_ID_CONT = r"[A-Za-z0-9_$\u0080-\U0010FFFF]"
+# SQLite treats only space, tab, newline, formfeed, and carriage return as
+# whitespace; Python's \s, \S, and str.strip() go further and consume or stop
+# at identifier characters such as U+00A0. Every SQL token boundary and name
+# trim uses these classes so the checker reads the names SQLite executes.
+SQL_SPACE = "[ \\t\\n\\f\\r]"
+SQL_SP = f"{SQL_SPACE}+"
+SQL_SQ = f"{SQL_SPACE}*"
+SQL_NOT_SPACE = "[^ \\t\\n\\f\\r]"
+SQL_TRIM = " \t\n\f\r"
+SQL_REF = (
+    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`[^`]*`|'(?:[^']|'')*'"
+    rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
+)
+SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
+# SQLite separates two bare tokens with whitespace; a quoted or bracketed
+# token carries its own boundary, so keyword and name adjacency needs no
+# space on the quoted side.
+SQL_NAME_SEP = "(?:%s+|(?=[\"'`[]))" % SQL_SP
+SQL_NAME_END = "(?:%s+|(?<=[\"'`\\]]))" % SQL_SP
 CREATE_TABLE = re.compile(
-    r"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
-    r"\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE{SQL_SP}(?:VIRTUAL{SQL_SP}|TEMP{SQL_SP}|TEMPORARY{SQL_SP})*"
+    rf"TABLE(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 DROP_TABLE = re.compile(
-    r"^DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE
+    rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_NAME_SEP}({SQL_QUAL})",
+    re.IGNORECASE,
 )
+
+
+def sql_parts(ref: str) -> list[str]:
+    """Split a table reference on dots, keeping quoted parts atomic.
+
+    "a.b.c" is one name, not a schema and a table: the dot inside the
+    quotes belongs to the identifier. Every quoting form SQL_REF accepts
+    is atomic here, and a doubled quote inside a quoted part is one
+    character, not a boundary.
+    """
+    parts: list[str] = []
+    current: list[str] = []
+    i, n = 0, len(ref)
+    while i < n:
+        ch = ref[i]
+        if ch in ('"', "'", "`", "["):
+            close = "]" if ch == "[" else ch
+            j = i + 1
+            while j < n:
+                k = ref.find(close, j)
+                if k < 0:
+                    j = n
+                    break
+                if close != "]" and k + 1 < n and ref[k + 1] == close:
+                    j = k + 2
+                    continue
+                j = k + 1
+                break
+            current.append(ref[i:j])
+            i = j
+        elif ch == ".":
+            parts.append("".join(current))
+            current = []
+            i += 1
+        else:
+            current.append(ch)
+            i += 1
+    parts.append("".join(current))
+    return [p.strip(SQL_TRIM) for p in parts if p.strip(SQL_TRIM)]
+
+
+ASCII_CASE_FOLD = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
+)
+
+
+def fold_ascii(name: str) -> str:
+    """Fold identifier case the way SQLite compares names: ASCII only.
+
+    SQLite folds A-Z when it compares identifiers and keeps every
+    non-ASCII code point distinct. Python's Unicode lowercasing would
+    merge names SQLite keeps apart and hide a pre-existing table.
+    """
+    return name.translate(ASCII_CASE_FOLD)
+
+
+def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
+    """Return the (schema, table) identity of one SQL table reference.
+
+    An explicit qualifier names its schema; an unqualified reference in a
+    CREATE carries temp when the statement says TEMP or TEMPORARY and main
+    otherwise. Quoting comes off the name with its escapes resolved, so
+    "t", 't', [t], `t`, and t are one table, while main.t and temp.t stay
+    distinct identities. Case folds with SQLite's ASCII-only comparison.
+    """
+    def unquote(part: str) -> str:
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "'", "`"):
+            return part[1:-1].replace(part[0] * 2, part[0])
+        if len(part) >= 2 and part[0] == "[" and part[-1] == "]":
+            return part[1:-1]
+        return part
+
+    parts = sql_parts(ref)
+    if len(parts) == 1:
+        schema = "temp" if temp else "main"
+        name = parts[0]
+    else:
+        schema, name = parts[0], parts[-1]
+    return (fold_ascii(unquote(schema)), fold_ascii(unquote(name)))
+
+
+def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return the born key a table reference resolves to, or None.
+
+    A qualified reference matches only its own schema: dropping
+    main.existing does not touch a temp.existing born here. An unqualified
+    reference resolves as SQLite resolves it, temp before main.
+    """
+    schema, name = sql_table_key(ref)
+    if len(sql_parts(ref)) >= 2:
+        return (schema, name) if (schema, name) in born else None
+    for key in (("temp", name), ("main", name)):
+        if key in born:
+            return key
+    return None
+
+
+def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
+    """Return whether a table reference resolves to a born table."""
+    return resolve_born(ref, born) is not None
+# One SQL table reference: quoted, bracketed, backticked, string-literal, or
+# bare, alone or schema-qualified. Comparisons normalize through sql_table_key.
 DROP_INDEX = re.compile(
-    r"^DROP\s+(?:INDEX|TRIGGER|VIEW)(?:\s+IF\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^DROP{SQL_SP}(?:INDEX|TRIGGER|VIEW)(?:{SQL_SP}IF{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}{SQL_QUAL}",
     re.IGNORECASE,
 )
 ALTER = re.compile(
-    r"^ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)\s+([\s\S]*)$", re.IGNORECASE
+    rf"^ALTER{SQL_SP}TABLE{SQL_NAME_SEP}({SQL_QUAL}){SQL_NAME_END}([\s\S]*)$",
+    re.IGNORECASE,
 )
-ADD_COLUMN = re.compile(r"^ADD\s+COLUMN\b", re.IGNORECASE)
+ADD_COLUMN = re.compile(
+    rf"^ADD{SQL_NAME_SEP}(?:COLUMN{SQL_NAME_SEP})?{SQL_NOT_SPACE}", re.IGNORECASE
+)
 INDEX_ON = re.compile(
-    r"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE{SQL_SP}(UNIQUE{SQL_SP})?INDEX(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}(?:{SQL_REF}){SQL_NAME_END}ON{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
 TRIGGER_ON = re.compile(
-    r"^CREATE\s+TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+(?:BEFORE|AFTER|INSTEAD)"
-    r"[\s\S]*?\bON\s+([A-Za-z_][A-Za-z0-9_]*)",
+    rf"^CREATE{SQL_SP}TRIGGER(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}(?:{SQL_REF}){SQL_NAME_END}(?:BEFORE|AFTER|INSTEAD)"
+    rf"[\s\S]*?(?<!{SQL_ID_CONT})ON{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
-VIEW_OR_PRAGMA = re.compile(r"^(CREATE\s+VIEW|PRAGMA|ANALYZE|REINDEX)\b", re.IGNORECASE)
-WRITE = re.compile(r"^(INSERT|UPDATE|DELETE|SELECT|WITH)\b", re.IGNORECASE)
+VIEW_OR_PRAGMA = re.compile(
+    rf"^(CREATE{SQL_SP}VIEW|PRAGMA|ANALYZE|REINDEX)(?!{SQL_ID_CONT})", re.IGNORECASE
+)
+WRITE = re.compile(rf"^(INSERT|UPDATE|DELETE|SELECT|WITH)(?!{SQL_ID_CONT})", re.IGNORECASE)
+
+
+def first_sql_word(text: str) -> str:
+    """Return the first SQL-space-delimited token, for refusal messages."""
+    return re.split(SQL_SPACE + "+", text.strip(SQL_TRIM), maxsplit=1)[0].upper()
 
 
 def statements(sql: str) -> list[str]:
     """Split migration SQL into statements, ignoring comments.
 
-    CREATE TRIGGER bodies contain semicolons, so a bare split would cut them
-    apart. A statement therefore ends at a semicolon that is not inside a
-    BEGIN...END block.
+    A statement ends at a semicolon outside a CREATE TRIGGER body. The
+    scan is literal-aware: text inside a string or a quoted identifier is
+    never a comment marker or a boundary, so '--' in a value cannot
+    swallow the rest of a line and a semicolon in a value cannot cut a
+    statement, while comments come out wherever they sit outside
+    literals. Block structure follows grammar, not spelling: the body of
+    a CREATE TRIGGER opens at that statement's first BEGIN, further
+    BEGINs count only at the head of a body statement, and an END closes
+    only when a semicolon or the statement's end follows it, so columns
+    named begin or end inside a body change nothing. A quoted table name
+    spelling a keyword is never the keyword: trigger heads are read with
+    the quoted segments removed.
     """
-    sql = re.sub(r"--[^\n]*", "", sql)
     out: list[str] = []
     current: list[str] = []
+    head_words: list[str] = []
+    word_start = 0
+    word: list[str] = []
     depth = 0
-    for token in re.split(r"(\bBEGIN\b|\bEND\b|;)", sql, flags=re.IGNORECASE):
-        upper = token.upper().strip()
-        if upper == "BEGIN":
-            depth += 1
-        elif upper == "END":
-            depth = max(0, depth - 1)
-        elif token == ";" and depth == 0:
-            statement = "".join(current).strip()
-            if statement:
-                out.append(statement)
-            current = []
+    awaiting_body = False
+    stmt_open = False
+    i, n = 0, len(sql)
+
+    def trigger_head() -> bool:
+        # Only a full CREATE [TEMP|TEMPORARY] TRIGGER head opens a body.
+        # The second keyword alone is not enough: a SELECT whose second
+        # token is trigger would arm the body and swallow the statements
+        # after its begin and end aliases.
+        words = head_words
+        if not words or words[0] != "CREATE":
+            return False
+        at = 1
+        if at < len(words) and words[at] in ("TEMP", "TEMPORARY"):
+            at += 1
+        return at < len(words) and words[at] == "TRIGGER"
+
+    def end_closes() -> bool:
+        j = i
+        while j < n:
+            if sql[j] in SQL_TRIM:
+                j += 1
+                continue
+            if sql.startswith("--", j):
+                k = sql.find("\n", j)
+                j = n if k < 0 else k + 1
+                continue
+            if sql.startswith("/*", j):
+                k = sql.find("*/", j + 2)
+                if k < 0:
+                    return True
+                j = k + 2
+                continue
+            break
+        return j >= n or (j < n and sql[j] == ";")
+
+    while i < n:
+        ch = sql[i]
+        if ch.isalnum() or ch in "_$" or ord(ch) >= 0x80:
+            if not word:
+                word_start = i
+            word.append(ch)
+            i += 1
             continue
-        current.append(token)
-    tail = "".join(current).strip()
+        token = "".join(word).upper()
+        if token:
+            if "(" not in "".join(current):
+                head_words.append(token)
+            if token == "BEGIN" and (
+                awaiting_body or (depth >= 1 and not stmt_open)
+            ):
+                depth += 1
+                awaiting_body = False
+            elif token == "END" and depth >= 1 and end_closes():
+                depth -= 1
+            elif depth == 0 and trigger_head():
+                awaiting_body = True
+            current.extend(word)
+            word = []
+            stmt_open = True
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if sql[j] == "'" and j + 1 < n and sql[j + 1] == "'":
+                    j += 2
+                    continue
+                if sql[j] == "'":
+                    break
+                j += 1
+            current.append(sql[i : min(j + 1, n)])
+            i = j + 1
+            stmt_open = True
+            continue
+        if ch in ('"', "`", "["):
+            close = "]" if ch == "[" else ch
+            j = sql.find(close, i + 1)
+            j = n - 1 if j < 0 else j
+            current.append(sql[i : j + 1])
+            i = j + 1
+            stmt_open = True
+            continue
+        if sql.startswith("--", i):
+            j = sql.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if sql.startswith("/*", i):
+            j = sql.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            current.append(" ")
+            continue
+        if ch == ";":
+            if depth == 0:
+                statement = "".join(current).strip(SQL_TRIM)
+                if statement:
+                    out.append(statement)
+                current = []
+                head_words = []
+                awaiting_body = False
+                stmt_open = False
+                i += 1
+                continue
+            stmt_open = False
+            current.append(ch)
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    token = "".join(word).upper()
+    if token:
+        current.extend(word)
+    tail = "".join(current).strip(SQL_TRIM)
     if tail:
         out.append(tail)
     return out
+
+
+RENAMES = re.compile(
+    rf"^RENAME{SQL_SP}(?:TO|AS){SQL_NAME_SEP}({SQL_QUAL})", re.IGNORECASE
+)
+CONDITIONAL_CREATE = re.compile(
+    rf"(?<!{SQL_ID_CONT})IF{SQL_SP}NOT{SQL_SP}EXISTS(?!{SQL_ID_CONT})",
+    re.IGNORECASE,
+)
+
+
+def track_born(
+    born: set[tuple[str, str]],
+    conditional: set[tuple[str, str]],
+    statement: str,
+    *,
+    shadow_safe: bool = False,
+) -> tuple | None:
+    """Apply one statement's table-lifetime effect to the born sets.
+
+    Returns the event for classification: ("preexisting_drop", ref) when
+    the statement drops a table this migration did not create, or None.
+    A RENAME moves the born identity to the new name instead of leaving
+    a stale one behind. A conditional CREATE joins both sets: born, as
+    the repair-migration convention has always claimed, and conditional,
+    where the fold-declaration rule holds it to the stricter standard -
+    the column may land on the pre-existing table SQLite retained.
+    """
+    match = CREATE_TABLE.match(statement)
+    if match:
+        prefix = statement[: match.start(1)]
+        temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", prefix, re.IGNORECASE))
+        key = sql_table_key(match.group(1), temp)
+        born.add(key)
+        if CONDITIONAL_CREATE.search(prefix):
+            conditional.add(key)
+        return None
+    match = DROP_TABLE.match(statement)
+    if match:
+        retired = resolve_born(match.group(1), born)
+        if retired is None:
+            return ("preexisting_drop", match.group(1))
+        born.discard(retired)
+        conditional.discard(retired)
+        return None
+    match = ALTER.match(statement)
+    if match:
+        rename = RENAMES.match(match.group(2).strip(SQL_TRIM))
+        if rename:
+            retired = resolve_born(match.group(1), born)
+            if (
+                shadow_safe
+                and retired is not None
+                and retired[0] == "main"
+                and len(sql_parts(match.group(1))) < 2
+            ):
+                # An unqualified source resolves temp before main; a
+                # pre-existing temp shadow takes the rename, so the
+                # migration's own main identity does not move.
+                return None
+            if retired is not None:
+                moved = (retired[0], sql_table_key(rename.group(1))[1])
+                born.discard(retired)
+                born.add(moved)
+                if retired in conditional:
+                    conditional.discard(retired)
+                    conditional.add(moved)
+                return ("rename", match.group(1), rename.group(1))
+        return None
+    return None
 
 
 def classify(sql: str) -> list[str]:
@@ -98,86 +445,446 @@ def classify(sql: str) -> list[str]:
     A table created by this same migration is invisible to an older binary, so
     dropping it, indexing it, or putting a trigger on it breaks nothing.
     """
-    born: set[str] = set()
+    born: set[tuple[str, str]] = set()
+    scratch: set[tuple[str, str]] = set()
     reasons: list[str] = []
     for statement in statements(sql):
         if not statement:
             continue
-        match = CREATE_TABLE.match(statement)
-        if match:
-            born.add(match.group(1).lower())
+        event = track_born(born, scratch, statement)
+        if event and event[0] == "preexisting_drop":
+            reasons.append(f"drops the pre-existing table {event[1]}")
             continue
-        match = DROP_TABLE.match(statement)
-        if match:
-            if match.group(1).lower() not in born:
-                reasons.append(f"drops the pre-existing table {match.group(1)}")
+        if event is not None or CREATE_TABLE.match(statement) or DROP_TABLE.match(statement):
             continue
         match = DROP_INDEX.match(statement)
         if match:
             continue
         match = ALTER.match(statement)
         if match:
-            table, rest = match.group(1), match.group(2).strip()
-            if table.lower() in born:
+            table, rest = match.group(1), match.group(2).strip(SQL_TRIM)
+            if resolves_to_born(table, born):
                 continue
             if ADD_COLUMN.match(rest):
                 continue
-            reasons.append(f"alters the pre-existing table {table}: {rest.split()[0].upper()}")
+            reasons.append(f"alters the pre-existing table {table}: {first_sql_word(rest)}")
             continue
         match = INDEX_ON.match(statement)
         if match:
-            if match.group(1) and match.group(2).lower() not in born:
+            if match.group(1) and not resolves_to_born(match.group(2), born):
                 reasons.append(
                     f"adds a unique index to the pre-existing table {match.group(2)}"
                 )
             continue
         match = TRIGGER_ON.match(statement)
         if match:
-            if match.group(1).lower() not in born:
+            if not resolves_to_born(match.group(1), born):
                 reasons.append(
                     f"adds a trigger to the pre-existing table {match.group(1)}"
                 )
             continue
         if VIEW_OR_PRAGMA.match(statement) or WRITE.match(statement):
             continue
-        reasons.append(f"uses an unclassified statement: {statement.split()[0].upper()}")
+        reasons.append(f"uses an unclassified statement: {first_sql_word(statement)}")
     return reasons
 
 
-SQL_LITERAL = re.compile(r"\n\t\tSQL:\s+`([\s\S]*?)`,\n", re.MULTILINE)
+class Tok(NamedTuple):
+    kind: str  # ident, string, raw, rune, number, punct, newline
+    text: str
+    at: int  # offset of the token's first byte in the scanned source
 
 
-def migrations(source: str) -> list[tuple[int, str, str]]:
-    """Return each migration's version, its declaration block, and its SQL.
+GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+GO_NUMBER = re.compile(r"\d[\w.]*")
+# Integer literal forms of the Go spec: decimal, 0-leading octal, and the
+# 0x, 0o, and 0b prefixes, with underscores between digits. Anything else
+# a number token can carry (a float, an exponent) is not a version.
+GO_INT = re.compile(r"^(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|0[0-7_]*|[1-9][0-9_]*|0)$")
 
-    The declaration block carries the Breaking field. The SQL is the raw string
-    literal alone: the Go field lines around it are not statements, and feeding
-    them to the classifier would report every migration as unclassifiable.
+
+def go_int(text: str) -> int | None:
+    """Parse one Go integer literal, or None when the text is not one."""
+    if not GO_INT.match(text):
+        return None
+    digits = text.replace("_", "")
+    lowered = digits.lower()
+    if lowered.startswith("0x"):
+        return int(digits, 16)
+    if lowered.startswith("0b"):
+        return int(digits, 2)
+    if lowered.startswith("0o"):
+        return int(digits, 8)
+    if digits.startswith("0") and len(digits) > 1:
+        return int(digits, 8)
+    return int(digits, 10)
+
+
+def go_tokens(region: str) -> list[Tok]:
+    """Tokenize the region's Go code enough to find keyed struct fields.
+
+    Comments produce no tokens, string and raw literals are each one token,
+    and newlines survive as tokens. Field recognition therefore never
+    depends on how source is laid out on lines: text inside a literal or a
+    comment cannot pose as a field, a comment cannot hide one wherever it
+    sits, and two fields on one line are still two fields.
     """
-    start = source.index("var migrations = []migration{")
-    parts = ENTRY.split(source[start:])
-    out: list[tuple[int, str, str]] = []
-    for i in range(1, len(parts), 2):
-        version, entry = int(parts[i]), parts[i + 1]
-        literal = SQL_LITERAL.search(entry)
-        out.append((version, entry, literal.group(1) if literal else ""))
+    out: list[Tok] = []
+    i, n = 0, len(region)
+    while i < n:
+        ch = region[i]
+        if ch == "\n":
+            out.append(Tok("newline", "\n", i))
+            i += 1
+        elif ch in " \t\r":
+            i += 1
+        elif region.startswith("//", i):
+            end = region.find("\n", i)
+            i = n if end < 0 else end
+        elif region.startswith("/*", i):
+            end = region.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif ch == '"':
+            j = i + 1
+            while j < n and region[j] != '"':
+                j += 2 if region[j] == "\\" else 1
+            j = min(j, n - 1)
+            out.append(Tok("string", region[i : j + 1], i))
+            i = j + 1
+        elif ch == "`":
+            end = region.find("`", i + 1)
+            end = n - 1 if end < 0 else end
+            out.append(Tok("raw", region[i : end + 1], i))
+            i = end + 1
+        elif ch == "'":
+            j = i + 1
+            while j < n and region[j] != "'":
+                j += 2 if region[j] == "\\" else 1
+            j = min(j, n - 1)
+            out.append(Tok("rune", region[i : j + 1], i))
+            i = j + 1
+        else:
+            match = GO_IDENT.match(region, i)
+            kind = "ident"
+            if not match:
+                match = GO_NUMBER.match(region, i)
+                kind = "number"
+            if match:
+                out.append(Tok(kind, match.group(0), i))
+                i = match.end()
+            else:
+                out.append(Tok("punct", ch, i))
+                i += 1
     return out
 
 
-def main() -> int:
-    source = SCHEMA.read_text()
-    entries = migrations(source)
-    if not entries:
-        print("check-migration-compatibility: no migrations found", file=sys.stderr)
-        return 1
+def field_run(entry: str, name: str) -> list[Tok] | None:
+    """Return the value tokens of the entry's keyed field `name`.
 
+    None means the entry never declares the field at the migration
+    literal's own level: a field name inside a value, such as a local
+    struct or an Applies function body, sits at deeper bracket depth and
+    is part of that value, never a declaration. The run spans from after
+    the colon to the comma that closes the value at bracket depth zero,
+    so a function-valued field's internal commas stay inside it. A run
+    holding only a newline means the value starts on a later line than
+    its colon.
+    """
+    tokens = go_tokens(entry)
+    depth = 0
+    for i, tok in enumerate(tokens):
+        if tok.kind == "punct":
+            if tok.text in "([{":
+                depth += 1
+            elif tok.text in ")]}":
+                depth = max(0, depth - 1)
+            continue
+        if depth != 0 or tok.kind != "ident" or tok.text != name:
+            continue
+        if i + 1 >= len(tokens) or tokens[i + 1].text != ":":
+            continue
+        run: list[Tok] = []
+        value_depth = 0
+        for value in tokens[i + 2 :]:
+            if value.kind == "newline" and not run:
+                return [value]
+            if value.kind == "punct":
+                if value.text in "([{":
+                    value_depth += 1
+                elif value.text in ")]}":
+                    value_depth -= 1
+                elif value.text == "," and value_depth <= 0:
+                    break
+            run.append(value)
+        return run
+    return None
+
+
+def fold_maintained(entry: str) -> str:
+    """Return the entry's FoldMaintained declaration, or "" when the field
+    is absent.
+
+    The field is recognized as Go tokens, never as a text shape: comments
+    and literal contents cannot supply or hide it. Only a value that is
+    exactly one interpreted string literal unquotes; any other expression,
+    such as a raw string, a constant, or a concatenation, stays as unparsed
+    text and fails the vocabulary check, so a present field never reads as
+    an absent one. A value that starts on a later line returns
+    FOLD_VALUE_ELSEWHERE: the checker refuses the multiline form rather
+    than guess at it, so the declaration keeps its value on the field's
+    own line. The declaration is a signed human claim (see the migration
+    struct), so a genuinely missing field is an empty declaration rather
+    than a parse error.
+    """
+    run = field_run(entry, "FoldMaintained")
+    if run is None:
+        return ""
+    if not run or run[0].kind == "newline":
+        return FOLD_VALUE_ELSEWHERE
+    if len(run) == 1 and run[0].kind == "string":
+        return run[0].text[1:-1]
+    return " ".join(tok.text for tok in run)
+
+
+def declares_breaking(entry: str) -> bool:
+    """Return whether the entry declares Breaking as the literal true.
+
+    The same token recognition governs this field: a true inside a comment
+    or a literal is not a declaration, and any value other than the single
+    identifier true reads as undeclared, which fails closed.
+    """
+    run = field_run(entry, "Breaking")
+    return bool(run) and len(run) == 1 and run[0].kind == "ident" and run[0].text == "true"
+
+
+def adds_preexisting_column(sql: str) -> bool:
+    """Return whether any statement adds a column to a table the migration
+    did not create.
+
+    A FoldMaintained declaration describes exactly this shape: a column on a
+    table an older binary's fold generation already writes.
+    """
+    born: set[tuple[str, str]] = set()
+    conditional: set[tuple[str, str]] = set()
+    for statement in statements(sql):
+        track_born(born, conditional, statement, shadow_safe=True)
+        match = ALTER.match(statement)
+        if match:
+            ref = match.group(1)
+            key = resolve_born(ref, born)
+            # A qualified reference owns exactly its schema. An unqualified
+            # one resolves temp before main at runtime, so this migration's
+            # own main table does not own it: a pre-existing temp shadow
+            # takes the statement, and connection-local tables are invisible
+            # here. Only a temp-born name is provably owned unqualified.
+            provably_owned = key is not None and (
+                len(sql_parts(ref)) >= 2 or key[0] == "temp"
+            )
+            if provably_owned and key not in conditional:
+                continue
+            if ADD_COLUMN.match(match.group(2).strip(SQL_TRIM)):
+                return True
+    return False
+
+
+def sql_literal(entry: str) -> str:
+    """Return the SQL field's content, or "" when the field is absent.
+
+    The value comes from the token-recognized SQL field, so a commented or
+    nested lookalike cannot supply it; a field whose value is anything but
+    one raw string literal also reads as empty and sql_field_sound refuses
+    the entry separately. The content is the Go raw-string value: the
+    language discards carriage returns inside raw string literals, so the
+    checker discards them too and classifies the SQL that actually runs.
+    """
+    run = field_run(entry, "SQL")
+    if run and len(run) == 1 and run[0].kind == "raw":
+        return run[0].text[1:-1].replace("\r", "")
+    return ""
+
+
+def sql_field_sound(entry: str) -> bool:
+    """Return whether the SQL field is absent or exactly one raw literal."""
+    run = field_run(entry, "SQL")
+    return run is None or (len(run) == 1 and run[0].kind == "raw")
+
+
+def migrations_binding(tokens: list[Tok]) -> int:
+    """Return the index of the package-level migrations literal's opening
+    brace token.
+
+    The binding is the token sequence var migrations = []migration followed
+    by an opening brace, at package scope: bracket depth zero. A lookalike
+    sequence inside a comment, a literal, or a function body is never these
+    tokens at this scope and cannot redirect the walk to a decoy list.
+    """
+    keys = ("var", "migrations", "=", "[", "]", "migration")
+    depth = 0
+    for i, tok in enumerate(tokens):
+        if i + len(keys) < len(tokens):
+            window = tokens[i : i + len(keys)]
+            if (
+                depth == 0
+                and all(
+                    t.kind in ("ident", "punct") and t.text == key
+                    for t, key in zip(window, keys)
+                )
+                and tokens[i + len(keys)].kind == "punct"
+                and tokens[i + len(keys)].text == "{"
+            ):
+                return i + len(keys)
+        if tok.kind == "punct":
+            if tok.text in "([{":
+                depth += 1
+            elif tok.text in ")]}":
+                depth = max(0, depth - 1)
+    raise ValueError("no migrations binding in source")
+
+
+def brace_close(sig: list[Tok], open_at: int) -> int:
+    """Return the index of the bracket that closes sig[open_at], or -1."""
+    depth = 0
+    for i in range(open_at, len(sig)):
+        tok = sig[i]
+        if tok.kind == "punct" and tok.text in "([{":
+            depth += 1
+        elif tok.kind == "punct" and tok.text in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def migrations(source: str) -> list[tuple[int, str, str]]:
+    """Return each migration's version, its entry text, and its SQL.
+
+    A list element is one complete expression, split at top-level commas
+    over every bracket type. Only a migration composite literal is a
+    readable entry: the elided-type group, or the type name beside one
+    group that ends the element. A call, a selector, a method call on a
+    literal, or any other expression is refused whole, never mined for a
+    nested literal that is not the element itself. Classification reads
+    significant tokens, so a comment in the element changes nothing.
+
+    Field recognition inside an entry is the token walk in field_run: a
+    comment or a literal cannot supply or hide a field, and field order
+    does not affect recognition. The SQL is the token-recognized SQL
+    field's raw string content. An entry whose Version field is missing
+    or not one Go integer literal parses with version -1; evaluate
+    refuses it by name. A non-literal element parses with version -2.
+    """
+    tokens = go_tokens(source)
+    opener = migrations_binding(tokens)
+    out: list[tuple[int, str, str]] = []
+    depth = 1
+    element: list[Tok] = []
+
+    def flush() -> None:
+        nonlocal element
+        sig = [t for t in element if t.kind != "newline"]
+        element = []
+        if not sig:
+            return
+        open_at = 0
+        if (
+            sig[0].kind == "ident"
+            and sig[0].text == "migration"
+            and len(sig) > 1
+            and sig[1].text == "{"
+        ):
+            open_at = 1
+        if open_at == 1 or sig[0].text == "{":
+            close = brace_close(sig, open_at)
+            if close == len(sig) - 1:
+                entry = source[sig[open_at].at + 1 : sig[close].at]
+                version_run = field_run(entry, "Version")
+                version = -1
+                if (
+                    version_run
+                    and len(version_run) == 1
+                    and version_run[0].kind == "number"
+                ):
+                    version = go_int(version_run[0].text) or -1
+                out.append((version, entry, sql_literal(entry)))
+                return
+        end = sig[-1].at + len(sig[-1].text)
+        out.append((UNSUPPORTED_ELEMENT, source[sig[0].at : end], ""))
+
+    for tok in tokens[opener + 1 :]:
+        if tok.kind == "punct" and tok.text in ")]}":
+            depth -= 1
+            if depth == 0:
+                flush()
+                break
+        if tok.kind == "punct" and tok.text == "," and depth == 1:
+            flush()
+            continue
+        if tok.kind == "punct" and tok.text in "([{":
+            depth += 1
+        element.append(tok)
+    return out
+
+
+def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]:
+    """Compare every entry's declarations with what its SQL does.
+
+    Returns the refusal messages and the versions whose SQL, or whose advance
+    declaration, breaks an older binary. Migrations at or below RULE_FLOOR
+    predate the FoldMaintained field and are held to the statement rules
+    alone.
+    """
     failures: list[str] = []
     breaking_versions: list[int] = []
     for version, entry, sql in entries:
-        declared = bool(DECLARES_BREAKING.search(entry))
+        if version == UNSUPPORTED_ELEMENT:
+            label = " ".join(entry.split())[:60]
+            failures.append(
+                f"migration list element {label} is not a composite literal; "
+                "the checker refuses to evaluate it"
+            )
+            continue
+        if version < 0:
+            name_run = field_run(entry, "Name")
+            label = "<unnamed>"
+            if name_run and len(name_run) == 1 and name_run[0].kind in ("string", "raw"):
+                label = name_run[0].text[1:-1]
+            failures.append(
+                f"migration entry {label} carries no readable Version field; "
+                "the checker refuses to evaluate it"
+            )
+            continue
+        declared = declares_breaking(entry)
+        fold = fold_maintained(entry)
+        if not sql_field_sound(entry):
+            failures.append(
+                f"migration {version} carries an SQL field that is not one raw "
+                "string literal; the checker refuses to read it"
+            )
         reasons = classify(sql)
-        if reasons:
-            breaking_versions.append(version)
+        if version > RULE_FLOOR:
+            adds_column = adds_preexisting_column(sql)
+            if adds_column and not fold:
+                failures.append(
+                    f"migration {version} adds a column to a pre-existing table "
+                    'without a FoldMaintained declaration; declare "advance" '
+                    'with Breaking: true, declare "origin", or qualify the '
+                    "reference with its schema so the migration owns it"
+                )
+            if fold and not adds_column:
+                failures.append(
+                    f'migration {version} declares FoldMaintained "{fold}", but '
+                    "adds no column to a pre-existing table; remove the declaration"
+                )
+            if fold and fold not in FOLD_VOCABULARY:
+                failures.append(
+                    f'migration {version} declares FoldMaintained "{fold}"; the '
+                    'vocabulary is "advance" or "origin"'
+                )
+            if fold == "advance":
+                reasons.append(
+                    "advances a fold-maintained column, which a rolling upgrade "
+                    "leaves unconverged (CD-0111 D3)"
+                )
         if reasons and not declared:
             failures.append(
                 f"migration {version} must declare Breaking: true; it "
@@ -189,7 +896,24 @@ def main() -> int:
                 "only creates a schema object or adds a column; remove the "
                 "declaration or state why the classification is wrong"
             )
+        if reasons:
+            breaking_versions.append(version)
+    return failures, breaking_versions
 
+
+def main() -> int:
+    # newline="" keeps the file's own characters: Go raw-string semantics
+    # discard carriage returns at value derivation (see sql_literal), and
+    # universal-newline translation would erase the evidence first.
+    with open(SCHEMA, encoding="utf-8", newline="") as handle:
+        source = handle.read()
+    entries = migrations(source)
+    if not entries:
+        print("check-migration-compatibility: no migrations found", file=sys.stderr)
+        return 1
+
+    eval_failures, breaking_versions = evaluate(entries)
+    failures = list(eval_failures)
     for failure in failures:
         print(f"check-migration-compatibility: {failure}", file=sys.stderr)
     if failures:
@@ -201,7 +925,6 @@ def main() -> int:
         f"{len(breaking_versions)} breaking, compatibility floor {floor}"
     )
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,7 +1,7 @@
 import { createHash, sign as signBytes } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { agentLanePacketSchema, agentLaneReportSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
+import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
@@ -21,7 +21,10 @@ export const MAX_READBACK_MESSAGE_PAGES = 16
 const MAX_ERROR_BYTES = 8_192
 const MAX_CLI_INPUT_BYTES = 65_536
 // worker.failed detail is bounded at 1..4096 by validateWorkerFailedPayload in
-// internal/store/worker_lanes.go; a longer detail would be refused at the fold.
+// internal/store/worker_lanes.go, counted in UTF-8 bytes; a longer detail
+// would be refused at the fold. Every site that fills this bound routes
+// through boundedTextPrefix, so the bytes the store counts are the bytes the
+// adapter bounded, never a UTF-16 code-unit count.
 const MAX_FAILURE_DETAIL_BYTES = 4_096
 // A refused readback retains diagnostics on the recorded failed attempt: a
 // prefix of the received export body, what ran, how the child ended, and a
@@ -122,15 +125,41 @@ export interface AgentLaneReportBaseComparison {
   checks: AgentLaneReportBaseComparisonCheck[]
 }
 
+// AgentLaneReportReviewFinding is one typed review finding as the schema
+// closes it (CD-0197): a severity from the P0-P3 scale, a confidence from the
+// closed low/medium/high scale, and the bounded detail.
+export interface AgentLaneReportReviewFinding {
+  severity: "P0" | "P1" | "P2" | "P3"
+  confidence: "low" | "medium" | "high"
+  detail: string
+}
+
+// AgentLaneReportReview mirrors the optional top-level review object of
+// contracts/agent-lane-report.schema.json: the lane's explicit verdict and
+// its findings. The verdict is report content only (CD-0197): it maps to no
+// workflow field and records no transition.
+export interface AgentLaneReportReview {
+  verdict: "ship" | "no_ship"
+  findings: AgentLaneReportReviewFinding[]
+}
+
 export interface AgentLaneReport {
   schema_version: AgentLaneReportSchemaVersion
   readback_model: string
   status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
   base_comparison?: AgentLaneReportBaseComparison
+  review?: AgentLaneReportReview
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
+
+// AgentResultReviewSummary is the attempt readback's typed view of a review
+// report: the verdict and one count per severity of the closed P0-P3 scale.
+export interface AgentResultReviewSummary {
+  verdict: AgentLaneReportReview["verdict"]
+  findings: Record<AgentLaneReportReviewFinding["severity"], number>
+}
 
 export interface SessionMetadata {
   readback_model: string
@@ -245,6 +274,11 @@ export interface AgentResultEnvelope {
   // results of its verification commands. It rides the attempt readback when
   // present and drives nothing (CD-0043 D1).
   base_comparison?: AgentLaneReportBaseComparison
+  // The typed review summary a completed review report carried (CD-0197):
+  // the verdict and the per-severity finding counts, read back so the
+  // coordinator sees them as typed fields without re-deriving them from the
+  // worker output. It records no workflow verdict.
+  review?: AgentResultReviewSummary
   // The entry-level predicate tie from the completed report's admitted
   // evidence: which obligation discharged which declared predicate ids, read
   // back so the coordinator sees the tie the fold enforces without
@@ -883,11 +917,28 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     if (assigned === null || !declared.has(assigned)) {
       return { detail: `the ${lane.id} lane carries no dischargeable assigned result in the worker-scope contract, so no completed report can claim one` }
     }
+    // CD-0197 D2: a completed report that carries the typed review block
+    // discharges the severity obligation through the block, so severity has
+    // one source: the block covers a declared severity obligation and a
+    // free-text severity entry beside it is refused.
+    if (admitted.review && declared.has("severity")) {
+      if (reported.has("severity")) {
+        return { detail: "worker report carries a free-text severity entry beside the typed review block that discharges severity" }
+      }
+      reported.add("severity")
+    }
     const missing = [...declared].filter((obligation) => !reported.has(obligation))
     if (missing.length > 0) {
       return missing.includes(assigned)
         ? { detail: `worker report completes no assigned result: the ${lane.id} lane report leaves its assigned result ${assigned} undischarged; every other required result stays with the parent workflow` }
         : { detail: `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}` }
+    }
+    // CD-0197: a lane whose contract requires the typed review block refuses
+    // a completed report without it. The store fold enforces the same
+    // requirement against the stored attempt, so the adapter refusal only
+    // keeps the typed failure at the boundary that saw the worker's output.
+    if (laneRequiresReportBlock(lane, "review") && !admitted.review) {
+      return { detail: `worker report completes without the typed review block the ${lane.id} lane requires` }
     }
   }
   return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
@@ -910,16 +961,29 @@ export function resolveWorkerReportFromText(text: string, packet: AgentLanePacke
 // reclassified as an invalid report.
 function workerReportedFailureDetail(report: AgentLaneReport): string {
   const rendered = report.evidence.map((entry) => `${entry.obligation}: ${entry.detail}`).join("; ")
-  return `worker reported failure: ${rendered}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+  return boundedTextPrefix(`worker reported failure: ${rendered}`, MAX_FAILURE_DETAIL_BYTES)
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
-  return agentLanes.find((lane) => lane.id === packet.lane_id && lane.version === packet.lane_version && lane.digest === packet.lane_digest) ?? null
+  return laneForIdentity(packet.lane_id, packet.lane_version, packet.lane_digest)
+}
+
+// laneRequiresReportBlock reports whether the lane's contract names the
+// report block among its required top-level report blocks (CD-0197). Every
+// generated lane carries the property, so the access needs no narrowing; the
+// view widens the literal tuple union to readonly string[] for the includes
+// call.
+function laneRequiresReportBlock(lane: AgentLane, block: "review"): boolean {
+  return (lane.required_report_blocks as readonly string[]).includes(block)
 }
 
 function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
   const id = lane?.id ?? String(packet.lane_id ?? "")
-  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: lane?.digest ?? String(packet.lane_digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
+  // The envelope publishes the digest the dispatch authorized, not the
+  // resolved current definition: a legacy-digest packet keeps its identity in
+  // the coordinator-facing summary (CD-0017 D5), exactly as the signed
+  // assertions below already do.
+  return { schema_version: "1.0", outcome, lane: { id, version: lane?.version ?? Number(packet.lane_version ?? 0), digest: String(packet.lane_digest ?? lane?.digest ?? "") }, agent: lane ? `concord-${lane.id}` : `concord-${id}`, readback_model: null, session_id: null }
 }
 
 function errorEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details"> = {}): AgentResultEnvelope {
@@ -1070,13 +1134,13 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
-  const detail = readbackFailureDetail(refusal, workerResult).slice(0, MAX_FAILURE_DETAIL_BYTES)
+  const detail = boundedTextPrefix(readbackFailureDetail(refusal, workerResult), MAX_FAILURE_DETAIL_BYTES)
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
   let assertion: Record<string, unknown>
   try {
     assertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch", work_id: packet.work_id, attempt_id: packet.attempt_id,
-      lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+      lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
       readback_model: "", failure_kind: failureKind, host_provenance_digest: provenance.digest, packet_digest: options.packetDigest,
     })
   } catch (error) {
@@ -1084,7 +1148,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
-    lane_id: lane.id, lane_version: lane.version, lane_digest: lane.digest,
+    lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
     readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
@@ -1635,7 +1699,7 @@ export async function abandonWorkerAttempt(
     event_id: options.abandonEventID ?? crypto.randomUUID(),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
-    detail: detail.slice(0, MAX_FAILURE_DETAIL_BYTES),
+    detail: boundedTextPrefix(detail, MAX_FAILURE_DETAIL_BYTES),
     assertion,
   }, signal)
   if (failure) return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because abandonment could not be recorded: ${failure}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
@@ -1752,6 +1816,15 @@ async function completeWorkerSession(
       .flatMap((entry) => (entry.predicate_ids ?? []).length > 0 ? [{ predicate_ids: entry.predicate_ids as string[], obligation: entry.obligation }] : [])
     if (discharge.length > 0) envelope.predicate_discharge = discharge
   }
+  // The typed review summary rides the attempt readback when the completed
+  // report carried the block: the verdict and the per-severity counts, read
+  // from the admitted report and attached after the output bound like the
+  // comparison above, so its bytes are not counted twice.
+  if (!("detail" in resolution) && resolution.report.status === "completed" && resolution.report.review) {
+    const counts: AgentResultReviewSummary["findings"] = { P0: 0, P1: 0, P2: 0, P3: 0 }
+    for (const finding of resolution.report.review.findings) counts[finding.severity] += 1
+    envelope.review = { verdict: resolution.report.review.verdict, findings: counts }
+  }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event
@@ -1770,9 +1843,9 @@ async function completeWorkerSession(
 
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined
-      ? { verb: "worker-fail", failure_kind: "worker_error", detail: hostFailure.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES) }
       : "detail" in resolution
-      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: resolution.detail.slice(0, MAX_FAILURE_DETAIL_BYTES) }
+      ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES) }
       : resolution.report.status === "failed"
         ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
         : { verb: "worker-complete", report: resolution.report }
@@ -1789,13 +1862,17 @@ async function completeWorkerSession(
   }
   let dispatchAssertion: Record<string, unknown>
   try {
+    // The evidence binds the digest the core authorized in the packet, never
+    // the resolved current definition: a legacy-digest dispatch keeps its
+    // dispatched-contract identity (CD-0017 D5), and the CLI compares terminal
+    // assertions against the stored attempt row's lane digest.
     dispatchAssertion = await signWorkerEvidence(credentials, {
       verb: "worker-dispatch",
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       lane_id: lane.id,
       lane_version: lane.version,
-      lane_digest: lane.digest,
+      lane_digest: packet.lane_digest,
       readback_model: readback.readback_model,
       host_provenance_digest: provenance.digest,
       packet_digest: options.packetDigest,
@@ -1811,7 +1888,7 @@ async function completeWorkerSession(
     attempt_id: packet.attempt_id,
     lane_id: lane.id,
     lane_version: lane.version,
-    lane_digest: lane.digest,
+    lane_digest: packet.lane_digest,
     readback_model: readback.readback_model,
     packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION,
@@ -1838,7 +1915,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
       })
       // Both terminal verbs bind lane identity: the CLI enriches lane_id,
@@ -1855,7 +1932,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: terminal.failure_kind,
       })
@@ -1894,6 +1971,7 @@ async function completeWorkerSession(
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
     base_comparison: terminal.report.base_comparison,
+    review: terminal.report.review,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)
@@ -1904,7 +1982,7 @@ async function completeWorkerSession(
     // close while the lane runs inside the live coordinator process. The
     // failed attempt lets the coordinator record_worker_failure and request
     // an operator-approved retry.
-    const detail = `worker-complete refused: ${completionFailure}`.slice(0, MAX_FAILURE_DETAIL_BYTES)
+    const detail = boundedTextPrefix(`worker-complete refused: ${completionFailure}`, MAX_FAILURE_DETAIL_BYTES)
     let closeAssertion: Record<string, unknown>
     try {
       closeAssertion = await signWorkerEvidence(credentials, {
@@ -1913,7 +1991,7 @@ async function completeWorkerSession(
         attempt_id: packet.attempt_id,
         lane_id: lane.id,
         lane_version: lane.version,
-        lane_digest: lane.digest,
+        lane_digest: packet.lane_digest,
         readback_model: readback.readback_model,
         failure_kind: "invalid_report",
       })

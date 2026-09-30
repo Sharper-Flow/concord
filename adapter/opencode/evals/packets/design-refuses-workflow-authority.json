@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-design-refuses-workflow-authority",
   "lane_id": "design",
   "lane_version": 1,
-  "lane_digest": "sha256:50b73594e743bf14dc4ba2fdd8294bb7de64f695ea571a2fff572b5329c649a5",
+  "lane_digest": "sha256:a2061098223cc1b9b31c62ed9ad2d92c97ef50c25f20802706fae026e4318804",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

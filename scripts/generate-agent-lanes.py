@@ -41,6 +41,24 @@ def lane_digest(lane: dict) -> str:
     return digest(body)
 
 
+# The typed report block each lane name carries, and the declared evidence
+# obligation it discharges. Mirrors the structural rule in
+# internal/store/worker_lanes.go verifyWorkerEvidenceCoverage: a completion
+# that carries the block covers the declared obligation through the block, and
+# a free-text evidence entry beside the block is refused.
+BLOCK_DISCHARGED_OBLIGATIONS: dict[str, str] = {"review": "severity"}
+
+
+def discharged_obligations(lane: dict) -> list[str]:
+    declared = set(lane.get("evidence_obligations", []))
+    discharged = [
+        BLOCK_DISCHARGED_OBLIGATIONS[block]
+        for block in lane.get("required_report_blocks", [])
+        if block in BLOCK_DISCHARGED_OBLIGATIONS and BLOCK_DISCHARGED_OBLIGATIONS[block] in declared
+    ]
+    return discharged
+
+
 def load_manifest() -> tuple[dict, str]:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
@@ -59,6 +77,19 @@ def load_manifest() -> tuple[dict, str]:
         if "digest" in lane:
             raise ValueError("lane digest is generated, not authored")
         lane["digest"] = lane_digest(lane)
+    # The legacy digest set (CD-0197 D5) is registry contract: one declared
+    # owner in the manifest, projected into both generated layers. Every key
+    # must name a registered lane identity, and no entry may carry the
+    # identity's current digest.
+    legacy = manifest.get("legacy_lane_digests")
+    if not isinstance(legacy, dict):
+        raise ValueError("manifest must declare legacy_lane_digests: the pre-policy digests each lane identity still resolves")
+    identities = {f"{lane['id']}:{lane['version']}": lane["digest"] for lane in manifest["lanes"]}
+    for key, digests in legacy.items():
+        if key not in identities:
+            raise ValueError(f"legacy_lane_digests names unregistered lane identity {key!r}")
+        if identities[key] in digests:
+            raise ValueError(f"legacy_lane_digests for {key!r} carries the lane's current digest")
     return manifest, manifest_digest
 
 
@@ -112,7 +143,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     base_comparison = properties["base_comparison"]
     base_checks = base_comparison["properties"]["checks"]
     base_check = report_schema["$defs"]["base_comparison_check"]
-    return [
+    review = report_schema["$defs"][properties["review"]["$ref"].removeprefix("#/$defs/")]
+    review_block = review
+    review_findings = review["properties"]["findings"]
+    review_finding = report_schema["$defs"]["review_finding"]
+    constraints = [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
@@ -173,7 +208,35 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxLength={base_check['properties']['command']['maxLength']}.",
         "base_comparison_check.branch_result and base_comparison_check.base_result: "
         f"enum={json.dumps(base_check['properties']['branch_result']['enum'], ensure_ascii=False)}.",
+        "review: "
+        "optional top-level object; "
+        f"type={review['type']}, "
+        f"additionalProperties={json.dumps(review['additionalProperties'])}, "
+        f"required={json.dumps(review['required'], ensure_ascii=False)}.",
+        "review.verdict: "
+        f"enum={json.dumps(review_block['properties']['verdict']['enum'], ensure_ascii=False)}.",
+        "review.findings: "
+        f"type={review_findings['type']}, "
+        f"minItems={review_findings['minItems']}, "
+        f"maxItems={review_findings['maxItems']}, "
+        f"items={json.dumps(review_findings['items'], ensure_ascii=False)}.",
+        "review_finding shape: "
+        f"type={review_finding['type']}, "
+        f"additionalProperties={json.dumps(review_finding['additionalProperties'])}, "
+        f"required={json.dumps(review_finding['required'], ensure_ascii=False)}.",
+        "review_finding.severity: "
+        f"enum={json.dumps(review_finding['properties']['severity']['enum'], ensure_ascii=False)}.",
+        "review_finding.confidence: "
+        f"enum={json.dumps(review_finding['properties']['confidence']['enum'], ensure_ascii=False)}.",
+        "review_finding.detail: "
+        f"type={review_finding['properties']['detail']['type']}, "
+        f"minLength={review_finding['properties']['detail']['minLength']}, "
+        f"maxLength={review_finding['properties']['detail']['maxLength']}.",
+        "review verdict consistency: "
+        "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
+        "and one with a `no_ship` verdict and zero findings.",
     ]
+    return constraints
 
 
 def go_projection(manifest: dict, manifest_digest: str) -> str:
@@ -193,9 +256,24 @@ def go_projection(manifest: dict, manifest_digest: str) -> str:
             f"\t\tPurpose: {go_string(lane['purpose'])}, CapabilityClass: {go_string(lane['capability_class'])},",
             f"\t\tCapabilities: {go_slice(lane['capabilities'])}, PacketSchemaRef: {go_string(lane['packet_schema_ref'])}, ReportSchemaRef: {go_string(lane['report_schema_ref'])},",
             f"\t\tBudgets:             LaneBudgets{{CostUSDMax: {b['cost_usd_max']}, ContextTokensMax: {b['context_tokens_max']}, TimeSecondsMax: {b['time_seconds_max']}}},",
-            f"\t\tEvidenceObligations: {go_slice(lane['evidence_obligations'])}, LifecycleStates: {go_slice(lane['lifecycle_states'])},",
+            f"\t\tEvidenceObligations: {go_slice(lane['evidence_obligations'])}, RequiredReportBlocks: {go_slice(lane.get('required_report_blocks', []))},",
+            f"\t\tLifecycleStates: {go_slice(lane['lifecycle_states'])},",
             "\t},",
         ])
+    lines.extend(["}", ""])
+    lines.extend([
+        "// generatedLegacyLaneDigests records, per lane identity, every digest an",
+        "// earlier registry generation gave that lane. A persisted worker packet may",
+        "// pin one of them, and it resolves to the current definition (CD-0197 D5).",
+        "var generatedLegacyLaneDigests = map[string][]string{",
+    ])
+    # gofmt aligns map values to the longest key, so the projection pads the
+    # same way and the generated file is gofmt-stable as emitted.
+    legacy = manifest["legacy_lane_digests"]
+    width = max((len(go_string(key)) for key in legacy), default=0)
+    for key, digests in legacy.items():
+        pad = " " * (width - len(go_string(key)) + 1)
+        lines.append(f"\t{go_string(key)}:{pad}{go_slice(list(digests))},")
     lines.extend(["}", ""])
     return "\n".join(lines)
 
@@ -209,17 +287,31 @@ export const agentUtilities = %s as const;
 export const agentLanePacketSchema = %s as const;
 export const agentLaneReportSchema = %s as const;
 export const workerScopeAssignments = %s as const;
+export const laneLegacyDigests = %s as const;
 export type AgentLane = (typeof agentLanes)[number];
 export type AgentUtility = (typeof agentUtilities)[number];
 // workerScopeAssignedResult returns the one evidence obligation whose
 // discharge completes a lane's worker attempt, or null when the lane carries
 // no assignment. The dispatch packet embeds it and the report admission
-// requires it, so a worker attempt completes only its assigned result and the
-// parent workflow keeps every other required result explicit.
+// requires it, so a worker attempt can complete only its assigned result and
+// the parent workflow keeps every other required result explicit.
 export function workerScopeAssignedResult(laneId: string): string | null {
   return (workerScopeAssignments as Record<string, string>)[laneId] ?? null;
 }
-""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments)
+// laneForIdentity resolves a dispatched packet's lane identity to its
+// registered definition. The current digest and every legacy digest the
+// registry declared for the identity (CD-0197 D5) resolve; anything else is
+// unregistered. A legacy digest resolves to the current definition, so a
+// completion under it answers to the requirement the current contract
+// carries — the same rule the store's registry Lookup applies.
+export function laneForIdentity(laneId: string, laneVersion: number, laneDigest: string): AgentLane | null {
+  const lane = agentLanes.find((candidate) => candidate.id === laneId && candidate.version === laneVersion);
+  if (!lane) return null;
+  if (lane.digest === laneDigest) return lane;
+  const legacy = (laneLegacyDigests as Record<string, readonly string[]>)[`${laneId}:${laneVersion}`];
+  return legacy?.includes(laneDigest) ? lane : null;
+}
+""" % (json.dumps(manifest_digest), json.dumps(manifest["lanes"], ensure_ascii=False, indent=2), json.dumps(manifest["utilities"], ensure_ascii=False, indent=2), json.dumps(packet_schema, ensure_ascii=False, separators=(",", ":")), json.dumps(report_schema, ensure_ascii=False, separators=(",", ":")), assignments, json.dumps(manifest["legacy_lane_digests"], ensure_ascii=False, indent=2))
 
 
 def packet_refusal_instructions() -> str:
@@ -345,13 +437,49 @@ def agent_projection(lane: dict, report_schema: dict) -> str:
         if edits_scoped_files(lane)
         else "Does not edit repository source."
     )
-    evidence = ", ".join(f"`{item}`" for item in lane["evidence_obligations"])
+    discharged = discharged_obligations(lane)
+    discharged_set = set(discharged)
+    entry_obligations = [item for item in lane["evidence_obligations"] if item not in discharged_set]
+    evidence = ", ".join(f"`{item}`" for item in entry_obligations)
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
     report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
+    if discharged:
+        obligation_rule = (
+            "A successful report must carry at least one entry for every obligation below "
+            "that the typed block does not discharge, and may name no other obligation."
+        )
+    else:
+        obligation_rule = (
+            "A successful report must carry at least one entry for every obligation below, "
+            "and may name no other obligation."
+        )
+    required_blocks = lane.get("required_report_blocks", [])
+    if required_blocks:
+        blocks = ", ".join(f"`{block}`" for block in required_blocks)
+        if discharged:
+            names = ", ".join(f"`{item}`" for item in discharged)
+            discharge_rule = (
+                f" For this lane the typed block discharges the {names} evidence "
+                f"obligation, so a completed report carries no free-text {names} entry "
+                "beside the block: such an entry is refused. The remaining obligations "
+                "stay as stated."
+            )
+        else:
+            discharge_rule = ""
+        block_rule = (
+            f"## Required report blocks\n\n"
+            f"This lane's completed report must carry the typed {blocks} block: an explicit "
+            f"`ship` or `no_ship` verdict and every finding with its severity and confidence."
+            f"{discharge_rule} The verdict is report content only: it maps to no workflow "
+            f"field and records no transition, and the coordinator records the workflow "
+            f"verdict through the core.\n\n"
+        )
+    else:
+        block_rule = ""
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
 mode: all
@@ -390,7 +518,7 @@ the `provider/model` identifier you are running as, and `status` to one of {repo
 Report contract constraints:
 {report_constraints}
 
-A successful report must carry at least one entry for every obligation below, and may name no other obligation.
+{block_rule}{obligation_rule}
 
 One obligation may span several entries. Where your content for an obligation
 exceeds the {detail_max}-character `detail` cap, continue it in further entries naming
@@ -627,6 +755,20 @@ def docs_projection(manifest: dict, manifest_digest: str) -> str:
     lines = ["# Concord agent lane registry", "", "<!-- Code generated by scripts/generate-agent-lanes.py; DO NOT EDIT. -->", "", f"Registry digest: `{manifest_digest}`", "", "| Lane | Capability class | Packet | Report |", "|---|---|---|---|"]
     for lane in manifest["lanes"]:
         lines.append(f"| `{lane['id']}` v{lane['version']} | `{lane['capability_class']}` | `{lane['packet_schema_ref']}` | `{lane['report_schema_ref']}` |")
+    block_lanes = [lane for lane in manifest["lanes"] if lane.get("required_report_blocks")]
+    if block_lanes:
+        lines.extend(["", "## Required report blocks", "", "A live completion for a lane that requires a typed report block is refused without it.", "", "| Lane | Required blocks |", "|---|---|"])
+        for lane in block_lanes:
+            blocks = ", ".join(f"`{block}`" for block in lane["required_report_blocks"])
+            lines.append(f"| `{lane['id']}` v{lane['version']} | {blocks} |")
+        for lane in block_lanes:
+            for obligation in discharged_obligations(lane):
+                lines.extend([
+                    "",
+                    f"For the `{lane['id']}` lane the typed block discharges the `{obligation}` evidence",
+                    f"obligation: a completed `{lane['id']}` report carries no free-text `{obligation}` entry",
+                    "beside the block.",
+                ])
     lines.extend(["", "## Utilities", "", "| Utility | Tools | Commands | Wall-time cap |", "|---|---|---|---|"])
     for utility in manifest["utilities"]:
         tools = ", ".join(f"`{tool}`" for tool in utility["allowed_tools"])

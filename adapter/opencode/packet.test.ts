@@ -165,7 +165,7 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.step_id).toBe("step-1")
   expect(packet.lane_id).toBe("implement")
   expect(packet.lane_version).toBe(1)
-  expect(packet.lane_digest).toBe("sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc")
+  expect(packet.lane_digest).toBe("sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa")
   expect(packet.inputs.task).toContain(WORKFLOW_STEP)
   expect(packet.inputs.task).not.toContain(OUTCOME_KIND)
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
@@ -667,7 +667,7 @@ test("the serialized typed predicate bound stays fail-closed at the capacity the
 test("the closed packet schema enforces the strict per-kind outcome payload field sets", () => {
   const packet = (predicate: Record<string, unknown>) => ({
     schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
-    lane_digest: "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
+    lane_digest: "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa",
     work_id: WORK_ID, step_id: "step-1",
     inputs: { task: "t", outcome_predicates: [predicate] },
   })

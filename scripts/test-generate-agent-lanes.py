@@ -401,14 +401,32 @@ class EvalPacketProjectionTests(unittest.TestCase):
 
 
 class WorkerScopeProjectionTests(unittest.TestCase):
-    # The projection fixture carries only the fields worker_scope_assignments
-    # reads, so the test states the resolution rule rather than the registry.
+    # Each fixture carries only the fields the surface under test reads, so
+    # the tests state the resolution and projection rules rather than the
+    # registry. FULL_LANES exists for go_projection, which formats complete
+    # lane definitions.
     MANIFEST = {
         "lanes": [
             {"id": "research", "evidence_obligations": ["source_citations", "bounded_findings"]},
             {"id": "implement", "evidence_obligations": ["files_touched"]},
         ]
     }
+    LEGACY = {
+        "research:1": ["sha256:" + "b" * 64],
+        "implement:1": ["sha256:" + "c" * 64],
+    }
+    FULL_LANES = [
+        {
+            "id": "research", "version": 1, "digest": "sha256:" + "a" * 64,
+            "purpose": "p", "capability_class": "read_only", "capabilities": ["product_read"],
+            "packet_schema_ref": "contracts/agent-lane-packet.schema.json",
+            "report_schema_ref": "contracts/agent-lane-report.schema.json",
+            "budgets": {"cost_usd_max": 1, "context_tokens_max": 1, "time_seconds_max": 1},
+            "evidence_obligations": ["source_citations", "bounded_findings"],
+            "required_report_blocks": [],
+            "lifecycle_states": ["dispatched", "completed", "failed"],
+        },
+    ]
 
     @staticmethod
     def contract(*entries):
@@ -442,7 +460,7 @@ class WorkerScopeProjectionTests(unittest.TestCase):
 
     def test_ts_projection_emits_the_assigned_result_surface(self):
         projection = generator.ts_projection(
-            {"lanes": self.MANIFEST["lanes"], "utilities": []},
+            {"lanes": self.MANIFEST["lanes"], "utilities": [], "legacy_lane_digests": self.LEGACY},
             "sha256:" + "0" * 64,
             {},
             {},
@@ -451,6 +469,20 @@ class WorkerScopeProjectionTests(unittest.TestCase):
         self.assertIn('"research": "bounded_findings"', projection)
         self.assertIn('"implement": "files_touched"', projection)
         self.assertIn("export function workerScopeAssignedResult", projection)
+
+    def test_projections_carry_the_legacy_lane_digest_set(self):
+        # The legacy digest set (CD-0197 D5) is registry contract: both
+        # generated layers must project it, so a persisted packet pinned to a
+        # pre-policy digest resolves in the store and the adapter alike.
+        manifest = {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY}
+        digest = "sha256:" + "0" * 64
+        go = generator.go_projection(manifest, digest)
+        ts = generator.ts_projection(manifest, digest, {}, {}, {"research": "bounded_findings"})
+        for projection in (go, ts):
+            self.assertIn('"research:1"', projection)
+            self.assertIn('"sha256:' + "b" * 64 + '"', projection)
+            self.assertIn('"implement:1"', projection)
+            self.assertIn('"sha256:' + "c" * 64 + '"', projection)
 
 
 if __name__ == "__main__":

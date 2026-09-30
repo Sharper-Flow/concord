@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-implement-bounded-task",
   "lane_id": "implement",
   "lane_version": 1,
-  "lane_digest": "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
+  "lane_digest": "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

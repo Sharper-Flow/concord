@@ -20,7 +20,11 @@ type LaneDefinition struct {
 	ReportSchemaRef     string
 	Budgets             LaneBudgets
 	EvidenceObligations []string
-	LifecycleStates     []string
+	// RequiredReportBlocks names the agent-lane-report.v1 top-level blocks a
+	// completed report from this lane must carry (CD-0197). It is part of the
+	// lane digest, so a dispatch pins the requirement its worker ran under.
+	RequiredReportBlocks []string
+	LifecycleStates      []string
 }
 
 type LaneBudgets struct {
@@ -38,13 +42,19 @@ var laneIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,31}$`)
 var laneRefPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,127}$`)
 var laneDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-// Persisted worker events may carry the pre-policy lane digest. Those digests
-// remain valid only for the matching lane identity and current definition.
-var legacyLaneDigests = map[string]string{
-	laneKey("research", 1):  "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb",
-	laneKey("implement", 1): "sha256:84f204c2145897411b16e16f5d6d099ee792213042aecb01f59059090636de85",
-	laneKey("review", 1):    "sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56",
-	laneKey("verify", 1):    "sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c",
+// isLegacyLaneDigest reports whether digest is a recorded pre-policy digest
+// for the lane identity key. The set is generated into
+// generated_agent_lanes.go from the manifest's legacy_lane_digests
+// declaration: each lane keeps every digest an earlier registry generation
+// gave it, and a persisted worker packet pinned to one still resolves to the
+// current definition (CD-0197 D5).
+func isLegacyLaneDigest(key, digest string) bool {
+	for _, legacy := range generatedLegacyLaneDigests[key] {
+		if legacy == digest {
+			return true
+		}
+	}
+	return false
 }
 
 func laneKey(id string, version int64) string { return fmt.Sprintf("%s:%d", id, version) }
@@ -85,6 +95,19 @@ func ValidLaneEvidenceObligation(value string) bool {
 	return ok
 }
 
+// laneReportBlockVocabulary is the closed vocabulary of agent-lane-report.v1
+// top-level blocks a lane may require (CD-0197). The manifest declares the
+// requirement per lane, the lane digest pins it, and the fold holds a live
+// completion to it, so a report that skips a required block is not a
+// completion.
+var laneReportBlockVocabulary = map[string]bool{
+	"review": true,
+}
+
+func ValidLaneReportBlock(value string) bool {
+	return laneReportBlockVocabulary[value]
+}
+
 // NewBuiltinLaneRegistry validates and loads only generated definitions.
 func NewBuiltinLaneRegistry() LaneRegistry {
 	entries := make(map[string]LaneDefinition, len(generatedLaneDefinitions))
@@ -115,7 +138,7 @@ func (r LaneRegistry) Lookup(id string, version int64, digest string) (LaneDefin
 	if !ok {
 		return LaneDefinition{}, newFailure(KindLaneDefinitionNotRegistered, "lane_registry", "lane identity is not registered", false, "select a registered lane identity")
 	}
-	if (definition.Digest != digest && legacyLaneDigests[laneKey(id, version)] != digest) || !laneDigestPattern.MatchString(digest) {
+	if (definition.Digest != digest && !isLegacyLaneDigest(laneKey(id, version), digest)) || !laneDigestPattern.MatchString(digest) {
 		return LaneDefinition{}, newFailure(KindLaneDefinitionDigestMismatch, "lane_registry", "lane contract digest does not match the registered definition", false, "reread the lane registry and retry with its digest")
 	}
 	return cloneLaneDefinition(definition), nil
@@ -146,6 +169,14 @@ func ValidateLaneDefinition(definition LaneDefinition) error {
 			return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane declares an evidence obligation outside the agent-lane-report.v1 obligation vocabulary", false, "declare obligations from the closed evidence obligation contract")
 		}
 	}
+	if len(definition.RequiredReportBlocks) > 8 || !uniqueBoundedLaneStrings(definition.RequiredReportBlocks, 64) {
+		return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane required-report-block set is invalid", false, "repair the generated lane manifest")
+	}
+	for _, block := range definition.RequiredReportBlocks {
+		if !ValidLaneReportBlock(block) {
+			return newFailure(KindLaneDefinitionInvalid, "lane_registry", "lane requires a report block outside the agent-lane-report.v1 block vocabulary", false, "require report blocks from the closed report block contract")
+		}
+	}
 	computed, err := LaneDefinitionDigest(definition)
 	if err != nil || computed != definition.Digest {
 		return newFailure(KindLaneDefinitionDigestMismatch, "lane_registry", "lane definition digest does not match its canonical content", false, "regenerate the lane registry projections")
@@ -168,7 +199,7 @@ func LaneDefinitionDigest(definition LaneDefinition) (string, error) {
 		"capability_class": definition.CapabilityClass, "capabilities": nonNilStrings(definition.Capabilities),
 		"packet_schema_ref": definition.PacketSchemaRef, "report_schema_ref": definition.ReportSchemaRef,
 		"budgets":              map[string]any{"cost_usd_max": definition.Budgets.CostUSDMax, "context_tokens_max": definition.Budgets.ContextTokensMax, "time_seconds_max": definition.Budgets.TimeSecondsMax},
-		"evidence_obligations": nonNilStrings(definition.EvidenceObligations), "lifecycle_states": nonNilStrings(definition.LifecycleStates),
+		"evidence_obligations": nonNilStrings(definition.EvidenceObligations), "required_report_blocks": nonNilStrings(definition.RequiredReportBlocks), "lifecycle_states": nonNilStrings(definition.LifecycleStates),
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -181,6 +212,7 @@ func LaneDefinitionDigest(definition LaneDefinition) (string, error) {
 func cloneLaneDefinition(definition LaneDefinition) LaneDefinition {
 	definition.Capabilities = append([]string(nil), definition.Capabilities...)
 	definition.EvidenceObligations = append([]string(nil), definition.EvidenceObligations...)
+	definition.RequiredReportBlocks = append([]string(nil), definition.RequiredReportBlocks...)
 	definition.LifecycleStates = append([]string(nil), definition.LifecycleStates...)
 	return definition
 }

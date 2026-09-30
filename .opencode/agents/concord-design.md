@@ -93,6 +93,14 @@ Report contract constraints:
 - base_comparison_check shape: type=object, additionalProperties=false, required=["command", "branch_result", "base_result"].
 - base_comparison_check.command: type=string, minLength=1, maxLength=512.
 - base_comparison_check.branch_result and base_comparison_check.base_result: enum=["pass", "fail", "not_run"].
+- review: optional top-level object; type=object, additionalProperties=false, required=["verdict", "findings"].
+- review.verdict: enum=["ship", "no_ship"].
+- review.findings: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/review_finding"}.
+- review_finding shape: type=object, additionalProperties=false, required=["severity", "confidence", "detail"].
+- review_finding.severity: enum=["P0", "P1", "P2", "P3"].
+- review_finding.confidence: enum=["low", "medium", "high"].
+- review_finding.detail: type=string, minLength=1, maxLength=512.
+- review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

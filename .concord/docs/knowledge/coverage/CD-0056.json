@@ -22,7 +22,7 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged"
+      "value": "internal/store.TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests"
     },
     {
       "kind": "validator",

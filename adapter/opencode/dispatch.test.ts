@@ -1790,10 +1790,10 @@ const foreignObligation = (laneID: string): { lane: string; obligation: string }
   throw new Error(`no lane declares an obligation the ${laneID} lane omits`)
 }
 
-async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[]) {
+async function laneTerminalEvidence(laneID: string, evidence: LaneEvidence[], extra: Record<string, unknown> = {}) {
   const target = laneOf(laneID)
   const calls: { argv: string[]; input: string }[] = []
-  const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence })
+  const body = workerBody({ schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence, ...extra })
   const result = await completeWorkerAttempt(target, lanePacketFor(laneID), body, {
     credentials: testCredentials,
     sessionReader: readbackSessionReader(READBACK_MODEL, `concord-${target.id}`, lanePacketFor(laneID)),
@@ -1852,8 +1852,15 @@ for (const registered of agentLanes) {
   })
 
   test(`the ${laneID} lane admits a report that discharges exactly its declared obligations`, async () => {
-    const evidence = dischargingEvidence(laneID)
-    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence)
+    // CD-0197: a lane whose manifest entry requires the typed review block
+    // admits only completed reports that carry it, and the block discharges
+    // the obligations it owns — severity — so a free-text severity entry
+    // beside it is refused and the evidence carries none.
+    const requiresReviewBlock = (registered.required_report_blocks as readonly string[]).includes("review")
+    const blockDischarged = requiresReviewBlock ? ["severity"] : []
+    const evidence = dischargingEvidence(laneID).filter((entry) => !blockDischarged.includes(entry.obligation))
+    const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+    const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
     expect(result.outcome).toBe("ok")
     expect(result.assigned_result).toBe(workerScopeAssignedResult(laneID)!)
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
@@ -2146,6 +2153,146 @@ test("a drifted base_comparison is a typed invalid report, never a completion", 
   expect(result.error?.kind).toBe("invalid_report")
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
+})
+
+// CD-0197: the review lane's completed report carries the typed review
+// block — an explicit ship or no_ship verdict and per-finding severity and
+// confidence — and the adapter refuses a review completion without it.
+const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
+const reviewPacket = (): AgentLanePacket => ({ ...packet(), lane_id: reviewLane.id, lane_version: reviewLane.version, lane_digest: reviewLane.digest })
+// Evidence beside the typed review block carries no severity entry: the block
+// discharges severity, so a free-text severity entry beside it is refused
+// (CD-0197 D2). reviewEvidenceWithSeverity covers every declared obligation
+// for the blockless refusals.
+const reviewEvidence = () => reviewLane.evidence_obligations.filter((obligation) => obligation !== "severity").map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
+const reviewEvidenceWithSeverity = () => reviewLane.evidence_obligations.map((obligation) => ({ obligation, detail: `${obligation} discharged` }))
+const reviewFinding = () => ({ severity: "P1" as const, confidence: "high" as const, detail: "the bound is not checked at the boundary" })
+const reviewBlock = () => ({ verdict: "no_ship", findings: [reviewFinding()] })
+const reviewReport = (overrides: Record<string, unknown> = {}) =>
+  report({ evidence: reviewEvidence(), review: reviewBlock(), ...overrides })
+const completeReview = (body: string, options: Partial<CompleteOptions> = {}, dispatched: AgentLanePacket = reviewPacket()) =>
+  completeWorkerAttempt(reviewLane, dispatched, body, { credentials: testCredentials, sessionReader: readbackSessionReader(READBACK_MODEL, "concord-review", dispatched), evidenceRunner: acceptingEvidence(), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY, ...options }, SIGNAL)
+
+async function terminalReviewEvidence(carried: unknown = reviewReport()) {
+  const calls: { argv: string[]; input: string }[] = []
+  const result = await completeReview(workerBody(carried), {
+    concordBinary: "concord-test",
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
+  return { result, verbs: records.map((call) => call.argv[1]), payloads: records.map((call) => JSON.parse(call.input)) }
+}
+
+test("the report schema admits the typed review block and refuses drifted shapes", () => {
+  expect(validateAgentLaneReport(reviewReport())).toBe(true)
+  // The block is optional for every lane, and ship with zero findings is a
+  // legal verdict.
+  expect(validateAgentLaneReport(report())).toBe(true)
+  expect(validateAgentLaneReport(reviewReport({ review: { verdict: "ship", findings: [] } }))).toBe(true)
+  const refusals = [
+    { name: "unknown sibling property", value: { ...reviewBlock(), mood: "confident" } },
+    { name: "missing verdict", value: { findings: [reviewFinding()] } },
+    { name: "missing findings", value: { verdict: "ship" } },
+    { name: "verdict outside the closed set", value: { verdict: "conditional", findings: [reviewFinding()] } },
+    { name: "finding with an undeclared property", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), exit_code: 0 }] } },
+    { name: "severity outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), severity: "S1" }] } },
+    { name: "confidence outside the closed scale", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), confidence: "certain" }] } },
+    { name: "empty finding detail", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "" }] } },
+    { name: "finding detail beyond 512 bytes", value: { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: "é".repeat(300) }] } },
+    { name: "more than 64 findings", value: { verdict: "ship", findings: Array.from({ length: 65 }, () => ({ severity: "P3", confidence: "low", detail: "a finding" })) } },
+    { name: "ship with a P0 finding", value: { verdict: "ship", findings: [{ severity: "P0", confidence: "high", detail: "a blocker" }] } },
+    { name: "no_ship with zero findings", value: { verdict: "no_ship", findings: [] } },
+  ]
+  for (const refusal of refusals) {
+    expect(validateAgentLaneReport(reviewReport({ review: refusal.value })), refusal.name).toBe(false)
+  }
+})
+
+test("the review lane refuses a completed report without the typed review block", () => {
+  const resolved = resolveWorkerReportFromText(JSON.stringify(reviewReport({ evidence: reviewEvidenceWithSeverity(), review: undefined })), reviewPacket())
+  expect("detail" in resolved && resolved.detail).toContain("typed review block the review lane requires")
+  // The requirement binds completions only: a failed review report without
+  // the block routes to the worker's own failure, not to invalid_report.
+  const failed = { ...reviewReport({ evidence: reviewEvidenceWithSeverity() }), status: "failed", review: undefined }
+  const carried = resolveWorkerReportFromText(JSON.stringify(failed), reviewPacket())
+  expect("detail" in carried).toBe(false)
+})
+
+test("a block-only review report is admitted without a severity entry", () => {
+  const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport()), reviewPacket())
+  expect("detail" in admitted).toBe(false)
+})
+
+test("a valid typed review report under the legacy review digest is admitted", () => {
+  // CD-0197 D5: a packet pinned to a pre-CD-0197 digest still resolves to the
+  // current review definition, so the typed report is admitted against the
+  // requirement the current contract carries.
+  const legacy = "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15"
+  expect(legacy).not.toBe(reviewLane.digest)
+  const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: legacy })
+  expect("detail" in admitted).toBe(false)
+})
+
+test("an unknown lane digest is refused as an unregistered lane identity", () => {
+  const refused = resolveWorkerReportFromText(JSON.stringify(reviewReport()), { ...reviewPacket(), lane_digest: "sha256:" + "0".repeat(64) })
+  expect("detail" in refused && refused.detail).toContain("unregistered lane identity or digest")
+})
+
+test("a completion under a legacy lane digest signs and records the packet's digest", async () => {
+  // CD-0017 D5: the evidence binds the digest the core authorized in the
+  // packet, not the resolved current definition. The CLI compares assertions
+  // against the stored attempt row, so a substituted digest would refuse the
+  // completion of a legacy-digest dispatch.
+  const legacy = "sha256:e44e36a88bcd2ddc0d144423bcc6b4339c95b92aa44d273b94e49ee0e20901fb"
+  expect(legacy).not.toBe(lane.digest)
+  const records: { verb: string; body: Record<string, unknown> }[] = []
+  const result = await complete(workerBody(report()), {
+    evidenceRunner: { async run(argv, input) {
+      records.push({ verb: argv[1], body: JSON.parse(input) as Record<string, unknown> })
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  }, { ...packet(), lane_digest: legacy })
+  expect(result.outcome).toBe("ok")
+  expect(records.map((record) => record.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  for (const record of records) {
+    expect((record.body.assertion as Record<string, unknown>).lane_digest).toBe(legacy)
+    if (record.verb === "worker-dispatch") expect(record.body.lane_digest).toBe(legacy)
+  }
+  // The coordinator-facing envelope keeps the authorized identity too: the
+  // summary must not relabel a legacy-digest attempt as the current digest.
+  expect(result.lane.digest).toBe(legacy)
+})
+
+test("the review lane refuses a free-text severity entry beside the typed review block", () => {
+  const resolved = resolveWorkerReportFromText(JSON.stringify(reviewReport({ evidence: reviewEvidenceWithSeverity() })), reviewPacket())
+  expect("detail" in resolved && resolved.detail).toContain("free-text severity entry beside the typed review block")
+})
+
+test("a typed review block rides worker-complete and the completed envelope", async () => {
+  const block = { verdict: "no_ship" as const, findings: [reviewFinding(), { ...reviewFinding(), detail: "a second finding" }, { severity: "P3" as const, confidence: "medium" as const, detail: "a third finding" }] }
+  const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].review).toEqual(block)
+  expect(result.review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 2, P2: 0, P3: 1 } })
+})
+
+test("a ship verdict with findings completes and counts each severity", async () => {
+  const block = { verdict: "ship" as const, findings: [{ severity: "P2" as const, confidence: "low" as const, detail: "one" }, { severity: "P2" as const, confidence: "low" as const, detail: "two" }] }
+  const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ review: block }))
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].review.verdict).toBe("ship")
+  expect(result.review).toEqual({ verdict: "ship", findings: { P0: 0, P1: 0, P2: 2, P3: 0 } })
+})
+
+test("a blockless review completion is a typed invalid report, never a completion", async () => {
+  const { result, verbs, payloads } = await terminalReviewEvidence(reviewReport({ evidence: reviewEvidenceWithSeverity(), review: undefined }))
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_report")
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("typed review block the review lane requires")
 })
 
 test("an over-length evidence detail is truncated at admission, not refused", () => {

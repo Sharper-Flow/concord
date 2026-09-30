@@ -839,6 +839,78 @@ expect_evaluate(
     breaking=[],
 )
 
+# A table named like the trigger keyword is not a trigger: its BEGIN column
+# opens no block and hides no later statement.
+expect_evaluate(
+    "a trigger_notes table hides no column add",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 145,\n\t\tName: \"m145\",\n"
+        "\t\tSQL: `CREATE TABLE trigger_notes (begin TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+
+# TEMP carries its schema in every letter case.
+expect_evaluate(
+    "a lowercase temp table does not authorize dropping the main one",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 146,\n\t\tName: \"m146\",\n"
+        "\t\tSQL: `create temp table existing (a TEXT);"
+        "DROP TABLE main.existing;`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[146],
+)
+
+# A born table that this migration drops is gone: a later statement with the
+# same spelling reaches the pre-existing table.
+expect_evaluate(
+    "a dropped born table no longer shadows the pre-existing one",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 147,\n\t\tName: \"m147\",\n"
+        "\t\tSQL: `CREATE TEMP TABLE existing (a TEXT);"
+        "DROP TABLE existing;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+
+# A quoted schema qualifier is still that schema.
+expect_evaluate(
+    "a quoted schema qualifier names the same schema",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 148,\n\t\tName: \"m148\",\n"
+        '\t\tSQL: `CREATE TABLE "main".notes (a TEXT);'
+        "ALTER TABLE main.notes ADD COLUMN c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=0,
+    breaking=[],
+)
+
+# SQLite permits ADD without the COLUMN keyword; the declaration duty holds.
+expect_evaluate(
+    "ADD without the COLUMN keyword still requires the fold declaration",
+    check.migrations(
+        "var migrations = []migration{\n"
+        "\t{\n\t\tVersion: 149,\n\t\tName: \"m149\",\n"
+        "\t\tSQL: `ALTER TABLE existing ADD c TEXT DEFAULT '';`,\n\t}},\n"
+        "}\n"
+    ),
+    failures=1,
+    breaking=[],
+)
+
 
 # A new table is invisible to an older binary, however constrained it is.
 expect(

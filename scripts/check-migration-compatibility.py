@@ -71,21 +71,24 @@ def sql_table_key(ref: str, temp: bool = False) -> tuple[str, str]:
     otherwise. Quoting comes off the name, so "t", [t], `t`, and t are one
     table, while main.t and temp.t stay distinct identities.
     """
+    def unquote(part: str) -> str:
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "`"):
+            return part[1:-1]
+        if len(part) >= 2 and part[0] == "[" and part[-1] == "]":
+            return part[1:-1]
+        return part
+
     parts = [p.strip() for p in ref.strip().split(".")]
     if len(parts) == 1:
         schema = "temp" if temp else "main"
         name = parts[0]
     else:
         schema, name = parts[0], parts[-1]
-    if len(name) >= 2 and name[0] == name[-1] and name[0] in ('"', "`"):
-        name = name[1:-1]
-    elif len(name) >= 2 and name[0] == "[" and name[-1] == "]":
-        name = name[1:-1]
-    return (schema.lower(), name.lower())
+    return (unquote(schema).lower(), unquote(name).lower())
 
 
-def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
-    """Return whether a table reference resolves to a born table.
+def resolve_born(ref: str, born: set[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return the born key a table reference resolves to, or None.
 
     A qualified reference matches only its own schema: dropping
     main.existing does not touch a temp.existing born here. An unqualified
@@ -93,8 +96,16 @@ def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
     """
     schema, name = sql_table_key(ref)
     if ref.strip().count(".") >= 1:
-        return (schema, name) in born
-    return ("temp", name) in born or ("main", name) in born
+        return (schema, name) if (schema, name) in born else None
+    for key in (("temp", name), ("main", name)):
+        if key in born:
+            return key
+    return None
+
+
+def resolves_to_born(ref: str, born: set[tuple[str, str]]) -> bool:
+    """Return whether a table reference resolves to a born table."""
+    return resolve_born(ref, born) is not None
 # One SQL table reference: quoted, bracketed, backticked, or bare, alone or
 # schema-qualified. Comparisons normalize through sql_name.
 DROP_INDEX = re.compile(
@@ -104,7 +115,7 @@ DROP_INDEX = re.compile(
 ALTER = re.compile(
     rf"^ALTER\s+TABLE\s+({SQL_QUAL})\s+([\s\S]*)$", re.IGNORECASE
 )
-ADD_COLUMN = re.compile(r"^ADD\s+COLUMN\b", re.IGNORECASE)
+ADD_COLUMN = re.compile(r"^ADD\s+(?:COLUMN\s+)?[A-Za-z_\[]", re.IGNORECASE)
 INDEX_ON = re.compile(
     rf"^CREATE\s+(UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+\S+\s+ON\s+({SQL_QUAL})",
     re.IGNORECASE,
@@ -139,7 +150,8 @@ def statements(sql: str) -> list[str]:
         nonlocal depth, word
         token = "".join(word).upper()
         head = "".join(current).lstrip().upper().split("(")[0]
-        if token == "BEGIN" and head.startswith("CREATE") and "TRIGGER" in head:
+        trigger_head = head.startswith("CREATE") and re.search(r"\bTRIGGER\b", head)
+        if token == "BEGIN" and trigger_head:
             depth += 1
         elif token == "END":
             depth = max(0, depth - 1)
@@ -210,13 +222,18 @@ def classify(sql: str) -> list[str]:
             continue
         match = CREATE_TABLE.match(statement)
         if match:
-            temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)]))
+            temp = bool(
+                re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)], re.IGNORECASE)
+            )
             born.add(sql_table_key(match.group(1), temp))
             continue
         match = DROP_TABLE.match(statement)
         if match:
-            if not resolves_to_born(match.group(1), born):
+            retired = resolve_born(match.group(1), born)
+            if retired is None:
                 reasons.append(f"drops the pre-existing table {match.group(1)}")
+            else:
+                born.discard(retired)
             continue
         match = DROP_INDEX.match(statement)
         if match:
@@ -429,8 +446,16 @@ def adds_preexisting_column(sql: str) -> bool:
     for statement in statements(sql):
         match = CREATE_TABLE.match(statement)
         if match:
-            temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)]))
+            temp = bool(
+                re.search(r"\b(?:TEMP|TEMPORARY)\b", statement[: match.start(1)], re.IGNORECASE)
+            )
             born.add(sql_table_key(match.group(1), temp))
+            continue
+        match = DROP_TABLE.match(statement)
+        if match:
+            retired = resolve_born(match.group(1), born)
+            if retired is not None:
+                born.discard(retired)
             continue
         match = ALTER.match(statement)
         if match and resolves_to_born(match.group(1), born):

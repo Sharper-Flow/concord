@@ -1,0 +1,33 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-22T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    ".concord/docs/decisions/CD-0051-conformance-falsifier-quantity.md",
+    "internal/store/conformance_test.go"
+  ],
+  "home_domain_id": "durable-authority",
+  "id": "CD-0057",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0057-conformance-control-round.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:9f509a2e9e15ad5f4ed73520c74b1db5b7440342ff579bdd6db2ad59047d53c3",
+  "status": "accepted",
+  "summary": "The accepted commit-duration falsifier verdict requires a clean unpaced control: a majority of paced production-like rounds exceeding the unchanged 100ms P99 target still sets threshold_status=exceeded, but a fired verdict additionally requires the in-run unpaced acceptance round to exceed the same target, so a paced overshoot with a clean control resolves to falsifier_status=inconclusive with the reason host scheduling. Correctness precedence, population authority, and CD-0051 D2's diagnostic wall and begin-wait measurements are unchanged.",
+  "tags": [
+    "conformance",
+    "concurrency",
+    "falsifier"
+  ],
+  "title": "The commit-duration falsifier requires a clean unpaced control"
+}

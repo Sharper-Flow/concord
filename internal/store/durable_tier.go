@@ -58,7 +58,7 @@ func oversizeFencedJSON(content string, bound int) int {
 // violation. The CI validator remains the detective layer over what is already
 // committed; it cannot stop a write, and by the time it runs the note is in
 // history. Both read the same bounds, one generated and one loaded, from
-// docs/durable-tier-budget.v1.json.
+// .concord/docs/durable-tier-budget.v1.json.
 //
 // It is exported because the AJ6 corpus binding asserts the emitted note
 // against the same rule the producer applied. A second copy of the rule in the

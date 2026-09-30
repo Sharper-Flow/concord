@@ -1,0 +1,46 @@
+{
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "durable-authority"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-22T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/worker_lanes.go",
+    "internal/store/errors.go",
+    "internal/agent/authority.go",
+    "internal/agent/mutations.go",
+    "internal/agent/worker_evidence.go",
+    "cmd/concord/main.go",
+    "adapter/opencode/dispatch.ts"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0059",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0059-worker-dispatch-action.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:eb22e3c99001fb25f460ccdd394b3317cb0bc4d6efead281ba2f94315267b1c8",
+  "status": "accepted",
+  "summary": "Lane dispatch is a registered workflow action reached through concord_work_transition.workflow_action; its worker window is not a completed delivery until the worker attempt completes and accept_worker_result folds; completed and accepted delivery is required before verdict correction.",
+  "tags": [
+    "workflow",
+    "lanes",
+    "authority",
+    "evidence",
+    "integrity"
+  ],
+  "title": "Lane dispatch is a registered workflow action"
+}

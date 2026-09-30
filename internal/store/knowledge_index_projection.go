@@ -716,7 +716,7 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	for _, kind := range sortedKnowledgeKinds() {
 		reason := "manifest absent at scanned commit"
 		if kind == "work_note" {
-			reason = "canonical docs/work directory scanned"
+			reason = "canonical .concord/docs/work directory scanned"
 		} else if !manifestMissing && coverage[kind] == "indexed" {
 			reason = "manifest indexed kind at scanned commit"
 		} else if kind == "research" {

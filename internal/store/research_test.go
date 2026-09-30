@@ -449,7 +449,7 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 func compactionFixture(t *testing.T, required bool) (*Store, KnowledgeHome, ResearchPack, string, string) {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/owner.md"
+	path := ".concord/docs/work/owner.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner", "2026-08-07T00:00:00Z"))
 	commit := commitKnowledgeRepo(t, repo, "owner proof")
 	s := openTemp(t)
@@ -588,7 +588,7 @@ func TestArchiveFailureBeforeGitProofLeavesPackIntact(t *testing.T) {
 	pack := createSimplePack(t, s, "proof-failure", "owner")
 	terminalizeResearchOwner(t, s, "owner")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "missing", RepoPath: t.TempDir(), HeadRef: "HEAD"}
-	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, strings.Repeat("a", 40), "docs/work/missing.md", "proof-failure-link", 3)); err == nil {
+	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, strings.Repeat("a", 40), ".concord/docs/work/missing.md", "proof-failure-link", 3)); err == nil {
 		t.Fatal("compaction without Git proof succeeded")
 	}
 	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "archived_work") != 0 {

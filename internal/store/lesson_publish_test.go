@@ -28,7 +28,7 @@ func lessonRepoFixture(t *testing.T) string {
 	run("init", "--quiet", "-b", "main")
 	run("config", "user.email", "concord@example.invalid")
 	run("config", "user.name", "Concord Lesson Test")
-	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".concord", "docs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{
@@ -62,7 +62,7 @@ func lessonRepoFixture(t *testing.T) string {
     {
       "id": "seed-lesson",
       "kind": "lesson",
-      "path": "docs/lessons/2026-08-01-seed.md",
+      "path": ".concord/docs/lessons/2026-08-01-seed.md",
       "status": "published",
       "date": "2026-08-01T00:00:00Z",
       "title": "Seed lesson",
@@ -75,10 +75,10 @@ func lessonRepoFixture(t *testing.T) string {
 }
 `
 	writeAggregateAsShards(t, repo, []byte(manifest))
-	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".concord/docs/lessons"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".concord/docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")
@@ -694,7 +694,7 @@ func TestPublishLessonRecordUsesOneInjectedPublicationDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if published.Record.Date != "2042-12-31T00:00:00Z" || !strings.HasPrefix(published.Record.Path, "docs/lessons/2042-12-31-") {
+	if published.Record.Date != "2042-12-31T00:00:00Z" || !strings.HasPrefix(published.Record.Path, ".concord/docs/lessons/2042-12-31-") {
 		t.Fatalf("record=%+v", published.Record)
 	}
 }
@@ -779,7 +779,7 @@ func TestShardRoundTripPreservesV12LawHomes(t *testing.T) {
 			},
 		},
 		Records: []KnowledgeRecord{{
-			ID: "CD-0001", Kind: "decision", Path: "docs/decisions/CD-0001-law.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-law.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
 			Title: "Law", Summary: "A current law retains its Domain ownership after lesson publication.", Tags: []string{},
 			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
 			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"store"}, SHA256: "sha256:" + strings.Repeat("a", 64),
@@ -839,7 +839,7 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
 	run("init", "--quiet", "-b", "main")
 	run("config", "user.email", "concord@example.invalid")
 	run("config", "user.name", "Concord Lesson Test")
-	if err := os.MkdirAll(filepath.Join(repo, "docs/lessons"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, ".concord/docs/lessons"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := `{
@@ -854,8 +854,8 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
       {"domain_id": "product-root:fixture-product", "name": "Fixture product", "purpose": "Fixture registry root.", "status": "current", "architecture_relations": []}
     ]
   },
-  "knowledge_roots": ["docs/"],
-  "exclusions": ["docs/research/"],
+  "knowledge_roots": [".concord/docs/"],
+  "exclusions": [".concord/docs/research/"],
   "doc_contract": {
     "enforced": true,
     "spec": {"required_sections": ["Purpose"], "ac_required": true},
@@ -865,7 +865,7 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
     {
       "id": "seed-lesson",
       "kind": "lesson",
-      "path": "docs/lessons/2026-08-01-seed.md",
+      "path": ".concord/docs/lessons/2026-08-01-seed.md",
       "status": "published",
       "date": "2026-08-01T00:00:00Z",
       "title": "Seed lesson",
@@ -878,7 +878,7 @@ func eightKeyLessonRepoFixture(t *testing.T) string {
 }
 `
 	writeAggregateAsShards(t, repo, []byte(manifest))
-	if err := os.WriteFile(filepath.Join(repo, "docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".concord/docs/lessons/2026-08-01-seed.md"), []byte("seed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run("add", ".")
@@ -1143,7 +1143,7 @@ func TestPublishLessonRecordRefusesTraversalLessonIDsWithZeroEffects(t *testing.
 		}
 	}
 	requireLessonZeroEffects(t, home.RepoPath, head, status)
-	if _, statErr := os.Stat(filepath.Join(home.RepoPath, "docs/knowledge/escape.json")); statErr == nil {
+	if _, statErr := os.Stat(filepath.Join(home.RepoPath, ".concord/docs/knowledge/escape.json")); statErr == nil {
 		t.Fatal("an escaped shard was written outside the shard trees")
 	}
 }
@@ -1159,7 +1159,7 @@ func TestPublishLessonRecordRefusesOccupiedLessonTargets(t *testing.T) {
 	t.Run("note target", func(t *testing.T) {
 		t.Parallel()
 		_, home := lessonWorktreeFixture(t)
-		occupiedPath := "docs/lessons/2026-09-05-occupied-note-target.md"
+		occupiedPath := ".concord/docs/lessons/2026-09-05-occupied-note-target.md"
 		occupied := filepath.Join(home.RepoPath, occupiedPath)
 		if err := os.WriteFile(occupied, []byte("occupied\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -1190,7 +1190,7 @@ func TestPublishLessonRecordRefusesOccupiedLessonTargets(t *testing.T) {
 		victimShard := `{
   "id": "victim-record",
   "kind": "lesson",
-  "path": "docs/lessons/2026-08-01-victim.md",
+  "path": ".concord/docs/lessons/2026-08-01-victim.md",
   "status": "published",
   "date": "2026-08-01T00:00:00Z",
   "title": "Victim record",
@@ -1265,7 +1265,7 @@ func TestPublishLessonRecordRefusesSymlinkTargetsAndParents(t *testing.T) {
 		if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		notePath := "docs/lessons/2026-09-06-symlink-note-target.md"
+		notePath := ".concord/docs/lessons/2026-09-06-symlink-note-target.md"
 		if err := os.Symlink(outside, filepath.Join(home.RepoPath, notePath)); err != nil {
 			t.Fatal(err)
 		}
@@ -1308,7 +1308,7 @@ func TestPublishLessonRecordRefusesSymlinkTargetsAndParents(t *testing.T) {
 		if entries, readErr := os.ReadDir(outsideDir); readErr != nil || len(entries) != 0 {
 			t.Fatalf("the symlinked parent received writes: %v err=%v", entries, readErr)
 		}
-		if _, statErr := os.Stat(filepath.Join(home.RepoPath, "docs/lessons/2026-09-06-symlink-coverage-parent.md")); statErr == nil {
+		if _, statErr := os.Stat(filepath.Join(home.RepoPath, ".concord/docs/lessons/2026-09-06-symlink-coverage-parent.md")); statErr == nil {
 			t.Fatal("the lesson note was written before the refusal")
 		}
 		requireLessonZeroEffects(t, home.RepoPath, head, status)
@@ -1334,13 +1334,13 @@ func TestWriteConfinedLessonFileHoldsConfinementAtTheWriteBoundary(t *testing.T)
 			t.Fatal(err)
 		}
 		defer r.Close()
-		if err := os.MkdirAll(filepath.Join(rootDir, "docs", "lessons"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(rootDir, ".concord", "docs", "lessons"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(outside, filepath.Join(rootDir, "docs", "lessons-swap")); err != nil {
+		if err := os.Symlink(outside, filepath.Join(rootDir, ".concord", "docs", "lessons-swap")); err != nil {
 			t.Fatal(err)
 		}
-		err = writeConfinedLessonFile(r, "docs/lessons-swap/2026-09-27-note.md", []byte("swapped\n"), "dir failure", "file failure")
+		err = writeConfinedLessonFile(r, ".concord/docs/lessons-swap/2026-09-27-note.md", []byte("swapped\n"), "dir failure", "file failure")
 		if err == nil {
 			t.Fatal("expected the write boundary to refuse the swapped symlink parent")
 		}
@@ -1359,14 +1359,14 @@ func TestWriteConfinedLessonFileHoldsConfinementAtTheWriteBoundary(t *testing.T)
 			t.Fatal(err)
 		}
 		defer r.Close()
-		if err := os.MkdirAll(filepath.Join(rootDir, "docs", "shards"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(rootDir, ".concord", "docs", "shards"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		occupied := filepath.Join(rootDir, "docs", "shards", "occupied.json")
+		occupied := filepath.Join(rootDir, ".concord", "docs", "shards", "occupied.json")
 		if err := os.WriteFile(occupied, []byte("{\"committed\": true}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		err = writeConfinedLessonFile(r, "docs/shards/occupied.json", []byte("{\"overwritten\": true}\n"), "dir failure", "file failure")
+		err = writeConfinedLessonFile(r, ".concord/docs/shards/occupied.json", []byte("{\"overwritten\": true}\n"), "dir failure", "file failure")
 		if err == nil || !strings.Contains(err.Error(), "already occupied") {
 			t.Fatalf("expected the occupied-target refusal at the write boundary, got %v", err)
 		}
@@ -1382,10 +1382,10 @@ func TestWriteConfinedLessonFileHoldsConfinementAtTheWriteBoundary(t *testing.T)
 			t.Fatal(err)
 		}
 		defer r.Close()
-		if err := writeConfinedLessonFile(r, "docs/fresh/2026-09-27-free.md", []byte("fresh\n"), "dir failure", "file failure"); err != nil {
+		if err := writeConfinedLessonFile(r, ".concord/docs/fresh/2026-09-27-free.md", []byte("fresh\n"), "dir failure", "file failure"); err != nil {
 			t.Fatalf("expected the confined write to succeed, got %v", err)
 		}
-		content, readErr := os.ReadFile(filepath.Join(rootDir, "docs", "fresh", "2026-09-27-free.md"))
+		content, readErr := os.ReadFile(filepath.Join(rootDir, ".concord", "docs", "fresh", "2026-09-27-free.md"))
 		if readErr != nil || string(content) != "fresh\n" {
 			t.Fatalf("the confined write did not land inside the root: %q err=%v", content, readErr)
 		}
@@ -1405,7 +1405,7 @@ func TestPublishLessonRecordProbeSymlinkSwapCannotEscapeTheWorktree(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	noteDir := filepath.Join(home.RepoPath, "docs", "lessons")
+	noteDir := filepath.Join(home.RepoPath, ".concord", "docs", "lessons")
 	stop := make(chan struct{})
 	swapperDone := make(chan struct{})
 	go func() {

@@ -20,11 +20,11 @@ func homeScope() KnowledgeRecordScopes {
 func seedConstitutionHome(t *testing.T) (KnowledgeHome, string, string, string) {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
-	constitutionPath := "docs/proc.md"
+	constitutionPath := ".concord/docs/proc.md"
 	constitutionBody := "formalization procedure\n"
-	decisionPath := "docs/decisions/CD-0001.md"
+	decisionPath := ".concord/docs/decisions/CD-0001.md"
 	decisionBody := "decision body\n"
-	lessonPath := "docs/lessons/lesson.md"
+	lessonPath := ".concord/docs/lessons/lesson.md"
 	lessonBody := "lesson body\n"
 	writeKnowledgeFile(t, repo, constitutionPath, constitutionBody)
 	writeKnowledgeFile(t, repo, decisionPath, decisionBody)
@@ -110,7 +110,7 @@ func TestAcceptedConstitutionProjectsResolvesAndAdmitsAsLaw(t *testing.T) {
 	if q10.Status != "canonical" {
 		t.Fatalf("Q10 constitution status = %s, want canonical", q10.Status)
 	}
-	if q10.Note == nil || q10.Note.NotePath != "docs/proc.md" {
+	if q10.Note == nil || q10.Note.NotePath != ".concord/docs/proc.md" {
 		t.Fatalf("Q10 constitution note = %#v", q10.Note)
 	}
 
@@ -125,7 +125,7 @@ func TestAcceptedConstitutionProjectsResolvesAndAdmitsAsLaw(t *testing.T) {
 func TestConstitutionCannotAuthorLawRelations(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/proc.md"
+	path := ".concord/docs/proc.md"
 	content := "constitution body\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))

@@ -12,7 +12,7 @@ import (
 func TestStaleBinaryRefusesToRebuildNewerProjectionWatermark(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, "docs/work/2026-09-13-newer-projection.md", canonicalWorkNote("work-newer", "2026-09-13T00:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/2026-09-13-newer-projection.md", canonicalWorkNote("work-newer", "2026-09-13T00:00:00Z"))
 	commitKnowledgeRepo(t, repo, "projected content")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-stale", HomeLocatorID: "loc-stale", RepoPath: repo, HeadRef: "HEAD"}
@@ -65,7 +65,7 @@ func TestStaleBinaryRefusesToRebuildNewerProjectionWatermark(t *testing.T) {
 func TestOlderProjectionWatermarkStillRebuilds(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, "docs/work/2026-09-13-older-projection.md", canonicalWorkNote("work-older", "2026-09-13T00:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/2026-09-13-older-projection.md", canonicalWorkNote("work-older", "2026-09-13T00:00:00Z"))
 	commitKnowledgeRepo(t, repo, "projected content")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj-older", HomeLocatorID: "loc-older", RepoPath: repo, HeadRef: "HEAD"}

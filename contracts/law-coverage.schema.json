@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/law-coverage.schema.json",
   "title": "Concord recorded-law coverage manifest",
-  "description": "Closed contract for the record of how each piece of recorded law is proved. The subject set is docs/concord-knowledge-index.v1.json, not this file: scripts/check-law-coverage.py derives the complete set of indexed records and fails on any record this manifest omits, so law cannot escape coverage by being absent (CD-0047 D1). States reuse the vocabulary accepted in contracts/floor-readiness.schema.json (CD-0047 D2). A satisfied record cites typed anchors that resolve and, where executable, that a required check runs; a repository path is not an anchor (CD-0047 D3).",
+  "description": "Closed contract for the record of how each piece of recorded law is proved. The subject set is .concord/docs/concord-knowledge-index.v1.json, not this file: scripts/check-law-coverage.py derives the complete set of indexed records and fails on any record this manifest omits, so law cannot escape coverage by being absent (CD-0047 D1). States reuse the vocabulary accepted in contracts/floor-readiness.schema.json (CD-0047 D2). A satisfied record cites typed anchors that resolve and, where executable, that a required check runs; a repository path is not an anchor (CD-0047 D3).",
   "type": "object",
   "additionalProperties": false,
   "required": [

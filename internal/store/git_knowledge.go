@@ -71,7 +71,7 @@ type VerifiedNote struct {
 //
 // Verification is a separately ordered step owned by the caller. The accepted
 // cross-authority order is publish, then verify, then record the SQLite locator
-// (docs/agent-mutation-tool-contract.md). Returning an unverified proof here
+// (.concord/docs/agent-mutation-tool-contract.md). Returning an unverified proof here
 // keeps that boundary visible: a caller holding a CommittedNote has written to
 // git and has not yet earned the right to record a locator.
 type CommittedNote struct {
@@ -118,7 +118,7 @@ func PublishCanonicalNote(ctx context.Context, home KnowledgeHome, workID, conte
 	if len(suffix) > 16 {
 		suffix = suffix[len(suffix)-16:]
 	}
-	notePath := "docs/work/" + date + "-" + name + "-" + suffix + ".md"
+	notePath := ".concord/docs/work/" + date + "-" + name + "-" + suffix + ".md"
 	fullPath := path.Join(home.RepoPath, notePath)
 	// Detecting an already-published note is a precondition probe, not the
 	// ordered verification step: it decides whether this call has anything to
@@ -279,7 +279,7 @@ func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from docs/work")
+			return nil, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "canonical work-note tree contains a non-blob entry", false, "remove symlink, gitlink, tree, or other non-regular entries from .concord/docs/work")
 		}
 		if !strings.HasSuffix(entry.path, ".md") {
 			continue
@@ -336,7 +336,7 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 // knowledgeWorkNoteTree is the canonical work-note directory the projection
 // scans. scanKnowledgeTree and knowledgeContentDigest must name the same path,
 // or the digest would miss content the scan projects.
-const knowledgeWorkNoteTree = "docs/work/"
+const knowledgeWorkNoteTree = ".concord/docs/work/"
 
 // knowledgeContentDigest identifies the content the knowledge index projects
 // at a commit: the knowledge shard tree, the legacy manifest blob, and the
@@ -347,7 +347,7 @@ const knowledgeWorkNoteTree = "docs/work/"
 // leaves it unchanged. An absent object contributes its absence, so a
 // manifest added or removed changes the digest.
 func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"))
+	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"))
 	if err != nil {
 		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
 	}
@@ -358,7 +358,9 @@ func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID s
 	shards, manifest, notes := "absent", "absent", "absent"
 	for _, entry := range entries {
 		switch entry.path {
-		case knowledgeShardRoot:
+		case knowledgeShardRoot, "docs/knowledge":
+			// One commit carries exactly one shard-home tier (CD-0194 D5),
+			// so both tiers contribute to the same content slot.
 			shards = entry.kind + ":" + entry.oid
 		case knowledgeManifestPath:
 			manifest = entry.kind + ":" + entry.oid
@@ -447,8 +449,8 @@ func validateNotePath(notePath string) error {
 			return newFailure(KindInvalidNoteProof, "verify_note", "note path contains a forbidden path component", false, "use a clean relative canonical note path")
 		}
 	}
-	if !strings.HasSuffix(notePath, ".md") || !(strings.HasPrefix(notePath, "docs/work/") || strings.HasPrefix(notePath, "docs/lessons/") || strings.HasPrefix(notePath, "docs/decisions/")) {
-		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use docs/work, docs/lessons, or docs/decisions markdown")
+	if !strings.HasSuffix(notePath, ".md") || !(strings.HasPrefix(notePath, ".concord/docs/work/") || strings.HasPrefix(notePath, ".concord/docs/lessons/") || strings.HasPrefix(notePath, ".concord/docs/decisions/")) {
+		return newFailure(KindInvalidNoteProof, "verify_note", "note path is outside the canonical markdown directories", false, "use .concord/docs/work, .concord/docs/lessons, or .concord/docs/decisions markdown")
 	}
 	return nil
 }

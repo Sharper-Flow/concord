@@ -1,7 +1,7 @@
 # Lane behavioural evals
 
 Prompt-evaluation harness for the Concord worker lanes, required by
-[CD-0017](../../../docs/decisions/CD-0017-typed-workers-and-model-routing.md) D7.
+[CD-0017](../../../.concord/docs/decisions/CD-0017-typed-workers-and-model-routing.md) D7.
 
 ## What this is for
 

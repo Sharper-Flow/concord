@@ -171,7 +171,7 @@ func TestArchitectureBindingRejectsSupersededLawAdditionID(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, definition, binding, _, revisions, _ := architectureValidationFixture(t, "architecture-retired-law")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','law:retired','spec','superseded','docs/retired.md','Retired','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','law:retired','spec','superseded','.concord/docs/retired.md','Retired','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	binding.LawAdditions = []WorkflowLawAddition{{LawID: "law:retired", HomeDomainID: "child"}}

@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const defaultKnowledgeRoot = "docs/"
+const defaultKnowledgeRoot = ".concord/docs/"
 
 // UnprocessedKnowledgeDocs returns sorted markdown paths that the manifest does
 // not record, exclude, or dispose of.

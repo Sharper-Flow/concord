@@ -28,7 +28,7 @@ import (
 
 const (
 	lessonRecordDir   = knowledgeRecordTree
-	lessonCoverageDir = "docs/knowledge/coverage"
+	lessonCoverageDir = ".concord/docs/knowledge/coverage"
 	maxLessonContent  = 32768
 	maxLessonTags     = 8
 	maxLessonEvidence = 32
@@ -319,7 +319,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	sum := sha256.Sum256([]byte(req.Content))
 	contentSHA := "sha256:" + hex.EncodeToString(sum[:])
 
-	notePath := "docs/lessons/" + now.UTC().Format("2006-01-02") + "-" + slugifyKnowledgeTitle(req.Title) + ".md"
+	notePath := ".concord/docs/lessons/" + now.UTC().Format("2006-01-02") + "-" + slugifyKnowledgeTitle(req.Title) + ".md"
 	recordShardPath := path.Join(lessonRecordDir, req.LessonID+".json")
 
 	// The manifest the working-tree shards compose governs idempotency and
@@ -357,7 +357,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 		}
 	}
 	record := req.record(contentSHA, date, notePath)
-	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion); err != nil {
+	if err := validateKnowledgeRecordForSchema(record, knowledgeKindsClosed, knowledgeKindsClosed, manifest.SchemaVersion, manifestRecordPathPrefix); err != nil {
 		return out, err
 	}
 

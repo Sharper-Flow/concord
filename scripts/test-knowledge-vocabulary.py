@@ -58,7 +58,7 @@ def test_generator_accepting_an_undeclared_kind_is_reported() -> None:
 
 def test_generator_record_path_pattern_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = "^docs/(?!work/).*\\.md$"
+    schema["$defs"]["record"]["properties"]["path"]["pattern"] = "^.concord/docs/(?!work/).*\\.md$"
     findings = validate_generator(schema)
     assert len(findings) == 1
     assert findings[0].startswith("generator RECORD_PATH_RE: schema declares")
@@ -226,7 +226,7 @@ def test_disposition_path_pattern_divergence_is_reported() -> None:
 
 def test_record_path_pattern_divergence_is_reported() -> None:
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^docs/(?!work/).*\.md$"
+    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^.concord/docs/(?!work/).*\.md$"
     findings = validate(schema)
     assert any(finding.startswith("RECORD_PATH_RE: schema declares") for finding in findings), findings
 
@@ -236,7 +236,7 @@ def test_record_path_shape_change_is_reported_for_the_go_binding() -> None:
     A restructure must fail here rather than leave the Go side matching
     nothing."""
     schema = copy.deepcopy(SCHEMA)
-    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^docs/.*\.md$"
+    schema["$defs"]["record"]["properties"]["path"]["pattern"] = r"^.concord/docs/.*\.md$"
     findings = validate(schema)
     assert any("is no longer the" in finding for finding in findings), findings
 

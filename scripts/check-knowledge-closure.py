@@ -31,11 +31,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
-DEFAULT_KNOWLEDGE_ROOTS = ("docs/",)
+DEFAULT_KNOWLEDGE_ROOTS = (".concord/docs/",)
 
 ROOT_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*/$")
 # An exclusion is either a directory prefix or a single markdown file. Generated
-# build output such as docs/generated-agent-tool-surface.md is not knowledge
+# build output such as .concord/docs/generated-agent-tool-surface.md is not knowledge
 # awaiting formalization, and excluding its whole directory would hide the
 # authored documents beside it.
 EXCLUSION_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$")
@@ -232,7 +232,7 @@ def compute_unprocessed(
 
     A directory exclusion ends in a slash and drops every walked file beneath
     it; the prefix comparison keeps the trailing slash so a typo like
-    `docs/research` does not match `docs/researcher-notes/`. A file exclusion
+    `.concord/docs/research` does not match `.concord/docs/researcher-notes/`. A file exclusion
     ends in `.md` and drops exactly that path, which is how generated build
     output is removed without hiding the authored documents beside it.
 

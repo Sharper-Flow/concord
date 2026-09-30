@@ -2458,7 +2458,8 @@ class DeriveAdapterFilesTest(unittest.TestCase):
 class StandaloneInstallerTest(unittest.TestCase):
     """The documented procedure runs the installer with no checkout present.
 
-    docs/installation.md tells the operator to download concord-installer.py
+    The installation guide at .concord/docs/installation.md tells the
+    operator to download concord-installer.py
     from the release and run it. The release tarball ships the binary, the
     adapter modules, and the skills, but not the installer, so nothing else is
     on disk beside that one file.

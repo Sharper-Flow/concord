@@ -31,10 +31,10 @@ SPEC.loader.exec_module(checker)
 
 
 def build_sandbox() -> Path:
-    """Build a sandbox with a docs/ tree and a manifest, return its root."""
+    """Build a sandbox with a .concord/docs/ tree and a manifest, return its root."""
     root = Path(tempfile.mkdtemp(prefix="kc-"))
-    docs = root / "docs"
-    docs.mkdir()
+    docs = root / ".concord/docs"
+    docs.mkdir(parents=True)
     (docs / "recorded.md").write_text("recorded\n", encoding="utf-8")
     (docs / "orphan.md").write_text("orphan\n", encoding="utf-8")
     (docs / "sub").mkdir()
@@ -47,13 +47,13 @@ def build_sandbox() -> Path:
                 "schema_version": "1.2",
                 "supported_kinds": ["spec"],
                 "indexed_kinds": ["spec"],
-                "knowledge_roots": ["docs/"],
+                "knowledge_roots": [".concord/docs/"],
                 "exclusions": [],
                 "records": [
                     {
                         "id": "recorded-1",
                         "kind": "spec",
-                        "path": "docs/recorded.md",
+                        "path": ".concord/docs/recorded.md",
                         "status": "accepted",
                         "date": "2026-08-21T00:00:00Z",
                         "title": "Recorded",
@@ -101,8 +101,8 @@ def test_unprocessed_files_are_listed_and_exit_zero() -> None:
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert any(line == "unprocessed: docs/orphan.md" for line in lines), lines
-    assert any(line == "unprocessed: docs/sub/nested.md" for line in lines), lines
+    assert any(line == "unprocessed: .concord/docs/orphan.md" for line in lines), lines
+    assert any(line == "unprocessed: .concord/docs/sub/nested.md" for line in lines), lines
     assert "knowledge closure check passed" in stdout, stdout
 
 
@@ -121,7 +121,7 @@ def test_strict_mode_passes_when_zero_unprocessed() -> None:
         {
             "id": "recorded-orphan",
             "kind": "spec",
-            "path": "docs/orphan.md",
+            "path": ".concord/docs/orphan.md",
             "status": "accepted",
             "date": "2026-08-21T00:00:00Z",
             "title": "Orphan",
@@ -141,7 +141,7 @@ def test_strict_mode_passes_when_zero_unprocessed() -> None:
         {
             "id": "recorded-nested",
             "kind": "spec",
-            "path": "docs/sub/nested.md",
+            "path": ".concord/docs/sub/nested.md",
             "status": "accepted",
             "date": "2026-08-21T00:00:00Z",
             "title": "Nested",
@@ -157,7 +157,7 @@ def test_strict_mode_passes_when_zero_unprocessed() -> None:
             "sha256": "sha256:" + "c" * 64,
         }
     )
-    data["exclusions"] = ["docs/research/"]
+    data["exclusions"] = [".concord/docs/research/"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root, ["--strict"])
     assert exit_code == 0, (exit_code, stderr)
@@ -167,41 +167,41 @@ def test_exclusions_suppress_listed_paths() -> None:
     root = build_sandbox()
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/research/", "docs/sub/"]
+    data["exclusions"] = [".concord/docs/research/", ".concord/docs/sub/"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert any(line == "unprocessed: docs/orphan.md" for line in lines), lines
-    assert not any("docs/research/" in line for line in lines), lines
-    assert not any("docs/sub/" in line for line in lines), lines
+    assert any(line == "unprocessed: .concord/docs/orphan.md" for line in lines), lines
+    assert not any(".concord/docs/research/" in line for line in lines), lines
+    assert not any(".concord/docs/sub/" in line for line in lines), lines
 
 
 def test_file_path_exclusion_suppresses_exactly_one_file() -> None:
     """Generated build output is excluded by path, not by hiding its directory."""
     root = build_sandbox()
-    (root / "docs" / "generated-surface.md").write_text("generated\n", encoding="utf-8")
+    (root / ".concord/docs" / "generated-surface.md").write_text("generated\n", encoding="utf-8")
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/generated-surface.md"]
+    data["exclusions"] = [".concord/docs/generated-surface.md"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert "unprocessed: docs/generated-surface.md" not in lines, lines
+    assert "unprocessed: .concord/docs/generated-surface.md" not in lines, lines
     # The sibling documents in the same directory stay visible.
-    assert "unprocessed: docs/orphan.md" in lines, lines
-    assert "unprocessed: docs/sub/nested.md" in lines, lines
+    assert "unprocessed: .concord/docs/orphan.md" in lines, lines
+    assert "unprocessed: .concord/docs/sub/nested.md" in lines, lines
 
 
 def test_go_read_matches_validator_population() -> None:
     """The Go read and Python validator must return the same fixture paths."""
     root = build_sandbox()
-    (root / "docs" / "excluded-file.md").write_text("excluded\n", encoding="utf-8")
-    (root / "docs" / "not-markdown.txt").write_text("not knowledge\n", encoding="utf-8")
+    (root / ".concord/docs" / "excluded-file.md").write_text("excluded\n", encoding="utf-8")
+    (root / ".concord/docs" / "not-markdown.txt").write_text("not knowledge\n", encoding="utf-8")
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/research/", "docs/excluded-file.md"]
+    data["exclusions"] = [".concord/docs/research/", ".concord/docs/excluded-file.md"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
 
     exit_code, stdout, stderr = run_with_sandbox(root)
@@ -228,25 +228,25 @@ def test_go_read_matches_validator_population() -> None:
     assert match, completed.stdout + completed.stderr
     go_paths = json.loads(match.group(1))
     assert go_paths == python_paths, (go_paths, python_paths, completed.stdout, completed.stderr)
-    assert go_paths == ["docs/orphan.md", "docs/sub/nested.md"]
+    assert go_paths == [".concord/docs/orphan.md", ".concord/docs/sub/nested.md"]
 
 
 def test_directory_exclusion_still_suppresses_a_whole_subtree() -> None:
     root = build_sandbox()
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/sub/"]
+    data["exclusions"] = [".concord/docs/sub/"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
-    assert "unprocessed: docs/sub/nested.md" not in stdout.splitlines(), stdout
+    assert "unprocessed: .concord/docs/sub/nested.md" not in stdout.splitlines(), stdout
 
 
 def test_exclusion_without_slash_or_markdown_suffix_is_rejected() -> None:
     root = build_sandbox()
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/orphan"]
+    data["exclusions"] = [".concord/docs/orphan"]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 1, (exit_code, stderr)
@@ -262,7 +262,7 @@ def test_disposition_subtracts_a_file_and_is_counted_separately() -> None:
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data["dispositions"] = [{
-        "path": "docs/orphan.md",
+        "path": ".concord/docs/orphan.md",
         "disposition": "archived",
         "reason": "Superseded working note kept for provenance only.",
     }]
@@ -270,8 +270,8 @@ def test_disposition_subtracts_a_file_and_is_counted_separately() -> None:
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert "unprocessed: docs/orphan.md" not in lines, lines
-    assert "disposition: docs/orphan.md" in lines, lines
+    assert "unprocessed: .concord/docs/orphan.md" not in lines, lines
+    assert "disposition: .concord/docs/orphan.md" in lines, lines
     assert "disposition summary: 1 file(s) recorded as deliberately not formalized" in stderr, stderr
     # The subtraction must not be folded into the unprocessed count.
     assert "unprocessed summary: 2 file(s)" in stderr, stderr
@@ -289,10 +289,10 @@ def test_strict_mode_passes_when_the_remainder_is_disposed() -> None:
     root = build_sandbox()
     manifest_path = root / "manifest.json"
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["exclusions"] = ["docs/research/"]
+    data["exclusions"] = [".concord/docs/research/"]
     data["dispositions"] = [
-        {"path": "docs/orphan.md", "disposition": "archived", "reason": "Not formalized."},
-        {"path": "docs/sub/nested.md", "disposition": "archived", "reason": "Not formalized."},
+        {"path": ".concord/docs/orphan.md", "disposition": "archived", "reason": "Not formalized."},
+        {"path": ".concord/docs/sub/nested.md", "disposition": "archived", "reason": "Not formalized."},
     ]
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root, ["--strict"])
@@ -319,7 +319,7 @@ def test_missing_record_file_is_warned() -> None:
         {
             "id": "ghost",
             "kind": "spec",
-            "path": "docs/does-not-exist.md",
+            "path": ".concord/docs/does-not-exist.md",
             "status": "accepted",
             "date": "2026-08-21T00:00:00Z",
             "title": "Ghost",
@@ -339,9 +339,9 @@ def test_missing_record_file_is_warned() -> None:
     exit_code, stdout, stderr = run_with_sandbox(root)
     # Missing-record-file findings still exit 1 because they are findings.
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("missing-record-file: docs/does-not-exist.md" in line for line in stdout.splitlines()), stdout
+    assert any("missing-record-file: .concord/docs/does-not-exist.md" in line for line in stdout.splitlines()), stdout
     # Unprocessed listing is still emitted.
-    assert any("unprocessed: docs/orphan.md" in line for line in stdout.splitlines()), stdout
+    assert any("unprocessed: .concord/docs/orphan.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_knowledge_roots_traversal_is_rejected() -> None:
@@ -397,8 +397,8 @@ def test_exclusions_default_when_absent() -> None:
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert any("docs/sub/nested.md" in line for line in lines), lines
-    assert any("docs/research/R1-finding.md" in line for line in lines), lines
+    assert any(".concord/docs/sub/nested.md" in line for line in lines), lines
+    assert any(".concord/docs/research/R1-finding.md" in line for line in lines), lines
 
 
 def test_default_knowledge_root_is_docs_when_absent() -> None:
@@ -410,7 +410,7 @@ def test_default_knowledge_root_is_docs_when_absent() -> None:
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
     lines = stdout.splitlines()
-    assert any("docs/orphan.md" in line for line in lines), lines
+    assert any(".concord/docs/orphan.md" in line for line in lines), lines
 
 
 def test_root_that_does_not_exist_produces_no_listing() -> None:
@@ -421,7 +421,7 @@ def test_root_that_does_not_exist_produces_no_listing() -> None:
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
     exit_code, stdout, stderr = run_with_sandbox(root)
     assert exit_code == 0, stderr
-    assert "unprocessed: docs/orphan.md" not in stdout, stdout
+    assert "unprocessed: .concord/docs/orphan.md" not in stdout, stdout
 
 
 def main() -> int:

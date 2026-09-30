@@ -20,7 +20,7 @@ type workflowBoundaryScenario struct {
 
 func readWorkflowBoundaryScenario(t *testing.T, id string) workflowBoundaryScenario {
 	t.Helper()
-	data, err := os.ReadFile("../../scenarios/workflow-engine.v1.json")
+	data, err := os.ReadFile("../../.concord/scenarios/workflow-engine.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

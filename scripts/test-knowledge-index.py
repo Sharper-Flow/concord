@@ -25,7 +25,7 @@ shard_format = importlib.util.module_from_spec(SHARD_FORMAT_SPEC)
 SHARD_FORMAT_SPEC.loader.exec_module(shard_format)
 
 
-def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
+def fixture(path: str = ".concord/docs/lesson.md", digest: str = "a" * 64) -> dict:
     return {
         "schema_version": "1.2",
         "supported_kinds": ["lesson", "research"],
@@ -54,14 +54,14 @@ def fixture(path: str = "docs/lesson.md", digest: str = "a" * 64) -> dict:
 
 def write_shard_tree(root: Path, value: dict) -> None:
     """Lay the fixture out as the shard tree the composer reads."""
-    (root / "docs/knowledge/records").mkdir(parents=True, exist_ok=True)
+    (root / ".concord/docs/knowledge/records").mkdir(parents=True, exist_ok=True)
     head = {key: value[key] for key in ("schema_version", "supported_kinds", "indexed_kinds") if key in value}
-    (root / "docs/knowledge/manifest.json").write_text(json.dumps(head, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (root / "docs/knowledge/domain-registry.json").write_text(
+    (root / ".concord/docs/knowledge/manifest.json").write_text(json.dumps(head, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (root / ".concord/docs/knowledge/domain-registry.json").write_text(
         json.dumps(value["domain_registry"], indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     for record in value["records"]:
-        (root / "docs/knowledge/records" / f"{record['id']}.json").write_text(
+        (root / ".concord/docs/knowledge/records" / f"{record['id']}.json").write_text(
             json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
 
@@ -84,7 +84,7 @@ def v12_fixture() -> dict:
             }],
         },
         "records": [{
-            "id": "spec-1", "kind": "spec", "path": "docs/spec.md", "status": "accepted",
+            "id": "spec-1", "kind": "spec", "path": ".concord/docs/spec.md", "status": "accepted",
             "date": "2026-08-10T00:00:00Z", "title": "Decision", "summary": "Summary", "tags": [],
             "authority": {"tier": "legislated", "legislated_by": "fixture-authority", "contract_version": 1},
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
@@ -112,12 +112,12 @@ def test_duplicate_keys_at_every_level() -> None:
 def test_invalid_update_is_byte_identical() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        document = root / "docs/lesson.md"
+        (root / ".concord/docs").mkdir(parents=True)
+        document = root / ".concord/docs/lesson.md"
         document.write_text("lesson\n", encoding="utf-8")
         value = fixture(digest="b" * 64)
         write_shard_tree(root, value)
-        shard = root / "docs/knowledge/records/lesson-1.json"
+        shard = root / ".concord/docs/knowledge/records/lesson-1.json"
         original = shard.read_text(encoding="utf-8")
         value["unknown"] = True
         with mock.patch.object(checker, "ROOT", root):
@@ -152,8 +152,8 @@ def test_atomic_replacement_failure_preserves_original_and_cleans_temp() -> None
 def test_successful_update_changes_hashes_only() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        document = root / "docs/lesson.md"
+        (root / ".concord/docs").mkdir(parents=True)
+        document = root / ".concord/docs/lesson.md"
         document.write_text("lesson\n", encoding="utf-8")
         value = fixture(digest="b" * 64)
         write_shard_tree(root, value)
@@ -161,7 +161,7 @@ def test_successful_update_changes_hashes_only() -> None:
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.update_manifest(value)
         assert not findings
-        after = json.loads((root / "docs/knowledge/records/lesson-1.json").read_text(encoding="utf-8"))
+        after = json.loads((root / ".concord/docs/knowledge/records/lesson-1.json").read_text(encoding="utf-8"))
         before_hash = before["records"][0].pop("sha256")
         after_hash = after.pop("sha256")
         assert before["records"] == [after]
@@ -170,8 +170,8 @@ def test_successful_update_changes_hashes_only() -> None:
 
 
 def test_path_bound_uses_unicode_scalars() -> None:
-    assert len("docs/" + "é" * 504 + ".md") == checker.MAX_MANIFEST_PATH
-    assert len("docs/" + "é" * 505 + ".md") == checker.MAX_MANIFEST_PATH + 1
+    assert len(".concord/docs/" + "é" * 495 + ".md") == checker.MAX_MANIFEST_PATH
+    assert len(".concord/docs/" + "é" * 496 + ".md") == checker.MAX_MANIFEST_PATH + 1
 
 
 def test_uppercase_hash_is_rejected() -> None:
@@ -195,8 +195,8 @@ def spec_fixture_with_bindings(bindings: list[dict]) -> dict:
 def test_spec_criterion_predicate_binding_is_valid() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = spec_fixture_with_bindings([{"criterion": 1, "work_id": "work-" + "a" * 24, "predicate_id": "predicate:criterion-bindings-predicate-form"}])
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
@@ -213,8 +213,8 @@ def test_spec_criterion_predicate_binding_rejects_bad_shapes() -> None:
     }.items():
         with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
             root = Path(directory)
-            (root / "docs").mkdir()
-            (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+            (root / ".concord/docs").mkdir(parents=True)
+            (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
             value = spec_fixture_with_bindings([binding])
             with mock.patch.object(checker, "ROOT", root):
                 findings = checker.validate(value, check_hashes=False)
@@ -228,14 +228,14 @@ def test_records_may_not_share_a_title_or_summary() -> None:
     # describes a different law. Distinctness is what catches that.
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
-        (root / "docs/other.md").write_text("other\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs/other.md").write_text("other\n", encoding="utf-8")
         with mock.patch.object(checker, "ROOT", root):
             for field, other in (("title", "summary"), ("summary", "title")):
                 value = v12_fixture()
                 second = copy.deepcopy(value["records"][0])
-                second.update(id="spec-2", path="docs/other.md")
+                second.update(id="spec-2", path=".concord/docs/other.md")
                 second[other] = "Distinct " + str(second[other])
                 value["records"].append(second)
                 findings = checker.validate(value, check_hashes=False)
@@ -243,7 +243,7 @@ def test_records_may_not_share_a_title_or_summary() -> None:
 
             distinct = v12_fixture()
             second = copy.deepcopy(distinct["records"][0])
-            second.update(id="spec-2", path="docs/other.md", title="Distinct title", summary="Distinct summary")
+            second.update(id="spec-2", path=".concord/docs/other.md", title="Distinct title", summary="Distinct summary")
             distinct["records"].append(second)
             assert checker.validate(distinct, check_hashes=False) == []
 
@@ -251,8 +251,8 @@ def test_records_may_not_share_a_title_or_summary() -> None:
 def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
@@ -299,21 +299,21 @@ def test_schema_1_3_record_requires_an_authority_object() -> None:
 def test_v12_rejects_historical_law_applicability_without_home() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
         value["records"][0]["status"] = "superseded"
         value["records"][0]["successor"] = "spec-2"
         value["records"][0]["applies_to_domain_ids"] = ["product-root:concord"]
         value["records"].append({
-            "id": "spec-2", "kind": "spec", "path": "docs/spec-2.md", "status": "accepted",
+            "id": "spec-2", "kind": "spec", "path": ".concord/docs/spec-2.md", "status": "accepted",
             "date": "2026-08-10T00:00:00Z", "title": "Successor", "summary": "Summary", "tags": [],
             "scopes": {"mode": "home", "product_ids": [], "project_ids": [], "domain_ids": [], "tag_ids": []},
             "home_domain_id": "product-root:concord", "product_wide_rationale": "Successor law binds every child Domain.",
             "law_relations": [{"kind": "supersedes", "target_id": "spec-1"}],
             "sha256": "sha256:" + "b" * 64,
         })
-        (root / "docs/spec-2.md").write_text("successor\n", encoding="utf-8")
+        (root / ".concord/docs/spec-2.md").write_text("successor\n", encoding="utf-8")
         del value["records"][0]["home_domain_id"]
         del value["records"][0]["product_wide_rationale"]
         with mock.patch.object(checker, "ROOT", root):
@@ -323,8 +323,8 @@ def test_v12_rejects_historical_law_applicability_without_home() -> None:
 def test_v12_rejects_self_referential_domain_dependency() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
         value["domain_registry"]["domains"][0]["architecture_relations"] = [{
             "kind": "depends_on",
@@ -338,8 +338,8 @@ def test_v12_rejects_self_referential_domain_dependency() -> None:
 def test_v12_rejects_domain_graph_dangling_duplicate_bound_and_law_errors() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         base = v12_fixture()
         root_domain = base["domain_registry"]["domains"][0]
         alpha = {"domain_id": "alpha", "name": "Alpha", "purpose": "Alpha", "status": "current", "architecture_relations": []}
@@ -379,7 +379,7 @@ def test_v12_rejects_domain_graph_dangling_duplicate_bound_and_law_errors() -> N
 
 
 def test_nul_path_is_rejected_without_traceback() -> None:
-    findings = checker.validate(fixture(path="docs/lesson\x00.md"), check_hashes=False)
+    findings = checker.validate(fixture(path=".concord/docs/lesson\x00.md"), check_hashes=False)
     assert any("forbidden or unsafe path" in finding for finding in findings)
 
 
@@ -387,7 +387,7 @@ def test_accepted_contracts_are_eligible_record_paths() -> None:
     """CD-0014 accepted C18 and ea68397 accepted C17 within days of the
     exclusion that named them. Both now carry authority, so both may carry a
     record. This proves the repeal at the checker, not only at the schema."""
-    for path in ("docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"):
+    for path in (".concord/docs/product-coordination-view.md", ".concord/docs/terminal-launcher-contract.md"):
         findings = checker.validate(fixture(path=path), check_hashes=False)
         assert not any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
 
@@ -395,11 +395,11 @@ def test_accepted_contracts_are_eligible_record_paths() -> None:
 def test_class_exclusions_survive_the_repeal() -> None:
     """The repeal removed two named files, not the live class exclusions."""
     for path in (
-        "docs/work/scratch.md",
-        "docs/research/R7-expedited-parallel-work.md",
-        "docs/generated-agent-contracts.md",
-        "docs/api/generated.md",
-        "docs/Generated-Contracts.md",
+        ".concord/docs/work/scratch.md",
+        ".concord/docs/research/R7-expedited-parallel-work.md",
+        ".concord/docs/generated-agent-contracts.md",
+        ".concord/docs/api/generated.md",
+        ".concord/docs/Generated-Contracts.md",
     ):
         findings = checker.validate(fixture(path=path), check_hashes=False)
         assert any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
@@ -407,7 +407,7 @@ def test_class_exclusions_survive_the_repeal() -> None:
 
 def test_eligible_paths_are_not_swept_up_by_the_substring_rule() -> None:
     """`generated` is a substring rule; near misses must stay eligible."""
-    for path in ("docs/workflows.md", "docs/generation-policy.md", "docs/researcher-guide.md"):
+    for path in (".concord/docs/workflows.md", ".concord/docs/generation-policy.md", ".concord/docs/researcher-guide.md"):
         findings = checker.validate(fixture(path=path), check_hashes=False)
         assert not any("forbidden or unsafe path" in finding for finding in findings), (path, findings)
 
@@ -415,7 +415,7 @@ def test_eligible_paths_are_not_swept_up_by_the_substring_rule() -> None:
 def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        decisions = root / "docs/decisions"
+        decisions = root / ".concord/docs/decisions"
         decisions.mkdir(parents=True)
         later = decisions / "CD-0014-z-note.md"
         earlier = decisions / "CD-0014-a-decision.md"
@@ -427,7 +427,7 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
         value["records"] = [{
                 "id": "CD-0014",
                 "kind": "decision",
-                "path": "docs/decisions/CD-0014-a-decision.md",
+                "path": ".concord/docs/decisions/CD-0014-a-decision.md",
                 "status": "accepted",
                 "date": "2026-08-10T00:00:00Z",
                 "title": "Decision",
@@ -444,7 +444,7 @@ def test_duplicate_decision_id_files_are_rejected_deterministically() -> None:
             findings = checker.validate(value, check_hashes=False)
         assert findings == [
             "manifest: decision CD-0014 has multiple canonical files: "
-            "docs/decisions/CD-0014-a-decision.md, docs/decisions/CD-0014-z-note.md"
+            ".concord/docs/decisions/CD-0014-a-decision.md, .concord/docs/decisions/CD-0014-z-note.md"
         ]
 
 
@@ -471,12 +471,12 @@ def taxonomy_fixture(root: Path, kind: str, path: str, status: str) -> dict:
 def test_record_status_follows_the_kind_tier() -> None:
     """Both directions of the tier rule, for every kind the taxonomy declares."""
     cases = [
-        ("constitution", "docs/constitution.md", "accepted", "published"),
-        ("decision", "docs/decisions/CD-0099.md", "accepted", "published"),
-        ("spec", "docs/spec.md", "accepted", "published"),
-        ("lesson", "docs/lessons/one.md", "published", "accepted"),
-        ("reference", "docs/installation.md", "published", "accepted"),
-        ("research", "docs/market-landscape.md", "published", "accepted"),
+        ("constitution", ".concord/docs/constitution.md", "accepted", "published"),
+        ("decision", ".concord/docs/decisions/CD-0099.md", "accepted", "published"),
+        ("spec", ".concord/docs/spec.md", "accepted", "published"),
+        ("lesson", ".concord/docs/lessons/one.md", "published", "accepted"),
+        ("reference", ".concord/docs/installation.md", "published", "accepted"),
+        ("research", ".concord/docs/market-landscape.md", "published", "accepted"),
     ]
     for kind, path, valid_status, forbidden_status in cases:
         with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
@@ -491,7 +491,7 @@ def test_record_status_follows_the_kind_tier() -> None:
 
 
 def test_non_law_records_cannot_author_law_home_fields() -> None:
-    for kind, path in (("lesson", "docs/lessons/one.md"), ("reference", "docs/installation.md"), ("research", "docs/market-landscape.md")):
+    for kind, path in (("lesson", ".concord/docs/lessons/one.md"), ("reference", ".concord/docs/installation.md"), ("research", ".concord/docs/market-landscape.md")):
         with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
             root = Path(directory)
             value = taxonomy_fixture(root, kind, path, "published")
@@ -504,7 +504,7 @@ def test_non_law_records_cannot_author_law_home_fields() -> None:
 def test_law_relations_remain_decision_and_spec_only() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        value = taxonomy_fixture(root, "constitution", "docs/constitution.md", "accepted")
+        value = taxonomy_fixture(root, "constitution", ".concord/docs/constitution.md", "accepted")
         value["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-2"}]
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
@@ -514,36 +514,36 @@ def test_law_relations_remain_decision_and_spec_only() -> None:
 def test_valid_disposition_is_accepted_and_a_record_path_is_not() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
+        value = taxonomy_fixture(root, "spec", ".concord/docs/spec.md", "accepted")
         value["dispositions"] = [{
-            "path": "docs/scratch.md",
+            "path": ".concord/docs/scratch.md",
             "disposition": "archived",
             "reason": "Superseded working note kept for provenance only.",
         }]
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
             collision = copy.deepcopy(value)
-            collision["dispositions"][0]["path"] = "docs/spec.md"
+            collision["dispositions"][0]["path"] = ".concord/docs/spec.md"
             findings = checker.validate(collision, check_hashes=False)
         assert findings == [
-            "manifest.dispositions[0]: path is both a record and a disposition: docs/spec.md"
+            "manifest.dispositions[0]: path is both a record and a disposition: .concord/docs/spec.md"
         ]
 
 
 def test_malformed_dispositions_are_rejected() -> None:
     cases = {
-        "unknown field": {"path": "docs/scratch.md", "disposition": "archived", "reason": "Reason.", "owner": "operator"},
-        "missing reason": {"path": "docs/scratch.md", "disposition": "archived"},
-        "empty reason": {"path": "docs/scratch.md", "disposition": "archived", "reason": ""},
-        "unclosed disposition": {"path": "docs/scratch.md", "disposition": "deferred", "reason": "Reason."},
-        "non markdown path": {"path": "docs/scratch.txt", "disposition": "archived", "reason": "Reason."},
+        "unknown field": {"path": ".concord/docs/scratch.md", "disposition": "archived", "reason": "Reason.", "owner": "operator"},
+        "missing reason": {"path": ".concord/docs/scratch.md", "disposition": "archived"},
+        "empty reason": {"path": ".concord/docs/scratch.md", "disposition": "archived", "reason": ""},
+        "unclosed disposition": {"path": ".concord/docs/scratch.md", "disposition": "deferred", "reason": "Reason."},
+        "non markdown path": {"path": ".concord/docs/scratch.txt", "disposition": "archived", "reason": "Reason."},
         "absolute path": {"path": "/docs/scratch.md", "disposition": "archived", "reason": "Reason."},
-        "traversal path": {"path": "docs/../scratch.md", "disposition": "archived", "reason": "Reason."},
+        "traversal path": {"path": ".concord/docs/../scratch.md", "disposition": "archived", "reason": "Reason."},
     }
     for name, entry in cases.items():
         with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
             root = Path(directory)
-            value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
+            value = taxonomy_fixture(root, "spec", ".concord/docs/spec.md", "accepted")
             value["dispositions"] = [entry]
             with mock.patch.object(checker, "ROOT", root):
                 findings = checker.validate(value, check_hashes=False)
@@ -553,8 +553,8 @@ def test_malformed_dispositions_are_rejected() -> None:
 def test_duplicate_disposition_path_is_rejected() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        value = taxonomy_fixture(root, "spec", "docs/spec.md", "accepted")
-        entry = {"path": "docs/scratch.md", "disposition": "archived", "reason": "Reason."}
+        value = taxonomy_fixture(root, "spec", ".concord/docs/spec.md", "accepted")
+        entry = {"path": ".concord/docs/scratch.md", "disposition": "archived", "reason": "Reason."}
         value["dispositions"] = [entry, dict(entry)]
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
@@ -565,8 +565,8 @@ def test_root_home_requires_a_stated_product_wide_rationale() -> None:
     """The root is reachable by deciding nothing, so it carries a stated claim."""
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
@@ -584,8 +584,8 @@ def test_only_root_homed_law_states_a_product_wide_rationale() -> None:
     """A child home has decided already; the claim would contradict it."""
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        (root / "docs").mkdir()
-        (root / "docs/spec.md").write_text("spec\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
         value = v12_fixture()
         value["domain_registry"]["domains"].append({
             "domain_id": "child", "name": "Child", "purpose": "A child Domain",
@@ -601,8 +601,8 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
     """A shard differing only in whitespace parses, so nothing else catches it."""
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
-        records_dir = root / "docs/knowledge/records"
-        coverage_dir = root / "docs/knowledge/coverage"
+        records_dir = root / ".concord/docs/knowledge/records"
+        coverage_dir = root / ".concord/docs/knowledge/coverage"
         records_dir.mkdir(parents=True)
         coverage_dir.mkdir(parents=True)
         canonical = shard_format.canonical_bytes
@@ -635,8 +635,8 @@ def test_record_shards_carry_the_encoding_update_writes() -> None:
 
 def decision_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
     """A one-decision v1.2 manifest whose authored profile is the subject."""
-    (root / "docs/decisions").mkdir(parents=True, exist_ok=True)
-    path = f"docs/decisions/{record_id}.md"
+    (root / ".concord/docs/decisions").mkdir(parents=True, exist_ok=True)
+    path = f".concord/docs/decisions/{record_id}.md"
     (root / path).write_text("body\n", encoding="utf-8")
     value = v12_fixture()
     value["supported_kinds"] = ["decision"]
@@ -741,13 +741,13 @@ def test_non_decision_record_cannot_carry_a_profile() -> None:
     with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
         root = Path(directory)
         value = v12_fixture()
-        (root / "docs").mkdir(parents=True, exist_ok=True)
-        (root / "docs/lesson.md").write_text("body\n", encoding="utf-8")
+        (root / ".concord/docs").mkdir(parents=True, exist_ok=True)
+        (root / ".concord/docs/lesson.md").write_text("body\n", encoding="utf-8")
         value["records"][0]["kind"] = "lesson"
         value["records"][0]["status"] = "published"
         value["records"][0].pop("home_domain_id", None)
         value["records"][0].pop("product_wide_rationale", None)
-        value["records"][0]["path"] = "docs/lesson.md"
+        value["records"][0]["path"] = ".concord/docs/lesson.md"
         value["records"][0]["doc_contract_profile"] = "current"
         with mock.patch.object(checker, "ROOT", root):
             findings = checker.validate(value, check_hashes=False)
@@ -759,8 +759,8 @@ def test_non_decision_record_cannot_carry_a_profile() -> None:
 
 def spec_profile_fixture(root: Path, record_id: str, profile: str | None) -> dict:
     """A one-spec v1.2 manifest whose authored profile is the subject."""
-    (root / "docs/specs").mkdir(parents=True, exist_ok=True)
-    path = f"docs/specs/{record_id}.md"
+    (root / ".concord/docs/specs").mkdir(parents=True, exist_ok=True)
+    path = f".concord/docs/specs/{record_id}.md"
     (root / path).write_text("body\n", encoding="utf-8")
     value = v12_fixture()
     value["doc_contract"] = {

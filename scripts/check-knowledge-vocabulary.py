@@ -121,7 +121,7 @@ def compare_pattern(subject: str, declared: str | None, enforced: str, findings:
 # reading the alternation back out of this same pattern. That reader only works
 # while the pattern keeps this shape, so a restructure must fail here rather
 # than silently leave the Go side matching nothing.
-RECORD_PATH_SHAPE = re.compile(r"^\^docs/\(\?!(?P<alternation>.+)\)\.\*\\\.md\$$")
+RECORD_PATH_SHAPE = re.compile(r"^\^.concord/docs/\(\?!(?P<alternation>.+)\)\.\*\\\.md\$$")
 
 
 def check_record_path_decomposable(schema: object, findings: list[str]) -> None:
@@ -132,7 +132,7 @@ def check_record_path_decomposable(schema: object, findings: list[str]) -> None:
     if shape is None:
         findings.append(
             "record path ineligibility: schema pattern is no longer the "
-            "'^docs/(?!<alternation>).*\\.md$' shape the Go binding decomposes: "
+            "'^.concord/docs/(?!<alternation>).*\\.md$' shape the Go binding decomposes: "
             f"{pattern!r}"
         )
         return

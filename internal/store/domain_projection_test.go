@@ -13,7 +13,7 @@ func TestRebuildKnowledgeIndexProjectsDomainRegistryAndLawScope(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/decisions/CD-0001.md"
+	path := ".concord/docs/decisions/CD-0001.md"
 	content := "domain law\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))
@@ -86,7 +86,7 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/decisions/CD-0001.md"
+	path := ".concord/docs/decisions/CD-0001.md"
 	content := "domain law\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))
@@ -126,7 +126,7 @@ func TestRebuildKnowledgeIndexClearsGoverningLawsBeforeLawSubjects(t *testing.T)
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	path := "docs/decisions/CD-0001.md"
+	path := ".concord/docs/decisions/CD-0001.md"
 	content := "domain law\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))

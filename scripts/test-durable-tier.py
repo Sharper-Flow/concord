@@ -36,15 +36,15 @@ def build_repo(budget: dict) -> tuple[Path, object]:
     root = Path(tmp.name)
     (root / "scripts").mkdir()
     (root / "scripts" / "check-durable-tier.py").write_bytes(SOURCE.read_bytes())
-    (root / "docs").mkdir()
-    (root / "docs" / "durable-tier-budget.v1.json").write_text(json.dumps(budget), encoding="utf-8")
+    (root / ".concord/docs").mkdir(parents=True)
+    (root / ".concord/docs" / "durable-tier-budget.v1.json").write_text(json.dumps(budget), encoding="utf-8")
     return root, tmp
 
 
 def base_budget() -> dict:
     return {
         "schema_version": "1.0",
-        "note_roots": ["docs/work", "docs/lessons"],
+        "note_roots": [".concord/docs/work", ".concord/docs/lessons"],
         "max_note_bytes": 200,
         "max_fenced_json_bytes": 80,
         "note_allowances": [],
@@ -69,14 +69,14 @@ class DurableTierCheckerTests(unittest.TestCase):
     def test_distilled_note_passes(self) -> None:
         root, tmp = build_repo(base_budget())
         with tmp:
-            write_note(root, "docs/work/2026-08-24-slug.md", PAGE)
+            write_note(root, ".concord/docs/work/2026-08-24-slug.md", PAGE)
             code, output = run_checker(root)
         self.assertEqual(code, 0, output)
 
     def test_non_markdown_in_note_root_fails(self) -> None:
         root, tmp = build_repo(base_budget())
         with tmp:
-            write_note(root, "docs/work/state.json", "{}")
+            write_note(root, ".concord/docs/work/state.json", "{}")
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("markdown only", output)
@@ -86,8 +86,8 @@ class DurableTierCheckerTests(unittest.TestCase):
         budget["max_note_bytes"] = len(PAGE.encode())
         root, tmp = build_repo(budget)
         with tmp:
-            write_note(root, "docs/work/at-bound.md", PAGE)
-            write_note(root, "docs/work/over-bound.md", PAGE + "x")
+            write_note(root, ".concord/docs/work/at-bound.md", PAGE)
+            write_note(root, ".concord/docs/work/over-bound.md", PAGE + "x")
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("over-bound.md", output)
@@ -98,8 +98,8 @@ class DurableTierCheckerTests(unittest.TestCase):
         small = "```json\n{\"check_ref\": \"check:x\"}\n```\n"
         dump = "```json\n" + json.dumps({"state": ["x" * 40] * 4}) + "\n```\n"
         with tmp:
-            write_note(root, "docs/lessons/small-ok.md", PAGE + small)
-            write_note(root, "docs/lessons/dump.md", PAGE + dump)
+            write_note(root, ".concord/docs/lessons/small-ok.md", PAGE + small)
+            write_note(root, ".concord/docs/lessons/dump.md", PAGE + dump)
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("dump.md", output)
@@ -114,7 +114,7 @@ class DurableTierCheckerTests(unittest.TestCase):
         root, tmp = build_repo(base_budget())
         dump = "```json\n" + json.dumps({"state": ["x" * 40] * 4}) + "\n"
         with tmp:
-            write_note(root, "docs/lessons/unterminated.md", PAGE + dump)
+            write_note(root, ".concord/docs/lessons/unterminated.md", PAGE + dump)
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("unterminated.md", output)
@@ -123,7 +123,7 @@ class DurableTierCheckerTests(unittest.TestCase):
     def test_plain_fence_is_not_a_json_finding(self) -> None:
         root, tmp = build_repo(base_budget())
         with tmp:
-            write_note(root, "docs/lessons/prose.md", PAGE + "```\nnot json at all, just a long quoted shell transcript that is clearly over the json threshold\n```\n")
+            write_note(root, ".concord/docs/lessons/prose.md", PAGE + "```\nnot json at all, just a long quoted shell transcript that is clearly over the json threshold\n```\n")
             code, output = run_checker(root)
         self.assertEqual(code, 0, output)
 
@@ -131,7 +131,7 @@ class DurableTierCheckerTests(unittest.TestCase):
         budget = base_budget()
         budget["note_allowances"] = [
             {
-                "path": "docs/work/allowed.md",
+                "path": ".concord/docs/work/allowed.md",
                 "state": "outstanding",
                 "issue": 463,
                 "reason": "transitional note awaiting distillation",
@@ -139,8 +139,8 @@ class DurableTierCheckerTests(unittest.TestCase):
         ]
         root, tmp = build_repo(budget)
         with tmp:
-            write_note(root, "docs/work/allowed.md", PAGE + "x" * 300)
-            write_note(root, "docs/work/plain.md", PAGE + "x" * 300)
+            write_note(root, ".concord/docs/work/allowed.md", PAGE + "x" * 300)
+            write_note(root, ".concord/docs/work/plain.md", PAGE + "x" * 300)
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("plain.md", output)
@@ -150,7 +150,7 @@ class DurableTierCheckerTests(unittest.TestCase):
         budget = base_budget()
         budget["note_allowances"] = [
             {
-                "path": "docs/work/allowed.md",
+                "path": ".concord/docs/work/allowed.md",
                 "state": "outstanding",
                 "issue": 463,
                 "reason": "transitional note awaiting distillation",
@@ -159,8 +159,8 @@ class DurableTierCheckerTests(unittest.TestCase):
         root, tmp = build_repo(budget)
         dump = "```json\n" + json.dumps({"state": ["x" * 40] * 4}) + "\n```\n"
         with tmp:
-            write_note(root, "docs/work/allowed.md", PAGE + dump)
-            write_note(root, "docs/work/blob.json", "{}")
+            write_note(root, ".concord/docs/work/allowed.md", PAGE + dump)
+            write_note(root, ".concord/docs/work/blob.json", "{}")
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("allowed.md", output)
@@ -169,7 +169,7 @@ class DurableTierCheckerTests(unittest.TestCase):
     def test_uninventoried_decision_artifact_fails(self) -> None:
         root, tmp = build_repo(base_budget())
         with tmp:
-            write_note(root, "docs/decisions/CD-9999-state.v1.json", "{}")
+            write_note(root, ".concord/docs/decisions/CD-9999-state.v1.json", "{}")
             code, output = run_checker(root)
         self.assertEqual(code, 1)
         self.assertIn("not in the budget inventory", output)
@@ -177,7 +177,7 @@ class DurableTierCheckerTests(unittest.TestCase):
     def test_dangling_inventory_entry_fails(self) -> None:
         budget = base_budget()
         budget["non_markdown_inventory"] = [
-            {"path": "docs/decisions/gone.json", "reason": "was here when the budget was written"}
+            {"path": ".concord/docs/decisions/gone.json", "reason": "was here when the budget was written"}
         ]
         root, tmp = build_repo(budget)
         with tmp:
@@ -188,11 +188,11 @@ class DurableTierCheckerTests(unittest.TestCase):
     def test_inventoried_decision_artifact_passes(self) -> None:
         budget = base_budget()
         budget["non_markdown_inventory"] = [
-            {"path": "docs/decisions/license-evidence/x/LICENSE", "reason": "license text is legal material"}
+            {"path": ".concord/docs/decisions/license-evidence/x/LICENSE", "reason": "license text is legal material"}
         ]
         root, tmp = build_repo(budget)
         with tmp:
-            write_note(root, "docs/decisions/license-evidence/x/LICENSE", "MIT")
+            write_note(root, ".concord/docs/decisions/license-evidence/x/LICENSE", "MIT")
             code, output = run_checker(root)
         self.assertEqual(code, 0, output)
 
@@ -201,7 +201,7 @@ class DurableTierCheckerTests(unittest.TestCase):
         loose["max_note_bytes"] = 10_000
         root, tmp = build_repo(loose)
         with tmp:
-            write_note(root, "docs/work/big.md", PAGE + "x" * 500)
+            write_note(root, ".concord/docs/work/big.md", PAGE + "x" * 500)
             code, output = run_checker(root)
         self.assertEqual(code, 0, output)
 
@@ -210,7 +210,7 @@ class DurableTierCheckerTests(unittest.TestCase):
             {**base_budget(), "schema_version": "2.0"},
             {**base_budget(), "max_note_bytes": 0},
             {**base_budget(), "note_roots": []},
-            {**base_budget(), "note_allowances": [{"path": "docs/work/x.txt", "state": "outstanding", "issue": 1, "reason": "not a markdown note"}]},
+            {**base_budget(), "note_allowances": [{"path": ".concord/docs/work/x.txt", "state": "outstanding", "issue": 1, "reason": "not a markdown note"}]},
         ):
             root, tmp = build_repo(bad)
             with tmp:

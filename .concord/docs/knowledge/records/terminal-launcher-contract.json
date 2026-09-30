@@ -1,0 +1,58 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "launcher-session"
+    },
+    {
+      "criterion": 2,
+      "scenario": "active-quiet-duplicate"
+    },
+    {
+      "criterion": 3,
+      "scenario": "focus-priority"
+    },
+    {
+      "criterion": 4,
+      "scenario": "coverage-states"
+    },
+    {
+      "criterion": 5,
+      "scenario": "first-run"
+    }
+  ],
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md",
+    "internal/launcher/model.go",
+    "internal/launcher/render/bubbletea/model_test.go",
+    "internal/launcher/storeport/domain_evidence_test.go",
+    ".concord/scenarios/launcher-portfolio.v1.json",
+    "cmd/concord/main_test.go",
+    "internal/launcher/model_test.go",
+    "cmd/concord/launcher_portfolio_corpus_test.go"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "terminal-launcher-contract",
+  "kind": "spec",
+  "path": ".concord/docs/terminal-launcher-contract.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:50579567ff7924dfb8ffd0ff1aeadb4a9ceec75246d3b3790b9062dc6fb38d55",
+  "status": "superseded",
+  "successor": "terminal-launcher-replacement-contract",
+  "summary": "Defines the read-only Product launcher: three screens, identity-only handoff, no-poll refresh, and bounded Product-scoped reads. Superseded by the terminal launcher replacement contract under CD-0108.",
+  "tags": [
+    "launcher",
+    "rendering"
+  ],
+  "title": "terminal launcher contract"
+}

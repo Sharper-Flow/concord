@@ -1,0 +1,38 @@
+{
+  "applies_to_domain_ids": [
+    "agent-surface"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-14T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/store/lesson_publish.go",
+    "internal/store/lesson_publish_test.go",
+    "internal/agent/lesson_dispatch_test.go",
+    "scripts/check-knowledge-index.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0026",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0026-learning-capture.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cbfd8d49addaab46882ea1f79764d53c237d2e48902cb844f21155b337f3805e",
+  "status": "accepted",
+  "summary": "An approved lesson operation prepares a note, record shard, and explicit coverage shard on the claimed knowledge-home worktree. Publication follows pull-request merge and a verified knowledge read. Promotion uses scope, reflections use tags, and evidence paths support the drift audit.",
+  "tags": [
+    "lessons",
+    "knowledge",
+    "drift-audit"
+  ],
+  "title": "Learning capture: lesson authoring, reflection, and drift audit"
+}

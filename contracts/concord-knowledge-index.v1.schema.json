@@ -59,6 +59,9 @@
     "exclusions": {
       "$ref": "#/$defs/knowledgeExclusions"
     },
+    "operator_overrides": {
+      "$ref": "#/$defs/operatorOverrides"
+    },
     "dispositions": {
       "$ref": "#/$defs/dispositions"
     },
@@ -295,7 +298,7 @@
         },
         "path": {
           "type": "string",
-          "pattern": "^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$",
+          "pattern": "^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\\.md$",
           "maxLength": 512
         },
         "status": {
@@ -441,7 +444,7 @@
           "then": {
             "properties": {
               "path": {
-                "pattern": "^docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"
+                "pattern": "^.concord/docs/decisions/CD-[0-9]{4}(-.*)?\\.md$"
               }
             }
           }
@@ -1024,7 +1027,7 @@
     "knowledgeRoots": {
       "type": "array",
       "default": [
-        "docs/"
+        ".concord/docs/"
       ],
       "maxItems": 16,
       "uniqueItems": true,
@@ -1042,6 +1045,46 @@
         "type": "string",
         "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\\.md)$",
         "maxLength": 256
+      }
+    },
+    "operatorOverrides": {
+      "type": "array",
+      "description": "CD-0194 D2: the only escape from default .concord/ placement. Each entry records one explicit operator override, tied to one Product; an inferred exception refuses.",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "product_id",
+          "recorded_in",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The repository-relative location, outside .concord/, where Product knowledge is allowed to live.",
+            "pattern": "^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\\.md)$",
+            "maxLength": 256
+          },
+          "product_id": {
+            "type": "string",
+            "description": "The Product the override belongs to.",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^\\S(?:.*\\S)?$"
+          },
+          "recorded_in": {
+            "$ref": "#/$defs/id",
+            "description": "CD-0194 D2: the id of the manifest record that carries the operator's instruction. It is the only anchor a repository check can verify; a work item lives in the external store and never anchors an override. The anchor must be an accepted decision whose document carries the closed concord-operator-override instruction block for the override's exact Product and path with the approve decision. The knowledge placement check resolves the id against the manifest's records and validates the anchor."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 512
+          }
+        }
       }
     },
     "dispositions": {

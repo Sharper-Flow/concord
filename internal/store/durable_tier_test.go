@@ -101,7 +101,7 @@ func TestFencedJSONScanMatchesTheDetectiveLayer(t *testing.T) {
 // than only the workflow step someone might not run locally.
 func TestGeneratedBoundsMatchTheBudget(t *testing.T) {
 	t.Parallel()
-	raw, err := os.ReadFile("../../docs/durable-tier-budget.v1.json")
+	raw, err := os.ReadFile("../../.concord/docs/durable-tier-budget.v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

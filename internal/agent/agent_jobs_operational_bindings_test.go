@@ -14,7 +14,7 @@ import (
 
 // This file implements the TS1 operational scenarios bound for the #162
 // tranche. AJ8 is the "execute ops" job, and the accepted mutation contract
-// (docs/agent-mutation-tool-contract.md section 5) is explicit that native
+// (.concord/docs/agent-mutation-tool-contract.md section 5) is explicit that native
 // execution, rollback, and reclamation are deliberately not claimed as Concord
 // mutations: the native authority performs and proves the real operation while
 // Concord records intent, authority, and evidence. The reclamation scenario is

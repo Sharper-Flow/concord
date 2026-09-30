@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const dependencyInventoryPath = "docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
+const dependencyInventoryPath = ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json"
 
 type inventoryLicense struct {
 	File   string `json:"file"`
@@ -549,7 +549,7 @@ func TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures(t *testing.T) {
 		}
 	}
 
-	decisionPath := filepath.Join("..", "..", "docs", "decisions", "CD-0014-terminal-launcher-rendering.md")
+	decisionPath := filepath.Join("..", "..", ".concord", "docs", "decisions", "CD-0014-terminal-launcher-rendering.md")
 	decision, err := os.ReadFile(decisionPath)
 	if err != nil {
 		t.Fatal(err)

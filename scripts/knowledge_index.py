@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compose the knowledge manifest and the law-coverage record from their shards.
 
-The shards under docs/knowledge/ are the committed authority (CD-0114). No
+The shards under .concord/docs/knowledge/ are the committed authority (CD-0114). No
 committed file lists every record, so two changes that each add a record never
 touch the same line. Every reader composes the aggregate shape in memory
 through this module: from the working tree, or from a git ref.
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -25,11 +26,18 @@ from types import ModuleType
 SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parent
 
-KNOWLEDGE_ROOT = "docs/knowledge"
-HEAD_PATH = "docs/knowledge/manifest.json"
-DOMAIN_REGISTRY_PATH = "docs/knowledge/domain-registry.json"
-RECORD_DIR = "docs/knowledge/records"
-COVERAGE_DIR = "docs/knowledge/coverage"
+KNOWLEDGE_ROOT = ".concord/docs/knowledge"
+HEAD_PATH = ".concord/docs/knowledge/manifest.json"
+DOMAIN_REGISTRY_PATH = ".concord/docs/knowledge/domain-registry.json"
+RECORD_DIR = ".concord/docs/knowledge/records"
+COVERAGE_DIR = ".concord/docs/knowledge/coverage"
+# Layout tiers for reading history. A ref composes from the newest layout it
+# carries; each tier is the shape that commit has, not a fallback around it.
+# - current:  shards under .concord/docs/knowledge (CD-0194 placement law)
+# - previous: shards under docs/knowledge (CD-0114, before the .concord move)
+# - legacy:   one aggregate file, before the shards existed
+PRE_MIGRATION_KNOWLEDGE_ROOT = "docs/knowledge"
+PRE_MIGRATION_HEAD_PATH = "docs/knowledge/manifest.json"
 LEGACY_MANIFEST_PATH = "docs/concord-knowledge-index.v1.json"
 LEGACY_COVERAGE_PATH = "docs/law-coverage.v1.json"
 
@@ -60,10 +68,18 @@ def _coverage_generator() -> ModuleType:
     return sys.modules.get("generate_law_coverage") or _load_module("generate_law_coverage", "generate-law-coverage.py")
 
 
-def compose_manifest_bytes(root: Path = ROOT) -> bytes:
-    """The manifest the shards under root compose, as canonical bytes."""
+def compose_manifest_bytes(root: Path = ROOT, record_path_re: "re.Pattern[str] | None" = None) -> bytes:
+    """The manifest the shards under root compose, as canonical bytes.
+
+    record_path_re selects the record path rule of a layout tier; None keeps
+    the current authored rule.
+    """
     findings: list[str] = []
-    derived = _manifest_generator().derive_aggregate(root, findings)
+    generator = _manifest_generator()
+    if record_path_re is None:
+        derived = generator.derive_aggregate(root, findings)
+    else:
+        derived = generator.derive_aggregate(root, findings, record_path_re=record_path_re)
     if derived is None:
         raise ComposeError(findings or ["knowledge shards did not compose"])
     return derived
@@ -95,15 +111,45 @@ def ref_has_path(root: Path, ref: str, path: str) -> bool:
 
 
 def compose_manifest_at(root: Path, ref: str) -> dict:
-    """The manifest at a git ref: composed from its shards, or read from the
-    aggregate file when the ref predates the shards."""
-    if not ref_has_path(root, ref, HEAD_PATH):
-        return json.loads(_git(root, "show", f"{ref}:{LEGACY_MANIFEST_PATH}"))
-    archive = _git(root, "archive", "--format=tar", ref, "--", KNOWLEDGE_ROOT)
-    with tempfile.TemporaryDirectory(prefix="concord-knowledge-") as scratch:
-        with tarfile.open(fileobj=BytesIO(archive), mode="r:") as tar:
-            tar.extractall(scratch, filter="data")
-        return compose_manifest(Path(scratch))
+    """The manifest at a git ref: composed from its shards in the newest
+    layout the ref carries, or read from the aggregate file when the ref
+    predates the shards. Each tier composes under the record path rule that
+    tier's layout carries (CD-0194 D5)."""
+    if ref_has_path(root, ref, HEAD_PATH):
+        return _compose_manifest_from_ref_tree(root, ref, KNOWLEDGE_ROOT, None)
+    if ref_has_path(root, ref, PRE_MIGRATION_HEAD_PATH):
+        pre_migration = _manifest_generator().PRE_MIGRATION_RECORD_PATH_RE
+        return _compose_manifest_from_ref_tree(root, ref, PRE_MIGRATION_KNOWLEDGE_ROOT, pre_migration)
+    return json.loads(_git(root, "show", f"{ref}:{LEGACY_MANIFEST_PATH}"))
+
+
+def _extract_ref_knowledge_tree(root: Path, ref: str, knowledge_root: str) -> tuple[Path, tempfile.TemporaryDirectory]:
+    """Extract one ref's knowledge shard tree into a scratch directory laid
+    out at the current shard paths, so the extractors read every layout tier
+    with the current-layout code. Returns (tree, scratch); the caller holds
+    the scratch context open while it reads the tree."""
+    archive = _git(root, "archive", "--format=tar", ref, "--", knowledge_root)
+    scratch = tempfile.TemporaryDirectory(prefix="concord-knowledge-")
+    held = Path(scratch.name)
+    with tarfile.open(fileobj=BytesIO(archive), mode="r:") as tar:
+        tar.extractall(held, filter="data")
+    if knowledge_root != KNOWLEDGE_ROOT:
+        target = held / KNOWLEDGE_ROOT
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(held / knowledge_root), str(target))
+    return held, scratch
+
+
+def _compose_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str, record_path_re: "re.Pattern[str] | None") -> dict:
+    held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
+    with scratch:
+        return json.loads(compose_manifest_bytes(held, record_path_re))
+
+
+def _raw_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str) -> dict:
+    held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
+    with scratch:
+        return raw_manifest(held)
 
 
 def manifest_paths_at(root: Path, ref: str) -> list[str]:
@@ -111,6 +157,8 @@ def manifest_paths_at(root: Path, ref: str) -> list[str]:
     that need a pathspec."""
     if ref_has_path(root, ref, HEAD_PATH):
         return [KNOWLEDGE_ROOT]
+    if ref_has_path(root, ref, PRE_MIGRATION_HEAD_PATH):
+        return [PRE_MIGRATION_KNOWLEDGE_ROOT]
     return [LEGACY_MANIFEST_PATH]
 
 
@@ -160,10 +208,14 @@ def raw_manifest(root: Path = ROOT) -> dict:
 
 
 def raw_manifest_at(root: Path, ref: str) -> dict:
-    if not ref_has_path(root, ref, HEAD_PATH):
-        return json.loads(_git(root, "show", f"{ref}:{LEGACY_MANIFEST_PATH}"), object_pairs_hook=_reject_duplicate_pairs)
-    archive = _git(root, "archive", "--format=tar", ref, "--", KNOWLEDGE_ROOT)
-    with tempfile.TemporaryDirectory(prefix="concord-knowledge-") as scratch:
-        with tarfile.open(fileobj=BytesIO(archive), mode="r:") as tar:
-            tar.extractall(scratch, filter="data")
-        return raw_manifest(Path(scratch))
+    if ref_has_path(root, ref, HEAD_PATH):
+        return _raw_manifest_from_ref_tree(root, ref, KNOWLEDGE_ROOT)
+    if ref_has_path(root, ref, PRE_MIGRATION_HEAD_PATH):
+        return _raw_manifest_from_ref_tree(root, ref, PRE_MIGRATION_KNOWLEDGE_ROOT)
+    return json.loads(_git(root, "show", f"{ref}:{LEGACY_MANIFEST_PATH}"), object_pairs_hook=_reject_duplicate_pairs)
+
+
+def _raw_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str) -> dict:
+    held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
+    with scratch:
+        return raw_manifest(held)

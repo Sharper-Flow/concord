@@ -27,8 +27,8 @@ func TestKnowledgeCoverageRowsSpanEveryClosedKind(t *testing.T) {
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
 	writeManifestFixture(t, repo,
-		manifestFixture{ID: "ref-1", Kind: "reference", Path: "docs/reference.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Reference", Summary: "Reference summary", Tags: []string{"nav"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
-		manifestFixture{ID: "const-1", Kind: "constitution", Path: "docs/constitution.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Constitution", Summary: "Constitution summary", Tags: []string{"nav"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "ref-1", Kind: "reference", Path: ".concord/docs/reference.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Reference", Summary: "Reference summary", Tags: []string{"nav"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
+		manifestFixture{ID: "const-1", Kind: "constitution", Path: ".concord/docs/constitution.md", Status: "accepted", Date: "2026-08-10T00:00:00Z", Title: "Constitution", Summary: "Constitution summary", Tags: []string{"nav"}, Scopes: KnowledgeRecordScopes{Mode: "home"}},
 	)
 	commitKnowledgeRepo(t, repo, "reference and constitution")
 	s := openTemp(t)

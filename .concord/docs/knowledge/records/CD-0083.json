@@ -1,0 +1,35 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-29T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    "internal/launcher/projection.go",
+    "internal/launcher/render/bubbletea/model_test.go",
+    ".concord/docs/product-row-contract.md"
+  ],
+  "home_domain_id": "operator-surface",
+  "id": "CD-0083",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0083-assistive-technology-validation-obligation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:554cf1f495304bbcd91f1a06a0be90bfe72cd1af81752e3aa9bdf37c71d0d92e",
+  "status": "accepted",
+  "summary": "Assistive-technology validation stops being deferred to a launcher acceptance that already passed. The no-color half of C14 section 9 closes against named render anchors. Screen-reader validation becomes an open operator obligation naming Orca, a procedure, a pass test, and a trigger. A failed run remains a CD-0014 falsifier.",
+  "tags": [
+    "launcher",
+    "accessibility",
+    "c14",
+    "operator-obligation"
+  ],
+  "title": "Assistive-technology validation is an obligation, not a deferral"
+}

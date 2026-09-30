@@ -17,7 +17,7 @@ SPEC.loader.exec_module(checker)
 # evidence_anchors machinery reads from the actual repo root.
 RESOLVED_ANCHOR = {"kind": "go_test", "value": "internal/store.TestOpenAppliesRequiredPragmas"}
 # A real decision path that resolves at the repository root.
-SOURCE_PATH = "docs/decisions/CD-0091-maturity-promotion-ladder.md"
+SOURCE_PATH = ".concord/docs/decisions/CD-0091-maturity-promotion-ladder.md"
 
 
 def fixture() -> dict:
@@ -141,7 +141,7 @@ def test_real_manifest_validates() -> None:
 
 
 def test_real_manifests_validate_with_unique_rungs() -> None:
-    paths = sorted(checker.ROOT.glob("docs/" + checker.MANIFEST_GLOB))
+    paths = sorted(checker.ROOT.glob(".concord/docs/" + checker.MANIFEST_GLOB))
     assert paths, "no rung manifests found"
     rungs = []
     for path in paths:

@@ -13,7 +13,7 @@ What an anchor is:
   test is declared in that package and its body, or a same-package helper it
   calls, reaches a testing failure call. `go test ./...` is a required CI step.
 - `scenario`: a corpus scenario id; resolves when the id appears in a corpus
-  file under `scenarios/` and nothing in `internal/` defers it. A deferred
+  file under `.concord/scenarios/` and nothing in `internal/` defers it. A deferred
   scenario is executed by nothing and accepting it as evidence would assert a
   rule that no test enforces.
 - `validator`: a Python checker or harness identified by `scripts/<prefix>-<name>.py`;
@@ -150,7 +150,7 @@ def scenario_exists(scenario_id: str) -> bool:
     """A scenario anchor resolves when a corpus declares the id and nothing defers it."""
     if scenario_id in deferred_scenarios():
         return False
-    directory = ROOT / "scenarios"
+    directory = ROOT / ".concord/scenarios"
     if not directory.is_dir():
         return False
     for path in directory.rglob("*.json"):
@@ -336,7 +336,7 @@ def check_anchor(anchor: object, prefix: str, findings: list[str]) -> None:
             findings.append(f"{prefix}: go_test anchor does not resolve: {value!r}")
     elif kind == "scenario":
         if not scenario_exists(value):
-            findings.append(f"{prefix}: scenario anchor is in no corpus under scenarios/: {value!r}")
+            findings.append(f"{prefix}: scenario anchor is in no corpus under .concord/scenarios/: {value!r}")
     elif kind == "validator":
         if not VALIDATOR_ANCHOR.fullmatch(value):
             findings.append(

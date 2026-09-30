@@ -141,7 +141,7 @@ This is the contract paragraph.
 
 def test_valid_spec_passes_when_enforced() -> None:
     root = sandbox()
-    path = "docs/valid.md"
+    path = ".concord/docs/valid.md"
     write_spec(root, path, VALID_BODY)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -151,7 +151,7 @@ def test_valid_spec_passes_when_enforced() -> None:
 
 def test_valid_spec_passes_when_report_only() -> None:
     root = sandbox()
-    path = "docs/valid.md"
+    path = ".concord/docs/valid.md"
     write_spec(root, path, VALID_BODY)
     manifest = manifest_with(root, [record(path)])
     manifest["doc_contract"]["enforced"] = False
@@ -181,12 +181,12 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/no-ac.md"
+    path = ".concord/docs/no-ac.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("ac-missing: docs/no-ac.md" in line for line in stdout.splitlines()), stdout
+    assert any("ac-missing: .concord/docs/no-ac.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_ac_not_gherkin_when_first_token_invalid() -> None:
@@ -209,12 +209,12 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/bad-ac.md"
+    path = ".concord/docs/bad-ac.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("ac-not-gherkin: docs/bad-ac.md" in line for line in stdout.splitlines()), stdout
+    assert any("ac-not-gherkin: .concord/docs/bad-ac.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_ac_not_gherkin_when_then_missing() -> None:
@@ -238,7 +238,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/then-missing.md"
+    path = ".concord/docs/then-missing.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -267,7 +267,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/no-given.md"
+    path = ".concord/docs/no-given.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -298,7 +298,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/multiline.md"
+    path = ".concord/docs/multiline.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -333,7 +333,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/long.md"
+    path = ".concord/docs/long.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -364,7 +364,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/at-limit.md"
+    path = ".concord/docs/at-limit.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path)])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -402,7 +402,7 @@ Body.
 def test_banned_phrases_each_fail() -> None:
     for phrase in checker.DEFAULT_BANNED_PHRASES:
         root = sandbox()
-        path = "docs/banned.md"
+        path = ".concord/docs/banned.md"
         write_spec(root, path, _banned_body(phrase))
         manifest = manifest_with(root, [record(path, sha_digest="b")])
         exit_code, stdout, stderr = run_checker(root, manifest)
@@ -437,7 +437,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/unexp.md"
+    path = ".concord/docs/unexp.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="c")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -467,7 +467,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/exp.md"
+    path = ".concord/docs/exp.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="d")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -496,7 +496,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/json.md"
+    path = ".concord/docs/json.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -533,7 +533,7 @@ Body.
 
 # {long_phrase}
 """
-    path = "docs/heading.md"
+    path = ".concord/docs/heading.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="f")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -567,7 +567,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/code.md"
+    path = ".concord/docs/code.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -601,7 +601,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/table.md"
+    path = ".concord/docs/table.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="2")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -625,7 +625,7 @@ Short.
 
 Body.
 """
-    path = "docs/incomplete.md"
+    path = ".concord/docs/incomplete.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="3")])
     manifest["doc_contract"]["enforced"] = False
@@ -647,7 +647,7 @@ Short.
 
 Body.
 """
-    path = "docs/incomplete.md"
+    path = ".concord/docs/incomplete.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="4")])
     assert manifest["doc_contract"]["enforced"] is True
@@ -664,7 +664,7 @@ Body.
 def test_manifest_unknown_doc_contract_field_is_rejected() -> None:
     root = sandbox()
     body = VALID_BODY
-    path = "docs/valid.md"
+    path = ".concord/docs/valid.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="5")])
     manifest["doc_contract"]["unknown"] = True
@@ -696,7 +696,7 @@ def kind_contract(kind: str, required_sections: list[str]) -> dict:
 
 def test_non_spec_kind_without_acceptance_criteria_passes() -> None:
     root = sandbox()
-    path = "docs/reference.md"
+    path = ".concord/docs/reference.md"
     write_spec(root, path, "# Reference\n\nBody.\n")
     manifest = manifest_with(root, [non_spec_record("reference", path)], kind_contract("reference", []))
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -715,12 +715,12 @@ Body.
   When an action happens
   Then an outcome follows.
 """
-    path = "docs/reference.md"
+    path = ".concord/docs/reference.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [non_spec_record("reference", path, "b")], kind_contract("reference", []))
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("ac-forbidden: docs/reference.md#5" in line for line in stdout.splitlines()), stdout
+    assert any("ac-forbidden: .concord/docs/reference.md#5" in line for line in stdout.splitlines()), stdout
 
 
 def resource_lesson(path: str, body: str, root: Path) -> dict:
@@ -741,11 +741,11 @@ Vendor documentation: /vendor/api-docs
 {"openapi": "3.1.0", "paths": {}}
 ```
 """
-    path = "docs/lessons/vendor.md"
+    path = ".concord/docs/lessons/vendor.md"
     manifest = manifest_with(root, [resource_lesson(path, body, root)], kind_contract("lesson", []))
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("vendor-content: docs/lessons/vendor.md:5 (json)" in line for line in stdout.splitlines()), stdout
+    assert any("vendor-content: .concord/docs/lessons/vendor.md:5 (json)" in line for line in stdout.splitlines()), stdout
 
 
 def test_resource_lesson_with_prose_and_shell_fence_passes() -> None:
@@ -760,7 +760,7 @@ The Product authenticates with a bearer token and calls one endpoint.
 curl -H "Authorization: Bearer token" https://example.invalid/v1/items
 ```
 """
-    path = "docs/lessons/vendor.md"
+    path = ".concord/docs/lessons/vendor.md"
     manifest = manifest_with(root, [resource_lesson(path, body, root)], kind_contract("lesson", []))
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 0, (exit_code, stdout, stderr)
@@ -774,7 +774,7 @@ def test_untagged_lesson_may_carry_a_data_fence() -> None:
 {"kind": "outcome", "allowed": ["completed"]}
 ```
 """
-    path = "docs/lessons/store.md"
+    path = ".concord/docs/lessons/store.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [non_spec_record("lesson", path, "e")], kind_contract("lesson", []))
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -790,7 +790,7 @@ def test_prose_that_says_when_and_then_is_not_an_acceptance_section() -> None:
 
 When the cache is cold, then the first read pays the index build.
 """
-    path = "docs/research-note.md"
+    path = ".concord/docs/research-note.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [non_spec_record("research", path, "c")], kind_contract("research", ["Findings"]))
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -799,13 +799,13 @@ When the cache is cold, then the first read pays the index build.
 
 def test_new_kind_required_sections_are_enforced() -> None:
     root = sandbox()
-    path = "docs/constitution.md"
+    path = ".concord/docs/constitution.md"
     write_spec(root, path, "# Constitution\n\nBody.\n")
     contract = kind_contract("constitution", ["Purpose"])
     manifest = manifest_with(root, [non_spec_record("constitution", path, "d")], contract)
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
-    assert any("missing-section: docs/constitution.md (Purpose)" in line for line in stdout.splitlines()), stdout
+    assert any("missing-section: .concord/docs/constitution.md (Purpose)" in line for line in stdout.splitlines()), stdout
 
     root = sandbox()
     write_spec(root, path, "# Constitution\n\n## Purpose\n\nBody.\n")
@@ -817,7 +817,7 @@ def test_new_kind_required_sections_are_enforced() -> None:
 def test_empty_section_name_is_rejected_for_a_kind_whose_list_may_be_empty() -> None:
     """An empty array of sections is allowed; an empty section name is not."""
     root = sandbox()
-    path = "docs/reference.md"
+    path = ".concord/docs/reference.md"
     write_spec(root, path, "# Reference\n\nBody.\n")
     manifest = manifest_with(root, [non_spec_record("reference", path, "f")], kind_contract("reference", [""]))
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -837,7 +837,7 @@ def test_live_manifest_declares_a_contract_for_every_new_kind() -> None:
 
 def test_decision_records_are_skipped_when_not_in_contract() -> None:
     root = sandbox()
-    path = "docs/decision.md"
+    path = ".concord/docs/decision.md"
     write_spec(root, path, "# Decision\n\nBody without required sections.\n")
     manifest = manifest_with(root, [{
         "id": "decision-1",
@@ -887,7 +887,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/repeat.md"
+    path = ".concord/docs/repeat.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="7")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -918,7 +918,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/comment.md"
+    path = ".concord/docs/comment.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="c1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -960,7 +960,7 @@ Body.
 def test_abbreviation_inside_inline_code_is_not_flagged() -> None:
     root = sandbox()
     body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging.")
-    path = "docs/inline-abbr.md"
+    path = ".concord/docs/inline-abbr.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -975,7 +975,7 @@ def test_abbreviation_outside_inline_code_is_still_flagged() -> None:
     """
     root = sandbox()
     body = _inline_code_body("Run `EXPLAIN QUERY PLAN` before merging the RPC.")
-    path = "docs/inline-abbr-mixed.md"
+    path = ".concord/docs/inline-abbr-mixed.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i2")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -987,7 +987,7 @@ def test_abbreviation_outside_inline_code_is_still_flagged() -> None:
 def test_double_backtick_span_is_excluded() -> None:
     root = sandbox()
     body = _inline_code_body("Write ``SELECT COUNT(*)`` in the query.")
-    path = "docs/double-backtick.md"
+    path = ".concord/docs/double-backtick.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i3")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -997,7 +997,7 @@ def test_double_backtick_span_is_excluded() -> None:
 def test_banned_phrase_inside_inline_code_is_not_flagged() -> None:
     root = sandbox()
     body = _inline_code_body("Call `utilize_backend()` to start.")
-    path = "docs/inline-banned.md"
+    path = ".concord/docs/inline-banned.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i4")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1007,7 +1007,7 @@ def test_banned_phrase_inside_inline_code_is_not_flagged() -> None:
 def test_banned_phrase_outside_inline_code_is_still_flagged() -> None:
     root = sandbox()
     body = _inline_code_body("Call `utilize_backend()` and utilize the result.")
-    path = "docs/inline-banned-mixed.md"
+    path = ".concord/docs/inline-banned-mixed.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i5")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1020,7 +1020,7 @@ def test_inline_code_words_do_not_count_toward_sentence_length() -> None:
     span = "`" + " ".join(f"token{i}" for i in range(30)) + "`"
     sentence = "This sentence has " + span + " and stays short."
     body = _inline_code_body(sentence)
-    path = "docs/inline-sentence.md"
+    path = ".concord/docs/inline-sentence.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="i6")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1062,7 +1062,7 @@ def test_ac_multiple_when_fails() -> None:
         "  Then an outcome follows.",
         "Body.",
     )
-    path = "docs/two-triggers.md"
+    path = ".concord/docs/two-triggers.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g1")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1080,7 +1080,7 @@ def test_ac_split_triggers_pass() -> None:
         "- Proved by `internal/store.TestFirstOutcome`.\n"
         "- Proved by `internal/store.TestSecondOutcome`.",
     )
-    path = "docs/split-triggers.md"
+    path = ".concord/docs/split-triggers.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g2")])
     manifest["records"][0]["criterion_bindings"].append(
@@ -1103,7 +1103,7 @@ def test_when_prefixed_word_is_not_a_second_trigger() -> None:
         "  Then the system responds. Whenever load is high it queues first.",
         "- Proved by `internal/store.TestWheneverQueueing`.",
     )
-    path = "docs/whenever.md"
+    path = ".concord/docs/whenever.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g3")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1119,7 +1119,7 @@ def test_verification_underspecified_when_entries_fewer_than_criteria() -> None:
         "  Then a second outcome follows.",
         "One check only.",
     )
-    path = "docs/underspecified.md"
+    path = ".concord/docs/underspecified.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g4")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1135,7 +1135,7 @@ def test_verification_empty_section_fails() -> None:
         "- When an action happens\n  Then an outcome follows.",
         "",
     )
-    path = "docs/empty-verification.md"
+    path = ".concord/docs/empty-verification.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="g5")])
     exit_code, stdout, stderr = run_checker(root, manifest)
@@ -1169,7 +1169,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/sql-tokens.md"
+    path = ".concord/docs/sql-tokens.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -1204,7 +1204,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/rfc2119.md"
+    path = ".concord/docs/rfc2119.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -1241,7 +1241,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/names.md"
+    path = ".concord/docs/names.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -1276,7 +1276,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/nouns.md"
+    path = ".concord/docs/nouns.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -1358,7 +1358,7 @@ def with_legacy_record(records: list[dict]) -> list[dict]:
 
     The placeholder file is absent, which check_record skips by contract.
     """
-    return [*records, decision_record("docs/decisions/legacy-kept.md", "CD-0002", profile="legacy")]
+    return [*records, decision_record(".concord/docs/decisions/legacy-kept.md", "CD-0002", profile="legacy")]
 
 
 FULL_DECISION_BODY = """# A current decision
@@ -1399,7 +1399,7 @@ The decision states the rule.
 
 def test_current_decision_with_full_outline_passes() -> None:
     root = sandbox()
-    path = "docs/decisions/current.md"
+    path = ".concord/docs/decisions/current.md"
     write_spec(root, path, FULL_DECISION_BODY)
     manifest = manifest_with(
         root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
@@ -1411,7 +1411,7 @@ def test_current_decision_with_full_outline_passes() -> None:
 
 def test_current_decision_missing_heading_fails() -> None:
     root = sandbox()
-    path = "docs/decisions/partial.md"
+    path = ".concord/docs/decisions/partial.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     manifest = manifest_with(
         root, with_legacy_record([decision_record(path)]), contract=amended_decision_contract()
@@ -1419,7 +1419,7 @@ def test_current_decision_missing_heading_fails() -> None:
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "missing-section: docs/decisions/partial.md (Alternatives considered)" in line
+        "missing-section: .concord/docs/decisions/partial.md (Alternatives considered)" in line
         for line in stdout.splitlines()
     ), stdout
 
@@ -1427,24 +1427,24 @@ def test_current_decision_missing_heading_fails() -> None:
 def test_unprofiled_decision_defaults_to_current_profile() -> None:
     """The validated new-record rule: no authored profile, current outline."""
     root = sandbox()
-    path = "docs/decisions/newest.md"
+    path = ".concord/docs/decisions/newest.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     manifest = manifest_with(
         root,
         [
-            decision_record("docs/decisions/legacy-kept.md", "CD-0002", profile="legacy"),
+            decision_record(".concord/docs/decisions/legacy-kept.md", "CD-0002", profile="legacy"),
             decision_record(path, "CD-9999", profile=None),
         ],
         contract=amended_decision_contract(),
     )
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout)
-    assert any("missing-section: docs/decisions/newest.md" in line for line in stdout.splitlines()), stdout
+    assert any("missing-section: .concord/docs/decisions/newest.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_legacy_decision_keeps_the_old_outline() -> None:
     root = sandbox()
-    path = "docs/decisions/old.md"
+    path = ".concord/docs/decisions/old.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     manifest = manifest_with(
         root,
@@ -1466,7 +1466,7 @@ def test_manifest_head_legacy_records_list_is_rejected() -> None:
     the knowledge-index checker and the shard generator enforce.
     """
     root = sandbox()
-    path = "docs/decisions/old.md"
+    path = ".concord/docs/decisions/old.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     contract = amended_decision_contract()
     contract["decision"]["legacy_records"] = ["CD-0002", "CD-9999"]
@@ -1483,7 +1483,7 @@ def test_manifest_head_legacy_records_list_is_rejected() -> None:
 
 def test_profile_fields_on_another_kind_fail() -> None:
     root = sandbox()
-    path = "docs/decisions/old.md"
+    path = ".concord/docs/decisions/old.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     contract = decision_contract()
     contract["constitution"] = {
@@ -1505,7 +1505,7 @@ def test_profile_fields_on_another_kind_fail() -> None:
 def test_unchanged_contract_keeps_today_behavior() -> None:
     """No profile pair in the manifest head: no outline is required."""
     root = sandbox()
-    path = "docs/decisions/old.md"
+    path = ".concord/docs/decisions/old.md"
     write_spec(root, path, PARTIAL_DECISION_BODY)
     manifest = manifest_with(
         root, [decision_record(path, "CD-0002")], contract=decision_contract()
@@ -1524,7 +1524,7 @@ def test_current_decision_uppercase_criteria_parse() -> None:
   Then an outcome follows.
 """
     root = sandbox()
-    path = "docs/decisions/with-criteria.md"
+    path = ".concord/docs/decisions/with-criteria.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1545,7 +1545,7 @@ def test_current_decision_invalid_criteria_fail_under_either_case() -> None:
   When an action happens
 """
         root = sandbox()
-        path = "docs/decisions/bad-criteria.md"
+        path = ".concord/docs/decisions/bad-criteria.md"
         write_spec(root, path, body)
         manifest = manifest_with(
             root,
@@ -1567,7 +1567,7 @@ def test_legacy_decision_lowercase_criteria_stay_forbidden() -> None:
   Then an outcome follows.
 """
     root = sandbox()
-    path = "docs/decisions/legacy-criteria.md"
+    path = ".concord/docs/decisions/legacy-criteria.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1576,7 +1576,7 @@ def test_legacy_decision_lowercase_criteria_stay_forbidden() -> None:
     )
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout)
-    assert any("ac-forbidden: docs/decisions/legacy-criteria.md" in line for line in stdout.splitlines()), stdout
+    assert any("ac-forbidden: .concord/docs/decisions/legacy-criteria.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_current_decision_domain_heading_fails() -> None:
@@ -1586,7 +1586,7 @@ def test_current_decision_domain_heading_fails() -> None:
 The domain is product-memory.
 """
     root = sandbox()
-    path = "docs/decisions/with-domain.md"
+    path = ".concord/docs/decisions/with-domain.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1596,7 +1596,7 @@ The domain is product-memory.
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "domain-heading-forbidden: docs/decisions/with-domain.md" in line
+        "domain-heading-forbidden: .concord/docs/decisions/with-domain.md" in line
         for line in stdout.splitlines()
     ), stdout
 
@@ -1624,7 +1624,7 @@ Body.
 - Proved by `internal/store.TestFixture`.
 """
     root = sandbox()
-    path = "docs/spec-upper.md"
+    path = ".concord/docs/spec-upper.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1633,7 +1633,7 @@ Body.
     )
     exit_code, stdout, _ = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout)
-    assert any("ac-missing: docs/spec-upper.md" in line for line in stdout.splitlines()), stdout
+    assert any("ac-missing: .concord/docs/spec-upper.md" in line for line in stdout.splitlines()), stdout
 
 
 def test_fenced_fake_headings_do_not_satisfy_outline() -> None:
@@ -1655,7 +1655,7 @@ The prose names no section at all.
 ```
 """
     root = sandbox()
-    path = "docs/decisions/fenced-headings.md"
+    path = ".concord/docs/decisions/fenced-headings.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1666,7 +1666,7 @@ The prose names no section at all.
     assert exit_code == 1, (exit_code, stdout)
     for section in DECISION_OUTLINE:
         assert any(
-            f"missing-section: docs/decisions/fenced-headings.md ({section})" in line
+            f"missing-section: .concord/docs/decisions/fenced-headings.md ({section})" in line
             for line in stdout.splitlines()
         ), (section, stdout)
 
@@ -1687,7 +1687,7 @@ def test_fenced_criteria_parse_on_current_profile() -> None:
 ```
 """
     root = sandbox()
-    path = "docs/decisions/fenced-criteria.md"
+    path = ".concord/docs/decisions/fenced-criteria.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1714,7 +1714,7 @@ def test_fenced_incomplete_criteria_fail_on_current_profile() -> None:
 ```
 """
     root = sandbox()
-    path = "docs/decisions/fenced-incomplete.md"
+    path = ".concord/docs/decisions/fenced-incomplete.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1748,7 +1748,7 @@ The follow-up states more context.
   When an action happens
 """
     root = sandbox()
-    path = "docs/decisions/two-criteria.md"
+    path = ".concord/docs/decisions/two-criteria.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1773,7 +1773,7 @@ def test_legacy_decision_uppercase_criteria_stay_unparsed() -> None:
 - The verdict names the delivery.
 """
     root = sandbox()
-    path = "docs/decisions/legacy-upper.md"
+    path = ".concord/docs/decisions/legacy-upper.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -1857,7 +1857,7 @@ def test_current_spec_with_full_outline_passes() -> None:
         (2, "Acceptance criteria"),
         (2, "Verification"),
     ])
-    exit_code, stdout, stderr = run_profiled_spec("docs/specs/in-order.md", body, profile="current")
+    exit_code, stdout, stderr = run_profiled_spec(".concord/docs/specs/in-order.md", body, profile="current")
     assert exit_code == 0, (exit_code, stdout, stderr)
     assert "doc contract check passed" in stdout, stdout
 
@@ -1869,10 +1869,10 @@ def test_current_spec_outline_out_of_order_fails() -> None:
         (2, "Contract"),
         (2, "Acceptance criteria"),
     ])
-    exit_code, stdout, _ = run_profiled_spec("docs/specs/out-of-order.md", body, profile="current")
+    exit_code, stdout, _ = run_profiled_spec(".concord/docs/specs/out-of-order.md", body, profile="current")
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-out-of-order: docs/specs/out-of-order.md#" in line
+        "section-out-of-order: .concord/docs/specs/out-of-order.md#" in line
         and "(Contract follows Verification" in line
         for line in stdout.splitlines()
     ), stdout
@@ -1886,10 +1886,10 @@ def test_unprofiled_spec_defaults_to_current_profile() -> None:
         (2, "Contract"),
         (2, "Acceptance criteria"),
     ])
-    exit_code, stdout, _ = run_profiled_spec("docs/specs/unprofiled.md", body, profile=None)
+    exit_code, stdout, _ = run_profiled_spec(".concord/docs/specs/unprofiled.md", body, profile=None)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-out-of-order: docs/specs/unprofiled.md#" in line
+        "section-out-of-order: .concord/docs/specs/unprofiled.md#" in line
         for line in stdout.splitlines()
     ), stdout
 
@@ -1901,10 +1901,10 @@ def test_current_spec_heading_level_three_fails() -> None:
         (2, "Acceptance criteria"),
         (2, "Verification"),
     ])
-    exit_code, stdout, _ = run_profiled_spec("docs/specs/level-three.md", body, profile="current")
+    exit_code, stdout, _ = run_profiled_spec(".concord/docs/specs/level-three.md", body, profile="current")
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-heading-level: docs/specs/level-three.md#" in line
+        "section-heading-level: .concord/docs/specs/level-three.md#" in line
         and "(Context is a level-3 heading" in line
         for line in stdout.splitlines()
     ), stdout
@@ -1917,10 +1917,10 @@ def test_current_spec_duplicate_section_fails() -> None:
         (2, "Acceptance criteria"),
         (2, "Verification"),
     ]) + "\n## Verification\n\nA second section restates the proof in prose.\n"
-    exit_code, stdout, _ = run_profiled_spec("docs/specs/duplicate-section.md", body, profile="current")
+    exit_code, stdout, _ = run_profiled_spec(".concord/docs/specs/duplicate-section.md", body, profile="current")
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-duplicate: docs/specs/duplicate-section.md#" in line
+        "section-duplicate: .concord/docs/specs/duplicate-section.md#" in line
         and "Verification appears 2 times" in line
         for line in stdout.splitlines()
     ), stdout
@@ -1941,7 +1941,7 @@ def test_legacy_spec_keeps_presence_only_outline() -> None:
         (2, "Acceptance criteria"),
         (2, "Verification"),
     ])
-    exit_code, stdout, stderr = run_profiled_spec("docs/specs/legacy-loose.md", body, profile="legacy")
+    exit_code, stdout, stderr = run_profiled_spec(".concord/docs/specs/legacy-loose.md", body, profile="legacy")
     assert exit_code == 0, (exit_code, stdout, stderr)
     assert "doc contract check passed" in stdout, stdout
 
@@ -1969,7 +1969,7 @@ def criterion_manifest(root: Path, path: str, binding: dict | None) -> dict:
 
 def test_criterion_binding_to_existing_scenario_passes() -> None:
     root = sandbox()
-    path = "docs/bound.md"
+    path = ".concord/docs/bound.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 0, (exit_code, stdout, stderr)
@@ -1977,7 +1977,7 @@ def test_criterion_binding_to_existing_scenario_passes() -> None:
 
 def test_criterion_binding_to_unknown_scenario_fails() -> None:
     root = sandbox()
-    path = "docs/unknown-scenario.md"
+    path = ".concord/docs/unknown-scenario.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": "SCENARIO-does-not-exist"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -1986,7 +1986,7 @@ def test_criterion_binding_to_unknown_scenario_fails() -> None:
 
 def test_unbound_criterion_fails() -> None:
     root = sandbox()
-    path = "docs/unbound.md"
+    path = ".concord/docs/unbound.md"
     manifest = criterion_manifest(root, path, None)
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -1995,7 +1995,7 @@ def test_unbound_criterion_fails() -> None:
 
 def test_criterion_binding_without_resolution_kind_fails() -> None:
     root = sandbox()
-    path = "docs/missing-resolution.md"
+    path = ".concord/docs/missing-resolution.md"
     manifest = criterion_manifest(root, path, {"criterion": 1})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2004,7 +2004,7 @@ def test_criterion_binding_without_resolution_kind_fails() -> None:
 
 def test_criterion_exemption_without_reason_fails() -> None:
     root = sandbox()
-    path = "docs/empty-exemption.md"
+    path = ".concord/docs/empty-exemption.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "exemption": ""})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2013,7 +2013,7 @@ def test_criterion_exemption_without_reason_fails() -> None:
 
 def test_criterion_exemption_with_too_short_reason_fails() -> None:
     root = sandbox()
-    path = "docs/short-exemption.md"
+    path = ".concord/docs/short-exemption.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "exemption": "too short"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2022,7 +2022,7 @@ def test_criterion_exemption_with_too_short_reason_fails() -> None:
 
 def test_duplicate_criterion_binding_fails() -> None:
     root = sandbox()
-    path = "docs/duplicate-binding.md"
+    path = ".concord/docs/duplicate-binding.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID})
     manifest["records"][0]["criterion_bindings"].append(
         {"criterion": 1, "exemption": "A recorded reason for this exemption."}
@@ -2034,7 +2034,7 @@ def test_duplicate_criterion_binding_fails() -> None:
 
 def test_out_of_range_criterion_binding_fails() -> None:
     root = sandbox()
-    path = "docs/out-of-range.md"
+    path = ".concord/docs/out-of-range.md"
     manifest = criterion_manifest(root, path, {"criterion": 2, "scenario": SCENARIO_ID})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2046,7 +2046,7 @@ PREDICATE_WORK_ID = "work-" + "a" * 24
 
 def test_criterion_predicate_binding_resolves_criterion() -> None:
     root = sandbox()
-    path = "docs/predicate-bound.md"
+    path = ".concord/docs/predicate-bound.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": PREDICATE_WORK_ID, "predicate_id": "predicate:criterion-bindings-predicate-form"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 0, (exit_code, stdout, stderr)
@@ -2054,7 +2054,7 @@ def test_criterion_predicate_binding_resolves_criterion() -> None:
 
 def test_criterion_predicate_binding_with_bad_predicate_prefix_fails() -> None:
     root = sandbox()
-    path = "docs/bad-predicate.md"
+    path = ".concord/docs/bad-predicate.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": PREDICATE_WORK_ID, "predicate_id": "pred:criterion-bindings-predicate-form"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2063,7 +2063,7 @@ def test_criterion_predicate_binding_with_bad_predicate_prefix_fails() -> None:
 
 def test_criterion_predicate_binding_with_bad_work_id_fails() -> None:
     root = sandbox()
-    path = "docs/bad-work-id.md"
+    path = ".concord/docs/bad-work-id.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "work_id": "job-1234", "predicate_id": "predicate:criterion-bindings-predicate-form"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2072,7 +2072,7 @@ def test_criterion_predicate_binding_with_bad_work_id_fails() -> None:
 
 def test_criterion_predicate_binding_mixed_with_scenario_fails() -> None:
     root = sandbox()
-    path = "docs/mixed-binding.md"
+    path = ".concord/docs/mixed-binding.md"
     manifest = criterion_manifest(root, path, {"criterion": 1, "scenario": SCENARIO_ID, "work_id": PREDICATE_WORK_ID, "predicate_id": "predicate:criterion-bindings-predicate-form"})
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
@@ -2081,7 +2081,7 @@ def test_criterion_predicate_binding_mixed_with_scenario_fails() -> None:
 
 def test_activation_criterion_must_be_all_zero_with_bounded_evidence() -> None:
     root = sandbox()
-    path = "docs/spec-a.md"
+    path = ".concord/docs/spec-a.md"
     write_spec(root, path, "# Spec\n\nbody\n")
     spec_record = record(path, sha_digest="e")
     spec_record.pop("criterion_bindings", None)
@@ -2215,7 +2215,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/url-tokens.md"
+    path = ".concord/docs/url-tokens.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="u")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -2252,7 +2252,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/link-target.md"
+    path = ".concord/docs/link-target.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="l")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -2292,7 +2292,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/two-sentences.md"
+    path = ".concord/docs/two-sentences.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="s")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -2335,7 +2335,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/references.md"
+    path = ".concord/docs/references.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="r")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -2373,7 +2373,7 @@ Body.
 
 - Proved by `internal/store.TestFixture`.
 """
-    path = "docs/emphasis-tokens.md"
+    path = ".concord/docs/emphasis-tokens.md"
     write_spec(root, path, body)
     manifest = manifest_with(root, [record(path, sha_digest="e2")])
     exit_code, stdout, _ = run_checker(root, manifest)
@@ -2425,10 +2425,10 @@ def test_current_decision_outline_out_of_order_fails() -> None:
         (2, "Alternatives considered"),
         (2, "Consequences"),
     ]))
-    exit_code, stdout, _ = run_current_decision("docs/decisions/out-of-order.md", body)
+    exit_code, stdout, _ = run_current_decision(".concord/docs/decisions/out-of-order.md", body)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-out-of-order: docs/decisions/out-of-order.md#" in line
+        "section-out-of-order: .concord/docs/decisions/out-of-order.md#" in line
         and "(Decision follows Verification" in line
         for line in stdout.splitlines()
     ), stdout
@@ -2444,7 +2444,7 @@ def test_current_decision_outline_in_order_passes_with_extra_sections() -> None:
         (3, "An unrelated subsection"),
         (2, "Verification"),
     ]))
-    exit_code, stdout, stderr = run_current_decision("docs/decisions/in-order.md", body)
+    exit_code, stdout, stderr = run_current_decision(".concord/docs/decisions/in-order.md", body)
     assert exit_code == 0, (exit_code, stdout, stderr)
     assert "doc contract check passed" in stdout, stdout
 
@@ -2457,10 +2457,10 @@ def test_current_decision_heading_level_three_fails() -> None:
         (2, "Consequences"),
         (2, "Verification"),
     ]))
-    exit_code, stdout, _ = run_current_decision("docs/decisions/level-three.md", body)
+    exit_code, stdout, _ = run_current_decision(".concord/docs/decisions/level-three.md", body)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-heading-level: docs/decisions/level-three.md#" in line
+        "section-heading-level: .concord/docs/decisions/level-three.md#" in line
         and "(Context is a level-3 heading" in line
         for line in stdout.splitlines()
     ), stdout
@@ -2475,7 +2475,7 @@ def test_legacy_decision_order_level_and_prose_verification_stay_allowed() -> No
         (2, "Context"),
     ])
     root = sandbox()
-    path = "docs/decisions/legacy-loose.md"
+    path = ".concord/docs/decisions/legacy-loose.md"
     write_spec(root, path, body)
     manifest = manifest_with(
         root,
@@ -2501,10 +2501,10 @@ def test_second_verification_section_reports_duplicate() -> None:
         "\n## Verification\n\n- A second section states prose only, and a\n"
         "  reader could trust it as proof.\n"
     )
-    exit_code, stdout, _ = run_current_decision("docs/decisions/duplicate-section.md", body)
+    exit_code, stdout, _ = run_current_decision(".concord/docs/decisions/duplicate-section.md", body)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "section-duplicate: docs/decisions/duplicate-section.md#" in line
+        "section-duplicate: .concord/docs/decisions/duplicate-section.md#" in line
         and "Verification appears 2 times" in line
         for line in stdout.splitlines()
     ), stdout
@@ -2514,7 +2514,7 @@ def test_verification_entry_names_a_package_qualified_test_symbol() -> None:
     body = current_decision_with_verification(
         "Proved by `internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal`."
     )
-    exit_code, stdout, stderr = run_current_decision("docs/decisions/pkg-symbol.md", body)
+    exit_code, stdout, stderr = run_current_decision(".concord/docs/decisions/pkg-symbol.md", body)
     assert exit_code == 0, (exit_code, stdout, stderr)
 
 
@@ -2522,13 +2522,13 @@ def test_verification_entry_names_a_bare_test_symbol() -> None:
     body = current_decision_with_verification(
         "Proved by `TestClaimLandingTransfersOccupancyInOneTransaction`."
     )
-    exit_code, stdout, stderr = run_current_decision("docs/decisions/bare-symbol.md", body)
+    exit_code, stdout, stderr = run_current_decision(".concord/docs/decisions/bare-symbol.md", body)
     assert exit_code == 0, (exit_code, stdout, stderr)
 
 
 def test_verification_entry_names_a_scenario_id() -> None:
     body = current_decision_with_verification("Proved by `WF01-capture-late-outcome`.")
-    exit_code, stdout, stderr = run_current_decision("docs/decisions/scenario-id.md", body)
+    exit_code, stdout, stderr = run_current_decision(".concord/docs/decisions/scenario-id.md", body)
     assert exit_code == 0, (exit_code, stdout, stderr)
 
 
@@ -2541,7 +2541,7 @@ def test_verification_entry_names_a_command_or_a_named_checker() -> None:
     )):
         body = current_decision_with_verification(f"Proved by {anchor}.")
         exit_code, stdout, stderr = run_current_decision(
-            f"docs/decisions/command-{index}.md", body
+            f".concord/docs/decisions/command-{index}.md", body
         )
         assert exit_code == 0, (anchor, exit_code, stdout, stderr)
 
@@ -2555,7 +2555,7 @@ def test_command_shaped_token_that_names_no_check_stays_prose() -> None:
     )):
         body = current_decision_with_verification(f"Proved by {token}.")
         exit_code, stdout, _ = run_current_decision(
-            f"docs/decisions/not-a-command-{index}.md", body
+            f".concord/docs/decisions/not-a-command-{index}.md", body
         )
         assert exit_code == 1, (token, exit_code, stdout)
         assert any(
@@ -2567,10 +2567,10 @@ def test_bare_prose_verification_entry_fails() -> None:
     body = current_decision_with_verification(
         "The verification names the operations and the behavior it trusts."
     )
-    exit_code, stdout, _ = run_current_decision("docs/decisions/prose-verification.md", body)
+    exit_code, stdout, _ = run_current_decision(".concord/docs/decisions/prose-verification.md", body)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
-        "verification-entry-unanchored: docs/decisions/prose-verification.md#" in line
+        "verification-entry-unanchored: .concord/docs/decisions/prose-verification.md#" in line
         and "(entry 1 names no executable anchor" in line
         for line in stdout.splitlines()
     ), stdout
@@ -2579,7 +2579,7 @@ def test_bare_prose_verification_entry_fails() -> None:
 def test_scenario_shaped_token_that_resolves_nothing_stays_prose() -> None:
     body = current_decision_with_verification("Proved by `WF99-no-such-scenario`.")
     exit_code, stdout, _ = run_current_decision(
-        "docs/decisions/unresolved-scenario.md", body
+        ".concord/docs/decisions/unresolved-scenario.md", body
     )
     assert exit_code == 1, (exit_code, stdout)
     assert any(
@@ -2592,7 +2592,7 @@ def test_anchor_rule_names_the_unanchored_entry_index() -> None:
         "- Proved by `internal/store.TestFirstEntry`.\n"
         "- The second entry names only an operation and a behavior."
     )
-    exit_code, stdout, _ = run_current_decision("docs/decisions/two-entries.md", body)
+    exit_code, stdout, _ = run_current_decision(".concord/docs/decisions/two-entries.md", body)
     assert exit_code == 1, (exit_code, stdout)
     assert any(
         "verification-entry-unanchored" in line and "(entry 2 " in line
@@ -2606,7 +2606,7 @@ def test_spec_verification_requires_executable_anchors() -> None:
     anchor: the prose-only entry the count comparison alone used to accept
     now fails with verification-entry-unanchored."""
     root = sandbox()
-    path = "docs/spec-prose-entry.md"
+    path = ".concord/docs/spec-prose-entry.md"
     write_spec(
         root,
         path,
@@ -2619,7 +2619,7 @@ def test_spec_verification_requires_executable_anchors() -> None:
     exit_code, stdout, stderr = run_checker(root, manifest)
     assert exit_code == 1, (exit_code, stdout, stderr)
     assert any(
-        "verification-entry-unanchored: docs/spec-prose-entry.md#" in line
+        "verification-entry-unanchored: .concord/docs/spec-prose-entry.md#" in line
         and "(entry 1 names no executable anchor" in line
         for line in stdout.splitlines()
     ), stdout
@@ -2633,7 +2633,7 @@ def test_spec_anchor_passes_on_go_test_symbol_or_validator_command() -> None:
         "Proved by `python3 scripts/check-doc-contract.py`.",
     ):
         root = sandbox()
-        path = "docs/spec-anchored.md"
+        path = ".concord/docs/spec-anchored.md"
         write_spec(
             root,
             path,
@@ -2652,7 +2652,7 @@ def test_spec_anchor_passes_on_go_test_symbol_or_validator_command() -> None:
 
 def test_anchor_rule_keeps_the_count_comparison() -> None:
     root = sandbox()
-    path = "docs/count-unchanged.md"
+    path = ".concord/docs/count-unchanged.md"
     body = _granularity_body(
         "- When an action happens\n  Then an outcome follows.\n"
         "- When a second action happens\n  Then a second outcome follows.",

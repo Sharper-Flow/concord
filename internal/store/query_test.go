@@ -343,7 +343,7 @@ func TestQueryQ10ReturnsAmbiguousAsTypedResult(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	repo := initKnowledgeRepo(t)
-	path := "docs/lessons/different.md"
+	path := ".concord/docs/lessons/different.md"
 	writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("different-id", "lesson", "2026-08-07T00:00:00Z", []string{"test"}))
 	writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "knowledge-id", "lesson", path, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"test"}, KnowledgeRecordScopes{Mode: "explicit"}))
 	commitKnowledgeRepo(t, repo, "ambiguous knowledge")

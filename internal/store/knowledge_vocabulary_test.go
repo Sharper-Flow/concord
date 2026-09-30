@@ -254,11 +254,11 @@ func TestKnowledgeManifestVocabularyMatchesSchema(t *testing.T) {
 
 // schemaRecordPathShape matches the one form of $defs.record.path the Go
 // decomposition can be read out of: a negative lookahead over `|`-separated
-// ineligibility members, applied to everything below docs/.
-var schemaRecordPathShape = regexp.MustCompile(`^\^docs/\(\?!(.+)\)\.\*\\\.md\$$`)
+// ineligibility members, applied to everything below .concord/docs/.
+var schemaRecordPathShape = regexp.MustCompile(`^\^.concord/docs/\(\?!(.+)\)\.\*\\\.md\$$`)
 
 // schemaIneligibleRE converts the schema's negative lookahead into an RE2
-// predicate over the path remainder below docs/. RE2 cannot express the
+// predicate over the path remainder below .concord/docs/. RE2 cannot express the
 // lookahead itself, but the alternation inside it is ordinary regex, so
 // "ineligible" is exactly "some member matches at the start of the remainder".
 func schemaIneligibleRE(t *testing.T, record json.RawMessage) *regexp.Regexp {
@@ -303,23 +303,23 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 	probes := []string{
 		// The two files CD-0014 and commit ea68397 accepted as binding
 		// contracts. Both are eligible; neither carries a record yet.
-		"docs/product-coordination-view.md",
-		"docs/terminal-launcher-contract.md",
+		".concord/docs/product-coordination-view.md",
+		".concord/docs/terminal-launcher-contract.md",
 		// Live class exclusions, which this repeal must leave intact.
-		"docs/work/notes.md",
-		"docs/research/R7-expedited-parallel-work.md",
-		"docs/generated-contracts.md",
-		"docs/api/generated.md",
-		"docs/Generated-Contracts.md",
-		"docs/nested/deeply/GENERATED.md",
+		".concord/docs/work/notes.md",
+		".concord/docs/research/R7-expedited-parallel-work.md",
+		".concord/docs/generated-contracts.md",
+		".concord/docs/api/generated.md",
+		".concord/docs/Generated-Contracts.md",
+		".concord/docs/nested/deeply/GENERATED.md",
 		// Ordinary eligible authored knowledge.
-		"docs/README.md",
-		"docs/decisions/CD-0014-terminal-launcher.md",
-		"docs/priorities.md",
+		".concord/docs/README.md",
+		".concord/docs/decisions/CD-0014-terminal-launcher.md",
+		".concord/docs/priorities.md",
 		// Near misses that must not be swept up by a substring rule.
-		"docs/generation-policy.md",
-		"docs/workflows.md",
-		"docs/researcher-guide.md",
+		".concord/docs/generation-policy.md",
+		".concord/docs/workflows.md",
+		".concord/docs/researcher-guide.md",
 	}
 	// Every authored markdown blob in the repository is a probe too: a
 	// synthetic corpus cannot notice a rule that only bites a real file.
@@ -331,7 +331,7 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 			continue
 		}
 		seen[probe] = true
-		schemaSaysIneligible := ineligible.MatchString(strings.TrimPrefix(probe, "docs/"))
+		schemaSaysIneligible := ineligible.MatchString(strings.TrimPrefix(probe, ".concord/docs/"))
 		_, goSaysIneligible := manifestPathIneligible(probe)
 		if schemaSaysIneligible != goSaysIneligible {
 			t.Errorf("%s: schema ineligible=%v, Go ineligible=%v", probe, schemaSaysIneligible, goSaysIneligible)
@@ -345,12 +345,12 @@ func TestKnowledgeManifestIneligiblePathsMatchSchema(t *testing.T) {
 	}
 }
 
-// repositoryDocsPaths lists every markdown blob below docs/, so the binding is
+// repositoryDocsPaths lists every markdown blob below .concord/docs/, so the binding is
 // exercised against the real corpus and not only against chosen probes.
 func repositoryDocsPaths(t *testing.T) []string {
 	t.Helper()
 	var out []string
-	root := "../../docs"
+	root := "../../.concord/docs"
 	err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -358,14 +358,14 @@ func repositoryDocsPaths(t *testing.T) []string {
 		if entry.IsDir() || !strings.HasSuffix(name, ".md") {
 			return nil
 		}
-		out = append(out, "docs/"+filepath.ToSlash(strings.TrimPrefix(name, root+string(filepath.Separator))))
+		out = append(out, ".concord/docs/"+filepath.ToSlash(strings.TrimPrefix(name, root+string(filepath.Separator))))
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("walk docs: %v", err)
 	}
 	if len(out) == 0 {
-		t.Fatal("docs/ yielded no markdown blobs")
+		t.Fatal(".concord/docs/ yielded no markdown blobs")
 	}
 	return out
 }
@@ -377,8 +377,8 @@ func TestKnowledgeManifestIneligibleBindingDetectsDivergence(t *testing.T) {
 	t.Parallel()
 	schema := loadKnowledgeSchema(t)
 	ineligible := schemaIneligibleRE(t, schema.Defs["record"])
-	for _, repealed := range []string{"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"} {
-		if ineligible.MatchString(strings.TrimPrefix(repealed, "docs/")) {
+	for _, repealed := range []string{".concord/docs/product-coordination-view.md", ".concord/docs/terminal-launcher-contract.md"} {
+		if ineligible.MatchString(strings.TrimPrefix(repealed, ".concord/docs/")) {
 			t.Errorf("%s is still ineligible under the schema alternation", repealed)
 		}
 	}
@@ -388,10 +388,10 @@ func TestKnowledgeManifestIneligibleBindingDetectsDivergence(t *testing.T) {
 		if _, yes := manifestPathIneligible(value); yes {
 			return true
 		}
-		return value == "docs/terminal-launcher-contract.md"
+		return value == ".concord/docs/terminal-launcher-contract.md"
 	}
-	probe := "docs/terminal-launcher-contract.md"
-	if stale(probe) == ineligible.MatchString(strings.TrimPrefix(probe, "docs/")) {
+	probe := ".concord/docs/terminal-launcher-contract.md"
+	if stale(probe) == ineligible.MatchString(strings.TrimPrefix(probe, ".concord/docs/")) {
 		t.Fatal("a stale Go exclusion would not be reported by this binding")
 	}
 }
@@ -400,16 +400,16 @@ func TestKnowledgeManifestIneligibleBindingDetectsDivergence(t *testing.T) {
 // accepted contracts may now carry a manifest record.
 func TestKnowledgeManifestRepealedPathsValidate(t *testing.T) {
 	t.Parallel()
-	for _, eligible := range []string{"docs/product-coordination-view.md", "docs/terminal-launcher-contract.md"} {
+	for _, eligible := range []string{".concord/docs/product-coordination-view.md", ".concord/docs/terminal-launcher-contract.md"} {
 		if err := validateManifestPath(eligible); err != nil {
 			t.Errorf("validateManifestPath(%q) = %v, want nil", eligible, err)
 		}
 	}
 	for _, rejected := range []string{
-		"docs/work/scratch.md",
-		"docs/research/R1-probe.md",
-		"docs/generated-agent-contracts.md",
-		"docs/Generated.md",
+		".concord/docs/work/scratch.md",
+		".concord/docs/research/R1-probe.md",
+		".concord/docs/generated-agent-contracts.md",
+		".concord/docs/Generated.md",
 	} {
 		if err := validateManifestPath(rejected); err == nil {
 			t.Errorf("validateManifestPath(%q) = nil, want an ineligibility failure", rejected)

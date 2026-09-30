@@ -19,7 +19,7 @@ import (
 func TestVerifyCommittedNoteIgnoresWorkingTreeEdits(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/2026-08-07-proof-work.md"
+	path := ".concord/docs/work/2026-08-07-proof-work.md"
 	content := canonicalWorkNote("work-proof", "2026-08-07T00:00:00Z")
 	writeKnowledgeFile(t, repo, path, content)
 	commit := commitKnowledgeRepo(t, repo, "proof")
@@ -40,7 +40,7 @@ func TestVerifyCommittedNoteIgnoresWorkingTreeEdits(t *testing.T) {
 func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	path := "docs/lessons/state.md"
+	path := ".concord/docs/lessons/state.md"
 	content := canonicalKnowledgeNote("lesson-state", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"})
 	writeKnowledgeFile(t, repo, path, content)
 	commit := commitKnowledgeRepo(t, repo, "regular note")
@@ -54,7 +54,7 @@ func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
 	if err := os.Symlink("../lessons/target.md", filepath.Join(repo, filepath.FromSlash(path))); err != nil {
 		t.Fatal(err)
 	}
-	writeKnowledgeFile(t, repo, "docs/lessons/target.md", content)
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/target.md", content)
 	commit = commitKnowledgeRepo(t, repo, "symlink note")
 	_, err = VerifyCommittedNote(context.Background(), repo, commit, path, "")
 	assertFailureKind(t, err, KindInvalidNoteProof)
@@ -63,7 +63,7 @@ func TestVerifyCommittedNoteRejectsHashMismatchAndSymlink(t *testing.T) {
 func TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	for _, path := range []string{"../docs/work/note.md", "/docs/work/note.md", "-docs/work/note.md", "docs/other/note.md", "docs/work/note.txt"} {
+	for _, path := range []string{"../docs/work/note.md", "/docs/work/note.md", "-docs/work/note.md", ".concord/docs/other/note.md", ".concord/docs/work/note.txt"} {
 		_, err := VerifyCommittedNote(ctx, t.TempDir(), strings.Repeat("a", 40), path, "")
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvalidNoteProof {
@@ -72,16 +72,16 @@ func TestVerifyCommittedNoteRejectsUnsafeAndNonBlobPaths(t *testing.T) {
 	}
 
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, "docs/lessons/seed.md", canonicalKnowledgeNote("seed", "lesson", "2026-08-07T00:00:00Z", []string{"seed"}))
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/seed.md", canonicalKnowledgeNote("seed", "lesson", "2026-08-07T00:00:00Z", []string{"seed"}))
 	commit := commitKnowledgeRepo(t, repo, "empty")
-	_, err := VerifyCommittedNote(ctx, repo, commit, "docs/work/missing.md", "")
+	_, err := VerifyCommittedNote(ctx, repo, commit, ".concord/docs/work/missing.md", "")
 	assertFailureKind(t, err, KindInvalidNoteProof)
 }
 
 func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/2026-08-07-orphan.md"
+	path := ".concord/docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("orphan-work", "2026-08-07T00:00:00Z"))
 	commit := commitKnowledgeRepo(t, repo, "orphan note")
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
@@ -99,7 +99,7 @@ func TestFindVerifiedWorkNoteDiscoversOrphansWithoutCreatingNotes(t *testing.T) 
 	} else {
 		assertFailureKind(t, err, KindInvalidNoteProof)
 	}
-	writeKnowledgeFile(t, repo, "docs/work/2026-08-08-orphan-copy.md", canonicalWorkNote("orphan-work", "2026-08-08T00:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/2026-08-08-orphan-copy.md", canonicalWorkNote("orphan-work", "2026-08-08T00:00:00Z"))
 	commitKnowledgeRepo(t, repo, "competing orphan")
 	if _, err := FindVerifiedWorkNote(context.Background(), home, "orphan-work", ""); err == nil {
 		t.Fatal("competing orphan locator was silently selected")
@@ -136,7 +136,7 @@ func TestPublishCanonicalNoteCommitsOneNote(t *testing.T) {
 func TestRunGitBoundsCommandOutput(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	largePath := "docs/work/large.md"
+	largePath := ".concord/docs/work/large.md"
 	writeKnowledgeFile(t, repo, largePath, strings.Repeat("x", maxGitOutput+1))
 	commit := commitKnowledgeRepo(t, repo, "large blob")
 	if _, err := runGit(context.Background(), repo, "cat-file", "blob", commit+":"+largePath); err == nil || !strings.Contains(err.Error(), "output exceeds") {
@@ -209,7 +209,7 @@ func TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder(t *testing.
 		ID: "work", Type: "work_note", Title: "Title", CompletedAt: "2026-08-07T00:00:00Z", OutcomeTag: "shipped",
 		LessonTags: []string{}, TerminalState: "completed", Summary: "Summary", ProductIDs: []string{}, ProjectIDs: []string{},
 		ComponentIDs: []string{"z-domain", "a-domain"}, TagIDs: []string{}, HomeProjectID: "project", HomeLocatorID: "locator",
-		NotePath: "docs/work/note.md", CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "test", ExpectedVersion: 1, ResultingVersion: 2,
+		NotePath: ".concord/docs/work/note.md", CommitOID: strings.Repeat("a", 40), ContentHash: "sha256:" + strings.Repeat("b", 64), Reason: "test", ExpectedVersion: 1, ResultingVersion: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,9 +235,9 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	workPath := "docs/work/2026-08-03-auth-release.md"
-	lessonPath := "docs/lessons/2026-08-04-state-authority.md"
-	decisionPath := "docs/decisions/CD-0002-state-authority.md"
+	workPath := ".concord/docs/work/2026-08-03-auth-release.md"
+	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
+	decisionPath := ".concord/docs/decisions/CD-0002-state-authority.md"
 	writeKnowledgeFile(t, repo, workPath, canonicalWorkNote("work-done", "2026-08-03T12:00:00Z"))
 	writeKnowledgeFile(t, repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-04T12:00:00Z", []string{"state-authority", "sqlite"}))
 	writeKnowledgeFile(t, repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-05T12:00:00Z", []string{"sqlite"}))
@@ -278,7 +278,7 @@ func TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead(t *testing.T) {
 func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/2026-08-07-orphan.md"
+	path := ".concord/docs/work/2026-08-07-orphan.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("work-orphan", "2026-08-07T00:00:00Z"))
 	commitKnowledgeRepo(t, repo, "orphan")
 	s := openTemp(t)
@@ -297,7 +297,7 @@ func TestQ10OrphanWorkNoteRemainsNotCompacted(t *testing.T) {
 func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, "docs/lessons/one.md", canonicalKnowledgeNote("one", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/one.md", canonicalKnowledgeNote("one", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
 	commitKnowledgeRepo(t, repo, "first")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
@@ -313,7 +313,7 @@ func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testi
 	// reads, so committing it moves HEAD without changing the index. The
 	// index stays authoritative: freshness follows projected content, not
 	// the commit.
-	writeKnowledgeFile(t, repo, "docs/lessons/two.md", canonicalKnowledgeNote("two", "lesson", "2026-08-07T01:00:00Z", []string{"sqlite"}))
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/two.md", canonicalKnowledgeNote("two", "lesson", "2026-08-07T01:00:00Z", []string{"sqlite"}))
 	commitKnowledgeRepo(t, repo, "second, unprojected")
 	still, err := s.QueryQ9(context.Background(), Q9Request{Product: "prod-alpha", Home: home})
 	if err != nil || still.Authority != "authoritative" {
@@ -321,7 +321,7 @@ func TestKnowledgeWatermarkControlsAuthoritativeEmptyAndDegradedResults(t *testi
 	}
 	// A canonical work note is projected content: committing one turns the
 	// index stale, and the strict read refuses.
-	writeKnowledgeFile(t, repo, "docs/work/work-two.md", canonicalWorkNote("work-two", "2026-08-07T02:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/work-two.md", canonicalWorkNote("work-two", "2026-08-07T02:00:00Z"))
 	commitKnowledgeRepo(t, repo, "third, projected")
 	_, err = s.QueryQ9(context.Background(), Q9Request{Home: home})
 	assertFailureKind(t, err, KindIndexDegraded)
@@ -337,7 +337,7 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 	s := openTemp(t)
 
 	firstRepo := initKnowledgeRepo(t)
-	firstPath := "docs/lessons/first.md"
+	firstPath := ".concord/docs/lessons/first.md"
 	writeKnowledgeFile(t, firstRepo, firstPath, canonicalKnowledgeNote("first-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
 	writeManifestFixture(t, firstRepo, manifestFixtureFromFile(t, firstRepo, "first-home", "lesson", firstPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, firstRepo, "first home")
@@ -348,7 +348,7 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 	}
 
 	secondRepo := initKnowledgeRepo(t)
-	secondPath := "docs/lessons/second.md"
+	secondPath := ".concord/docs/lessons/second.md"
 	writeKnowledgeFile(t, secondRepo, secondPath, canonicalKnowledgeNote("second-home", "lesson", "2026-08-07T00:00:00Z", []string{"sqlite"}))
 	writeManifestFixture(t, secondRepo, manifestFixtureFromFile(t, secondRepo, "second-home", "lesson", secondPath, "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"sqlite"}, KnowledgeRecordScopes{Mode: "home"}))
 	commitKnowledgeRepo(t, secondRepo, "second home")
@@ -370,11 +370,11 @@ func TestQ9DoesNotReturnKnowledgeFromAnotherGitHome(t *testing.T) {
 func TestRebuildKnowledgeIndexRejectsDuplicateStableIDs(t *testing.T) {
 	t.Parallel()
 	repo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, repo, "docs/lessons/a.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"one"}))
-	writeKnowledgeFile(t, repo, "docs/lessons/b.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"two"}))
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/a.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"one"}))
+	writeKnowledgeFile(t, repo, ".concord/docs/lessons/b.md", canonicalKnowledgeNote("duplicate", "lesson", "2026-08-07T00:00:00Z", []string{"two"}))
 	writeManifestFixture(t, repo,
-		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", "docs/lessons/a.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"one"}, KnowledgeRecordScopes{Mode: "home"}),
-		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", "docs/lessons/b.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"two"}, KnowledgeRecordScopes{Mode: "home"}),
+		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", ".concord/docs/lessons/a.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"one"}, KnowledgeRecordScopes{Mode: "home"}),
+		manifestFixtureFromFile(t, repo, "duplicate-a", "lesson", ".concord/docs/lessons/b.md", "published", "2026-08-07T00:00:00Z", "Durable lesson", "Durable summary", []string{"two"}, KnowledgeRecordScopes{Mode: "home"}),
 	)
 	commitKnowledgeRepo(t, repo, "duplicate")
 	s := openTemp(t)
@@ -386,7 +386,7 @@ func TestRebuildFromLogLeavesGitKnowledgeTablesUntouched(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work (id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES ('w','lesson','L','2026-08-07T00:00:00Z','published','[]','completed',1,'S','p','l','.concord/docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err == nil {
 		t.Fatal("ad-hoc archived_work write succeeded")
 	}
 	// The public rebuild assertion is covered once a proof-backed compaction row exists.
@@ -421,7 +421,7 @@ func TestKnowledgeSchemaHasNoNoteBodyAndRebuildFromLogPreservesIndex(t *testing.
 	}
 
 	repo := initKnowledgeRepo(t)
-	path := "docs/work/2026-08-07-linked.md"
+	path := ".concord/docs/work/2026-08-07-linked.md"
 	writeKnowledgeFile(t, repo, path, canonicalWorkNote("linked", "2026-08-07T00:00:00Z"))
 	commit := commitKnowledgeRepo(t, repo, "linked")
 	home := KnowledgeHome{HomeProjectID: "p", HomeLocatorID: "l", RepoPath: repo, HeadRef: "HEAD"}
@@ -550,7 +550,7 @@ func TestArchivedNoteIDsAreHomeScopedAcrossKnowledgeHomes(t *testing.T) {
 
 	build := func(project, locator, product string) KnowledgeHome {
 		repo := initKnowledgeRepo(t)
-		path := "docs/lessons/2026-09-04-shared-numbering.md"
+		path := ".concord/docs/lessons/2026-09-04-shared-numbering.md"
 		writeKnowledgeFile(t, repo, path, canonicalKnowledgeNote("CD-0009", "lesson", "2026-09-04T00:00:00Z", []string{"identity"}))
 		writeManifestFixture(t, repo, manifestFixtureFromFile(t, repo, "CD-0009", "lesson", path, "published", "2026-09-04T00:00:00Z", "Shared lesson", "Shared summary", []string{"identity"}, KnowledgeRecordScopes{Mode: "home"}))
 		commitKnowledgeRepo(t, repo, "shared stable id")

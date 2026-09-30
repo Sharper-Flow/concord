@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN_PATH = ROOT / "docs/adapter-host-pin.v1.json"
+PIN_PATH = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 EXPECTED_ERROR = "undefined is not an object (evaluating 'c.split')"
 
 

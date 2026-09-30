@@ -31,9 +31,9 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         prompts = self.root / check_primary_prompts.PROMPT_DIR
         prompts.mkdir(parents=True)
-        instructions = self.root / "instructions"
-        instructions.mkdir()
-        shutil.copy2(ROOT / "instructions" / "evidence.md", instructions / "evidence.md")
+        instructions = self.root / ".concord/instructions"
+        instructions.mkdir(parents=True)
+        shutil.copy2(ROOT / ".concord/instructions" / "evidence.md", instructions / "evidence.md")
         for name in check_primary_prompts.PRIMARY_PROMPT_FILES:
             shutil.copy2(ROOT / check_primary_prompts.PROMPT_DIR / name, prompts / name)
 

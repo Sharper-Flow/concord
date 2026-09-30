@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compose the durable knowledge index from its shards and keep them canonical.
 
-The shards under docs/knowledge/ are the committed authority (CD-0114). No
+The shards under .concord/docs/knowledge/ are the committed authority (CD-0114). No
 aggregate file is written; readers compose the index through
 scripts/knowledge_index.py.
 """
@@ -19,9 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-SHARD_DIR = Path("docs/knowledge/records")
-DOMAIN_REGISTRY = Path("docs/knowledge/domain-registry.json")
-HEAD = Path("docs/knowledge/manifest.json")
+SHARD_DIR = Path(".concord/docs/knowledge/records")
+DOMAIN_REGISTRY = Path(".concord/docs/knowledge/domain-registry.json")
+HEAD = Path(".concord/docs/knowledge/manifest.json")
 
 # The bounded set the parser reads, mirroring knowledgeManifestSchemaAccepted in
 # internal/store/knowledge_manifest.go. 1.2 predates the authority tier and 1.3
@@ -37,6 +37,7 @@ ALLOWED_ROOT = {
     "domain_registry",
     "knowledge_roots",
     "exclusions",
+    "operator_overrides",
     "dispositions",
     "doc_contract",
     "records",
@@ -96,7 +97,12 @@ LAW_RELATION_KINDS = {"supersedes", "refines", "subordinate_to", "conflicts_with
 # Which authored docs path may carry a record is declared once, as the
 # $defs.record.path pattern in contracts/concord-knowledge-index.v1.schema.json.
 # check-knowledge-vocabulary.py binds this restatement to that pattern text.
-RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+# CD-0194 D5: a ref that predates the .concord placement composes from the
+# docs/knowledge shard tier, whose records carry docs/ paths. That tier is
+# the shape that revision has, so its path rule moves with it. Authoring
+# always uses RECORD_PATH_RE.
+PRE_MIGRATION_RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 # CD-0180: the predicate-reference criterion binding form, closed against the
 # schema's $defs.criterionBinding patterns.
 CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
@@ -197,7 +203,7 @@ def validate_criterion_bindings(record: dict[str, object], prefix: str, findings
                 findings.append(f"{binding_prefix}: predicate_id must carry the predicate: prefix")
 
 
-def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False) -> None:
+def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
         return
@@ -230,7 +236,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         or len(path) > 512
         or "\x00" in path
         or ".." in Path(path).parts
-        or not RECORD_PATH_RE.fullmatch(path)
+        or not record_path_re.fullmatch(path)
     ):
         findings.append(f"{prefix}: forbidden or unsafe path: {path}")
     try:
@@ -357,7 +363,7 @@ def canonical_domain_registry(registry: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str]) -> list[dict[str, object]]:
+def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> list[dict[str, object]]:
     directory = root / SHARD_DIR
     if not directory.is_dir():
         findings.append(f"shard directory missing: {SHARD_DIR}")
@@ -374,7 +380,7 @@ def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles
             continue
         identifier = record.get("id")
         prefix = f"{SHARD_DIR / path.name}"
-        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced)
+        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re)
         if not isinstance(identifier, str):
             continue
         if path.stem != identifier:
@@ -408,7 +414,63 @@ def template_for(root: Path, findings: list[str], template: dict[str, object] | 
     return dict(template)
 
 
-def derive_aggregate(root: Path, findings: list[str], template: dict[str, object] | None = None) -> bytes | None:
+OPERATOR_OVERRIDE_PATH_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$")
+MAX_OPERATOR_OVERRIDES = 32
+
+
+def validate_operator_overrides(template: dict[str, object], findings: list[str]) -> None:
+    """Validate the manifest head's explicit operator overrides (CD-0194 D2).
+
+    An entry admits one Product knowledge location outside .concord/. The
+    field is optional; when present it must be an array of complete
+    overrides. A path inside .concord/ is not an override, so it refuses
+    here rather than pretending to grant an exception the default already
+    allows.
+    """
+    raw = template.get("operator_overrides")
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        findings.append("manifest head: operator_overrides must be an array")
+        return
+    if len(raw) > MAX_OPERATOR_OVERRIDES:
+        findings.append(f"manifest head: operator_overrides carries more than {MAX_OPERATOR_OVERRIDES} entries")
+        return
+    seen: set[str] = set()
+    for index, entry in enumerate(raw):
+        prefix = f"manifest head.operator_overrides[{index}]"
+        if not isinstance(entry, dict):
+            findings.append(f"{prefix}: must be an object")
+            continue
+        unknown = set(entry) - {"path", "product_id", "recorded_in", "reason"}
+        missing = {"path", "product_id", "recorded_in", "reason"} - set(entry)
+        if unknown:
+            findings.append(f"{prefix}: unknown fields: {sorted(unknown)}")
+        if missing:
+            findings.append(f"{prefix}: missing fields: {sorted(missing)}")
+            continue
+        path = entry["path"]
+        if not isinstance(path, str) or len(path) > 256 or not OPERATOR_OVERRIDE_PATH_RE.fullmatch(path):
+            findings.append(f"{prefix}: path must be a relative directory prefix with trailing slash or a relative markdown file path: {path!r}")
+        elif path.startswith(".concord/") or path == ".concord/":
+            findings.append(f"{prefix}: path is inside the default tree and cannot be an override: {path!r}")
+        elif ".." in Path(path).parts:
+            findings.append(f"{prefix}: path carries a traversal segment: {path!r}")
+        if path in seen:
+            findings.append(f"{prefix}: duplicate override path: {path!r}")
+        seen.add(path)
+        product_id = entry["product_id"]
+        if not isinstance(product_id, str) or not 1 <= len(product_id) <= 128 or not clean_text(product_id, 128):
+            findings.append(f"{prefix}: product_id must be a bounded clean identifier")
+        recorded_in = entry["recorded_in"]
+        if not isinstance(recorded_in, str) or not clean_text(recorded_in, 256):
+            findings.append(f"{prefix}: recorded_in must name the record carrying the operator's instruction")
+        reason = entry["reason"]
+        if not isinstance(reason, str) or not 12 <= len(reason) <= 512 or reason.strip() != reason:
+            findings.append(f"{prefix}: reason must be a trimmed bounded justification of twelve to five hundred twelve characters")
+
+
+def derive_aggregate(root: Path, findings: list[str], template: dict[str, object] | None = None, record_path_re: re.Pattern[str] = RECORD_PATH_RE) -> bytes | None:
     root_template = template_for(root, findings, template)
     if root_template is None or findings:
         return None
@@ -430,7 +492,8 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     doc_contract = root_template.get("doc_contract")
     decision_head = doc_contract.get("decision") if isinstance(doc_contract, dict) else None
     profiles_enforced = isinstance(decision_head, dict) and "current_required_sections" in decision_head
-    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings)
+    validate_operator_overrides(root_template, findings)
+    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re)
     if findings:
         return None
     aggregate = dict(root_template)

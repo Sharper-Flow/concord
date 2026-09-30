@@ -333,7 +333,7 @@ test("the context carries the pinned design before the work narrative", async ()
 const LAW_CONTEXT = {
   laws: [
     { roles: ["added"], law_id: "law:new" },
-    { roles: ["mandated", "modified", "obligation"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md", obligation_ids: ["verification"] },
+    { roles: ["mandated", "modified", "obligation"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", obligation_ids: ["verification"] },
   ],
   domains: [
     { domain_id: "root", name: "Root", purpose: "Product law" },
@@ -357,7 +357,7 @@ test("the context carries the resolved law block and proposal after the design r
   expect(lawAt).toBeGreaterThan(designAt)
   expect(proposalAt).toBeGreaterThan(lawAt)
   expect(context.indexOf(NARRATIVE)).toBeGreaterThan(proposalAt)
-  expect(context).toContain("- mandated, modified, obligation law spec:one (obligation verification): Synthetic test law, spec, accepted — docs/spec.md")
+  expect(context).toContain("- mandated, modified, obligation law spec:one (obligation verification): Synthetic test law, spec, accepted — .concord/docs/spec.md")
   expect(context).toContain("- added law law:new")
   expect(context).toContain("- Domain root: Root — Product law")
   expect(context).toContain("- Domain child: Child — Child law")
@@ -380,8 +380,8 @@ test("a contract with no bound law dispatches without a law block", async () => 
 test("the law block lists the mandated criteria bound to this work item's predicates", async () => {
   const lawContext = {
     laws: [
-      { roles: ["mandated"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: "docs/spec.md", criteria: [{ criterion: 2, predicate_id: "predicate:criterion-bindings-predicate-form" }, { criterion: 1, predicate_id: "predicate:packet-mandated-criteria" }] },
-      { roles: ["mandated"], law_id: "spec:plain", kind: "spec", status: "accepted", title: "Unbound spec", path: "docs/plain.md" },
+      { roles: ["mandated"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", criteria: [{ criterion: 2, predicate_id: "predicate:criterion-bindings-predicate-form" }, { criterion: 1, predicate_id: "predicate:packet-mandated-criteria" }] },
+      { roles: ["mandated"], law_id: "spec:plain", kind: "spec", status: "accepted", title: "Unbound spec", path: ".concord/docs/plain.md" },
     ],
     domains: [],
   }

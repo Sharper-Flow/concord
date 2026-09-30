@@ -21,8 +21,8 @@ SPEC.loader.exec_module(generator)
 
 def build_root(directory: str) -> Path:
     root = Path(directory)
-    (root / "docs/knowledge/records").mkdir(parents=True)
-    (root / "docs/knowledge/manifest.json").write_text(
+    (root / ".concord/docs/knowledge/records").mkdir(parents=True)
+    (root / ".concord/docs/knowledge/manifest.json").write_text(
         json.dumps({
             "schema_version": "1.2",
             "supported_kinds": ["lesson"],
@@ -30,7 +30,7 @@ def build_root(directory: str) -> Path:
         }, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (root / "docs/knowledge/domain-registry.json").write_text(
+    (root / ".concord/docs/knowledge/domain-registry.json").write_text(
         json.dumps({
             "schema_version": "1.0",
             "product_key": "concord",
@@ -52,7 +52,7 @@ def record(identifier: str) -> dict:
     return {
         "id": identifier,
         "kind": "lesson",
-        "path": f"docs/{identifier}.md",
+        "path": f".concord/docs/{identifier}.md",
         "status": "published",
         "date": "2026-08-20T00:00:00Z",
         "title": identifier,
@@ -65,7 +65,7 @@ def record(identifier: str) -> dict:
 
 
 def write_shard(root: Path, value: dict) -> None:
-    (root / "docs/knowledge/records" / f"{value['id']}.json").write_text(
+    (root / ".concord/docs/knowledge/records" / f"{value['id']}.json").write_text(
         json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
 
@@ -86,7 +86,7 @@ def test_clean_composition_and_id_order() -> None:
         write_shard(root, record("AA-0001"))
         result = run("--update", "--root", str(root))
         assert result.returncode == 0, result.stderr
-        assert not (root / "docs/concord-knowledge-index.v1.json").exists()
+        assert not (root / ".concord/docs/concord-knowledge-index.v1.json").exists()
         composed = json.loads(generator.derive_aggregate(root, []))
         assert [item["id"] for item in composed["records"]] == ["AA-0001", "ZZ-0001"]
         assert composed["schema_version"] == "1.2"
@@ -98,7 +98,7 @@ def test_unformatted_shard_has_bounded_finding() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         write_shard(root, record("AA-0001"))
-        shard = root / "docs/knowledge/records/AA-0001.json"
+        shard = root / ".concord/docs/knowledge/records/AA-0001.json"
         shard.write_text(json.dumps(json.loads(shard.read_text(encoding="utf-8"))) + "\n", encoding="utf-8")
         result = run("--check", "--root", str(root))
         assert result.returncode == 1
@@ -110,7 +110,7 @@ def test_missing_head_is_rejected() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = build_root(directory)
         write_shard(root, record("AA-0001"))
-        (root / "docs/knowledge/manifest.json").unlink()
+        (root / ".concord/docs/knowledge/manifest.json").unlink()
         result = run("--check", "--root", str(root))
         assert result.returncode == 1
         assert "manifest head missing" in result.stdout
@@ -178,7 +178,7 @@ def decision_shard(identifier: str, profile: str | None) -> dict:
     value = {
         "id": identifier,
         "kind": "decision",
-        "path": f"docs/decisions/{identifier}.md",
+        "path": f".concord/docs/decisions/{identifier}.md",
         "status": "accepted",
         "date": "2026-08-20T00:00:00Z",
         "title": identifier,
@@ -249,7 +249,7 @@ def spec_shard(identifier: str, profile: str | None) -> dict:
     value = {
         "id": identifier,
         "kind": "spec",
-        "path": f"docs/specs/{identifier}.md",
+        "path": f".concord/docs/specs/{identifier}.md",
         "status": "accepted",
         "date": "2026-08-20T00:00:00Z",
         "title": identifier,

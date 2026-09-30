@@ -1,0 +1,29 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-08-07T00:00:00Z",
+  "evidence": [
+    ".concord/docs/priorities.md",
+    ".concord/docs/feature-inventory.md"
+  ],
+  "id": "capability-placement",
+  "kind": "reference",
+  "path": ".concord/docs/capability-placement.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:00e31e208b551b5cb53e1c54b418ce63e9be65f3649b1ef87d143c067fd0c700",
+  "status": "published",
+  "summary": "Draft v2 rubric for placing a capability by its shape. Advisory, and its header names companions rather than claiming acceptance.",
+  "tags": [
+    "capability",
+    "rubric",
+    "draft"
+  ],
+  "title": "capability placement"
+}

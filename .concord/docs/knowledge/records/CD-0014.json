@@ -1,0 +1,30 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-10T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "home_domain_id": "operator-surface",
+  "id": "CD-0014",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3dcbe6981f0e5fd60729c935baff43f5821abddbf09c30cf25dab93d9f66d1e3",
+  "status": "accepted",
+  "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
+  "tags": [
+    "launcher",
+    "bubbletea",
+    "rendering",
+    "product-scope"
+  ],
+  "title": "Terminal launcher rendering stack"
+}

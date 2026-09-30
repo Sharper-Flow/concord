@@ -28,7 +28,7 @@ spec = importlib.util.spec_from_file_location(
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
-MANIFEST = ROOT / "docs/reachability-exceptions.v1.json"
+MANIFEST = ROOT / ".concord/docs/reachability-exceptions.v1.json"
 SNAPSHOT = coverage_state.ISSUE_STATE
 
 

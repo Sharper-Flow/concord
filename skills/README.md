@@ -2,7 +2,7 @@
 
 Concord ships no skill, and this directory stays reserved.
 
-[CD-0043](../docs/decisions/CD-0043-host-owned-lane-methodology.md) D3 closed the
+[CD-0043](../.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md) D3 closed the
 question this directory used to hold open. Lane methodology — review dimensions,
 verification rubrics, the inspection method for a rendered surface — is host-owned.
 It reaches a worker only through the enumerated `CONCORD_HOST_INSTRUCTIONS` surface,

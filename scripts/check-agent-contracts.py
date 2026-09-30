@@ -28,7 +28,7 @@ sys.modules[_installer_spec.name] = _installer
 _installer_spec.loader.exec_module(_installer)
 ADAPTER_FILES = _installer.ADAPTER_FILES
 
-HOST_PIN = ROOT / "docs/adapter-host-pin.v1.json"
+HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
 
@@ -434,10 +434,10 @@ def check_workflow_contracts() -> list[str]:
     findings += _check_closed_schema(scenario_schema, {"$schema", "schema_version", "contract", "contract_status", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"})
     fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
     try:
-        corpus = _load_json(ROOT / "scenarios/workflow-engine.v1.json")
+        corpus = _load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
         corpus_error = _validate_instance(scenario_schema, corpus)
         if corpus_error:
-            findings.append(f"scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: schema validation failed: {corpus_error}")
         findings.extend(_structured_scenario_check(corpus))
         fixtures = _load_json(fixture_path)
         fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
@@ -542,21 +542,21 @@ def check_workflow_contracts() -> list[str]:
         contract = corpus["assertion_contract"]
         scenarios = corpus["scenarios"]
         if corpus.get("contract") != "CD-0013" or corpus.get("contract_status") != "accepted":
-            findings.append("scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
+            findings.append(".concord/scenarios/workflow-engine.v1.json: contract metadata is not accepted CD-0013")
         if len(scenarios) != 57:
-            findings.append(f"scenarios/workflow-engine.v1.json: expected 57 scenarios, got {len(scenarios)}")
+            findings.append(f".concord/scenarios/workflow-engine.v1.json: expected 57 scenarios, got {len(scenarios)}")
         ids = [item.get("id") for item in scenarios]
         numbers = [item.get("scenario_number") for item in scenarios]
         if len(set(ids)) != len(ids) or any(not isinstance(item, str) or not item for item in ids):
-            findings.append("scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
+            findings.append(".concord/scenarios/workflow-engine.v1.json: scenario IDs must be unique and nonempty")
         if numbers != list(range(1, 58)):
-            findings.append("scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57")
+            findings.append(".concord/scenarios/workflow-engine.v1.json: scenario numbers must be ordered 1..57")
         targets = set(contract.get("targets", []))
         ops = set(contract.get("ops", []))
         nested_ids: list[str] = []
         for item in scenarios:
             if not item.get("mechanism") or ("expected" not in item and "cases" not in item):
-                findings.append(f"scenarios/workflow-engine.v1.json: incomplete scenario {item.get('id')}")
+                findings.append(f".concord/scenarios/workflow-engine.v1.json: incomplete scenario {item.get('id')}")
             assertion_groups = [item.get("expected", {}).get("assertions", [])]
             assertion_groups.extend(case.get("expected", {}).get("assertions", []) for case in item.get("cases", []))
             for assertions in assertion_groups:
@@ -564,20 +564,20 @@ def check_workflow_contracts() -> list[str]:
                     continue
                 durable = any(assertion.get("target") in {"effects", "authority"} or (assertion.get("target") == "state" and any(token in assertion.get("path", "") for token in ("projection", "event", "row"))) for assertion in assertions)
                 if len(assertions) < 2 or len({assertion.get("target") for assertion in assertions}) < 2 or not {assertion.get("target") for assertion in assertions} & {"state", "effects", "authority"} or not durable:
-                    findings.append(f"scenarios/workflow-engine.v1.json: stub-weak assertion set in {item.get('id')}")
+                    findings.append(f".concord/scenarios/workflow-engine.v1.json: stub-weak assertion set in {item.get('id')}")
                 for assertion in assertions:
                     if assertion.get("target") not in targets or assertion.get("op") not in ops:
-                        findings.append(f"scenarios/workflow-engine.v1.json: closed assertion violation in {item.get('id')}")
+                        findings.append(f".concord/scenarios/workflow-engine.v1.json: closed assertion violation in {item.get('id')}")
             for case in item.get("cases", []):
                 nested_ids.append(case.get("id"))
                 for assertion in case.get("expected", {}).get("assertions", []):
                     if assertion.get("target") not in targets or assertion.get("op") not in ops:
-                        findings.append(f"scenarios/workflow-engine.v1.json: closed case assertion violation in {case.get('id')}")
+                        findings.append(f".concord/scenarios/workflow-engine.v1.json: closed case assertion violation in {case.get('id')}")
         all_ids = ids + nested_ids
         if len(set(all_ids)) != len(all_ids) or any(not isinstance(item, str) or not item for item in all_ids):
-            findings.append("scenarios/workflow-engine.v1.json: all scenario and case IDs must be unique and nonempty")
+            findings.append(".concord/scenarios/workflow-engine.v1.json: all scenario and case IDs must be unique and nonempty")
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        findings.append(f"scenarios/workflow-engine.v1.json: structural validation failed: {exc}")
+        findings.append(f".concord/scenarios/workflow-engine.v1.json: structural validation failed: {exc}")
     return findings
 
 def _check_cd0043_lane_methodology() -> list[str]:
@@ -905,7 +905,7 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             adapter_tests = subprocess.run([bun, "test", "adapter/opencode"], cwd=ROOT)
             if adapter_tests.returncode: return adapter_tests.returncode
             # Typecheck the adapter against the host's published declarations,
-            # installed at the exact versions docs/adapter-host-pin.v1.json
+            # installed at the exact versions .concord/docs/adapter-host-pin.v1.json
             # pins. The adapter previously carried a hand-written mirror of that
             # surface, which could only be wrong in the direction nothing
             # checked: upstream removes or narrows a declaration, the mirror

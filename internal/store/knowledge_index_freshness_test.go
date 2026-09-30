@@ -14,7 +14,7 @@ func TestKnowledgeIndexFreshnessFollowsContentNotCommit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: "docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: ".concord/docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	first := commitKnowledgeRepo(t, repo, "law one")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"}
@@ -44,7 +44,7 @@ func TestKnowledgeIndexFreshnessFollowsContentNotCommit(t *testing.T) {
 	}
 
 	// A commit that changes a record's content: the index is stale.
-	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: "docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law, revised", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: ".concord/docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law, revised", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	commitKnowledgeRepo(t, repo, "law one revised")
 	if _, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, home, false, "test"); err == nil {
 		t.Fatal("record content changed: want a stale refusal, got authoritative")
@@ -62,7 +62,7 @@ func TestKnowledgeIndexFreshnessTracksWorkNoteTree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := initKnowledgeRepo(t)
-	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: "docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})
+	writeManifestFixture(t, repo, manifestFixture{ID: "law-one", Kind: "lesson", Path: ".concord/docs/lessons/law-one.md", Status: "published", Date: "2026-08-10T00:00:00Z", Title: "Law one", Summary: "First law", Scopes: KnowledgeRecordScopes{Mode: "home"}})
 	commitKnowledgeRepo(t, repo, "law one")
 	s := openTemp(t)
 	home := KnowledgeHome{HomeProjectID: "proj", HomeLocatorID: "loc", RepoPath: repo, HeadRef: "HEAD"}
@@ -70,7 +70,7 @@ func TestKnowledgeIndexFreshnessTracksWorkNoteTree(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	writeKnowledgeFile(t, repo, "docs/work/work-1.md", canonicalWorkNote("work-1", "2026-08-11T00:00:00Z"))
+	writeKnowledgeFile(t, repo, ".concord/docs/work/work-1.md", canonicalWorkNote("work-1", "2026-08-11T00:00:00Z"))
 	commitKnowledgeRepo(t, repo, "add a work note")
 	if _, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, home, false, "test"); err == nil {
 		t.Fatal("work-note tree changed: want a stale refusal, got authoritative")

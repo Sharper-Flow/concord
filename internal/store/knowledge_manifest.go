@@ -20,6 +20,10 @@ import (
 
 const (
 	knowledgeManifestPath = "docs/concord-knowledge-index.v1.json"
+	// CD-0194 D5: a revision composes and validates under the record path
+	// prefix its layout tier carries. Authoring is always the current tier.
+	manifestRecordPathPrefix             = ".concord/docs/"
+	preMigrationManifestRecordPathPrefix = "docs/"
 	// maxKnowledgeRecord bounds one record shard. The caps test holds it
 	// against the per-field record caps, and the shard reader refuses an
 	// oversized shard while naming its path.
@@ -135,15 +139,16 @@ var manifestLawRelationSubjects = map[string]bool{"decision": true, "spec": true
 // tree inside the modeled vocabulary. A field that must restrict older cores
 // needs a schema_version bump, which stays the only closed-version signal.
 var manifestRootKeys = map[string]bool{
-	"schema_version":  true,
-	"supported_kinds": true,
-	"indexed_kinds":   true,
-	"domain_registry": true,
-	"records":         true,
-	"dispositions":    true,
-	"knowledge_roots": true,
-	"exclusions":      true,
-	"doc_contract":    false,
+	"schema_version":     true,
+	"supported_kinds":    true,
+	"indexed_kinds":      true,
+	"domain_registry":    true,
+	"records":            true,
+	"dispositions":       true,
+	"knowledge_roots":    true,
+	"exclusions":         true,
+	"operator_overrides": false,
+	"doc_contract":       false,
 }
 
 var lawRelationKinds = map[string]bool{
@@ -494,6 +499,13 @@ func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {
 }
 
 func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
+	return parseKnowledgeManifestWithPaths(data, manifestRecordPathPrefix)
+}
+
+// parseKnowledgeManifestWithPaths validates record paths under the prefix the
+// manifest's layout tier carries (CD-0194 D5). Authoring passes the current
+// tier; a revision read from history passes the tier that revision has.
+func parseKnowledgeManifestWithPaths(data []byte, pathPrefix string) (KnowledgeManifest, error) {
 	if len(data) == 0 || len(data) > maxKnowledgeManifest {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is empty or exceeds the bounded size", false, "publish a bounded v1 manifest")
 	}
@@ -510,7 +522,7 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest contains trailing JSON values", false, "publish exactly one JSON object")
 	}
 	applyLegacyAuthorityTier(&manifest)
-	if err := validateKnowledgeManifest(manifest); err != nil {
+	if err := validateKnowledgeManifestForPaths(manifest, pathPrefix); err != nil {
 		return KnowledgeManifest{}, err
 	}
 	return manifest, nil
@@ -538,6 +550,10 @@ func applyLegacyAuthorityTier(manifest *KnowledgeManifest) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
+	return validateKnowledgeManifestForPaths(manifest, manifestRecordPathPrefix)
+}
+
+func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix string) error {
 	if !knowledgeManifestSchemaAccepted(manifest.SchemaVersion) || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 or 1.3 root fields")
 	}
@@ -570,7 +586,7 @@ func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	ids := map[string]bool{}
 	paths := map[string]bool{}
 	for _, record := range manifest.Records {
-		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion); err != nil {
+		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion, pathPrefix); err != nil {
 			return err
 		}
 		if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
@@ -1007,7 +1023,7 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 	return result, nil
 }
 
-func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string) error {
+func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string, pathPrefix string) error {
 	if len(record.CriterionBindings) > maxCriterionBindings {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many criterion bindings", false, "supply at most one thousand criterion bindings")
 	}
@@ -1064,11 +1080,11 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	if !supported[record.Kind] || !indexed[record.Kind] {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record kind is not indexed: "+record.Kind, false, "include the record kind in supported_kinds and indexed_kinds")
 	}
-	if err := validateManifestPath(record.Path); err != nil {
+	if err := validateManifestPathForPrefix(record.Path, pathPrefix); err != nil {
 		return err
 	}
 	if record.Kind == "decision" && !canonicalDecisionPath(record.Path) {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "decision record is outside the canonical CD decision path", false, "use docs/decisions/CD-NNNN markdown")
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "decision record is outside the canonical CD decision path", false, "use "+pathPrefix+"decisions/CD-NNNN markdown")
 	}
 	if record.Status != "accepted" && record.Status != "published" && record.Status != "superseded" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record status is not closed", false, "use accepted, published, or superseded")
@@ -1134,16 +1150,20 @@ func canonicalDecisionPath(value string) bool {
 }
 
 func validateManifestPath(value string) error {
-	if value == knowledgeManifestPath || value == "" || utf8.RuneCountInString(value) > maxManifestPath || path.Clean(value) != value || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "-") || !strings.HasPrefix(value, "docs/") || !strings.HasSuffix(value, ".md") {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not a clean docs markdown path", false, "use one regular markdown blob below docs/")
+	return validateManifestPathForPrefix(value, manifestRecordPathPrefix)
+}
+
+func validateManifestPathForPrefix(value, pathPrefix string) error {
+	if value == knowledgeManifestPath || value == "" || utf8.RuneCountInString(value) > maxManifestPath || path.Clean(value) != value || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "-") || !strings.HasPrefix(value, pathPrefix) || !strings.HasSuffix(value, ".md") {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not a clean docs markdown path", false, "use one regular markdown blob below "+pathPrefix)
 	}
 	for _, part := range strings.Split(value, "/") {
 		if part == "" || part == ".." || strings.ContainsRune(part, '\x00') {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path contains traversal or empty components", false, "use a clean relative path")
 		}
 	}
-	if reason, ineligible := manifestPathIneligible(value); ineligible {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not an eligible authored knowledge blob", false, reason+"; "+manifestIneligibleHint())
+	if reason, ineligible := manifestPathIneligibleFor(value, pathPrefix); ineligible {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record path is not an eligible authored knowledge blob", false, reason+"; "+manifestIneligibleHintFor(pathPrefix))
 	}
 	return nil
 }
@@ -1155,16 +1175,24 @@ func validateManifestPath(value string) error {
 // has no lookahead, so the schema pattern cannot be compiled here;
 // TestKnowledgeManifestIneligiblePathsMatchSchema binds this decomposition
 // back to the schema alternation instead of trusting the restatement.
-var manifestIneligiblePrefixes = []string{"docs/work/", "docs/research/"}
+var manifestIneligiblePrefixes = ineligiblePrefixesForPrefix(manifestRecordPathPrefix)
 
 // The comparison is ASCII case-insensitive, which the schema alternation
 // spells as a per-letter character class so both forms accept the same set.
 const manifestIneligibleSubstring = "generated"
 
+func ineligiblePrefixesForPrefix(pathPrefix string) []string {
+	return []string{pathPrefix + "work/", pathPrefix + "research/"}
+}
+
 // manifestPathIneligible reports why a well-formed docs markdown path may not
 // carry a manifest record, or false when the path is eligible.
 func manifestPathIneligible(value string) (string, bool) {
-	for _, prefix := range manifestIneligiblePrefixes {
+	return manifestPathIneligibleFor(value, manifestRecordPathPrefix)
+}
+
+func manifestPathIneligibleFor(value, pathPrefix string) (string, bool) {
+	for _, prefix := range ineligiblePrefixesForPrefix(pathPrefix) {
 		if strings.HasPrefix(value, prefix) {
 			return "path is under " + prefix, true
 		}
@@ -1178,7 +1206,11 @@ func manifestPathIneligible(value string) (string, bool) {
 // manifestIneligibleHint states exactly what validateManifestPath enforces, so
 // the operator guidance cannot drift from the rules that produced the failure.
 func manifestIneligibleHint() string {
-	return "a record path may not start with " + strings.Join(manifestIneligiblePrefixes, " or ") +
+	return manifestIneligibleHintFor(manifestRecordPathPrefix)
+}
+
+func manifestIneligibleHintFor(pathPrefix string) string {
+	return "a record path may not start with " + strings.Join(ineligiblePrefixesForPrefix(pathPrefix), " or ") +
 		", or contain " + strconv.Quote(manifestIneligibleSubstring)
 }
 
@@ -1292,8 +1324,32 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 	if err != nil {
 		return KnowledgeManifest{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed manifest blob", true, "restore the manifest blob and retry", err)
 	}
-	manifest, err := parseKnowledgeManifest(content)
+	manifest, err := parseKnowledgeManifestWithPaths(content, aggregateRecordPathPrefix(content))
 	return manifest, false, err
+}
+
+// aggregateRecordPathPrefix resolves the record path prefix an aggregate
+// manifest validates under. The aggregate shape predates the shard homes and
+// carries no layout marker, so the prefix follows the document: every record
+// under .concord/docs/ is a current-placement corpus, anything else is the
+// aggregate-era docs/ placement. A corpus mixing the two refuses under the
+// docs/ prefix it falls back to, which is the outcome a mixed corpus has
+// coming.
+func aggregateRecordPathPrefix(data []byte) string {
+	var probe struct {
+		Records []struct {
+			Path string `json:"path"`
+		} `json:"records"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil || len(probe.Records) == 0 {
+		return preMigrationManifestRecordPathPrefix
+	}
+	for _, record := range probe.Records {
+		if !strings.HasPrefix(record.Path, manifestRecordPathPrefix) {
+			return preMigrationManifestRecordPathPrefix
+		}
+	}
+	return manifestRecordPathPrefix
 }
 
 func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord) error {

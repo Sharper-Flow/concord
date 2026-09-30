@@ -19,7 +19,10 @@ import shard_format  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_MANIFEST_PATH = 512  # JSON Schema maxLength and Python Unicode scalar count.
-ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "dispositions", "doc_contract", "records"}
+ALLOWED_ROOT = {"schema_version", "supported_kinds", "indexed_kinds", "domain_registry", "knowledge_roots", "exclusions", "operator_overrides", "dispositions", "doc_contract", "records"}
+ALLOWED_OPERATOR_OVERRIDE = {"path", "product_id", "recorded_in", "reason"}
+MAX_OPERATOR_OVERRIDES = 32
+OPERATOR_OVERRIDE_PATH_RE = re.compile(r"^[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*(?:/|\.md)$")
 ALLOWED_DISPOSITION = {"path", "disposition", "reason"}
 ALLOWED_RECORD = {"id", "kind", "path", "status", "date", "title", "summary", "tags", "scopes", "successor", "sha256", "authority", "law_relations", "evidence", "criterion_bindings", "home_domain_id", "applies_to_domain_ids", "product_wide_rationale", "doc_contract_profile"}
 # CD-0175: the authored outline generation a decision or spec record carries,
@@ -74,7 +77,7 @@ DISPOSITION_PATH_RE = re.compile(r"^(?![\s\S]*\.\.)[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9
 # pattern verbatim rather than decomposing it; check-knowledge-vocabulary.py
 # binds the two texts. `generated` is spelled as per-letter character classes
 # because the Go model matches it ASCII case-insensitively.
-RECORD_PATH_RE = re.compile(r"^docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
+RECORD_PATH_RE = re.compile(r"^.concord/docs/(?!work/|research/|.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]).*\.md$")
 
 
 class DuplicateKeyError(ValueError):
@@ -244,6 +247,44 @@ def has_cycle(graph: dict[str, list[str]]) -> bool:
         return False
 
     return any(visit(node) for node in graph)
+
+
+def validate_operator_overrides(overrides: object, findings: list[str]) -> None:
+    """Enforce the closed override contract in the manifest head (CD-0194 D2).
+
+    The field is optional and starts empty in this repository. An entry is
+    the only manifest route that admits Product knowledge placement outside
+    .concord/, so its shape is validated wherever the manifest is: a
+    malformed override refuses here instead of quietly admitting nothing.
+    """
+    if overrides is None:
+        return
+    if not isinstance(overrides, list) or len(overrides) > MAX_OPERATOR_OVERRIDES:
+        fail(findings, "manifest: operator_overrides must be a bounded array")
+        return
+    seen: set[object] = set()
+    for number, entry in enumerate(overrides):
+        prefix = f"manifest.operator_overrides[{number}]"
+        if not isinstance(entry, dict) or set(entry) != ALLOWED_OPERATOR_OVERRIDE:
+            fail(findings, f"{prefix}: override must carry exactly path, product_id, recorded_in, and reason")
+            continue
+        path = entry["path"]
+        if not isinstance(path, str) or len(path) > 256 or not OPERATOR_OVERRIDE_PATH_RE.fullmatch(path):
+            fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
+        elif path.startswith(".concord/") or path == ".concord/":
+            fail(findings, f"{prefix}: path is inside the default tree and cannot be an override: {path}")
+        elif ".." in Path(path).parts:
+            fail(findings, f"{prefix}: forbidden or unsafe path: {path}")
+        if path in seen:
+            fail(findings, f"{prefix}: duplicate override path {path}")
+        seen.add(path)
+        if not bounded_text(entry["product_id"], 128):
+            fail(findings, f"{prefix}: product_id must be a bounded clean identifier")
+        if not valid_id(entry["recorded_in"]):
+            fail(findings, f"{prefix}: recorded_in must name the record carrying the operator's instruction")
+        reason = entry["reason"]
+        if not isinstance(reason, str) or not 12 <= len(reason) <= 512 or reason != reason.strip():
+            fail(findings, f"{prefix}: reason must be a trimmed reason of 12-512 characters")
 
 
 def validate_dispositions(dispositions: object, record_paths: set[str], findings: list[str]) -> None:
@@ -429,7 +470,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: duplicate path {path}")
         else:
             paths.add(path)
-        if kind == "decision" and (not isinstance(path, str) or not re.fullmatch(r"docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path)):
+        if kind == "decision" and (not isinstance(path, str) or not re.fullmatch(r".concord/docs/decisions/CD-[0-9]{4}(?:-.*)?\.md", path)):
             fail(findings, f"{prefix}: decision is outside the canonical CD decision path")
 
         status = record["status"]
@@ -566,6 +607,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if actual != record["sha256"]:
                 fail(findings, f"{prefix}: hash drift for {path}")
 
+    validate_operator_overrides(data.get("operator_overrides"), findings)
     validate_dispositions(data.get("dispositions"), paths, findings)
 
     by_id = {record.get("id"): record for record in records if isinstance(record, dict) and isinstance(record.get("id"), str)}
@@ -679,7 +721,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: successor status is incompatible")
 
     decision_paths: dict[str, list[str]] = {}
-    for path in sorted((ROOT / "docs/decisions").glob("CD-*.md"), key=lambda item: item.as_posix()):
+    for path in sorted((ROOT / ".concord/docs/decisions").glob("CD-*.md"), key=lambda item: item.as_posix()):
         match = re.fullmatch(r"(CD-[0-9]{4})(?:-.*)?\.md", path.name)
         relative = path.relative_to(ROOT).as_posix()
         if match is None:
@@ -708,7 +750,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             continue
         path = record.get("path")
         identifier = record.get("id")
-        if isinstance(path, str) and path.startswith("docs/decisions/") and path not in discovered_decision_paths:
+        if isinstance(path, str) and path.startswith(".concord/docs/decisions/") and path not in discovered_decision_paths:
             fail(findings, f"manifest: extra decision path is forbidden: {path}")
         if isinstance(identifier, str) and identifier.startswith("CD-") and identifier not in decision_paths:
             fail(findings, f"manifest: extra decision ID is forbidden: {identifier}")
@@ -756,8 +798,8 @@ def check_shard_encoding(findings: list[str]) -> None:
     at all, which is why they are held here too.
     """
     shard_dirs = {
-        "record shard": ROOT / "docs/knowledge/records",
-        "coverage shard": ROOT / "docs/knowledge/coverage",
+        "record shard": ROOT / ".concord/docs/knowledge/records",
+        "coverage shard": ROOT / ".concord/docs/knowledge/coverage",
     }
     for label, shard_dir in shard_dirs.items():
         if not shard_dir.is_dir():
@@ -783,7 +825,7 @@ def update_manifest(data: object) -> list[str]:
         return findings
     assert isinstance(data, dict)
     records = data["records"]
-    shard_dir = ROOT / "docs/knowledge/records"
+    shard_dir = ROOT / ".concord/docs/knowledge/records"
     if not shard_dir.is_dir():
         return ["manifest: knowledge record shard directory is missing"]
     shards: dict[str, dict[str, object]] = {}

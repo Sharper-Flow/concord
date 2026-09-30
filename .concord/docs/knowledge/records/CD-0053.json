@@ -1,0 +1,41 @@
+{
+  "applies_to_domain_ids": [
+    "agent-surface",
+    "product-memory",
+    "workflow-engine"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-8d7bd788b2890355460bb5b7",
+    "tier": "legislated"
+  },
+  "date": "2026-08-21T00:00:00Z",
+  "doc_contract_profile": "legacy",
+  "evidence": [
+    ".concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md",
+    ".concord/docs/decisions/CD-0026-learning-capture.md",
+    ".concord/docs/decisions/CD-0037-core-derived-approval-consequence-summaries.md"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0053",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0053-predecessor-strength-answers.md",
+  "product_wide_rationale": "Answers the three predecessor strengths CD-0019 D3 left open, distributing the outcomes across workflow-engine, agent-surface, and product-memory. It closes a Product-wide mandate rather than governing any single Domain.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:cedeeb90f8eb9ccd0baafa7cd38d3381b05ef27f0c5d0ebfad2c53e5d1b97ef6",
+  "status": "accepted",
+  "summary": "CD-0019 D3 closes: the gated human-checkpoint lifecycle is absorbed into typed approval routes and core-derived consequence summaries; the agreement-gate discipline is preserved as the CD-0012 outcome contract enforced at completion; standalone wisdom capture is preserved as CD-0026 lesson publication into the git knowledge home. CD-0082 amends the cutover framing without changing these answers.",
+  "tags": [
+    "predecessor",
+    "migration",
+    "workflow",
+    "knowledge"
+  ],
+  "title": "The three un-mandated predecessor strengths are answered"
+}

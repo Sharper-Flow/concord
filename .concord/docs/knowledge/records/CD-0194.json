@@ -1,0 +1,46 @@
+{
+  "authority": {
+    "contract_version": 4,
+    "legislated_by": "work-670cac419bcacb671879316b",
+    "tier": "legislated"
+  },
+  "date": "2026-09-29T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "scripts/check-knowledge-placement.py",
+    "scripts/test-knowledge-placement.py",
+    "scripts/check-knowledge-index.py",
+    "scripts/check-knowledge-closure.py",
+    "scripts/check-cd-allocation.py",
+    "contracts/concord-knowledge-index.v1.schema.json",
+    ".github/workflows/release.yml"
+  ],
+  "home_domain_id": "product-root:concord",
+  "id": "CD-0194",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0114"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0194-product-knowledge-lives-under-concord.md",
+  "product_wide_rationale": "Sets the default knowledge home for every Concord Product and the explicit operator-override boundary. It governs the repository container across Domains rather than only the Product-memory reader.",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:abdb10ff5ba083d681d6590bcd85d5cb8d1cb7c63f380165677c5372018bed41",
+  "status": "accepted",
+  "summary": "All repository-authored Product knowledge lives under .concord/docs, .concord/instructions, and .concord/scenarios, with one canonical copy per artifact and the manifest shards still the composed authority. A knowledge location outside .concord/ is valid only through an explicit operator override recorded in the manifest head, tied to one Product, and validated by the knowledge placement check. This repository carries no root docs, instructions, or scenarios directory and no compatibility symlink. Installed conduct stays a derived projection of .concord/instructions, and history reads in the layout each revision carries.",
+  "tags": [
+    "knowledge",
+    "placement",
+    "operator-override",
+    "concord-structure"
+  ],
+  "title": "Product knowledge lives under .concord"
+}

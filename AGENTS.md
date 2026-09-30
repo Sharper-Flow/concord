@@ -14,16 +14,16 @@ derivable fact drifts from its source and no check catches it.
 ## Authority
 
 - Resolve planning authority from the Product's mode under
-  [`docs/development-authority.md`](docs/development-authority.md). Pull requests
+  [`.concord/docs/development-authority.md`](.concord/docs/development-authority.md). Pull requests
   plus required checks own review and merge evidence.
-- [`docs/decisions/`](docs/decisions/) (CD-NNNN records), specifications, and
+- [`.concord/docs/decisions/`](.concord/docs/decisions/) (CD-NNNN records), specifications, and
   constitutional documents own Product law. Ordinary prose cannot acquire that
   authority — including this file, which is host instruction, not law.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
   `concord_work_start` captures the item, claims its canonical worktree, and moves
   the session; the shell reports the pre-move directory until the next turn.
-  A hand-made worktree is the route rejected in [`CD-0088`](docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
+  A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
 - Concord coordinates explicitly managed development. Other project work and
   defect repair may proceed outside the workflow under host permissions and repository rules; they receive no Concord workflow authority or evidence.
 - Advance is public predecessor evidence only. Do not create or dual-write
@@ -32,7 +32,7 @@ derivable fact drifts from its source and no check catches it.
   [`scripts/check-predecessor-independence.py`](scripts/check-predecessor-independence.py)
   enforces this for repository-owned agent surfaces (generated lanes, the lane
   manifest and generator, and the adapter); host configuration outside the
-  repository is out of scope, and predecessor citations under `docs/` remain
+  repository is out of scope, and predecessor citations under `.concord/docs/` remain
   permitted.
 
 ## Context discipline
@@ -125,7 +125,7 @@ inference. Conventional Commit titles are load-bearing for release semver.
 |---|---|
 | What the CLI accepts, and its JSON-stdin rules | `commandSpecs` in [`cmd/concord/main.go`](cmd/concord/main.go); `concord --help` |
 | The verification contract a branch must satisfy | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
-| Knowledge manifest, unprocessed enumeration, and doc contract | [`docs/knowledge/`](docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
+| Knowledge manifest, unprocessed enumeration, and doc contract | [`.concord/docs/knowledge/`](.concord/docs/knowledge/) composed by [`scripts/knowledge_index.py`](scripts/knowledge_index.py); [`contracts/concord-knowledge-index.v1.schema.json`](contracts/concord-knowledge-index.v1.schema.json); [`scripts/check-knowledge-closure.py`](scripts/check-knowledge-closure.py); [`scripts/check-doc-contract.py`](scripts/check-doc-contract.py) |
 | Local conformance workload and host admission | header comment in [`bin/oc-test`](bin/oc-test) |
 | Which quality tools and check commands are declared ready | [`.concord/tooling.v1.json`](.concord/tooling.v1.json) |
 | Adapter layout, tests, and the `worker-*` boundary | [`adapter/opencode/README.md`](adapter/opencode/README.md) |
@@ -133,8 +133,8 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | PR title grammar and its semver effect | [`scripts/check-commit-title.py`](scripts/check-commit-title.py); [`scripts/release.py`](scripts/release.py) |
 | How to move a CD number that collided with another branch | [`scripts/renumber-cd.py`](scripts/renumber-cd.py) `--dry-run` |
 | How a release is built and published | [`.github/workflows/release.yml`](.github/workflows/release.yml) |
-| Distance from the first-usable floor | [`docs/floor-readiness.md`](docs/floor-readiness.md) |
-| What is proved versus merely present | [`docs/knowledge/coverage/`](docs/knowledge/coverage/); [`docs/reachability-exceptions.v1.json`](docs/reachability-exceptions.v1.json) |
-| Predecessor operational coverage state | [`docs/predecessor-operational-coverage.md`](docs/predecessor-operational-coverage.md) |
-| Product law, priorities, documentation rules, and release currency before capture | [`docs/README.md`](docs/README.md); [`docs/priorities.md`](docs/priorities.md); [`CD-0165`](docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
-| Repository layout and component roles | [`docs/core-architecture.md`](docs/core-architecture.md) |
+| Distance from the first-usable floor | [`.concord/docs/floor-readiness.md`](.concord/docs/floor-readiness.md) |
+| What is proved versus merely present | [`.concord/docs/knowledge/coverage/`](.concord/docs/knowledge/coverage/); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
+| Predecessor operational coverage state | [`.concord/docs/predecessor-operational-coverage.md`](.concord/docs/predecessor-operational-coverage.md) |
+| Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
+| Repository layout and component roles | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) |

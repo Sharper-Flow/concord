@@ -37,7 +37,7 @@ def validate_fixture_sources(path: Path, value: object, findings: list[str]) -> 
             continue
         relative = source.removeprefix(FIXTURE_SOURCE_PREFIX)
         target = ROOT / relative
-        if not relative or target.resolve().parent != ROOT / "scenarios" or not target.is_file():
+        if not relative or target.resolve().parent != ROOT / ".concord/scenarios" or not target.is_file():
             findings.append(f"{path.relative_to(ROOT)}: missing fixture source asset: {source}")
 
 

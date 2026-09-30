@@ -65,9 +65,9 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 	}
 
 	unanchored := map[string]string{
-		"law_subjects":            `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('nope','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit')`,
+		"law_subjects":            `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('nope','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit')`,
 		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','supersedes','b','commit')`,
-		"archived_work":           `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S','nope','l','docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `')`,
+		"archived_work":           `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S','nope','l','.concord/docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `')`,
 		"knowledge_kind_coverage": `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('nope','l','HEAD','lesson','indexed','test','` + strings.Repeat("a", 40) + `')`,
 		"domains":                 `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('nope','l','prod','d','D','purpose','current','sha256:` + strings.Repeat("c", 64) + `','commit')`,
 	}
@@ -78,11 +78,11 @@ func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 	}
 
 	// A locator owned by a different Project is as unanchored as a missing one.
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','missing','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err == nil {
 		t.Fatal("mismatched home pair insert succeeded")
 	}
 
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
 		t.Fatalf("anchored law_subjects insert refused: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestMigrateV52RefusesAStoredUnanchoredHomePair(t *testing.T) {
 	}
 	// Seed through the pre-binding schema state: v51 has no pair triggers, so
 	// an unanchored row is storable here and migration 52 must refuse it.
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -164,7 +164,7 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('law-project','law-locator','CD-0001','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('law-project','law-locator','CD-0001','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -186,7 +186,7 @@ func TestRebuildFromLogPreservesAnchoredKnowledgeAndRebindsGuard(t *testing.T) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('surviving-project','surviving-locator','CD-0002','decision','accepted','docs/decisions/CD-0002-b.md','B','sha256:`+strings.Repeat("b", 64)+`','commit')`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('surviving-project','surviving-locator','CD-0002','decision','accepted','.concord/docs/decisions/CD-0002-b.md','B','sha256:`+strings.Repeat("b", 64)+`','commit')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -205,7 +205,7 @@ func TestRebuildFromLogPreservesAnchoredKnowledgeAndRebindsGuard(t *testing.T) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`)
+	_, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`)
 	if err == nil {
 		t.Fatal("unanchored law_subjects insert succeeded after rebuild")
 	}
@@ -224,7 +224,7 @@ func TestRebuildFromLogRefusesOrphanedKnowledgePairs(t *testing.T) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','L','2026-08-27T00:00:00Z','published','[]','completed',1,'S','orphan-project','orphan-locator','docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err != nil {
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','L','2026-08-27T00:00:00Z','published','[]','completed',1,'S','orphan-project','orphan-locator','.concord/docs/lessons/l.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {

@@ -14,7 +14,7 @@ func TestKnowledgeSearchProjectsLawStatusAndSuccessor(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	result := store.Q9Result{ResultMeta: meta, IndexWatermark: "commit", Items: []store.KnowledgeItem{
-		{ID: "CD-0001", Kind: "decision", OutcomeTag: "superseded", SuccessorID: "CD-0002", NotePath: "docs/decisions/CD-0001.md"},
+		{ID: "CD-0001", Kind: "decision", OutcomeTag: "superseded", SuccessorID: "CD-0002", NotePath: ".concord/docs/decisions/CD-0001.md"},
 	}}
 	response, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("q9-status", "concord_knowledge", "search"), result)
 	if err != nil {
@@ -103,7 +103,7 @@ func TestKnowledgeSearchOmitsWorkNoteTagsThatNameLawStatuses(t *testing.T) {
 func TestKnowledgeResolveNoteProjectsLawStatusAndSuccessor(t *testing.T) {
 	t.Parallel()
 	meta := store.ResultMeta{QueryID: "PM1.Q10", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
-	note := &store.CanonicalNote{HomeProjectID: "home", HomeLocatorID: "locator", NotePath: "docs/decisions/CD-0001.md", Commit: "c0ffee", ContentHash: "sha256:deadbeef"}
+	note := &store.CanonicalNote{HomeProjectID: "home", HomeLocatorID: "locator", NotePath: ".concord/docs/decisions/CD-0001.md", Commit: "c0ffee", ContentHash: "sha256:deadbeef"}
 	result := store.Q10Result{ResultMeta: meta, Status: "canonical", Note: note, Result: &store.Q10Payload{Status: "canonical", Note: note, LawStatus: "superseded", SuccessorID: "CD-0002"}}
 	response, err := (runtime{Tool: "concord_knowledge", Operation: "resolve_note"}).q10(NewBase("q10-status", "concord_knowledge", "resolve_note"), result)
 	if err != nil {

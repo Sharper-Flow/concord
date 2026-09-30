@@ -21,7 +21,7 @@ import (
 //
 // Placement: a core CLI verb rather than a host script, the same rationale
 // worktree-locate carries — the inputs are registered locators only the core
-// can read. Recorded in docs/capability-placement.md §6 and CD-0079.
+// can read. Recorded in .concord/docs/capability-placement.md §6 and CD-0079.
 //
 // The verb is unauthenticated, as worktree-locate is. CD-0079 D2 records why:
 // the trust boundary is filesystem access to the authority database, which a
@@ -95,7 +95,7 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 //
 // Placement: a core CLI verb rather than a host script, the same rationale
 // worktree-locate carries — the value is registered locator data only the
-// core can read. Recorded in docs/capability-placement.md §6.
+// core can read. Recorded in .concord/docs/capability-placement.md §6.
 //
 // The verb is unauthenticated, as worktree-locate and project-resolve are.
 // CD-0079 D2 records why: the trust boundary is filesystem access to the

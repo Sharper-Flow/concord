@@ -4,6 +4,7 @@
 **Date:** 2026-08-07.
 **Approval:** Explicit operator approval after review of PR #16 and issue #17.
 **Type:** Architecture confirmation after a falsifier review.
+**Amended by:** [CD-0195](CD-0195-the-escaped-sqlite-busy-on-record-is-an-application-defect.md) at §Falsifier interpretation's escaped-`SQLITE_BUSY` condition: CD-0195 holds the disposition of the two escape classes on record through 2026-09-30. The condition stands unchanged for any later escape.
 
 ## Decision
 

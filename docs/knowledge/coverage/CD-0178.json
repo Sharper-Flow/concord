@@ -1,5 +1,46 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStoreTwoProjectClaimsConcurrent"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimLandingTransfersOccupancyInOneTransaction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimLandingRecordsResumedSessionInUnoccupiedWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyRowReleasesOnEndedRecordingProcess"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeKeepsLiveOccupantRefusal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimRefusesResumedOccupiedUnstartedWorktree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyRowStaysOnUnreadableLeaseSet"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-primary-prompts.py"
+    }
+  ],
   "id": "CD-0178",
-  "issue": "CON-469",
-  "state": "outstanding"
+  "state": "satisfied"
 }

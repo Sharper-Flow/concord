@@ -56,8 +56,8 @@ FOLD_VOCABULARY = ("advance", "origin")
 # value can carry keeps it from colliding with a real residue.
 FOLD_VALUE_ELSEWHERE = "<value on a later line>"
 
-SQL_REF = r'(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|[A-Za-z_][\w$]*)'
-SQL_QUAL = rf"(?:{SQL_REF}(?:\.\s*{SQL_REF})*)"
+SQL_REF = r"(?:\"(?:[^\"]|\"\")+\"|\[[^\]]+\]|`[^`]+`|'(?:[^']|'')+'|[A-Za-z_][\w$]*)"
+SQL_QUAL = rf"(?:{SQL_REF}(?:\s*\.\s*{SQL_REF})*)"
 CREATE_TABLE = re.compile(
     rf"^CREATE\s+(?:VIRTUAL\s+|TEMP\s+|TEMPORARY\s+)*TABLE(?:\s+IF\s+NOT\s+EXISTS)?"
     rf"\s+({SQL_QUAL})",
@@ -180,6 +180,7 @@ def statements(sql: str) -> list[str]:
     """
     out: list[str] = []
     current: list[str] = []
+    head_words: list[str] = []
     word_start = 0
     word: list[str] = []
     depth = 0
@@ -187,15 +188,34 @@ def statements(sql: str) -> list[str]:
     stmt_open = False
     i, n = 0, len(sql)
 
-    def head_code() -> str:
-        head = "".join(current).lstrip().upper().split("(")[0]
-        return re.sub(r'"[^"]*"|`[^`]*`|\[[^\]]*\]', " ", head)
+    def trigger_head() -> bool:
+        # The statement's second keyword decides: CREATE [TEMP|TEMPORARY]
+        # TRIGGER opens a body; CREATE TABLE names a table, whatever the
+        # table or a column is called.
+        words = head_words
+        at = 1
+        if at < len(words) and words[at] in ("TEMP", "TEMPORARY"):
+            at += 1
+        return at < len(words) and words[at] == "TRIGGER"
 
     def end_closes() -> bool:
         j = i
-        while j < n and sql[j] in " \t\r\n":
-            j += 1
-        return j >= n or sql[j] == ";"
+        while j < n:
+            if sql[j] in " \t\r\n":
+                j += 1
+                continue
+            if sql.startswith("--", j):
+                k = sql.find("\n", j)
+                j = n if k < 0 else k + 1
+                continue
+            if sql.startswith("/*", j):
+                k = sql.find("*/", j + 2)
+                if k < 0:
+                    return True
+                j = k + 2
+                continue
+            break
+        return j >= n or (j < n and sql[j] == ";")
 
     while i < n:
         ch = sql[i]
@@ -207,15 +227,17 @@ def statements(sql: str) -> list[str]:
             continue
         token = "".join(word).upper()
         if token:
-            if token == "TRIGGER" and depth == 0 and head_code().startswith("CREATE"):
-                awaiting_body = True
-            elif token == "BEGIN" and (
+            if "(" not in "".join(current):
+                head_words.append(token)
+            if token == "BEGIN" and (
                 awaiting_body or (depth >= 1 and not stmt_open)
             ):
                 depth += 1
                 awaiting_body = False
             elif token == "END" and depth >= 1 and end_closes():
                 depth -= 1
+            elif depth == 0 and trigger_head():
+                awaiting_body = True
             current.extend(word)
             word = []
             stmt_open = True
@@ -255,6 +277,7 @@ def statements(sql: str) -> list[str]:
                 if statement:
                     out.append(statement)
                 current = []
+                head_words = []
                 awaiting_body = False
                 stmt_open = False
                 i += 1

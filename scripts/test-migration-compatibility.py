@@ -963,7 +963,59 @@ for label, sql, failures, breaking in (
     ),
     (
         "a quoted column without the COLUMN keyword still requires the declaration",
-        'ALTER TABLE existing ADD "c" TEXT DEFAULT '';',
+        'ALTER TABLE existing ADD "c" TEXT DEFAULT \'\';',
+        1,
+        [],
+    ),
+    (
+        "a trigger column name admits no body",
+        "CREATE TABLE notes (trigger TEXT, begin TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a table named trigger admits no body",
+        "CREATE TABLE trigger (begin TEXT);"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a comment after a trigger END closes the body",
+        "CREATE TABLE notes (a TEXT);"
+        "CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "
+        "SELECT 1; END /* guard */;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a line comment after a trigger END closes the body",
+        "CREATE TABLE notes (a TEXT);"
+        "CREATE TRIGGER g AFTER INSERT ON notes FOR EACH ROW BEGIN "
+        "SELECT 1; END -- guard\n;"
+        "ALTER TABLE existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "spaces around the qualifier dot keep the reference qualified",
+        "CREATE TABLE main (a TEXT);"
+        "ALTER TABLE main . existing ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "an escaped-quote name is its own identity",
+        'CREATE TABLE "a""b" (a TEXT);'
+        "ALTER TABLE a ADD COLUMN c TEXT DEFAULT '';",
+        1,
+        [],
+    ),
+    (
+        "a string-literal table reference still requires the declaration",
+        "ALTER TABLE 'existing' ADD COLUMN c TEXT DEFAULT '';",
         1,
         [],
     ),

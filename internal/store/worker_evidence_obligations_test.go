@@ -233,16 +233,17 @@ func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *tes
 }
 
 // CD-0056 D2 and D8: every built-in lane declares obligations drawn from the
-// closed vocabulary, and binding evidence to that vocabulary changes no lane
-// digest.
-func TestBuiltinLaneObligationsAreClosedAndLaneDigestsAreUnchanged(t *testing.T) {
+// closed vocabulary, and the generated digests stay pinned: a manifest change
+// moves them only through regeneration, and the pre-change digests stay
+// accepted as legacy dispatch identities.
+func TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests(t *testing.T) {
 	t.Parallel()
 	wantDigests := map[string]string{
-		"research":  "sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b",
-		"implement": "sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc",
-		"design":    "sha256:50b73594e743bf14dc4ba2fdd8294bb7de64f695ea571a2fff572b5329c649a5",
-		"review":    "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15",
-		"verify":    "sha256:7999bab09a266d4e5bcda060e0cc75786f7c0678acbde09df7f30dd19fd9eff2",
+		"research":  "sha256:69f0271ffb9e14808aaf5d420e19f49928fe660a7336ad254f4f19486e90e2c3",
+		"implement": "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa",
+		"design":    "sha256:a2061098223cc1b9b31c62ed9ad2d92c97ef50c25f20802706fae026e4318804",
+		"review":    "sha256:139ba516f8744a6bfc9d1b26bda766dd270d12625a7bcc4610894141d216c5a6",
+		"verify":    "sha256:1fda1ccd5f1e9f9add9dc5ecbe6776be9d5a4c83a377edbd7e2b8b4aaf5dfb71",
 	}
 	definitions := BuiltinLaneDefinitions()
 	if len(definitions) != len(wantDigests) {

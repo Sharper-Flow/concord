@@ -13,6 +13,7 @@
       "report_schema_ref": "agent-lane-report.v1",
       "budgets": {"cost_usd_max": 2, "context_tokens_max": 32000, "time_seconds_max": 900},
       "evidence_obligations": ["source_citations", "bounded_findings", "uncertainties"],
+      "required_report_blocks": [],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     },
     {
@@ -25,6 +26,7 @@
       "report_schema_ref": "agent-lane-report.v1",
       "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
       "evidence_obligations": ["files_touched", "verification_commands", "unresolved_issues"],
+      "required_report_blocks": [],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     },
     {
@@ -37,6 +39,7 @@
       "report_schema_ref": "agent-lane-report.v1",
       "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
       "evidence_obligations": ["files_touched", "verification_commands", "visual_artifacts", "unresolved_issues"],
+      "required_report_blocks": [],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     },
     {
@@ -49,6 +52,7 @@
       "report_schema_ref": "agent-lane-report.v1",
       "budgets": {"cost_usd_max": 2.5, "context_tokens_max": 40000, "time_seconds_max": 1200},
       "evidence_obligations": ["contract_findings", "severity", "verification_commands"],
+      "required_report_blocks": ["review"],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     },
     {
@@ -61,6 +65,7 @@
       "report_schema_ref": "agent-lane-report.v1",
       "budgets": {"cost_usd_max": 3, "context_tokens_max": 40000, "time_seconds_max": 1500},
       "evidence_obligations": ["commands", "exit_codes", "failure_classification"],
+      "required_report_blocks": [],
       "lifecycle_states": ["dispatched", "completed", "failed"]
     }
   ],

@@ -94,6 +94,18 @@ Report contract constraints:
 - base_comparison_check shape: type=object, additionalProperties=false, required=["command", "branch_result", "base_result"].
 - base_comparison_check.command: type=string, minLength=1, maxLength=512.
 - base_comparison_check.branch_result and base_comparison_check.base_result: enum=["pass", "fail", "not_run"].
+- review: optional top-level object; type=object, additionalProperties=false, required=["verdict", "findings"].
+- review.verdict: enum=["ship", "no_ship"].
+- review.findings: type=array, minItems=0, maxItems=64, items={"$ref": "#/$defs/review_finding"}.
+- review_finding shape: type=object, additionalProperties=false, required=["severity", "confidence", "detail"].
+- review_finding.severity: enum=["P0", "P1", "P2", "P3"].
+- review_finding.confidence: enum=["low", "medium", "high"].
+- review_finding.detail: type=string, minLength=1, maxLength=512.
+- review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
+
+## Required report blocks
+
+This lane's completed report must carry the typed `review` block: an explicit `ship` or `no_ship` verdict and every finding with its severity and confidence. For this lane the typed block discharges the `severity` evidence obligation, so a completed report needs no separate free-text severity entry; the remaining obligations stay as stated. The verdict is report content only: it maps to no workflow field and records no transition, and the coordinator records the workflow verdict through the core.
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

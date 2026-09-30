@@ -50,6 +50,9 @@
           }
         }
       }
+    },
+    "review": {
+      "$ref": "#/$defs/review_block"
     }
   },
   "$defs": {
@@ -127,6 +130,118 @@
             "fail",
             "not_run"
           ]
+        }
+      }
+    },
+    "review_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict",
+        "findings"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "ship",
+            "no_ship"
+          ]
+        },
+        "findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/review_finding"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "no_ship"
+              }
+            },
+            "required": [
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "findings": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "findings"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "ship"
+              }
+            },
+            "required": [
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "findings": {
+                "items": {
+                  "properties": {
+                    "severity": {
+                      "enum": [
+                        "P1",
+                        "P2",
+                        "P3"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "required": [
+              "findings"
+            ]
+          }
+        }
+      ]
+    },
+    "review_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "confidence",
+        "detail"
+      ],
+      "properties": {
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
         }
       }
     }

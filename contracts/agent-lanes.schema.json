@@ -16,7 +16,7 @@
     "lane": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "lifecycle_states"],
+      "required": ["id", "version", "purpose", "capability_class", "capabilities", "packet_schema_ref", "report_schema_ref", "budgets", "evidence_obligations", "required_report_blocks", "lifecycle_states"],
       "properties": {
         "id": {"type": "string", "minLength": 2, "maxLength": 32, "pattern": "^[a-z][a-z0-9_-]*$"},
         "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
@@ -27,6 +27,7 @@
         "report_schema_ref": {"type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-z][a-z0-9_.-]*$"},
         "budgets": {"$ref": "#/$defs/budgets"},
         "evidence_obligations": {"type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/evidence_obligation"}},
+        "required_report_blocks": {"type": "array", "minItems": 0, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/report_block"}},
         "lifecycle_states": {"type": "array", "minItems": 3, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["dispatched", "completed", "failed"]}}
       }
     },
@@ -45,6 +46,9 @@
     },
     "evidence_obligation": {
       "enum": ["bounded_findings", "commands", "contract_findings", "exit_codes", "failure_classification", "files_touched", "severity", "source_citations", "uncertainties", "unresolved_issues", "verification_commands", "visual_artifacts"]
+    },
+    "report_block": {
+      "enum": ["review"]
     },
     "budgets": {
       "type": "object",

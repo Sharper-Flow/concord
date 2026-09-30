@@ -141,6 +141,27 @@ describe("completeDispatchedWorker", () => {
     expect("base_comparison" in (await attemptSummary())).toBe(false)
   })
 
+  // CD-0197: the attempt readback carries a completed review report's typed
+  // verdict and per-severity counts, and stays free of the field when the
+  // report carried none. The verdict is report content only: it records no
+  // workflow verdict.
+  test("the attempt readback carries a reported review verdict and per-severity counts", async () => {
+    const reported = { verdict: "no_ship", findings: [{ severity: "P1", confidence: "high", detail: "a finding" }, { severity: "P3", confidence: "low", detail: "another" }] }
+    const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+      const windows = new DispatchWindows()
+      windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+      const verbs: string[] = []
+      const output = { title: "verify lane", output: taskWrap(JSON.stringify({ ...report(), ...extra })), metadata: {} }
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-review", args: {} }, output, deps(verbs, windows))
+      expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+      const element = output.output.split("<concord_attempt>")[1]?.split("</concord_attempt>")[0]
+      return JSON.parse(element!.trim()) as Record<string, unknown>
+    }
+    expect((await attemptSummary({ review: reported })).review).toEqual({ verdict: "no_ship", findings: { P0: 0, P1: 1, P2: 0, P3: 1 } })
+    expect("review" in (await attemptSummary())).toBe(false)
+  })
+
   test("computes prompt provenance from the dispatch-window directory", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())

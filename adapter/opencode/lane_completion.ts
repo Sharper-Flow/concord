@@ -61,6 +61,10 @@ function renderAttempt(envelope: AgentResultEnvelope): string {
   // predicate ids, read back from the admitted evidence so the coordinator
   // sees the tie without re-deriving it from the worker output.
   if (envelope.predicate_discharge) summary.predicate_discharge = envelope.predicate_discharge
+  // The typed review summary (CD-0197): the verdict and per-severity counts
+  // a completed review report carried. It is report content only and records
+  // no workflow verdict.
+  if (envelope.review) summary.review = envelope.review
   if (envelope.error) summary.error = envelope.error
   return `\n<${ATTEMPT_ELEMENT}>\n${JSON.stringify(summary)}\n</${ATTEMPT_ELEMENT}>`
 }

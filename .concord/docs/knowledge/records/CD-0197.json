@@ -1,0 +1,36 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-e66c9eb656cfeebd312b0652",
+    "tier": "legislated"
+  },
+  "date": "2026-09-30T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "agent-surface",
+  "id": "CD-0197",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0056"
+    }
+  ],
+  "path": "docs/decisions/CD-0197-a-review-report-carries-a-typed-verdict-and-ranked-findings.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:8d6905239c1c5f43591513a4946b1d39d0bad84cd8eb8bdd0bdb9aaa1693dbf8",
+  "status": "accepted",
+  "summary": "A review lane report carries an optional typed review block: an explicit ship or no_ship verdict and up to 64 findings with a closed P0-P3 severity and a closed low, medium, high confidence. The lane manifest declares the requirement per lane and the lane digest pins it; the adapter and the store both refuse a review completion without the block, live only, and stored completions replay unchanged through a worker.completed payload upcast. For the review lane the block discharges the severity obligation, so a free-text severity entry beside the block is refused. The lane verdict is report content only: it maps to no workflow field, and the coordinator records the workflow verdict through record_verdict. Extends CD-0056.",
+  "tags": [
+    "agent-surface",
+    "lanes",
+    "worker-attempts",
+    "law"
+  ],
+  "title": "A review report carries a typed verdict and ranked findings"
+}

@@ -122,15 +122,41 @@ export interface AgentLaneReportBaseComparison {
   checks: AgentLaneReportBaseComparisonCheck[]
 }
 
+// AgentLaneReportReviewFinding is one typed review finding as the schema
+// closes it (CD-0197): a severity from the P0-P3 scale, a confidence from the
+// closed low/medium/high scale, and the bounded detail.
+export interface AgentLaneReportReviewFinding {
+  severity: "P0" | "P1" | "P2" | "P3"
+  confidence: "low" | "medium" | "high"
+  detail: string
+}
+
+// AgentLaneReportReview mirrors the optional top-level review object of
+// contracts/agent-lane-report.schema.json: the lane's explicit verdict and
+// its findings. The verdict is report content only (CD-0197): it maps to no
+// workflow field and records no transition.
+export interface AgentLaneReportReview {
+  verdict: "ship" | "no_ship"
+  findings: AgentLaneReportReviewFinding[]
+}
+
 export interface AgentLaneReport {
   schema_version: AgentLaneReportSchemaVersion
   readback_model: string
   status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
   base_comparison?: AgentLaneReportBaseComparison
+  review?: AgentLaneReportReview
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
+
+// AgentResultReviewSummary is the attempt readback's typed view of a review
+// report: the verdict and one count per severity of the closed P0-P3 scale.
+export interface AgentResultReviewSummary {
+  verdict: AgentLaneReportReview["verdict"]
+  findings: Record<AgentLaneReportReviewFinding["severity"], number>
+}
 
 export interface SessionMetadata {
   readback_model: string
@@ -245,6 +271,11 @@ export interface AgentResultEnvelope {
   // results of its verification commands. It rides the attempt readback when
   // present and drives nothing (CD-0043 D1).
   base_comparison?: AgentLaneReportBaseComparison
+  // The typed review summary a completed review report carried (CD-0197):
+  // the verdict and the per-severity finding counts, read back so the
+  // coordinator sees them as typed fields without re-deriving them from the
+  // worker output. It records no workflow verdict.
+  review?: AgentResultReviewSummary
   // The entry-level predicate tie from the completed report's admitted
   // evidence: which obligation discharged which declared predicate ids, read
   // back so the coordinator sees the tie the fold enforces without
@@ -883,11 +914,28 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     if (assigned === null || !declared.has(assigned)) {
       return { detail: `the ${lane.id} lane carries no dischargeable assigned result in the worker-scope contract, so no completed report can claim one` }
     }
+    // CD-0197 D2: a completed report that carries the typed review block
+    // discharges the severity obligation through the block, so severity has
+    // one source: the block covers a declared severity obligation and a
+    // free-text severity entry beside it is refused.
+    if (admitted.review && declared.has("severity")) {
+      if (reported.has("severity")) {
+        return { detail: "worker report carries a free-text severity entry beside the typed review block that discharges severity" }
+      }
+      reported.add("severity")
+    }
     const missing = [...declared].filter((obligation) => !reported.has(obligation))
     if (missing.length > 0) {
       return missing.includes(assigned)
         ? { detail: `worker report completes no assigned result: the ${lane.id} lane report leaves its assigned result ${assigned} undischarged; every other required result stays with the parent workflow` }
         : { detail: `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}` }
+    }
+    // CD-0197: a lane whose contract requires the typed review block refuses
+    // a completed report without it. The store fold enforces the same
+    // requirement against the stored attempt, so the adapter refusal only
+    // keeps the typed failure at the boundary that saw the worker's output.
+    if (laneRequiresReportBlock(lane, "review") && !admitted.review) {
+      return { detail: `worker report completes without the typed review block the ${lane.id} lane requires` }
     }
   }
   return { report: { ...admitted, attempt_id: packet.attempt_id, lane_id: packet.lane_id, lane_version: packet.lane_version, lane_digest: packet.lane_digest } }
@@ -915,6 +963,15 @@ function workerReportedFailureDetail(report: AgentLaneReport): string {
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
   return agentLanes.find((lane) => lane.id === packet.lane_id && lane.version === packet.lane_version && lane.digest === packet.lane_digest) ?? null
+}
+
+// laneRequiresReportBlock reports whether the lane's contract names the
+// report block among its required top-level report blocks (CD-0197). Every
+// generated lane carries the property, so the access needs no narrowing; the
+// view widens the literal tuple union to readonly string[] for the includes
+// call.
+function laneRequiresReportBlock(lane: AgentLane, block: "review"): boolean {
+  return (lane.required_report_blocks as readonly string[]).includes(block)
 }
 
 function baseEnvelope(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: AgentResultEnvelope["outcome"]): AgentResultEnvelope {
@@ -1752,6 +1809,15 @@ async function completeWorkerSession(
       .flatMap((entry) => (entry.predicate_ids ?? []).length > 0 ? [{ predicate_ids: entry.predicate_ids as string[], obligation: entry.obligation }] : [])
     if (discharge.length > 0) envelope.predicate_discharge = discharge
   }
+  // The typed review summary rides the attempt readback when the completed
+  // report carried the block: the verdict and the per-severity counts, read
+  // from the admitted report and attached after the output bound like the
+  // comparison above, so its bytes are not counted twice.
+  if (!("detail" in resolution) && resolution.report.status === "completed" && resolution.report.review) {
+    const counts: AgentResultReviewSummary["findings"] = { P0: 0, P1: 0, P2: 0, P3: 0 }
+    for (const finding of resolution.report.review.findings) counts[finding.severity] += 1
+    envelope.review = { verdict: resolution.report.review.verdict, findings: counts }
+  }
 
   // CD-0017 D5: a worker attempt is durable evidence, not an in-memory envelope.
   // worker-complete binds to the dispatched attempt row, so the dispatch event
@@ -1894,6 +1960,7 @@ async function completeWorkerSession(
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
     base_comparison: terminal.report.base_comparison,
+    review: terminal.report.review,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)

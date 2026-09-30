@@ -112,7 +112,11 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     base_comparison = properties["base_comparison"]
     base_checks = base_comparison["properties"]["checks"]
     base_check = report_schema["$defs"]["base_comparison_check"]
-    return [
+    review = report_schema["$defs"][properties["review"]["$ref"].removeprefix("#/$defs/")]
+    review_block = review
+    review_findings = review["properties"]["findings"]
+    review_finding = report_schema["$defs"]["review_finding"]
+    constraints = [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
@@ -173,7 +177,35 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"maxLength={base_check['properties']['command']['maxLength']}.",
         "base_comparison_check.branch_result and base_comparison_check.base_result: "
         f"enum={json.dumps(base_check['properties']['branch_result']['enum'], ensure_ascii=False)}.",
+        "review: "
+        "optional top-level object; "
+        f"type={review['type']}, "
+        f"additionalProperties={json.dumps(review['additionalProperties'])}, "
+        f"required={json.dumps(review['required'], ensure_ascii=False)}.",
+        "review.verdict: "
+        f"enum={json.dumps(review_block['properties']['verdict']['enum'], ensure_ascii=False)}.",
+        "review.findings: "
+        f"type={review_findings['type']}, "
+        f"minItems={review_findings['minItems']}, "
+        f"maxItems={review_findings['maxItems']}, "
+        f"items={json.dumps(review_findings['items'], ensure_ascii=False)}.",
+        "review_finding shape: "
+        f"type={review_finding['type']}, "
+        f"additionalProperties={json.dumps(review_finding['additionalProperties'])}, "
+        f"required={json.dumps(review_finding['required'], ensure_ascii=False)}.",
+        "review_finding.severity: "
+        f"enum={json.dumps(review_finding['properties']['severity']['enum'], ensure_ascii=False)}.",
+        "review_finding.confidence: "
+        f"enum={json.dumps(review_finding['properties']['confidence']['enum'], ensure_ascii=False)}.",
+        "review_finding.detail: "
+        f"type={review_finding['properties']['detail']['type']}, "
+        f"minLength={review_finding['properties']['detail']['minLength']}, "
+        f"maxLength={review_finding['properties']['detail']['maxLength']}.",
+        "review verdict consistency: "
+        "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
+        "and one with a `no_ship` verdict and zero findings.",
     ]
+    return constraints
 
 
 def go_projection(manifest: dict, manifest_digest: str) -> str:
@@ -193,7 +225,8 @@ def go_projection(manifest: dict, manifest_digest: str) -> str:
             f"\t\tPurpose: {go_string(lane['purpose'])}, CapabilityClass: {go_string(lane['capability_class'])},",
             f"\t\tCapabilities: {go_slice(lane['capabilities'])}, PacketSchemaRef: {go_string(lane['packet_schema_ref'])}, ReportSchemaRef: {go_string(lane['report_schema_ref'])},",
             f"\t\tBudgets:             LaneBudgets{{CostUSDMax: {b['cost_usd_max']}, ContextTokensMax: {b['context_tokens_max']}, TimeSecondsMax: {b['time_seconds_max']}}},",
-            f"\t\tEvidenceObligations: {go_slice(lane['evidence_obligations'])}, LifecycleStates: {go_slice(lane['lifecycle_states'])},",
+            f"\t\tEvidenceObligations: {go_slice(lane['evidence_obligations'])}, RequiredReportBlocks: {go_slice(lane.get('required_report_blocks', []))},",
+            f"\t\tLifecycleStates: {go_slice(lane['lifecycle_states'])},",
             "\t},",
         ])
     lines.extend(["}", ""])
@@ -352,6 +385,26 @@ def agent_projection(lane: dict, report_schema: dict) -> str:
     report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
+    required_blocks = lane.get("required_report_blocks", [])
+    if required_blocks:
+        blocks = ", ".join(f"`{block}`" for block in required_blocks)
+        discharge_rule = (
+            " For this lane the typed block discharges the `severity` evidence "
+            "obligation, so a completed report needs no separate free-text severity "
+            "entry; the remaining obligations stay as stated."
+            if "severity" in lane.get("evidence_obligations", [])
+            else ""
+        )
+        block_rule = (
+            f"## Required report blocks\n\n"
+            f"This lane's completed report must carry the typed {blocks} block: an explicit "
+            f"`ship` or `no_ship` verdict and every finding with its severity and confidence."
+            f"{discharge_rule} The verdict is report content only: it maps to no workflow "
+            f"field and records no transition, and the coordinator records the workflow "
+            f"verdict through the core.\n\n"
+        )
+    else:
+        block_rule = ""
     return f"""---
 description: Concord {lane['id']} lane — {lane['purpose']} {boundary_clause}
 mode: all
@@ -390,7 +443,7 @@ the `provider/model` identifier you are running as, and `status` to one of {repo
 Report contract constraints:
 {report_constraints}
 
-A successful report must carry at least one entry for every obligation below, and may name no other obligation.
+{block_rule}A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 
 One obligation may span several entries. Where your content for an obligation
 exceeds the {detail_max}-character `detail` cap, continue it in further entries naming

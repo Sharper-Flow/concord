@@ -1,0 +1,70 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewLaneCompletionRequiresTheTypedReviewBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletionReviewBlockShapeIsClosed"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerCompletedV2ReplaysWithoutTheReviewBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLegacyReviewLaneDigestCompletesWithTheRequiredBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNonReviewLaneCompletionWithoutReviewBlockIsUnchanged"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLiveV2CompletionForTheReviewLaneStillRequiresTheBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewLaneCompletionRefusesAFreeTextSeverityEntryBesideTheBlock"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewLaneBlockOnlyCompletionFoldsAndReplays"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#the report schema admits the typed review block and refuses drifted shapes"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#the review lane refuses a completed report without the typed review block"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#a block-only review report is admitted without a severity entry"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#the review lane refuses a free-text severity entry beside the typed review block"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/dispatch.test.ts#a typed review block rides worker-complete and the completed envelope"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/lane_completion.test.ts#the attempt readback carries a reported review verdict and per-severity counts"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0197",
+  "state": "satisfied"
+}

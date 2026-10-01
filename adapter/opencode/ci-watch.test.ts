@@ -21,9 +21,12 @@ type FixtureMessage = { info: Record<string, unknown>; parts?: Array<Record<stri
 // { info, parts } records, and POST /session/{id}/prompt_async answers 204
 // with no body — the forked host prompt then persists a user message carrying
 // the report text. `reply` controls what follows that injected message:
-// "none" (default) never replies, "parented" adds the assistant reply whose
-// parentID is the injected message id, "unrelated" adds an assistant reply
-// parented to a concurrent message instead.
+// "none" (default) never replies, "parented" adds a real assistant reply (a
+// non-empty text part) whose parentID is the injected message id,
+// "parented_tool" confirms by tool activity instead of text, "placeholder"
+// adds the bare record the host persists before the model streams anything,
+// "errored" adds a record the host finalized with an error, and "unrelated"
+// adds a real reply parented to a concurrent message instead.
 function hostFixture(
   options: {
     status?: string
@@ -31,7 +34,7 @@ function hostFixture(
     session?: Record<string, unknown>
     messages?: FixtureMessage[]
     promptStatus?: number
-    reply?: "parented" | "unrelated" | "none"
+    reply?: "parented" | "parented_tool" | "placeholder" | "errored" | "unrelated" | "none"
     inject?: boolean
   } = {},
 ) {
@@ -72,10 +75,25 @@ function hostFixture(
           if (options.reply === "unrelated") {
             injected.push({
               info: { id: `msg_unrelated_${promptCount}`, role: "assistant", parentID: "msg_concurrent_turn" },
-              parts: [],
+              parts: [{ type: "text", text: "an unrelated concurrent reply" }],
             })
           } else if (options.reply === "parented") {
+            injected.push({
+              info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id },
+              parts: [{ type: "text", text: "CI is green; continuing." }],
+            })
+          } else if (options.reply === "parented_tool") {
+            injected.push({
+              info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id },
+              parts: [{ type: "tool", tool: "bash", state: { status: "completed" } }],
+            })
+          } else if (options.reply === "placeholder") {
             injected.push({ info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id }, parts: [] })
+          } else if (options.reply === "errored") {
+            injected.push({
+              info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id, error: { name: "AbortError", data: { message: "interrupted" } } },
+              parts: [],
+            })
           }
         }
         return { response: new Response(null, { status: 204 }) }
@@ -580,6 +598,70 @@ test("the assistant reply parented to the injected report confirms delivery", as
   const output = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_drain_parented", output)
   expect(output.parts).toEqual([])
+})
+
+test("assistant tool activity parented to the injected report confirms delivery", async () => {
+  const fixture = hostFixture({ reply: "parented_tool" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
+  expect(delivered).toHaveLength(1)
+  expect(String((delivered[0].body as { message: string }).message)).toContain("delivered")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_drain_parented_tool", output)
+  expect(output.parts).toEqual([])
+})
+
+test("a pre-model placeholder parented to the injected report does not confirm the wake", async () => {
+  // The host persists the assistant record before the model streams anything.
+  // A record with no output proves no turn ran, so the report must stay
+  // queued for the next chat.message instead of being logged as delivered.
+  const fixture = hostFixture({ reply: "placeholder" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 30 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
+  expect(delivered).toHaveLength(0)
+  const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
+  expect(logged).toHaveLength(1)
+  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_drain_placeholder", output)
+  expect(output.parts).toHaveLength(1)
+})
+
+test("an errored assistant record parented to the injected report does not confirm the wake", async () => {
+  // The host finalizes an interrupted placeholder with an error. Such a
+  // record is not a reply: the report must stay queued, never logged as
+  // delivered.
+  const fixture = hostFixture({ reply: "errored" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 30 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
+  expect(delivered).toHaveLength(0)
+  const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
+  expect(logged).toHaveLength(1)
+  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_drain_errored", output)
+  expect(output.parts).toHaveLength(1)
 })
 
 test("a concurrent assistant reply not parented to the injected report does not confirm the wake", async () => {

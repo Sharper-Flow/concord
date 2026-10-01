@@ -12,8 +12,9 @@
 // session persists the prompt but never schedules a turn; an idle session can
 // drop one). The protocol: deliver only to an idle session, carry the
 // session's persisted agent and model on the synthetic text part, identify the
-// persisted user message carrying the report, confirm the assistant reply the
-// host parented to that message, and queue the report for the next
+// persisted user message carrying the report, confirm actual assistant output
+// (non-empty text or tool activity) the host parented to that message, and
+// queue the report for the next
 // chat.message when any step fails. Watch admission bounds each session's
 // unresolved watches plus queued reports at the queue cap, so every accepted
 // report is retained and none is dropped to make room. Every delivery failure
@@ -643,7 +644,7 @@ async function promptAsync(sessionID: string, identity: SessionIdentity, text: s
 }
 
 type SessionMessage = {
-  info?: { id?: unknown; role?: unknown; parentID?: unknown }
+  info?: { id?: unknown; role?: unknown; parentID?: unknown; error?: unknown }
   parts?: Array<{ type?: unknown; text?: unknown }>
 }
 
@@ -672,15 +673,31 @@ async function injectedReportMessageID(sessionID: string, text: string): Promise
   }
 }
 
-// Delivery is proven only by the assistant reply the host parented to the
-// injected report message (the host's Assistant schema requires parentID).
-// Any other new assistant message is concurrent traffic, not the wake.
+// Delivery is proven only by actual assistant output (a non-empty text part
+// or tool activity) on the non-error assistant record the host parented to
+// the injected report message (the host's Assistant schema requires
+// parentID). The host persists that record before the model streams anything
+// and finalizes an interrupted record with an error, so a parented placeholder
+// or an errored record proves no turn ran and must not count as a reply. Any
+// other assistant message is concurrent traffic, not the wake.
+function assistantRecordProvesReply(message: SessionMessage, injectedMessageID: string): boolean {
+  const info = message.info
+  if (info === null || typeof info !== "object") return false
+  if (info.role !== "assistant" || info.parentID !== injectedMessageID) return false
+  if (info.error !== undefined && info.error !== null) return false
+  const parts = Array.isArray(message.parts) ? message.parts : []
+  return parts.some((part) => {
+    if (part === null || typeof part !== "object") return false
+    if (part.type === "tool") return true
+    return part.type === "text" && typeof part.text === "string" && part.text.trim().length > 0
+  })
+}
+
 async function confirmAssistantReply(sessionID: string, injectedMessageID: string): Promise<boolean> {
   const deadline = Date.now() + config.confirmWindowMs
   for (;;) {
     for (const message of await sessionMessages(sessionID)) {
-      const info = message.info
-      if (info !== null && typeof info === "object" && info.role === "assistant" && info.parentID === injectedMessageID) return true
+      if (assistantRecordProvesReply(message, injectedMessageID)) return true
     }
     if (Date.now() + config.confirmPollMs > deadline) return false
     await sleep(config.confirmPollMs)

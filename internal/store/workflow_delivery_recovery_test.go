@@ -195,7 +195,10 @@ func TestDeliveryGateCorrectionNeedsOutstandingReview(t *testing.T) {
 	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 	reviewAttempt := "attempt:" + workID + ":review"
 	reviewGateRunAttempt(t, s, workID, reviewAttempt, "refine", refineEpoch, review, ownerRef, at)
-	if err := reviewGateAcceptResult(t, s, workID, reviewAttempt, refineEpoch, acceptor); err != nil {
+	// The reviewed change exits refine through the combined accept the
+	// current version admits (CD-0198 D4), which asserts the delivery and
+	// advances into the gate with no review debt outstanding.
+	if err := acceptRefineResult(t, s, workID, reviewAttempt, refineEpoch, acceptor); err != nil {
 		t.Fatalf("accept review: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")

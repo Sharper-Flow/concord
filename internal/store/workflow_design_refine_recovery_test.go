@@ -131,7 +131,7 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRou
 	if err != nil {
 		t.Fatalf("first-pass refine dispatch with a current design: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
 		t.Fatalf("accept refine review: %v", err)
 	}
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:return-route","delivery_state":"asserted"}`)
@@ -438,7 +438,7 @@ func seedReturnedRefineWithRecordedFailure(t *testing.T, workID string) (workflo
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+reviewAttempt+`","attempt_epoch":`+fmt.Sprint(reviewEpoch)+`}`), 0, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
 		t.Fatalf("accept refine review: %v", err)
 	}
 	deliverRefineFirstPass(t, fixture, workID, acceptor)
@@ -483,7 +483,7 @@ func TestReturnedRefineRecordedFailureKeepsCorrectionClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/refine-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+liveAttempt+`","attempt_epoch":`+fmt.Sprint(liveEpoch)+`}`), 0, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, liveAttempt, liveEpoch, acceptor); err != nil {
 		t.Fatalf("accept the live new-pass attempt: %v", err)
 	}
 }

@@ -1005,16 +1005,97 @@ func breakFixVerdictBatchV18() WorkflowDefinition {
 	return withCurrentVerdictBatch(d)
 }
 
+// acceptDeliveryActionFields declares accept_worker_result's payload once a
+// definition ships the CD-0198 D4 delivery assertion: the attempt identity
+// fields stay, and the delivery fields record_delivery carries join them as
+// optional. The fields stay optional in the declaration because the same
+// action also serves accepts at steps that deliver nothing; the guard that
+// requires them at the delivery-admitting refinement step lives in
+// workflow_action_guards.go, gated on these versions.
+func acceptDeliveryActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionRefField("attempt_id", true),
+		actionIntegerField("attempt_epoch", true, 2147483647),
+		actionRefField("delivery_artifact", false),
+		actionEnumField("delivery_state", false, "asserted"),
+	}
+}
+
+// withCurrentAcceptDelivery restates accept_worker_result's payload as the
+// delivery-asserting contract. Released versions keep the payload they were
+// pinned under, and builtinActionPolicies stays byte-identical so every
+// released definition digest holds.
+func withCurrentAcceptDelivery(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "accept_worker_result" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: acceptDeliveryActionFields()}
+	}
+	return definition
+}
+
+// Each builder below ships the accept_worker_result delivery declaration at
+// its family's next version. The definition content stays the predecessor's;
+// the only content change is accept_worker_result's declared payload.
+func implementationAcceptDeliveryV21() WorkflowDefinition {
+	d := implementationVerdictBatchV20()
+	d.Version = 21
+	return withCurrentAcceptDelivery(d)
+}
+
+func breakFixAcceptDeliveryV19() WorkflowDefinition {
+	d := breakFixVerdictBatchV18()
+	d.Version = 19
+	return withCurrentAcceptDelivery(d)
+}
+
 func researchVerdictBatchV12() WorkflowDefinition {
 	d := researchConfirmPremiseV11()
 	d.Version = 12
 	return withCurrentVerdictBatch(d)
 }
 
+// The remaining builders below publish the accept_worker_result delivery
+// overlay at their family's next version. The families declare no refinement
+// step, so the combined route never activates on them
+// (workflowAcceptDeliveryAdmissionActive); the overlay exists because the
+// agent surface carries one payload contract per action, and the guard
+// refuses the fields wherever that route is not active.
+func researchAcceptDeliveryV13() WorkflowDefinition {
+	d := researchVerdictBatchV12()
+	d.Version = 13
+	return withCurrentAcceptDelivery(d)
+}
+
 func architectureVerdictBatchV13() WorkflowDefinition {
 	d := architectureConfirmPremiseV12()
 	d.Version = 13
 	return withCurrentVerdictBatch(d)
+}
+func architectureAcceptDeliveryV14() WorkflowDefinition {
+	d := architectureVerdictBatchV13()
+	d.Version = 14
+	return withCurrentAcceptDelivery(d)
+}
+
+func opsRunbookAcceptDeliveryV15() WorkflowDefinition {
+	d := opsRunbookVerdictBatchV14()
+	d.Version = 15
+	return withCurrentAcceptDelivery(d)
+}
+
+func staticAnalysisAcceptDeliveryV12() WorkflowDefinition {
+	d := staticAnalysisVerdictBatchV11()
+	d.Version = 12
+	return withCurrentAcceptDelivery(d)
+}
+
+func genericOneOffAcceptDeliveryV13() WorkflowDefinition {
+	d := genericOneOffVerdictBatchV12()
+	d.Version = 13
+	return withCurrentAcceptDelivery(d)
 }
 
 func opsRunbookVerdictBatchV14() WorkflowDefinition {

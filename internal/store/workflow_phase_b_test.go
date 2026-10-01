@@ -239,8 +239,28 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 			if action.ID != "accept_worker_result" {
 				continue
 			}
-			if len(action.Payload.Fields) != 2 || !action.Payload.Fields[0].Required || action.Payload.Fields[0].Name != "attempt_id" || action.Payload.Fields[0].ValueType != PayloadRef || !action.Payload.Fields[1].Required || action.Payload.Fields[1].Name != "attempt_epoch" || action.Payload.Fields[1].ValueType != PayloadInteger {
-				t.Fatalf("%s acceptance payload is not closed: %+v", latest.Ref, action.Payload.Fields)
+			// CD-0198 D4: the delivery-accept versions add the optional
+			// delivery pair after the required attempt identity; every other
+			// version keeps the attempt pair alone.
+			fields := action.Payload.Fields
+			if len(fields) != 2 && len(fields) != 4 {
+				t.Fatalf("%s acceptance payload is not closed: %+v", latest.Ref, fields)
+			}
+			want := []WorkflowPayloadField{
+				{Name: "attempt_id", ValueType: PayloadRef, Required: true},
+				{Name: "attempt_epoch", ValueType: PayloadInteger, Required: true},
+			}
+			if len(fields) == 4 {
+				want = append(want,
+					WorkflowPayloadField{Name: "delivery_artifact", ValueType: PayloadRef},
+					WorkflowPayloadField{Name: "delivery_state", ValueType: PayloadString, Enum: []string{"asserted"}},
+				)
+			}
+			for index, field := range want {
+				got := fields[index]
+				if got.Name != field.Name || got.ValueType != field.ValueType || got.Required != field.Required || strings.Join(got.Enum, ",") != strings.Join(field.Enum, ",") {
+					t.Fatalf("%s acceptance payload field %d = %+v, want %+v", latest.Ref, index, got, field)
+				}
 			}
 		}
 	}

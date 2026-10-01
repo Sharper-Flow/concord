@@ -242,8 +242,10 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 
 // workflowDeliveryAssertionEventTx reads one recorded delivery assertion by
 // event identity and returns its sequence, payload version, and asserted
-// artifact. The assertion is a completed record_delivery action; an event
-// without the asserted payload is not an assertion.
+// artifact. The assertion is a completed action whose event carries the
+// asserted delivery fields (CD-0198 D4): record_delivery and the combined
+// accept_worker_result append the same shape, so the reader keys on the
+// fields, never on the action id.
 func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, eventID string) (int64, int, string, error) {
 	var seq int64
 	var payloadVersion int
@@ -255,24 +257,26 @@ func workflowDeliveryAssertionEventTx(ctx context.Context, tx *sql.Tx, workID, e
 		return 0, 0, "", wrapFailure(KindUnavailable, "fold_event", "cannot read the delivery correction target", true, "retry once the event log is readable", err)
 	}
 	var fields struct {
-		ActionID         string `json:"action_id"`
 		DeliveryArtifact string `json:"delivery_artifact"`
 		DeliveryState    string `json:"delivery_state"`
 	}
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return 0, 0, "", newFailure(KindInvariantViolation, "fold_event", "delivery correction target payload is malformed", false, "rebuild workflow projections from the event log")
 	}
-	if fields.ActionID != "record_delivery" || fields.DeliveryArtifact == "" || fields.DeliveryState != "asserted" {
-		return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not a recorded delivery assertion", false, "target the completed record_delivery event that carries the asserted artifact")
+	if fields.DeliveryArtifact == "" || fields.DeliveryState != "asserted" {
+		return 0, 0, "", newFailure(KindInvalidOperation, "fold_event", "delivery correction target is not a recorded delivery assertion", false, "target the completed delivery event that carries the asserted artifact")
 	}
 	return seq, payloadVersion, fields.DeliveryArtifact, nil
 }
 
 // workflowLatestDeliveryAssertionSeqTx returns the sequence of the latest
-// recorded delivery assertion for the work, or zero when none exists.
+// recorded delivery assertion for the work, or zero when none exists. The
+// identity is the asserted delivery fields on a completed action event, so a
+// combined accept assertion (CD-0198 D4) and a record_delivery assertion
+// answer as one kind of event.
 func workflowLatestDeliveryAssertionSeqTx(ctx context.Context, tx *sql.Tx, workID string) (int64, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery' AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq); err != nil {
 		return 0, wrapFailure(KindUnavailable, "fold_event", "cannot read the latest delivery assertion", true, "retry once the event log is readable", err)
 	}
 	return seq, nil
@@ -313,11 +317,14 @@ type WorkflowReadDeliveryCorrection struct {
 // workflowDeliveryAssertionRead derives the current delivery assertion and its
 // effective correction for one work item from the event log. The original
 // event is returned unchanged; the correction is an overlay, never a rewrite.
+// The assertion identity is the asserted delivery fields on a completed
+// action event, so a combined accept assertion (CD-0198 D4) reads beside a
+// record_delivery assertion.
 func workflowDeliveryAssertionRead(ctx context.Context, q queryer, workID string) (*WorkflowReadDeliveryAssertion, error) {
 	var seq int64
 	var eventID, actor, occurredAt, payload string
 	var payloadVersion int
-	if err := q.QueryRowContext(ctx, `SELECT seq,event_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_delivery' AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted' ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq, &eventID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,event_id,actor,occurred_at,payload_version,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND COALESCE(json_extract(payload,'$.delivery_artifact'),'')<>'' AND COALESCE(json_extract(payload,'$.delivery_state'),'')='asserted' ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&seq, &eventID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

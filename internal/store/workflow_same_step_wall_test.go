@@ -203,7 +203,7 @@ func TestStepEntryResetsTheSameStepCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accepted refine review dispatch: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+acceptedReview+`","attempt_epoch":`+fmt.Sprint(acceptedEpoch)+`}`), 0, acceptor); err != nil {
+	if err := acceptRefineResult(t, s, workID, acceptedReview, acceptedEpoch, acceptor); err != nil {
 		t.Fatalf("accept refine review: %v", err)
 	}
 	refineProofSeedGreenRun(t, s, workID, strings.Repeat("a", 64))

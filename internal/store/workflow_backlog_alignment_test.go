@@ -43,8 +43,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 20},
-		{"workflow.break_fix", "reproduce", "diagnose", 18},
+		{"workflow.implementation", "proposal", "discovery", 21},
+		{"workflow.break_fix", "reproduce", "diagnose", 19},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -246,14 +246,14 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 			continue
 		}
 		definition := entry.Definition
-		if stepDeclaresAction(definition, "alignment", "record_alignment") && pinVersion(t, version) != current[ref]-1 && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= 16) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= 18) {
+		if stepDeclaresAction(definition, "alignment", "record_alignment") && pinVersion(t, version) != current[ref]-1 && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= current[ref]-1) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= current[ref]-1) {
 			t.Fatalf("%s version %s declares the alignment step; a pinned in-flight item would replay a changed graph", ref, version)
 		}
 		if pinVersion(t, version) == current[ref]-1 {
 			continue
 		}
 		for _, step := range definition.StepGraph.Steps {
-			if step.ID == "alignment" && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= 16) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= 18) {
+			if step.ID == "alignment" && !(ref == "workflow.break_fix" && pinVersion(t, version) >= 11 && pinVersion(t, version) <= current[ref]-1) && !(ref == "workflow.implementation" && pinVersion(t, version) >= 13 && pinVersion(t, version) <= current[ref]-1) {
 				t.Fatalf("%s version %s declares an alignment step with no record_alignment action", ref, version)
 			}
 		}

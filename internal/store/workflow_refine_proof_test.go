@@ -357,27 +357,45 @@ func TestParseProjectToolingManifest(t *testing.T) {
 
 func TestRefineProofManifestRequiredTracksTheGate(t *testing.T) {
 	const workID = "refine-proof-required"
-	fixture := refineProofFixture(t, workID, "workflow.implementation", 18)
+	fixture := refineProofFixture(t, workID, "workflow.implementation", 21)
 
 	// Before refine starts, the instance sits on refine but the gate asks
 	// nothing: the resolution requirement follows the pinned shape and step.
-	required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID)
-	if err != nil {
-		t.Fatal(err)
+	// Both entry routes resolve at the admitting refinement step (CD-0198 D4).
+	for _, action := range []string{"record_delivery", "accept_worker_result"} {
+		required, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !required {
+			t.Fatalf("a v21 instance at refine must resolve the tooling manifest for %s", action)
+		}
 	}
-	if !required {
-		t.Fatal("a v18 instance at refine must resolve the tooling manifest")
+	other, err := RefineProofManifestRequired(context.Background(), fixture.store, workID, "bind_evidence")
+	if err != nil || other {
+		t.Fatalf("bind_evidence tooling requirement = (%v, %v), want (false, nil)", other, err)
 	}
 
-	// An earlier pinned version resolves nothing.
+	// An earlier pinned version resolves nothing for either action.
 	const earlierID = "refine-proof-required-earlier"
 	earlier := refineProofFixture(t, earlierID, "workflow.implementation", 17)
-	requiredEarlier, err := RefineProofManifestRequired(context.Background(), earlier.store, earlierID)
-	if err != nil {
-		t.Fatal(err)
+	for _, action := range []string{"record_delivery", "accept_worker_result"} {
+		requiredEarlier, err := RefineProofManifestRequired(context.Background(), earlier.store, earlierID, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if requiredEarlier {
+			t.Fatalf("a v17 instance must not resolve the tooling manifest for %s", action)
+		}
 	}
-	if requiredEarlier {
-		t.Fatal("a v17 instance must not resolve the tooling manifest")
+
+	// The plain accept at the admitting step resolves the manifest, because
+	// its refusal runs the same admission machinery the delivery exit runs.
+	const breakFixID = "refine-proof-required-break-fix"
+	breakFix := refineProofFixture(t, breakFixID, "workflow.break_fix", 19)
+	requiredBreakFix, err := RefineProofManifestRequired(context.Background(), breakFix.store, breakFixID, "accept_worker_result")
+	if err != nil || !requiredBreakFix {
+		t.Fatalf("break_fix v19 accept_worker_result tooling requirement = (%v, %v), want (true, nil)", requiredBreakFix, err)
 	}
 }
 

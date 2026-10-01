@@ -64,7 +64,7 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
-	"accept_worker_result":   {guardPhaseClaim, guardPostRejectionReviewGate},
+	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
@@ -944,6 +944,57 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	return guardPostRejectionReviewGate(g)
 }
 
+// workflowAcceptDeliveryAdmissionActive reports whether the pinned definition
+// and step admit the combined accept-and-delivery route (CD-0198 D4):
+// workflow.implementation v21+ and workflow.break_fix v19+ at their
+// refinement step. Earlier definition versions keep the behavior and digest
+// they shipped with, and the CD-0166 delivery gate stays record_delivery-only.
+func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, currentStep string) bool {
+	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
+		return false
+	}
+	switch definition.Ref {
+	case "workflow.implementation":
+		return definition.Version >= 21
+	case "workflow.break_fix":
+		return definition.Version >= 19
+	default:
+		return false
+	}
+}
+
+// guardAcceptWorkerResultDeliveryRoute composes the accept_worker_result
+// claim guard (CD-0198 D4). At the delivery-admitting refinement step the
+// accept carries its delivery fields and runs guardDeliveryAdmission, the
+// unchanged function record_delivery runs; everywhere else the delivery
+// fields refuse and the accept keeps the existing post-rejection review
+// gate. A plain accept at the admitting step refuses with the
+// delivery-admission remedy: the refine step exits only through an admitted
+// delivery assertion, so the CD-0192 refine-exit proof can no longer be
+// crossed by an advancing accept that carries no artifact.
+func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
+	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
+	state := workflowFieldStringDefault(fields, "delivery_state", "")
+	if workflowAcceptDeliveryAdmissionActive(g.entry.Definition, g.currentStep) {
+		if artifact == "" || state == "" {
+			return newFailure(KindInvalidOperation, "workflow_action",
+				"the refine step exits only through an admitted delivery assertion: record_delivery, or an accept_worker_result carrying delivery_artifact and delivery_state asserted",
+				false, "run worktree_verify on the refined work, bind the run's evidence, then accept the result with delivery_artifact and delivery_state asserted")
+		}
+		return guardDeliveryAdmission(g)
+	}
+	if artifact != "" || state != "" {
+		return newFailure(KindInvalidOperation, "workflow_action",
+			"accept_worker_result carries delivery fields only at the delivery-admitting refinement step of workflow.implementation v21+ and workflow.break_fix v19+",
+			false, "drop the delivery fields here, or assert the delivery through record_delivery")
+	}
+	return guardPostRejectionReviewGate(g)
+}
+
 // workflowRefineProofGateActive reports whether the refine-exit proof guard
 // governs record_delivery on this step. The guard is active only for
 // workflow.implementation v18+ and workflow.break_fix v16+ at their
@@ -1439,6 +1490,20 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
 		if artifact == "" || state == "" {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
+		}
+		completionValues["delivery_artifact"] = artifact
+		completionValues["delivery_state"] = state
+	}
+	// CD-0198 D4: the combined accept asserts the same delivery fields on the
+	// same completion event a record_delivery appends, so delivery readers
+	// identify the assertion by its asserted fields rather than by action_id.
+	// The guard already required the fields; this refuses closed if the
+	// route ever runs without them.
+	if in.request.ActionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
+		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
+		state := workflowFieldStringDefault(fields, "delivery_state", "")
+		if artifact == "" || state == "" {
+			return events, "", newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
 		completionValues["delivery_artifact"] = artifact
 		completionValues["delivery_state"] = state

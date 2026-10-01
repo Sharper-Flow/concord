@@ -10,7 +10,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/session-scope.test.ts#a lane session cannot auto-start the CI wait utility"
+      "value": "adapter/opencode/session-scope.test.ts#a lane session cannot auto-start a generated utility"
     },
     {
       "kind": "generated",

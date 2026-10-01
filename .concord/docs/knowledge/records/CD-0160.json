@@ -10,8 +10,7 @@
     "contracts/agent-lanes.v1.json",
     "cmd/concord/ci_wait.go",
     "cmd/concord/ci_wait_test.go",
-    "scripts/generate-agent-lanes.py",
-    ".opencode/agents/concord-ci-wait.md"
+    "scripts/generate-agent-lanes.py"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0160",
@@ -30,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d791e4a37bc117558d47cdd9fb70cf992c4be33b0873886d04a0892cd2357e2b",
+  "sha256": "sha256:8de08e7eacd7a1620f3a5068be3a985ec04b1adc346a9f8e3710bb1481eb7fd0",
   "status": "accepted",
   "summary": "Moves the ci-wait wait into a store-free concord ci-wait CLI verb that polls, enforces the 1800-second deadline from durable state, classifies terminal outcomes from observed results, supersedes a changed pull request head, and reports gh failures as explicit errors. The utility allowance narrows to the verb and the model-maintained poll loop is removed.",
   "tags": [

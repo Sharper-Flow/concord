@@ -2190,6 +2190,16 @@ test("a drifted base_comparison is a typed invalid report, never a completion", 
   expect(payloads[1].failure_kind).toBe("invalid_report")
 })
 
+// base_comparison_check.command carries the same 512-byte bound as the report
+// detail fields but stays refused when over-long: a command is structured
+// evidence, not prose to cut, so normalization bounds only the detail fields.
+test("an over-long base_comparison command is refused, not normalized", async () => {
+  const { verbs, payloads } = await terminalEvidence(report({ base_comparison: { checks: [{ command: "é".repeat(257), branch_result: "pass" as const, base_result: "pass" as const }] } }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("exceeds 512 UTF-8 bytes")
+})
+
 // CD-0197: the review lane's completed report carries the typed review
 // block — an explicit ship or no_ship verdict and per-finding severity and
 // confidence — and the adapter refuses a review completion without it.
@@ -2344,6 +2354,35 @@ test("an over-length evidence detail is truncated at admission, not refused", ()
   // An entry inside the cap is carried through byte for byte.
   const untouched = ("report" in admitted ? admitted.report.evidence[1] : null) as { detail: string }
   expect(untouched.detail).toBe(reportEvidence()[1].detail)
+})
+
+test("a multi-byte evidence detail is truncated to the byte bound on a code-point boundary", () => {
+  // 300 two-byte characters fit the character cap but carry 600 UTF-8 bytes;
+  // 600 four-byte characters exceed both caps.
+  for (const long of ["é".repeat(300), "🙂".repeat(600)]) {
+    const admitted = resolveWorkerReportFromText(JSON.stringify(report({
+      evidence: [{ obligation: "source_citations", detail: long }, ...reportEvidence().slice(1)],
+    })), packet())
+    expect("detail" in admitted ? admitted.detail : "admitted").toBe("admitted")
+    const entry = ("report" in admitted ? admitted.report.evidence[0] : null) as { detail: string }
+    expect(Buffer.byteLength(entry.detail)).toBeLessThanOrEqual(512)
+    expect(entry.detail.endsWith(" [truncated]")).toBe(true)
+    expect(long.startsWith(entry.detail.slice(0, -" [truncated]".length))).toBe(true)
+    expect(entry.detail).not.toContain("\uFFFD")
+  }
+})
+
+test("an over-length review finding detail is truncated at admission, not refused", () => {
+  for (const long of ["x".repeat(900), "é".repeat(300)]) {
+    const block = { verdict: "no_ship", findings: [{ ...reviewFinding(), detail: long }, reviewFinding()] }
+    const admitted = resolveWorkerReportFromText(JSON.stringify(reviewReport({ review: block })), reviewPacket())
+    expect("detail" in admitted ? admitted.detail : "admitted").toBe("admitted")
+    const findings = ("report" in admitted ? admitted.report.review?.findings : undefined) ?? []
+    expect(Buffer.byteLength(findings[0].detail)).toBeLessThanOrEqual(512)
+    expect(findings[0].detail.endsWith(" [truncated]")).toBe(true)
+    expect(findings[0].severity).toBe("P1")
+    expect(findings[1]).toEqual(reviewFinding())
+  }
 })
 
 test("validateSchema resolves a local $ref and fails closed on an unresolvable one", () => {

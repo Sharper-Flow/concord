@@ -478,7 +478,7 @@ def agent_projection(lane: dict, report_schema: dict) -> str:
     discharged_set = set(discharged)
     entry_obligations = [item for item in lane["evidence_obligations"] if item not in discharged_set]
     evidence = ", ".join(f"`{item}`" for item in entry_obligations)
-    detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"]
+    detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["x-maxBytes"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
     report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
@@ -561,7 +561,7 @@ Report contract constraints:
 {block_rule}{obligation_rule}
 
 One obligation may span several entries. Where your content for an obligation
-exceeds the {detail_max}-character `detail` cap, continue it in further entries naming
+exceeds the {detail_max}-byte (UTF-8) `detail` cap, continue it in further entries naming
 that same obligation, up to {evidence_max} entries. Split the content. Do not drop it, and
 do not truncate a citation, a command, or an error string to fit.
 

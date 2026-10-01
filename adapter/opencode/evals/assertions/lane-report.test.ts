@@ -144,13 +144,13 @@ test("an empty evidence detail is refused", () => {
   expect(result.reason).toContain("shorter than 1")
 })
 
-test("an evidence detail past its UTF-8 byte bound is refused", () => {
+test("a byte-heavy evidence detail is truncated to the UTF-8 byte bound, not refused", () => {
   // 257 two-byte code points: 257 characters, 514 bytes.
+  const [first, ...rest] = report().evidence as Array<{ obligation: string; detail: string }>
   const result = run(report({
-    evidence: [{ obligation: "severity", detail: "é".repeat(257) }],
+    evidence: [{ ...first, detail: "é".repeat(257) }, ...rest],
   }))
-  expect(result.pass).toBe(false)
-  expect(result.reason).toContain("exceeds 512 UTF-8 bytes")
+  expect(result.pass, result.reason).toBe(true)
 })
 
 test("an over-long evidence detail is truncated exactly as admission truncates it", () => {
@@ -159,6 +159,13 @@ test("an over-long evidence detail is truncated exactly as admission truncates i
     { obligation: "verification_commands", detail: "bun test adapter/opencode/ passed" },
   ]
   expect(run(report({ evidence }))).toMatchObject({ pass: true, score: 1 })
+})
+
+test("an over-long review finding detail is truncated to the UTF-8 byte bound, not refused", () => {
+  const result = run(report({
+    review: reviewBlock({ findings: [finding({ detail: "x".repeat(900) })] }),
+  }))
+  expect(result.pass, result.reason).toBe(true)
 })
 
 test("malformed predicate_ids are refused", () => {
@@ -337,8 +344,6 @@ test("a review block outside the declared shape is refused", () => {
     { name: "severity outside the closed scale", block: reviewBlock({ findings: [finding({ severity: "S1" })] }) },
     { name: "confidence outside the closed scale", block: reviewBlock({ findings: [finding({ confidence: "certain" })] }) },
     { name: "empty finding detail", block: reviewBlock({ findings: [finding({ detail: "" })] }) },
-    { name: "finding detail past the character bound", block: reviewBlock({ findings: [finding({ detail: "x".repeat(513) })] }) },
-    { name: "finding detail past the UTF-8 byte bound", block: reviewBlock({ findings: [finding({ detail: "é".repeat(257) })] }) },
   ]
   for (const refusal of refusals) {
     const result = run(report({ review: refusal.block }))

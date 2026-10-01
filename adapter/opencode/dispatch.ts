@@ -859,24 +859,56 @@ export function scanReportTexts(texts: string[]): WorkerReportScan {
 // report still receives identity exclusively from the authorized dispatch
 // packet, so whatever the worker echoes is discarded, not trusted.
 const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
-// The cap is read from the closed schema rather than repeated here, so the
-// normalization below cannot drift from the bound it exists to satisfy.
-const MAX_REPORT_DETAIL_LENGTH = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
+// The detail bounds are read from the closed schema rather than repeated here,
+// so normalization cannot drift from the bounds it exists to satisfy. The
+// store counts UTF-8 bytes (x-maxBytes), so the byte bound is the one
+// admission must satisfy, and bounding bytes on a code-point boundary keeps
+// the code-point maxLength satisfied too. base_comparison_check.command
+// carries the same bound and deliberately stays unnormalized: a command is
+// structured evidence refused verbatim when it runs long, not prose to cut.
+const EVIDENCE_DETAIL_SCHEMA = agentLaneReportSchema.$defs.evidence_entry.properties.detail
+const FINDING_DETAIL_SCHEMA = agentLaneReportSchema.$defs.review_finding.properties.detail
 const TRUNCATED_REPORT_DETAIL_SUFFIX = " [truncated]"
+const TRUNCATED_REPORT_DETAIL_SUFFIX_BYTES = Buffer.byteLength(TRUNCATED_REPORT_DETAIL_SUFFIX, "utf8")
 
+// boundReportDetail bounds one report detail to its schema's UTF-8 byte bound,
+// cutting on a code-point boundary through boundedTextPrefix and marking the
+// cut: a multi-byte detail cut to the code-unit count would still exceed the
+// byte bound the store refuses on.
+function boundReportDetail(detail: string, schema: { "x-maxBytes"?: number }): string {
+  const maxBytes = schema["x-maxBytes"]
+  if (maxBytes === undefined || Buffer.byteLength(detail, "utf8") <= maxBytes) return detail
+  return boundedTextPrefix(detail, maxBytes - TRUNCATED_REPORT_DETAIL_SUFFIX_BYTES) + TRUNCATED_REPORT_DETAIL_SUFFIX
+}
+
+// normalizeWorkerReport bounds every detail field the schema marks with
+// x-maxBytes across the evidence entries and the typed review findings,
+// returning the report unchanged when nothing exceeded a bound.
 function normalizeWorkerReport(report: Record<string, unknown>): Record<string, unknown> {
-  if (!Array.isArray(report.evidence)) return report
-  let normalized = report.evidence
-  for (let index = 0; index < normalized.length; index++) {
-    const entry = normalized[index]
-    if (!isRecord(entry) || typeof entry.detail !== "string" || entry.detail.length <= MAX_REPORT_DETAIL_LENGTH) continue
-    if (normalized === report.evidence) normalized = [...normalized]
-    normalized[index] = {
-      ...entry,
-      detail: entry.detail.slice(0, MAX_REPORT_DETAIL_LENGTH - TRUNCATED_REPORT_DETAIL_SUFFIX.length) + TRUNCATED_REPORT_DETAIL_SUFFIX,
-    }
+  let normalized = report
+  const evidence = boundDetails(report.evidence, EVIDENCE_DETAIL_SCHEMA)
+  if (evidence) normalized = { ...normalized, evidence }
+  const review = normalized.review
+  if (isRecord(review)) {
+    const findings = boundDetails(review.findings, FINDING_DETAIL_SCHEMA)
+    if (findings) normalized = { ...normalized, review: { ...review, findings } }
   }
-  return normalized === report.evidence ? report : { ...report, evidence: normalized }
+  return normalized
+}
+
+// boundDetails bounds the detail of every record in entries, returning a new
+// array when at least one detail was cut and null when nothing changed.
+function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unknown[] | null {
+  if (!Array.isArray(entries)) return null
+  let changed = false
+  const bounded = entries.map((entry) => {
+    if (!isRecord(entry) || typeof entry.detail !== "string") return entry
+    const detail = boundReportDetail(entry.detail, schema)
+    if (detail === entry.detail) return entry
+    changed = true
+    return { ...entry, detail }
+  })
+  return changed ? bounded : null
 }
 
 // admitWorkerReport is the CD-0056 D7 admission boundary. The model-authored

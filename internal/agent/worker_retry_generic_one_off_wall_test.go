@@ -284,16 +284,17 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 		t.Fatalf("approved same-step wall retry = %+v", approved.Error)
 	}
 
-	// The interruption: the dispatch intent folded, but no worker.dispatched
-	// event and no worker_attempts row exist for the attempt.
+	// The interruption: the dispatch intent folded, and no worker.dispatched
+	// event exists for the attempt. The completion's durable in-flight
+	// binding is the one trace the interrupted retry leaves.
 	if got := countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='%s' AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')='%s'`, store.WorkflowActionCompleted, retryID)); got != 1 {
 		t.Fatalf("approved retry recorded %d dispatch completions for %s, want 1", got, retryID)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), fmt.Sprintf(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='%s' AND json_extract(payload,'$.attempt_id')='%s'`, store.WorkerDispatched, retryID)); got != 0 {
 		t.Fatalf("interrupted retry shows %d lane dispatches for %s, want 0", got, retryID)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`'`); got != 0 {
-		t.Fatalf("interrupted retry created %d worker attempt rows for %s, want 0", got, retryID)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`' AND lifecycle_state='in_flight'`); got != 1 {
+		t.Fatalf("interrupted retry left %d in-flight worker attempt rows for %s, want 1", got, retryID)
 	}
 
 	// The half-materialized dispatch consumed nothing: the retry binding

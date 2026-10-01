@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -517,42 +518,35 @@ type WorkerDispatchWindow struct {
 	WorktreeIdentity string
 }
 
-// FindAuthorizedDispatchWindowTx reads the most recent dispatch_worker
-// authorization for (workID, stepID) inside the caller's transaction. It is
-// the single-use window the worker-dispatch CLI must consume or refuse.
-// Refusal modes return KindUnauthorizedDispatch so the caller can surface a
-// typed failure without re-classifying.
+// FindAuthorizedDispatchWindowTx reads the dispatch_worker authorization
+// bound to attemptID inside the caller's transaction. The window is the
+// attempt's own, not the latest window at a step: concurrent coordinators
+// may hold concurrent authorizations at one shared step, and a worker's
+// evidence must validate against the authorization opened for it, whichever
+// authorization a later coordinator opened since. Refusal modes return
+// KindUnauthorizedDispatch so the caller can surface a typed failure without
+// re-classifying.
 //
 // CD-0067 D6: the read surfaces PacketDigest as an empty string for any
 // completion that did not record worker_packet_digest; the gate owns the
 // empty-versus-non-empty refusal so this read does not double-classify.
-func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, stepID string) (WorkerDispatchWindow, error) {
+func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (WorkerDispatchWindow, error) {
 	var window WorkerDispatchWindow
 	window.WorkID = workID
-	window.StepID = stepID
-	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", stepID).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
+	window.AttemptID = attemptID
+	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item at the current step", false, "open a dispatch_worker authorization for this step before recording worker evidence")
+			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
 		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
 	}
-	// CD-0059 D1: the dispatch_worker completion carries the bound
-	// attempt_id — it is the value the worker-dispatch evidence must
-	// claim. A window that authorized a different attempt is not a
-	// window the worker can consume. CD-0067 D2 reads the canonical
-	// lane-packet digest recorded next to worker_attempt_id so the
-	// evidence boundary can compare it against the worker's reported
-	// packet. Empty digest is the pre-CD-0067 case the gate refuses
-	// with a typed cutover failure (D6); the read still surfaces it as
-	// an empty string.
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_attempt_id'),''), COALESCE(json_extract(payload,'$.worker_packet_digest'),''), COALESCE(json_extract(payload,'$.worker_worktree_identity'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq > ? ORDER BY seq ASC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", stepID, window.StartSeq).Scan(&window.AttemptID, &window.PacketDigest, &window.WorktreeIdentity); err != nil {
+	// The start anchors the single-use consumption read and carries the step
+	// epoch the completion authorized against.
+	if err := tx.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
 		if err == sql.ErrNoRows {
-			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker started without a completing authorization event", false, "reopen the workflow action against a fresh step epoch")
+			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
-		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization completion", true, "retry once the database is readable", err)
-	}
-	if window.AttemptID == "" {
-		return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completion did not bind attempt_id", false, "supply the closed payload for the dispatch_worker action")
+		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
 	}
 	return window, nil
 }
@@ -570,10 +564,13 @@ func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window Worker
 
 // ValidateWorkerDispatchWindow is the gate the worker-dispatch CLI runs
 // inside its authenticating transaction. It refuses if the work item has no
-// workflow instance, if no authorized window exists for (workID, stepID), if
-// the binding attempt_id disagrees with the claim, if the binding packet
-// digest disagrees with the recorded digest (or the window predates the
-// digest), or if the same window has already been consumed.
+// workflow instance, if no authorized window is bound to the claimed
+// attempt, if the window belongs to a step other than the one the caller
+// named, if the binding packet digest disagrees with the recorded digest (or
+// the window predates the digest), or if the window has already been
+// consumed. The lookup is the attempt match: the window is the one the
+// dispatch_worker completion bound to this exact attempt, so a concurrent
+// coordinator's later window at the same step can never shadow it.
 //
 // CD-0059 D5 narrows the gate to work items that have already entered a
 // workflow: a worker attempt belongs to a work item a workflow is executing,
@@ -588,9 +585,13 @@ func WorkerDispatchWindowIsOpenTx(ctx context.Context, tx *sql.Tx, window Worker
 // the worker is trying to dispatch against a packet the core did not
 // authorize. Both refuse closed.
 //
-// Pass stepID="" to let the gate resolve the workflow instance's current
-// step; the CLI uses that path because it has no independent step knowledge.
-// Empty workID is rejected as malformed.
+// Pass stepID="" to fence the validation to the attempt's own window alone;
+// the CLI uses that path because it has no independent step knowledge, and a
+// live attempt's late evidence must land even after the shared step moved.
+// A non-empty stepID additionally pins the validation to that step: evidence
+// validated against step X refuses when the attempt's window was opened at a
+// different step, so one window can never be spent across steps. Empty
+// workID or attemptID is rejected as malformed.
 func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction, workID, stepID, attemptID, packetDigest string) error {
 	if workID == "" {
 		return newFailure(KindInvalidPayload, "worker_dispatch_window", "work_id is required for dispatch window validation", false, "supply the work item that the worker attempt belongs to")
@@ -605,21 +606,24 @@ func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction,
 	if err != nil {
 		return err
 	}
-	resolvedStep := stepID
-	if resolvedStep == "" {
-		if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&resolvedStep); err != nil {
-			if err == sql.ErrNoRows {
-				return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no workflow instance exists for this work item, so dispatch is not in an authorized surface", false, "drive the work item into a registered workflow before dispatching a worker")
-			}
-			return wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the workflow instance step", true, "retry once the database is readable", err)
-		}
-	}
-	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, resolvedStep)
+	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
 	if err != nil {
+		// CD-0059 D5: on the CLI path (no explicit step) a work item with
+		// no workflow instance keeps its distinct refusal, so an operator
+		// can tell the missing surface apart from a missing authorization.
+		if stepID == "" {
+			var failure *Failure
+			if errors.As(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+				var instances int
+				if lookErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=?)`, workID).Scan(&instances); lookErr == nil && instances == 0 {
+					return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no workflow instance exists for this work item, so dispatch is not in an authorized surface", false, "drive the work item into a registered workflow before dispatching a worker")
+				}
+			}
+		}
 		return err
 	}
-	if window.AttemptID != attemptID {
-		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "worker attempt does not match the authorized dispatch window", false, "open a dispatch_worker authorization for this attempt or use the bound attempt_id")
+	if stepID != "" && window.StepID != stepID {
+		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "the attempt's authorized dispatch window belongs to a different step", false, "validate the worker evidence against the step that authorized it")
 	}
 	if window.PacketDigest == "" {
 		return newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "dispatch window predates packet binding (CD-0067)", false, "open a fresh dispatch_worker authorization for a new attempt")
@@ -770,7 +774,23 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	if lifecycleState == "failed" {
 		failedAt = now
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
+	// The dispatch_worker completion binds its authorized attempt in flight
+	// before any worker evidence exists; the worker's own dispatch evidence
+	// promotes that binding instead of re-inserting the row. Rows no
+	// completion bound take the insert path unchanged.
+	promoted, err := tx.ExecContext(ctx, `UPDATE worker_attempts
+		SET readback_model=?,lifecycle_state=?,failure_kind=?,failure_detail=?,dispatched_at=?,failed_at=?
+		WHERE attempt_id=? AND work_id=? AND lifecycle_state='in_flight'`,
+		readbackModel, lifecycleState, failureKind, failureDetail, now, failedAt, payload.AttemptID, event.SubjectID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot promote the in-flight worker attempt binding", true, "retry once the database is writable", err)
+	}
+	if rows, rowsErr := promoted.RowsAffected(); rowsErr != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the in-flight promotion result", true, "retry once the database is writable", rowsErr)
+	} else if rows > 0 {
+		return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO worker_attempts
 		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,failed_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, readbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, lifecycleState, failureKind, failureDetail, now, failedAt)
 	if err != nil {
@@ -779,24 +799,30 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		return wrapFailure(KindUnavailable, "fold_event", "cannot create worker attempt projection", true, "retry once the database is writable", err)
 	}
-	// Issue #800 / CD-0017 D4: a dispatched lane is the executing actor of
-	// the external-effect step its window opened on. The actor row itself
-	// is recorded by the workflow.actor_recorded event the dispatch
-	// operation prepends; this fold only refuses an unrecorded ref and pins
-	// the instance's executing actor, so accept_worker_result compares the
-	// owner against the party that actually executed. A work item without a
-	// running workflow instance keeps its projection untouched.
-	if payload.LaneActorRef != "" {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_actors WHERE actor_ref=?`, payload.LaneActorRef).Scan(&exists); err != nil {
-			if err == sql.ErrNoRows {
-				return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched lane_actor_ref is not a recorded workflow actor", false, "prepend the lane actor event to the dispatch operation")
-			}
-			return wrapFailure(KindUnavailable, "fold_event", "cannot read lane workflow actor", true, "retry once the database is readable", err)
+	return pinWorkerDispatchedLaneActor(ctx, tx, event, payload)
+}
+
+// pinWorkerDispatchedLaneActor carries the issue #800 / CD-0017 D4 actor
+// pinning every dispatch evidence fold owes: a dispatched lane is the
+// executing actor of the external-effect step its window opened on. The
+// actor row itself is recorded by the workflow.actor_recorded event the
+// dispatch operation prepends; this fold only refuses an unrecorded ref and
+// pins the instance's executing actor, so accept_worker_result compares the
+// owner against the party that actually executed. A work item without a
+// running workflow instance keeps its projection untouched.
+func pinWorkerDispatchedLaneActor(ctx context.Context, tx *sql.Tx, event Event, payload WorkerDispatchedPayload) error {
+	if payload.LaneActorRef == "" {
+		return nil
+	}
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_actors WHERE actor_ref=?`, payload.LaneActorRef).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched lane_actor_ref is not a recorded workflow actor", false, "prepend the lane actor event to the dispatch operation")
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?`, payload.LaneActorRef, event.SubjectID); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot pin lane executing actor", true, "retry once the database is writable", err)
-		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read lane workflow actor", true, "retry once the database is readable", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET execution_actor_ref=? WHERE work_id=?`, payload.LaneActorRef, event.SubjectID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot pin lane executing actor", true, "retry once the database is writable", err)
 	}
 	return nil
 }

@@ -1015,8 +1015,8 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
 		t.Fatal(err)
 	}
-	if payloadVersion != 2 || workerAttempt != attemptID {
-		t.Fatalf("accept completion evidence = version %d attempt %q, want v2 %q", payloadVersion, workerAttempt, attemptID)
+	if payloadVersion != 3 || workerAttempt != attemptID {
+		t.Fatalf("accept completion evidence = version %d attempt %q, want v3 %q", payloadVersion, workerAttempt, attemptID)
 	}
 }
 

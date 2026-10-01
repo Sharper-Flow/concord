@@ -1512,6 +1512,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 				return events, "", err
 			}
 		}
+		// The registry lane identity rides the completion so the fold can
+		// bind the attempt durably in flight from the record alone, without
+		// re-reading the packet bytes.
+		completionValues["worker_lane_id"] = lane.ID
+		completionValues["worker_lane_version"] = lane.Version
+		completionValues["worker_lane_digest"] = lane.Digest
+		completionValues["worker_capability_class"] = lane.CapabilityClass
 		canonical, err := canonicalJSON(packetRaw)
 		if err != nil {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet does not decode as canonical JSON", false, "supply the lane packet bound to this work item and attempt")

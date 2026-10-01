@@ -102,7 +102,7 @@ function landingOnlyRunner() {
 
 // The invoke-path runner answers the project-resolve pre-step, the invoke
 // operations the test declares, and the landing verbs.
-function invokeRunner(handlers: { invoke?: (operation: string) => { exitCode: number; stdout: string; stderr: string } | undefined }) {
+function invokeRunner(handlers: { invoke: (operation: string) => { exitCode: number; stdout: string; stderr: string } | undefined }) {
   return { async run(argv: string[], input: string) {
     if (argv[1] === "project-resolve") {
       return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", scope_version: "scope-1", main_worktree: false, product_ids: ["product-1"] }) + "\n", stderr: "" }

@@ -52,6 +52,11 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
     Every relative import must resolve to a TypeScript module inside the
     adapter directory. An unresolvable or escaping import refuses rather
     than shipping a set that breaks at module load.
+
+    Regenerate the ADAPTER_FILES literal with, from the repository root::
+
+        $ python3 -c "import sys; sys.path.insert(0, 'scripts'); import install; \
+            print(install.derive_adapter_files(__import__('pathlib').Path('adapter/opencode')))"
     """
     shipped: set[str] = set()
     pending = [PLUGIN_ENTRY_FILE]
@@ -81,10 +86,8 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 # status and uninstall, when no bundle has been downloaded. It is therefore a
 # property of the installer, and cannot be derived from the archive it installs.
 #
-# derive_adapter_files remains the authority for this value. Regenerate with:
-#
-#     python3 -c "import sys; sys.path.insert(0, 'scripts'); import install; \
-#         print(install.derive_adapter_files(__import__('pathlib').Path('adapter/opencode')))"
+# derive_adapter_files remains the authority for this value; the function's
+# docstring carries the command that regenerates this literal.
 #
 # test_real_checkout_derivation_includes_the_plugin_entry compares this literal
 # against the live import graph and fails when the two drift.
@@ -1502,18 +1505,20 @@ def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths
 
 def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None, staged_adapters: dict[str, str] | None = None) -> ConfigPlan:
     failures: list[str] = []
-    for managed_parent in (
-        paths.data_root,
-        paths.tools_dir,
-        paths.agents_dir,
-        paths.systemd_user_dir,
-        paths.credential_dropin.parent,
-        paths.credential_service.parent,
-        paths.bin_dir,
-        paths.config_file.parent,
-    ):
-        if managed_parent.is_symlink():
-            failures.append(f"refusing symlinked managed path {managed_parent}")
+    failures.extend(
+        f"refusing symlinked managed path {managed_parent}"
+        for managed_parent in (
+            paths.data_root,
+            paths.tools_dir,
+            paths.agents_dir,
+            paths.systemd_user_dir,
+            paths.credential_dropin.parent,
+            paths.credential_service.parent,
+            paths.bin_dir,
+            paths.config_file.parent,
+        )
+        if managed_parent.is_symlink()
+    )
     if paths.stable_root.exists() and not paths.stable_root.is_symlink():
         failures.append(f"refusing {paths.stable_root}: not a symlink")
     system = platform.system()
@@ -1574,11 +1579,12 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
     manifest_note = unmanaged_manifest_note(old_manifest, paths)
     for name in ADAPTER_FILES:
         destination = paths.tools_dir / name
-        if destination.exists() or destination.is_symlink():
-            if not old_manifest or name not in adapter_records:
-                # Repair accepts a file an incomplete deployment placed that
-                # the stale manifest never recorded, when its content is the
-                # release's own.
+        if (destination.exists() or destination.is_symlink()) and (
+            not old_manifest or name not in adapter_records
+        ):
+            # Repair accepts a file an incomplete deployment placed that
+            # the stale manifest never recorded, when its content is the
+            # release's own.
                 if (
                     staged_adapters is not None
                     and destination.is_file()
@@ -2648,7 +2654,7 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
     validate_transaction(journal, transaction_root, paths)
     phase = journal["phase"]
     new_manifest = journal["new_manifest"]
-    current_manifest = current_manifest_state(paths)
+    current_manifest_state(paths)
     if phase not in {"manifest_committed", "cleanup"} and new_manifest.get("exists") and state_matches(paths.data_root / MANIFEST_NAME, new_manifest):
         advance_phase(transaction_root, journal, "manifest_committed")
         phase = "manifest_committed"
@@ -3126,9 +3132,10 @@ def uninstall(args: argparse.Namespace) -> int:
             raise InstallerError(f"refusing to remove modified agent file {destination}")
     launcher_target = manifest["launcher_target"]
     launcher = safe_relative_target(paths.bin_dir, "concord", "launcher", allow_final_symlink=True)
-    if launcher.exists() or launcher.is_symlink():
-        if not launcher.is_symlink() or os.readlink(launcher) != launcher_target:
-            raise InstallerError(f"refusing to remove user-authored launcher {paths.launcher}")
+    if (launcher.exists() or launcher.is_symlink()) and (
+        not launcher.is_symlink() or os.readlink(launcher) != launcher_target
+    ):
+        raise InstallerError(f"refusing to remove user-authored launcher {paths.launcher}")
     if paths.stable_root.exists() and not paths.stable_root.is_symlink():
         raise InstallerError(f"refusing to remove unmanaged stable root {paths.stable_root}")
     skill_path = manifest["skill_path"]
@@ -3667,9 +3674,12 @@ def plan_worktree_links(paths: Paths) -> list[tuple[Path, str, bool]]:
     for worktree in worktree_directories(paths):
         project_file = project_opencode_json(worktree)
         previous = ownership.get(str(project_file.resolve(strict=False)))
-        if previous and previous.get("action") in {"remove", "restore"}:
-            if not isinstance(previous.get("expected"), dict):
-                raise InstallerError(f"refusing malformed project link ownership record for {project_file}")
+        if (
+            previous
+            and previous.get("action") in {"remove", "restore"}
+            and not isinstance(previous.get("expected"), dict)
+        ):
+            raise InstallerError(f"refusing malformed project link ownership record for {project_file}")
         new_text, changed = plan_project_link(project_file, entry)
         planned.append((project_file, new_text, changed))
     return planned

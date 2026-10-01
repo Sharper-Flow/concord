@@ -158,12 +158,12 @@ def check_ci_commands(
     lines: list[str], banned: set[str], findings: list[str]
 ) -> None:
     for number, line in enumerate(lines, start=1):
-        for command in banned:
-            if command in line:
-                findings.append(
-                    f"AGENTS.md:{number}: reproduces a CI command line; link to "
-                    f".github/workflows/ci.yml instead: {command}"
-                )
+        findings.extend(
+            f"AGENTS.md:{number}: reproduces a CI command line; link to "
+            f".github/workflows/ci.yml instead: {command}"
+            for command in banned
+            if command in line
+        )
 
 
 def main() -> int:

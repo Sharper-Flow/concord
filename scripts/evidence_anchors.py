@@ -198,9 +198,8 @@ def workflow_commands(text: str) -> str:
 
 def _script_constant(node: ast.AST) -> str | None:
     for child in ast.walk(node):
-        if isinstance(child, ast.Constant) and isinstance(child.value, str):
-            if SCRIPT_REFERENCE.fullmatch(child.value):
-                return child.value
+        if isinstance(child, ast.Constant) and isinstance(child.value, str) and SCRIPT_REFERENCE.fullmatch(child.value):
+            return child.value
     return None
 
 

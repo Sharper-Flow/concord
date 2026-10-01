@@ -56,11 +56,11 @@ def main() -> int:
                 f"{path.relative_to(ROOT)}: top-level JSON value must be an object or array"
             )
         if isinstance(value, dict):
-            for key in ("schema_version", "$schema", "$id"):
-                if key in value and not isinstance(value[key], str):
-                    findings.append(
-                        f"{path.relative_to(ROOT)}: top-level {key} must be a string"
-                    )
+            findings.extend(
+                f"{path.relative_to(ROOT)}: top-level {key} must be a string"
+                for key in ("schema_version", "$schema", "$id")
+                if key in value and not isinstance(value[key], str)
+            )
         validate_fixture_sources(path, value, findings)
 
     generator = ROOT / "scripts/generate-agent-contracts.py"

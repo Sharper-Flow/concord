@@ -329,9 +329,11 @@ def validate_doc_contract(manifest: dict, findings: list[str]) -> dict | None:
         if not isinstance(activation, dict) or set(activation) != {"max_registered_findings", "max_unresolved_criteria", "max_false_positives", "evidence"}:
             findings.append("manifest.doc_contract.activation: must carry exactly the four criterion fields")
         else:
-            for field in ("max_registered_findings", "max_unresolved_criteria", "max_false_positives"):
-                if activation[field] != 0:
-                    findings.append(f"manifest.doc_contract.activation: {field} must be 0")
+            findings.extend(
+                f"manifest.doc_contract.activation: {field} must be 0"
+                for field in ("max_registered_findings", "max_unresolved_criteria", "max_false_positives")
+                if activation[field] != 0
+            )
             if not isinstance(activation["evidence"], str) or not (12 <= len(activation["evidence"].strip()) <= 1024):
                 findings.append("manifest.doc_contract.activation: evidence must be trimmed text of 12-1024 characters")
 
@@ -414,9 +416,11 @@ def collect_headings(lines: list[str]) -> dict[str, int]:
 def check_required_sections(
     headings: dict[str, int], required: list[str], path: Path, findings: list[str]
 ) -> None:
-    for section in required:
-        if section not in headings:
-            findings.append(f"missing-section: {path.relative_to(ROOT)} ({section})")
+    findings.extend(
+        f"missing-section: {path.relative_to(ROOT)} ({section})"
+        for section in required
+        if section not in headings
+    )
 
 
 def collect_heading_entries(lines: list[str]) -> list[tuple[int, str, int]]:
@@ -744,8 +748,10 @@ def check_criterion_bindings(
     bindings = record.get("criterion_bindings")
     if bindings is None:
         if record.get("kind") == "spec":
-            for criterion in range(1, criteria_count + 1):
-                findings.append(f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]")
+            findings.extend(
+                f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]"
+                for criterion in range(1, criteria_count + 1)
+            )
         return
     if record.get("kind") != "spec":
         findings.append(f"criterion bindings forbidden: {path.relative_to(ROOT)}")
@@ -797,9 +803,11 @@ def check_criterion_bindings(
             if not isinstance(predicate_id, str) or not CRITERION_PREDICATE_ID_PATTERN.fullmatch(predicate_id):
                 findings.append(f"criterion binding predicate id invalid: {prefix}")
     if record.get("kind") == "spec":
-        for criterion in range(1, criteria_count + 1):
-            if criterion not in bound:
-                findings.append(f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]")
+        findings.extend(
+            f"criterion is unresolved: {path.relative_to(ROOT)} [{criterion}]"
+            for criterion in range(1, criteria_count + 1)
+            if criterion not in bound
+        )
 
 
 def check_no_gherkin(lines: list[str], path: Path, findings: list[str]) -> None:
@@ -1038,12 +1046,12 @@ def check_banned_phrases(
             continue
         for line_no in line_numbers:
             haystack = lines[line_no - 1].lower()
-            for phrase in lowered:
-                if phrase in haystack:
-                    findings.append(
-                        f"ste-banned-phrase: {path.relative_to(ROOT)}:{line_no} "
-                        f"({phrase!r})"
-                    )
+            findings.extend(
+                f"ste-banned-phrase: {path.relative_to(ROOT)}:{line_no} "
+                f"({phrase!r})"
+                for phrase in lowered
+                if phrase in haystack
+            )
 
 
 def check_abbreviations(

@@ -145,8 +145,10 @@ def main() -> int:
     for root_name in budget["note_roots"]:
         root = ROOT / root_name
         rel_root = Path(root_name)
-        for path in iter_non_markdown(root):
-            findings.append(f"{path.relative_to(ROOT)}: durable note root {rel_root} permits markdown only")
+        findings.extend(
+            f"{path.relative_to(ROOT)}: durable note root {rel_root} permits markdown only"
+            for path in iter_non_markdown(root)
+        )
         for path in iter_markdown(root):
             rel = path.relative_to(ROOT).as_posix()
             size = path.stat().st_size
@@ -154,11 +156,11 @@ def main() -> int:
                 findings.append(
                     f"{rel}: {size} bytes exceeds the durable note bound {max_note_bytes} (CD-0002: a page, not a state dump)"
                 )
-            for block in fenced_json_blocks(path.read_text(encoding="utf-8", errors="replace")):
-                if len(block.encode("utf-8")) > max_fenced_json_bytes:
-                    findings.append(
-                        f"{rel}: fenced JSON block of {len(block.encode('utf-8'))} bytes exceeds {max_fenced_json_bytes}; distill, do not embed state"
-                    )
+            findings.extend(
+                f"{rel}: fenced JSON block of {len(block.encode('utf-8'))} bytes exceeds {max_fenced_json_bytes}; distill, do not embed state"
+                for block in fenced_json_blocks(path.read_text(encoding="utf-8", errors="replace"))
+                if len(block.encode("utf-8")) > max_fenced_json_bytes
+            )
 
     inventoried = {entry["path"] for entry in budget["non_markdown_inventory"]}
     for path in iter_non_markdown(ROOT / ".concord/docs/decisions"):
@@ -170,8 +172,10 @@ def main() -> int:
     declared_missing = sorted(
         path for path in inventoried if not (ROOT / path).is_file()
     )
-    for path in declared_missing:
-        findings.append(f"{path}: inventoried artifact is gone; remove the inventory entry")
+    findings.extend(
+        f"{path}: inventoried artifact is gone; remove the inventory entry"
+        for path in declared_missing
+    )
 
     for finding in findings[:MAX_FINDINGS]:
         print(finding)

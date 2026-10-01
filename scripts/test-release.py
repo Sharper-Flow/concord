@@ -208,9 +208,11 @@ def assert_release_workflow_structure(workflow: str) -> None:
         steps = job.get("steps")
         if not isinstance(steps, list):
             continue
-        for step in steps:
-            if isinstance(step, dict) and step.get("uses") == CHECKOUT_ACTION:
-                checkout_steps.append((job_name, step))
+        checkout_steps.extend(
+            (job_name, step)
+            for step in steps
+            if isinstance(step, dict) and step.get("uses") == CHECKOUT_ACTION
+        )
     if len(checkout_steps) != 2:
         raise AssertionError(f"expected exactly two pinned checkout steps, found {len(checkout_steps)}")
     for job_name, expected_credentials in expected_persist.items():

@@ -148,9 +148,11 @@ def validate_record(record: object, records_by_id: dict[str, dict[str, Any]] | N
             target_element = reference.get("target_element_id")
             if target_element is not None and target_element not in target_sections | target_requirements:
                 findings.append(f"record {identifier}: dangling target element {target_element} on {target_id}")
-            if reference["relation"] == "supersedes":
-                if target["status"]["state"] != "superseded" or target["status"].get("successor_id") != identifier:
-                    findings.append(f"record {identifier}: supersedes target {target_id} lacks matching successor proof")
+            if reference["relation"] == "supersedes" and (
+                target["status"]["state"] != "superseded"
+                or target["status"].get("successor_id") != identifier
+            ):
+                findings.append(f"record {identifier}: supersedes target {target_id} lacks matching successor proof")
 
     return findings
 

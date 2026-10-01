@@ -195,7 +195,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
             fail("workflow action contract projection contains an open record")
         for payload_key in ("payload", "public_payload"):
             if set(action[payload_key]) - {"closed", "fields"}:
-                fail(f"workflow action contract projection contains an open payload")
+                fail("workflow action contract projection contains an open payload")
             if action[payload_key].get("closed") is not True:
                 fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
         if not isinstance(action["legacy_payloads"], list):
@@ -321,8 +321,8 @@ def install_workflow_outcome_schema(defs: dict) -> dict:
         defs[names[name]] = rewrite(schema)
     # The payload oneOf stays inline at each use site. Moonshot's flavored
     # tool-schema validator rejects a $ref whose target is rooted at a bare
-    # combinator ("detected infinite recursion without termination condition"),
-    # and this def would be exactly that shape.
+    # combinator, reporting "detected infinite recursion without termination
+    # condition"; this def would be exactly that shape.
     return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
 
 

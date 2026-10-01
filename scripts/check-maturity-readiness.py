@@ -106,7 +106,7 @@ def validate_conditions(raw: object, prefix_letter: str, findings: list[str]) ->
 
 
 def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -> dict[str, int]:
-    tally = {state: 0 for state in STATES}
+    tally = dict.fromkeys(STATES, 0)
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ITEMS:
         findings.append("manifest.items: must be a bounded non-empty array")
         return tally
@@ -183,7 +183,7 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str]) -
 
 def validate(data: object) -> tuple[list[str], dict[str, int]]:
     findings: list[str] = []
-    tally = {state: 0 for state in STATES}
+    tally = dict.fromkeys(STATES, 0)
     if not isinstance(data, dict):
         return ["manifest: top-level value must be an object"], tally
     if set(data) - ALLOWED_ROOT:

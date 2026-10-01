@@ -250,7 +250,6 @@ def statements(sql: str) -> list[str]:
     out: list[str] = []
     current: list[str] = []
     head_words: list[str] = []
-    word_start = 0
     word: list[str] = []
     depth = 0
     awaiting_body = False
@@ -293,7 +292,7 @@ def statements(sql: str) -> list[str]:
         ch = sql[i]
         if ch.isalnum() or ch in "_$" or ord(ch) >= 0x80:
             if not word:
-                word_start = i
+                pass
             word.append(ch)
             i += 1
             continue

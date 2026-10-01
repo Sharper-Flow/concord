@@ -164,9 +164,11 @@ def validate_scopes(scopes: object, schema_version: str, prefix: str, findings: 
         findings.append(f"{prefix}: missing scope fields: {sorted(missing)}")
     if scopes.get("mode") not in {"home", "explicit"}:
         findings.append(f"{prefix}: scope mode must be home or explicit")
-    for field in allowed - {"mode"}:
-        if field in scopes and not unique_ids(scopes[field]):
-            findings.append(f"{prefix}: invalid {field}")
+    findings.extend(
+        f"{prefix}: invalid {field}"
+        for field in allowed - {"mode"}
+        if field in scopes and not unique_ids(scopes[field])
+    )
     if scopes.get("mode") == "home" and any(scopes.get(field) for field in allowed - {"mode"}):
         findings.append(f"{prefix}: home scopes cannot contain explicit IDs")
 
@@ -229,7 +231,7 @@ def override_covers(override_path: str, candidate: str) -> bool:
     return candidate == override_path
 
 
-def build_override_coverage(overrides: object, product_key: object = None) -> "callable | None":
+def build_override_coverage(overrides: object, product_key: object = None) -> callable | None:
     """The coverage predicate the head's overrides admit, or None when the
     head carries none. Shape-invalid entries are findings from
     validate_operator_overrides; only complete entries naming the manifest's
@@ -253,7 +255,7 @@ def build_override_coverage(overrides: object, product_key: object = None) -> "c
     return covered
 
 
-def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: "callable | None" = None) -> None:
+def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
         return
@@ -344,9 +346,11 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: non-law records cannot author law-home fields")
     if law_bearing and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
         findings.append(f"{prefix}: an accepted law-bearing record requires one home domain")
-    for field in ("home_domain_id",):
-        if field in record and record[field] not in domain_ids:
-            findings.append(f"{prefix}: home domain is dangling")
+    findings.extend(
+        f"{prefix}: home domain is dangling"
+        for field in ("home_domain_id",)
+        if field in record and record[field] not in domain_ids
+    )
     # CD-0175: every decision names its outline generation in its own shard.
     # The decision legacy profile is bounded by the closed historical set in
     # both directions: a set member cannot claim the current outline it never
@@ -441,7 +445,7 @@ def canonical_domain_registry(registry: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: "callable | None" = None) -> list[dict[str, object]]:
+def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None) -> list[dict[str, object]]:
     directory = root / SHARD_DIR
     if not directory.is_dir():
         findings.append(f"shard directory missing: {SHARD_DIR}")

@@ -123,11 +123,11 @@ def check(root: Path) -> list[str]:
     _report_set_difference("query-label-closure", query_labels, query_enum, findings)
 
     declared_labels = set(query_labels)
-    for label in query_enum:
-        if label not in declared_labels:
-            findings.append(
-                f"query-label-orphan: label {label!r} does not resolve to a declared kind or inverse label"
-            )
+    findings.extend(
+        f"query-label-orphan: label {label!r} does not resolve to a declared kind or inverse label"
+        for label in query_enum
+        if label not in declared_labels
+    )
 
     overlap_kinds = {
         kind["kind"]
@@ -142,10 +142,10 @@ def check(root: Path) -> list[str]:
         "resolution_kind",
         findings,
     )
-    for member in sorted(set(overlap_enum) - overlap_kinds):
-        findings.append(
-            f"overlap-resolution-subset: member {member!r} is not written by workflow.overlap_resolved"
-        )
+    findings.extend(
+        f"overlap-resolution-subset: member {member!r} is not written by workflow.overlap_resolved"
+        for member in sorted(set(overlap_enum) - overlap_kinds)
+    )
 
     try:
         schema_text = surface_path.read_text(encoding="utf-8")

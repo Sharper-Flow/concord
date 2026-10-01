@@ -209,9 +209,11 @@ def check(root: Path) -> list[str]:
         except OSError as exc:
             findings.append(f"runtime-guard: unable to read {relative}: {exc}")
             continue
-        for marker in markers:
-            if marker not in runtime_source:
-                findings.append(f"runtime-guard: {relative} does not use generated vocabulary marker {marker}")
+        findings.extend(
+            f"runtime-guard: {relative} does not use generated vocabulary marker {marker}"
+            for marker in markers
+            if marker not in runtime_source
+        )
     check_runtime_work_kind_literals(root, set(stored), findings)
     return findings
 

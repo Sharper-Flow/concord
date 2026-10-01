@@ -719,7 +719,24 @@ func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer,
 	}
 	contractVersion, present := workflowFieldIntOK(fields, "contract_version")
 	if !present {
-		contractVersion = 1
+		if _, batchPresent := fields["verdicts"]; batchPresent {
+			// The batched route resolves an omitted contract_version to the
+			// active contract through the caller's queryer, exactly as the
+			// verdict constructor does at the verification step, so a batch
+			// recorded after a supersession is judged on the contract its
+			// entries land on. A projection with no contract row is not
+			// recovery-eligible here; the constructor owns that refusal.
+			active, activeErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+			if activeErr != nil {
+				if activeErr == sql.ErrNoRows {
+					return false, nil
+				}
+				return false, activeErr
+			}
+			contractVersion = active
+		} else {
+			contractVersion = 1
+		}
 	}
 	for _, entry := range entries {
 		qualifies, qualifiesErr := workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, entry.PredicateID, contractVersion)
@@ -1401,6 +1418,19 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
+	}
+	if in.request.ActionID == "record_verdict" {
+		// The batched form declares its entry count on the completion, so the
+		// fold bounds the operation's result evidence at the schema-bounded
+		// batch union instead of the single-form bound. The single form stays
+		// silent and keeps its bound.
+		if _, batchPresent := fields["verdicts"]; batchPresent {
+			entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
+			if entriesErr != nil {
+				return events, "", entriesErr
+			}
+			completionValues["verdict_entry_count"] = len(entries)
+		}
 	}
 	if in.request.ActionID == "record_delivery" && workflowDefinitionRequiresDeliveryPayload(in.entry.Definition) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")

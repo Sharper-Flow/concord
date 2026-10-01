@@ -564,7 +564,22 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 	if defaultVerdictEvidence {
 		var mintErr error
 		var mintedEvents []Event
-		mintedEvents, defaultedEvidence, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, []string{"evidence:" + request.OperationID}, expected)
+		// The mint resolves only what a defaulted entry is born bound under:
+		// the operation-minted reference plus the contract's required verified
+		// native-run capture, exactly the set a defaulted single call has
+		// always minted. No entry's own explicit evidence joins the mint, so
+		// an evidence-defaulted entry never inherits another entry's evidence
+		// and the mint never binds a required kind onto evidence the caller
+		// supplied for a different entry.
+		mintEvidence := []string{"evidence:" + request.OperationID}
+		nativeRunRef, nativeErr := defaultVerdictNativeRunRef(ctx, tx, request.WorkID, definition)
+		if nativeErr != nil {
+			return nil, nativeErr
+		}
+		if nativeRunRef != "" {
+			mintEvidence = append(mintEvidence, nativeRunRef)
+		}
+		mintedEvents, defaultedEvidence, mintErr = bornBoundEvidenceEvents(ctx, tx, request.WorkID, definition, request, actor, eventID, mintEvidence, expected)
 		if mintErr != nil {
 			return nil, mintErr
 		}

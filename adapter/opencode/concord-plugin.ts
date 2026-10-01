@@ -35,7 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReportsForMessage, publishCiWatchDefinition } from "./ci-watch"
+import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -108,6 +108,13 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       input: { sessionID: string; messageID?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },
     ) => {
+      // The ci-watch start notice is a noReply user message, and the host
+      // still reports it through this hook. It must not consume the wake
+      // protocol: a drained report would land in a message that never wakes
+      // the model, and the boundary clear and agent-switch read below would
+      // treat the notice as an operator turn. Skip those when every part
+      // carries the notice marker.
+      if (isCiWatchNoticeMessage(output?.parts)) return
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and

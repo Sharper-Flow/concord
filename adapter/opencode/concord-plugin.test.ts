@@ -2,12 +2,18 @@
 // dispatch to the next native Task call. Without the registration the window is
 // unreachable and any Task call the model composes runs unbound.
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice } from "./concord"
 import { hostToolSchemas } from "./generated-contracts"
+import { bindCiWatchClient, ciWatchSettled, configureCiWatch, type VerbSpawner } from "./ci-watch"
+import { configureCoreBinary } from "./dispatch"
+import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
 
 test("work start publishes optional fields through the host definition hook", async () => {
   const plugin = await ConcordAdapterPlugin()
@@ -314,10 +320,100 @@ describe("a refusal carries the host's own words", () => {
   })
 })
 
+// The ci-watch start notice is a noReply user message the host still reports
+// through chat.message. The hook must return early for it: a drained report
+// would land in a message that never wakes the model, and the boundary clear
+// would treat the notice as an operator turn. These tests queue a real report
+// and prove the notice message consumes nothing.
+describe("plugin entry isolates the ci-watch notice from chat.message", () => {
+  const NOTICE_SESSION = "notice-session"
+
+  const watchFixture = () => {
+    const posts: Array<{ url: string; body?: unknown }> = []
+    const injected: Array<Record<string, unknown>> = []
+    let promptCount = 0
+    const client = {
+      get: async (request: { url: string }) => {
+        if (request.url === "/session/status") {
+          return { data: { [NOTICE_SESSION]: { type: "idle" } }, response: new Response(null, { status: 200 }) }
+        }
+        if (request.url === "/session/{id}") {
+          return {
+            data: { id: NOTICE_SESSION, agent: "concord-1", model: { id: "glm-test", providerID: "zai" } },
+            response: new Response(null, { status: 200 }),
+          }
+        }
+        if (request.url === "/session/{id}/message") {
+          return { data: injected, response: new Response(null, { status: 200 }) }
+        }
+        return { response: new Response(null, { status: 404 }) }
+      },
+      post: async (request: { url: string; body?: unknown }) => {
+        posts.push({ url: request.url, body: request.body })
+        if (request.url === "/session/{id}/prompt_async") {
+          promptCount++
+          const id = `msg_report_${promptCount}`
+          const text = (request.body as { parts?: Array<{ text?: string }> })?.parts?.[0]?.text ?? ""
+          injected.push({ info: { id, role: "user" }, parts: [{ type: "text", text }] })
+          return { response: new Response(null, { status: 204 }) }
+        }
+        return { response: new Response(null, { status: 200 }) }
+      },
+    }
+    return { posts, client }
+  }
+
+  test("a notice message drains nothing and the next real message drains the queued report", async () => {
+    const fixture = watchFixture()
+    configureCiWatch({ stateDir: fs.mkdtempSync(path.join(os.tmpdir(), "plugin-notice-test-")), idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+    configureCoreBinary("/synthetic/concord")
+    const spawner: VerbSpawner = async () => ({ exitCode: 0, stdout: JSON.stringify({ status: "success" }), stderr: "" })
+    configureCiWatch({ spawner })
+    const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+    const started = JSON.parse(
+      (await plugin.tool.concord_ci_watch.execute!(
+        { repo: "owner/name", selector: { kind: "pr", value: "12" } },
+        { sessionID: NOTICE_SESSION, abort: new AbortController().signal },
+      )).output,
+    ) as Record<string, unknown>
+    expect(started.status).toBe("started")
+    await ciWatchSettled(String(started.watch_id))
+    const noticeOutput = {
+      parts: [
+        { type: "text", text: "⏳ Watching CI", ignored: true, metadata: { "concord.ci_watch_notice": started.watch_id } },
+      ] as unknown[],
+    }
+    await plugin["chat.message"]({ sessionID: NOTICE_SESSION, messageID: "msg_notice" }, noticeOutput)
+    expect(noticeOutput.parts).toHaveLength(1)
+    const realOutput = { parts: [] as unknown[] }
+    await plugin["chat.message"]({ sessionID: NOTICE_SESSION, messageID: "msg_real" }, realOutput)
+    expect(realOutput.parts).toHaveLength(1)
+    expect((realOutput.parts[0] as { messageID: string }).messageID).toBe("msg_real")
+    expect((realOutput.parts[0] as { synthetic: boolean }).synthetic).toBe(true)
+  })
+
+  test("the notice message leaves the turn-move boundary armed and a real message clears it", async () => {
+    const plugin = await ConcordAdapterPlugin()
+    const session = "notice-boundary-session"
+    const noticePart = { type: "text", text: "notice", ignored: true, metadata: { "concord.ci_watch_notice": "watch-1" } }
+    armTurnMoveBoundary(session)
+    await plugin["chat.message"]({ sessionID: session, messageID: "msg_notice_boundary" }, { parts: [noticePart] })
+    expect(questionRequiresNormalChat(session)).toBe(true)
+    await plugin["chat.message"]({ sessionID: session, messageID: "msg_real_boundary" }, { parts: [] })
+    expect(questionRequiresNormalChat(session)).toBe(false)
+  })
+})
+
 // The control plane is module-shared state. A test that binds a fake client
 // and leaves it bound changes what every later test file sees when the runner
 // shares one process, so every binding is undone as soon as its test ends.
-afterEach(() => hostControlPlane().bind(undefined))
+afterEach(() => {
+  hostControlPlane().bind(undefined)
+  configureCiWatch({ reset: true })
+  bindCiWatchClient(undefined)
+  configureCoreBinary(null)
+  resetTurnMoveBoundaries()
+})
 
 // The factory claims a host lease at load, which fails against the unstamped
 // repository placeholder and closes the adapter transport. Later test files

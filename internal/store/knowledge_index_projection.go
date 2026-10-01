@@ -394,7 +394,7 @@ func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, 
 	if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
 		return domainProjection{}, err
 	} else if productID != "" && !designated {
-		return prepareFederatedSourceDomainProjection(ctx, s.db, home, productID, manifest)
+		return prepareFederatedSourceDomainProjection(ctx, s.db, productID, manifest)
 	}
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
@@ -587,9 +587,24 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 	if err != nil {
 		return err
 	}
+	// CD-0200: both federated roles validate their cross-source law
+	// relations over the Product's verified source set at the rebuild
+	// boundary — the registered source, and the designated shared-law home.
+	// A shared-home cross-source conflicts_with edge refuses here instead of
+	// passing rebuild and vanishing at projection, so conflicts stay
+	// blocking; a source that later declares one leaves its watermark stale,
+	// which the consequential boundaries refuse.
 	if !manifestMissing && role == manifestRegisteredSourceRole {
 		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
 			return err
+		}
+	} else if !manifestMissing {
+		if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
+			return err
+		} else if designated && productID != "" {
+			if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
+				return err
+			}
 		}
 	}
 	if !manifestMissing {
@@ -757,10 +772,13 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 }
 
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
-// a conflicts_with pair canonically. A cross-source relation (CD-0200)
-// names another home's law, which the same-home foreign keys of
-// law_relations cannot reference; it validates at the rebuild boundary
-// (validateFederatedSourceManifest) and never projects as a same-home row.
+// a conflicts_with pair canonically. A cross-source relation (CD-0200) names
+// another home's law, which the same-home foreign keys of law_relations
+// cannot reference: it never projects as a same-home row. Enforcement lives
+// at the rebuild boundary — validateFederatedSourceManifest refuses invalid
+// and conflicting edges for both federated roles, and a later-declared
+// conflict leaves the declaring source's watermark stale, which the
+// consequential boundaries refuse.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
 	for _, law := range laws {
 		for _, relation := range law.record.LawRelations {

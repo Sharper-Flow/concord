@@ -2330,6 +2330,52 @@ func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, 
 	return writeJSON(out, map[string]any{"ok": true, "initiative": imported}, errOut)
 }
 
+// runProductKnowledgeConfiguration executes the four operator verbs that
+// configure a Product's knowledge source set (PM6 §2, CD-0200): designating
+// or clearing the shared-law home, and registering or removing a member
+// Project knowledge source. One request shape, one Product-scoped result.
+func runProductKnowledgeConfiguration(command string, raw []byte, s *store.Store, out, errOut io.Writer) int {
+	var request struct {
+		ProductID       string `json:"product_id"`
+		ProjectID       string `json:"project_id"`
+		LocatorID       string `json:"locator_id"`
+		Reason          string `json:"reason"`
+		ExpectedVersion int64  `json:"expected_version"`
+	}
+	if err := decodeObject(raw, &request); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	var result store.ApplyOperationResult
+	var err error
+	switch command {
+	case "product-knowledge-home-designate":
+		result, err = s.DesignateProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+	case "product-knowledge-home-clear":
+		result, err = s.ClearProductKnowledgeHome(context.Background(), store.ProductKnowledgeHomeDesignation{
+			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+	case "product-knowledge-source-register":
+		result, err = s.RegisterProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+	case "product-knowledge-source-remove":
+		result, err = s.RemoveProductKnowledgeSource(context.Background(), store.ProductKnowledgeSourceRegistration{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
+		})
+	}
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		return 1
+	}
+	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+}
+
 func runInternal(command string, raw []byte, service *agent.Service, s *store.Store, clock func() time.Time, out, errOut io.Writer) int {
 	ctx := context.Background()
 	switch command {
@@ -2663,87 +2709,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "product-knowledge-home-designate":
-		var request struct {
-			ProductID       string `json:"product_id"`
-			ProjectID       string `json:"project_id"`
-			LocatorID       string `json:"locator_id"`
-			Reason          string `json:"reason"`
-			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		result, err := s.DesignateProductKnowledgeHome(ctx, store.ProductKnowledgeHomeDesignation{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "product-knowledge-home-clear":
-		var request struct {
-			ProductID       string `json:"product_id"`
-			Reason          string `json:"reason"`
-			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		result, err := s.ClearProductKnowledgeHome(ctx, store.ProductKnowledgeHomeDesignation{
-			ProductID: request.ProductID, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "product-knowledge-source-register":
-		var request struct {
-			ProductID       string `json:"product_id"`
-			ProjectID       string `json:"project_id"`
-			LocatorID       string `json:"locator_id"`
-			Reason          string `json:"reason"`
-			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		result, err := s.RegisterProductKnowledgeSource(ctx, store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-	case "product-knowledge-source-remove":
-		var request struct {
-			ProductID       string `json:"product_id"`
-			ProjectID       string `json:"project_id"`
-			LocatorID       string `json:"locator_id"`
-			Reason          string `json:"reason"`
-			ExpectedVersion int64  `json:"expected_version"`
-		}
-		if err := decodeObject(raw, &request); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		result, err := s.RemoveProductKnowledgeSource(ctx, store.ProductKnowledgeSourceRegistration{
-			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-			Reason: request.Reason, ExpectedVersion: request.ExpectedVersion,
-		})
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
+	case "product-knowledge-home-designate", "product-knowledge-home-clear", "product-knowledge-source-register", "product-knowledge-source-remove":
+		return runProductKnowledgeConfiguration(command, raw, s, out, errOut)
 	case "product-stage-update":
 		var request struct {
 			ProductID               string `json:"product_id"`

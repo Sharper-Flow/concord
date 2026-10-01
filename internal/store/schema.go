@@ -5523,6 +5523,9 @@ CREATE TABLE product_knowledge_sources (
     PRIMARY KEY (product_id, project_id, locator_id),
     UNIQUE(project_id, locator_id)
 );
+CREATE TRIGGER product_knowledge_sources_guard_insert BEFORE INSERT ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER product_knowledge_sources_guard_update BEFORE UPDATE ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER product_knowledge_sources_guard_delete BEFORE DELETE ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 }

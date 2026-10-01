@@ -2,13 +2,15 @@ package store
 
 import (
 	"context"
-	"os"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // seedFederatedSource writes a registered-source manifest (no Domain
@@ -178,7 +180,7 @@ func TestFederatedQ9IteratesRegisteredSourceSet(t *testing.T) {
 	ctx := context.Background()
 	home := KnowledgeHome{HomeProjectID: "fed-home", HomeLocatorID: "fed-home-loc", HeadRef: "HEAD"}
 	source := KnowledgeHome{HomeProjectID: "fed-src", HomeLocatorID: "fed-src-loc", HeadRef: "HEAD"}
-	s, source := seedFederatedProduct(t, "fed-product", home, source,
+	s, _ := seedFederatedProduct(t, "fed-product", home, source,
 		"SRC-LAW", ".concord/docs/decisions/CD-0902-src-law.md", "Source law")
 	result, err := s.QueryQ9(ctx, Q9Request{Product: "fed-product", Text: "law", Limit: 10})
 	if err != nil {
@@ -293,11 +295,11 @@ func TestSourceRebuildRefusesRegistryPrecedenceAndConflict(t *testing.T) {
 		}
 	}
 	// Non-home precedence toward shared-home law refuses at rebuild.
-	writeSourceRelations(t, source.RepoPath, "SRC-LAW", []KnowledgeRelation{{Kind: "supersedes", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "supersedes", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
 	commitKnowledgeRepo(t, source.RepoPath, "precedence declaration")
 	assertDetail("precedence", s.RebuildKnowledgeIndex(ctx, source), KindRelationConflict)
 	// Cross-source conflicts_with refuses at rebuild.
-	writeSourceRelations(t, source.RepoPath, "SRC-LAW", []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "HOME-LAW", SourceProjectID: "xsrc-home"}})
 	commitKnowledgeRepo(t, source.RepoPath, "conflict declaration")
 	assertDetail("cross-source conflict", s.RebuildKnowledgeIndex(ctx, source), KindRelationConflict)
 	// A source manifest that ships the registry refuses at rebuild.
@@ -340,7 +342,7 @@ func TestSourceRebuildAcceptsCrossSourceReferenceBetweenSources(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	writeSourceRelations(t, sourceA.RepoPath, "SRC-LAW", []KnowledgeRelation{{Kind: "refines", TargetID: "SRCB-LAW", SourceProjectID: "ref-src-b"}})
+	writeSourceRelations(t, sourceA.RepoPath, []KnowledgeRelation{{Kind: "refines", TargetID: "SRCB-LAW", SourceProjectID: "ref-src-b"}})
 	commitKnowledgeRepo(t, sourceA.RepoPath, "cross-source refinement")
 	// The target source is registered but not yet rebuilt: the declaring
 	// source's rebuild refuses the unresolved relation.
@@ -415,7 +417,10 @@ func TestQualifiedAndAmbiguousLawIdentity(t *testing.T) {
 
 // writeSourceRelations rewrites the source fixture manifest so lawID carries
 // exactly the given law relations, and leaves the tree uncommitted.
-func writeSourceRelations(t *testing.T, repo, lawID string, relations []KnowledgeRelation) {
+// writeSourceRelations rewrites the fixture manifest so SRC-LAW, the law every
+// federated source fixture carries, declares exactly the given relations, and
+// leaves the tree uncommitted.
+func writeSourceRelations(t *testing.T, repo string, relations []KnowledgeRelation) {
 	t.Helper()
 	shards, err := readKnowledgeShardsWorkingTree(repo)
 	if err != nil {
@@ -426,7 +431,7 @@ func writeSourceRelations(t *testing.T, repo, lawID string, relations []Knowledg
 		t.Fatal(err)
 	}
 	for index := range manifest.Records {
-		if manifest.Records[index].ID == lawID {
+		if manifest.Records[index].ID == "SRC-LAW" {
 			manifest.Records[index].LawRelations = relations
 		}
 	}
@@ -483,5 +488,259 @@ func TestMandatedLawsResolveAcrossSources(t *testing.T) {
 	}
 	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"MISSING-LAW"}, nil, false); err == nil {
 		t.Fatal("unknown mandate accepted")
+	}
+}
+
+func TestFederatedQ9PaginationSurvivesCollidingIDs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "pag-home", HomeLocatorID: "pag-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "pag-src", HomeLocatorID: "pag-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "pag-product", home, source,
+		"HOME-LAW", ".concord/docs/decisions/CD-0911-colliding-law.md", "Colliding source law")
+	first, err := s.QueryQ9(ctx, Q9Request{Product: "pag-product", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.NextCursor == nil {
+		t.Fatal("federated page returned no cursor")
+	}
+	second, err := s.QueryQ9(ctx, Q9Request{Product: "pag-product", Limit: 1, Cursor: *first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 1 {
+		t.Fatalf("second page lost the colliding source record: first=%+v second=%+v", first.Items, second.Items)
+	}
+	if second.Items[0].HomeProjectID != source.HomeProjectID {
+		t.Fatalf("second page carried the wrong source: %+v", second.Items[0])
+	}
+}
+
+func TestQualifiedMandatedLawResolvesThroughNamedSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "qmd-home", HomeLocatorID: "qmd-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "qmd-src", HomeLocatorID: "qmd-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "qmd-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0912-qualified-law.md", "Qualified source law")
+	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/SRC-LAW"}, nil, false); err != nil {
+		t.Fatalf("qualified mandated law refused: %v", err)
+	}
+	err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{source.HomeProjectID + "/a/b"}, nil, false)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidFilter {
+		t.Fatalf("malformed qualified mandate error = %v, want %v", err, KindInvalidFilter)
+	}
+}
+
+func TestFederatedQ9RefusesMalformedFilters(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "flt-home", HomeLocatorID: "flt-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "flt-src", HomeLocatorID: "flt-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "flt-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0913-filter-law.md", "Filter source law")
+	for _, req := range []Q9Request{
+		{Product: "flt-product", Text: strings.Repeat("x", 257)},
+		{Product: "flt-product", Since: "not-a-date"},
+	} {
+		result, err := s.QueryQ9(ctx, req)
+		if err == nil {
+			t.Errorf("invalid filter accepted authoritatively: req=%+v authority=%s", req, result.Authority)
+		}
+	}
+}
+
+func TestFederatedQ9CursorBindsToProjectFilter(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "curp-home", HomeLocatorID: "curp-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "curp-src", HomeLocatorID: "curp-src-loc", HeadRef: "HEAD"}
+	s, source := seedFederatedProduct(t, "curp-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0914-cursor-law.md", "Cursor source law")
+	first, err := s.QueryQ9(ctx, Q9Request{Product: "curp-product", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.NextCursor == nil {
+		t.Fatal("federated page returned no cursor")
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Product: "curp-product", Project: source.HomeProjectID, Limit: 1, Cursor: *first.NextCursor})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidCursor {
+		t.Fatalf("Product cursor accepted for a different Project filter: %v", err)
+	}
+}
+
+func TestSharedHomeCrossSourceConflictRefusesRebuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "shc-home", HomeLocatorID: "shc-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "shc-src", HomeLocatorID: "shc-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "shc-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0915-conflict-law.md", "Conflict source law")
+	resolved, err := s.ResolveKnowledgeQueryHome(ctx, "shc-product", "", KnowledgeHome{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home = resolved
+	shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range manifest.Records {
+		if manifest.Records[index].ID == "HOME-LAW" {
+			manifest.Records[index].LawRelations = []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
+		}
+	}
+	writeManifestShards(t, home.RepoPath, manifest)
+	commitKnowledgeRepo(t, home.RepoPath, "cross-source conflict from shared home")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err == nil {
+		t.Fatal("shared-home cross-source conflict rebuilt without refusal")
+	}
+}
+
+func TestConsequentialMandateCheckRefusesStaleSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "stl-home", HomeLocatorID: "stl-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "stl-src", HomeLocatorID: "stl-src-loc", HeadRef: "HEAD"}
+	s, source := seedFederatedProduct(t, "stl-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0916-stale-law.md", "Stale source law")
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "HOME-LAW", SourceProjectID: home.HomeProjectID}})
+	commitKnowledgeRepo(t, source.RepoPath, "source conflict after successful projection")
+	if err := s.RebuildKnowledgeIndex(ctx, source); err == nil {
+		t.Fatal("setup: expected rebuild refusal")
+	}
+	// The refused rebuild left the source stale. The consequential boundary
+	// verifies the registered source set's freshness before it trusts any
+	// projection rows, so the stale source refuses instead of passing.
+	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+		t.Fatal("consequential mandate check accepted stale source rows after a cross-source conflict")
+	}
+}
+
+func TestWorkflowLawPinsDeriveAcrossSources(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "pin-home", HomeLocatorID: "pin-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "pin-src", HomeLocatorID: "pin-src-loc", HeadRef: "HEAD"}
+	s, source := seedFederatedProduct(t, "pin-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0917-pin-law.md", "Pin source law")
+	seedKnowledgeWork(t, s, "pin-review-work", "Pin review work")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM fold_guard`, source.HomeProjectID); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	revisions, err := deriveWorkflowLawRevisionsTx(ctx, tx, "pin-review-work", []string{"SRC-LAW"}, nil)
+	if err != nil {
+		t.Fatalf("source-only mandated law cannot derive pins: %v", err)
+	}
+	if len(revisions) != 1 || revisions[0].LawID != "SRC-LAW" || revisions[0].ContentHash == "" {
+		t.Fatalf("pins = %+v", revisions)
+	}
+}
+
+func TestQ10BareIDScopesToRegisteredSourceSet(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := KnowledgeHome{HomeProjectID: "pop-home", HomeLocatorID: "pop-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "pop-src", HomeLocatorID: "pop-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "pop-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0918-pop-law.md", "Population source law")
+	repo := initKnowledgeRepo(t)
+	foreign := KnowledgeHome{HomeProjectID: "foreign-home", HomeLocatorID: "foreign-home-loc", RepoPath: repo, HeadRef: "HEAD"}
+	writeManifestFixture(t, repo, manifestFixture{
+		ID: "SRC-LAW", Kind: "decision", Path: ".concord/docs/decisions/CD-0919-foreign.md",
+		Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Foreign law", Summary: "Foreign rule",
+		Scopes: homeScope(),
+	})
+	commitKnowledgeRepo(t, repo, "foreign law")
+	authorizeKnowledgeProductHome(t, s, "foreign-product", foreign, foreign.HomeProjectID)
+	if err := s.RebuildKnowledgeIndex(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.QueryQ10(ctx, Q10Request{Product: "pop-product", KnowledgeID: "SRC-LAW"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "canonical" {
+		t.Fatalf("a foreign Product's same-ID law made this Product's law ambiguous: %+v", result)
+	}
+	if result.Note == nil || result.Note.HomeProjectID != source.HomeProjectID {
+		t.Fatalf("bare ID resolved outside the registered source set: %+v", result.Note)
+	}
+}
+
+func TestProductKnowledgeSourceTableIsFoldOnly(t *testing.T) {
+	t.Parallel()
+	home := KnowledgeHome{HomeProjectID: "fod-home", HomeLocatorID: "fod-home-loc", HeadRef: "HEAD"}
+	source := KnowledgeHome{HomeProjectID: "fod-src", HomeLocatorID: "fod-src-loc", HeadRef: "HEAD"}
+	s, _ := seedFederatedProduct(t, "fod-product", home, source,
+		"SRC-LAW", ".concord/docs/decisions/CD-0920-fold-law.md", "Fold source law")
+	db := s.DatabaseForTesting()
+	for _, statement := range []string{
+		`DELETE FROM product_knowledge_sources WHERE product_id='fod-product'`,
+		`UPDATE product_knowledge_sources SET locator_id='fod-other' WHERE product_id='fod-product'`,
+		`INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('fod-product','fod-x','fod-x-loc','now')`,
+	} {
+		if _, err := db.Exec(statement); err == nil {
+			t.Fatalf("direct mutation outside the event fold succeeded: %s", statement)
+		}
+	}
+}
+
+func TestRegisteredSourceSurvivesReplayFromLog(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	now := time.Now().UTC()
+	homeRepo := t.TempDir()
+	srcRepo := t.TempDir()
+	events := []Event{
+		{EventID: "replay-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Replay","stage_maturity":"production","stage_audience_commitment":"operator_only"}`)},
+		{EventID: "replay-home-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "replay-home", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Home"}`)},
+		{EventID: "replay-src-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "replay-src", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"display_name":"Source"}`)},
+		{EventID: "replay-home-locator", Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "replay-home", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"project_id":"replay-home","locator_id":"replay-home-loc","kind":"canonical_path","value":"` + homeRepo + `","normalized_value":"` + homeRepo + `","expected_version":1,"resulting_version":2}`)},
+		{EventID: "replay-src-locator", Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "replay-src", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"project_id":"replay-src","locator_id":"replay-src-loc","kind":"canonical_path","value":"` + srcRepo + `","normalized_value":"` + srcRepo + `","expected_version":1,"resulting_version":2}`)},
+		{EventID: "replay-home-member", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"product_id":"replay-product","project_id":"replay-home","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
+		{EventID: "replay-src-member", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "replay-product", Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: []byte(`{"product_id":"replay-product","project_id":"replay-src","role":"secondary","reason":"fixture","expected_version":2,"resulting_version":3}`)},
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{
+		VersionRef(SubjectProduct, "replay-product"): 0,
+		VersionRef(SubjectProject, "replay-home"):    0,
+		VersionRef(SubjectProject, "replay-src"):     0,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "replay-product", ProjectID: "replay-home", LocatorID: "replay-home-loc", Reason: "replay fixture", ExpectedVersion: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "replay-product", ProjectID: "replay-src", LocatorID: "replay-src-loc", Reason: "replay fixture", ExpectedVersion: 4}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := rebuildFromLogTx(ctx, tx); err != nil {
+		t.Fatalf("registered source registration breaks the domain-log rebuild: %v", err)
+	}
+	var registered int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM product_knowledge_sources WHERE product_id='replay-product' AND project_id='replay-src' AND locator_id='replay-src-loc'`).Scan(&registered); err != nil {
+		t.Fatal(err)
+	}
+	if registered != 1 {
+		t.Fatalf("source registration rows after replay = %d, want 1", registered)
 	}
 }

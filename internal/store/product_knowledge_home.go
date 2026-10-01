@@ -138,26 +138,11 @@ type ProductKnowledgeHomeDesignation struct {
 // DesignateProductKnowledgeHome records a Product's durable knowledge home as
 // event-sourced operator configuration (PM6 §2/§3).
 func (s *Store) DesignateProductKnowledgeHome(ctx context.Context, request ProductKnowledgeHomeDesignation) (ApplyOperationResult, error) {
-	if request.ProductID == "" || request.ProjectID == "" || request.LocatorID == "" || request.ExpectedVersion < 1 {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_knowledge_home_designate", "Product, member Project, locator, and positive Product version are required", false,
-			"supply an existing Product, its current version, and a member Project locator")
-	}
-	if request.Reason == "" {
-		request.Reason = "operator designation"
-	}
-	encoded, err := json.Marshal(knowledgeHomePayload{
-		ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-		Reason: request.Reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
-	})
-	if err != nil {
-		return ApplyOperationResult{}, err
-	}
-	return ApplyOperationWithResult(ctx, s, Operation{
-		Events: []Event{{
-			EventID: operatorEventID("product.knowledge_home_designated", request.ProductID), Kind: "product.knowledge_home_designated",
-			SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded,
-		}},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
+	return applyProductKnowledgeConfiguration(ctx, s, "product_knowledge_home_designate", "product.knowledge_home_designated", "operator designation", ProductKnowledgeSourceRegistration(request), func(reason string) any {
+		return knowledgeHomePayload{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
+		}
 	})
 }
 

@@ -151,29 +151,41 @@ type ProductKnowledgeSourceRegistration struct {
 	ExpectedVersion int64
 }
 
-// RegisterProductKnowledgeSource records a member Project canonical-path
-// locator as a Product knowledge source (CD-0200).
-func (s *Store) RegisterProductKnowledgeSource(ctx context.Context, request ProductKnowledgeSourceRegistration) (ApplyOperationResult, error) {
+// applyProductKnowledgeConfiguration validates the shared operator request
+// shape and appends one Product-scoped event that configures the Product's
+// knowledge source set (PM6 §2, CD-0200): the designated home, a registered
+// source, or a removed source. The event kind owns the fold; the Product
+// version check serializes the mutations. The payload constructor receives
+// the reason after the default fills in, so the event always carries one.
+func applyProductKnowledgeConfiguration(ctx context.Context, s *Store, op, eventKind, defaultReason string, request ProductKnowledgeSourceRegistration, payload func(reason string) any) (ApplyOperationResult, error) {
 	if request.ProductID == "" || request.ProjectID == "" || request.LocatorID == "" || request.ExpectedVersion < 1 {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_knowledge_source_register", "Product, member Project, locator, and positive Product version are required", false,
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, op, "Product, member Project, locator, and positive Product version are required", false,
 			"supply an existing Product, its current version, and a member Project locator")
 	}
 	if request.Reason == "" {
-		request.Reason = "operator source registration"
+		request.Reason = defaultReason
 	}
-	encoded, err := json.Marshal(knowledgeSourcePayload{
-		ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-		Reason: request.Reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
-	})
+	encoded, err := json.Marshal(payload(request.Reason))
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
 	return ApplyOperationWithResult(ctx, s, Operation{
 		Events: []Event{{
-			EventID: operatorEventID("product.knowledge_source_registered", request.ProductID), Kind: "product.knowledge_source_registered",
+			EventID: operatorEventID(eventKind, request.ProductID), Kind: eventKind,
 			SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded,
 		}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
+	})
+}
+
+// RegisterProductKnowledgeSource records a member Project canonical-path
+// locator as a Product knowledge source (CD-0200).
+func (s *Store) RegisterProductKnowledgeSource(ctx context.Context, request ProductKnowledgeSourceRegistration) (ApplyOperationResult, error) {
+	return applyProductKnowledgeConfiguration(ctx, s, "product_knowledge_source_register", "product.knowledge_source_registered", "operator source registration", request, func(reason string) any {
+		return knowledgeSourcePayload{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
+		}
 	})
 }
 
@@ -181,31 +193,17 @@ func (s *Store) RegisterProductKnowledgeSource(ctx context.Context, request Prod
 // designated home is not a removable row: it never appears in the table, so
 // its removal is a typed not-found refusal (CD-0200 keeps exactly one home).
 func (s *Store) RemoveProductKnowledgeSource(ctx context.Context, request ProductKnowledgeSourceRegistration) (ApplyOperationResult, error) {
-	if request.ProductID == "" || request.ProjectID == "" || request.LocatorID == "" || request.ExpectedVersion < 1 {
-		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "product_knowledge_source_remove", "Product, member Project, locator, and positive Product version are required", false,
-			"supply an existing Product, its current version, and the registered source locator")
-	}
-	if request.Reason == "" {
-		request.Reason = "operator source removal"
-	}
-	encoded, err := json.Marshal(knowledgeSourcePayload{
-		ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
-		Reason: request.Reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
-	})
-	if err != nil {
-		return ApplyOperationResult{}, err
-	}
-	return ApplyOperationWithResult(ctx, s, Operation{
-		Events: []Event{{
-			EventID: operatorEventID("product.knowledge_source_removed", request.ProductID), Kind: "product.knowledge_source_removed",
-			SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: encoded,
-		}},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
+	return applyProductKnowledgeConfiguration(ctx, s, "product_knowledge_source_remove", "product.knowledge_source_removed", "operator source removal", request, func(reason string) any {
+		return knowledgeSourcePayload{
+			ProductID: request.ProductID, ProjectID: request.ProjectID, LocatorID: request.LocatorID,
+			Reason: reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1,
+		}
 	})
 }
 
-// KnowledgeSourceNames a Product's registered knowledge sources (CD-0200),
-// home first, then registrations ordered by Project and locator.
+// ProductKnowledgeSourceRegistrations names a Product's registered knowledge
+// sources (CD-0200), home first, then registrations ordered by Project and
+// locator.
 func (s *Store) ProductKnowledgeSourceRegistrations(ctx context.Context, productID string) ([]KnowledgeHome, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "product_knowledge_sources", "store is not open", false, "open a store before reading knowledge sources")
@@ -330,20 +328,24 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// validateFederatedSourceManifest validates a registered source manifest's
-// cross-source law relations over the Product's verified source set at the
-// rebuild boundary (CD-0200). A relation target outside the declaring
+// validateFederatedSourceManifest validates a manifest's cross-source law
+// relations over the Product's verified source set at the rebuild boundary
+// (CD-0200). It runs for both federated roles: a registered source, and the
+// designated shared-law home. A relation target outside the declaring
 // manifest names its source Project; the rebuild refuses a target Project
 // outside the source set, an unresolved target law, a conflicts_with pair
-// across sources, and any supersedes/refines/subordinate_to edge from this
-// non-home source toward the shared home's law: no inferred precedence, and
-// conflicts block until an accepted relation or amendment resolves them.
+// across sources, and — from a non-home source only — any
+// supersedes/refines/subordinate_to edge toward the shared home's law: no
+// inferred precedence, and conflicts block until an accepted relation or
+// amendment resolves them. The shared home may declare precedence toward
+// member source law; the reverse refuses at the source's own rebuild.
 func validateFederatedSourceManifest(ctx context.Context, q queryer, home KnowledgeHome, manifest KnowledgeManifest) error {
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, q, home)
 	if err != nil {
 		return err
 	}
-	if productID == "" || designated {
+	sourceRole := !designated
+	if sourceRole && productID == "" {
 		return newFailure(KindInvariantViolation, "rebuild_knowledge_index", "a registered source manifest validated outside a registered source role", false, "rebuild the source through the Product's registered source set")
 	}
 	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "rebuild_knowledge_index")
@@ -369,7 +371,7 @@ func validateFederatedSourceManifest(ctx context.Context, q queryer, home Knowle
 			if relation.Kind == "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "cross-source conflicts_with between "+record.ID+" and "+relation.SourceProjectID+"/"+relation.TargetID+" blocks the rebuild", false, "resolve the conflict through an accepted amendment before indexing either side")
 			}
-			if target.HomeLocatorID == sharedLawHomeLocator(ctx, q, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
+			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, q, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
 			}
 			var present int
@@ -398,7 +400,7 @@ func sharedLawHomeLocator(ctx context.Context, q queryer, productID string) stri
 // the shared home carries the registry, so a source's Domain references
 // validate against the registry the shared home projected, and the source
 // writes only its law Domain homes and applicability rows.
-func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, home KnowledgeHome, productID string, manifest KnowledgeManifest) (domainProjection, error) {
+func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, productID string, manifest KnowledgeManifest) (domainProjection, error) {
 	result := domainProjection{ProductID: productID, SourceRole: true}
 	var productKey, rootDomain, registryHash string
 	err := q.QueryRowContext(ctx, `SELECT product_key,root_domain_id,content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&productKey, &rootDomain, &registryHash)

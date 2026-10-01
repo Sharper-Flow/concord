@@ -3850,6 +3850,12 @@
               },
               "successor_id": {
                 "$ref": "#/$defs/id"
+              },
+              "home_project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "home_locator_id": {
+                "$ref": "#/$defs/id"
               }
             }
           }
@@ -3860,6 +3866,40 @@
         "watermark": {
           "type": "string",
           "maxLength": 256
+        },
+        "source_watermarks": {
+          "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "locator_id",
+              "watermark",
+              "authority"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "locator_id": {
+                "$ref": "#/$defs/id"
+              },
+              "watermark": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "authority": {
+                "type": "string",
+                "enum": [
+                  "authoritative",
+                  "degraded"
+                ]
+              }
+            }
+          }
         }
       }
     },

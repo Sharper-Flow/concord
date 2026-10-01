@@ -536,13 +536,6 @@ func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
 	return parseKnowledgeManifestForRole(data, manifestRecordPathPrefix, manifestSharedHomeRole)
 }
 
-// parseKnowledgeManifestWithPaths validates record paths under the prefix the
-// manifest's layout tier carries (CD-0194 D5). Authoring passes the current
-// tier; a revision read from history passes the tier that revision has.
-func parseKnowledgeManifestWithPaths(data []byte, pathPrefix string) (KnowledgeManifest, error) {
-	return parseKnowledgeManifestForRole(data, pathPrefix, manifestSharedHomeRole)
-}
-
 func parseKnowledgeManifestForRole(data []byte, pathPrefix string, role knowledgeManifestRole) (KnowledgeManifest, error) {
 	if len(data) == 0 || len(data) > maxKnowledgeManifest {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is empty or exceeds the bounded size", false, "publish a bounded v1 manifest")
@@ -589,10 +582,6 @@ func applyLegacyAuthorityTier(manifest *KnowledgeManifest) {
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
 	return validateKnowledgeManifestForRole(manifest, manifestRecordPathPrefix, manifestSharedHomeRole)
-}
-
-func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix string) error {
-	return validateKnowledgeManifestForRole(manifest, pathPrefix, manifestSharedHomeRole)
 }
 
 // knowledgeManifestRole names where a manifest sits in a federated Product

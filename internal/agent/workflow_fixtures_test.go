@@ -12,7 +12,7 @@ import (
 
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := pm1fixture.SeedCurrentProductDomain(context.Background(), s, "product-1", "project-1"); err != nil {
+	if err := pm1fixture.SeedCurrentProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCurrentProductDomain: %v", err)
 	}
 }

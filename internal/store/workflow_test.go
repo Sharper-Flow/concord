@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -846,6 +847,23 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	locatorPath := t.TempDir()
 	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, locatorPath)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// The synthetic knowledge home carries the canonical shard layout, so the
+	// law context's registry locator resolves against a real file, and every
+	// projected law document opens inside the home checkout.
+	docsDir := filepath.Join(locatorPath, ".concord", "docs")
+	if err := os.MkdirAll(filepath.Join(docsDir, "knowledge"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	registry := `{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]}`
+	if err := os.WriteFile(filepath.Join(docsDir, "knowledge", "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "knowledge", "manifest.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docsDir, "spec.md"), []byte("# Synthetic test law\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{

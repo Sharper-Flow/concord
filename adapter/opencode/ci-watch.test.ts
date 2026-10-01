@@ -805,3 +805,99 @@ test("a queued report that cannot drain yet still holds the session's admission 
   expect(third.status).toBe("started")
   await ciWatchSettled(String(third.watch_id))
 })
+
+test("a new watch posts one noReply notice naming repo, selector, mode, and budget, and a reused watch posts none", async () => {
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
+  const spawner: VerbSpawner = async () => held.promise
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture, {
+    repo: "owner/name",
+    selector: { kind: "pr", value: "12" },
+    mode: "merge",
+    time_seconds_max: 600,
+  })
+  expect(started.status).toBe("started")
+  await until(() => fixture.posts.some((post) => post.url === "/session/{id}/message"), "the start notice")
+  const notices = fixture.posts.filter((post) => post.url === "/session/{id}/message")
+  expect(notices).toHaveLength(1)
+  const body = notices[0].body as {
+    noReply?: boolean
+    parts: Array<{ type: string; text: string; ignored?: boolean; synthetic?: boolean; metadata?: Record<string, unknown> }>
+  }
+  expect(body.noReply).toBe(true)
+  expect(body.parts).toHaveLength(1)
+  expect(body.parts[0].type).toBe("text")
+  expect(body.parts[0].ignored).toBe(true)
+  expect(body.parts[0].synthetic).toBeUndefined()
+  expect(body.parts[0].metadata).toEqual({ "concord.ci_watch_notice": started.watch_id })
+  expect(body.parts[0].text).toContain("owner/name")
+  expect(body.parts[0].text).toContain("pr:12")
+  expect(body.parts[0].text).toContain("merge mode")
+  expect(body.parts[0].text).toContain("600")
+  // The notice spends no model turn: it never touches the prompt route.
+  expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(false)
+  // A reused watch posts no second notice.
+  const reused = await startWatch(fixture, {
+    repo: "owner/name",
+    selector: { kind: "pr", value: "12" },
+    mode: "merge",
+    time_seconds_max: 600,
+  })
+  expect(reused.status).toBe("already_watching")
+  expect(reused.watch_id).toBe(started.watch_id)
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/message")).toHaveLength(1)
+  held.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "cancelled" }), stderr: "" })
+  await ciWatchSettled(String(started.watch_id))
+})
+
+test("the start notice always precedes the terminal report", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const client = fixture.client
+  const post = client.post
+  client.post = async (request: { url: string; body?: unknown }) => {
+    // Delay the notice so a settle that did not await it would deliver first.
+    if (request.url === "/session/{id}/message") await new Promise((resolve) => setTimeout(resolve, 30))
+    return post(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const noticeAt = fixture.posts.findIndex((entry) => entry.url === "/session/{id}/message")
+  const reportAt = fixture.posts.findIndex((entry) => entry.url === "/session/{id}/prompt_async")
+  expect(noticeAt).toBeGreaterThanOrEqual(0)
+  expect(reportAt).toBeGreaterThan(noticeAt)
+})
+
+test("a failed notice post is logged at warn and never blocks or fails the report", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  const client = fixture.client
+  const post = client.post
+  client.post = async (request: { url: string; body?: unknown }) => {
+    if (request.url === "/session/{id}/message") return { response: new Response(null, { status: 500 }) }
+    return post(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const warns = fixture.posts.filter((entry) => entry.url === "/log" && (entry.body as { level: string }).level === "warn")
+  expect(warns.some((entry) => String((entry.body as { message: string }).message).includes("start notice"))).toBe(true)
+  const prompts = fixture.posts.filter((entry) => entry.url === "/session/{id}/prompt_async")
+  expect(prompts).toHaveLength(1)
+  expect((prompts[0].body as { parts: Array<{ text: string }> }).parts[0].text).toContain('"status": "success"')
+})

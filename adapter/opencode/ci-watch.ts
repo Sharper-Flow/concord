@@ -31,6 +31,11 @@ const SESSION_STATUS_ROUTE = "/session/status"
 const PROMPT_ASYNC_ROUTE = "/session/{id}/prompt_async"
 const LOG_ROUTE = "/log"
 
+// The part metadata key that marks a user message as this module's start
+// notice. The plugin's chat.message hook reads it to skip the notice, so the
+// marker lives here where the notice is written.
+export const CI_WATCH_NOTICE_METADATA = "concord.ci_watch_notice"
+
 // The verb's own request contract (cmd/concord/ci_wait.go): one JSON object
 // on stdin, one JSON report on stdout, one bounded slice per invocation.
 export type CiWatchArgs = {
@@ -51,6 +56,10 @@ type ActiveWatch = {
   binary: string
   stateFile: string
   startedAt: number
+  // The start notice's task, set at admission and awaited by settle, so the
+  // notice always precedes the terminal report. It never rejects: an announce
+  // failure is logged at warn and resolves.
+  notice?: Promise<void>
 }
 
 export type VerbSpawner = (
@@ -439,6 +448,7 @@ async function executeConcordCiWatch(
   const watch = createWatch(context.sessionID, args, binary)
   watchKeys.set(key, watch.id)
   startWatch(watch)
+  announceWatchNotice(watch)
   return watchResult(watch, "started")
 }
 
@@ -558,6 +568,65 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
   }
 }
 
+// --- Start notice ---
+
+// noticeText is the operator-facing line the chat shows while a watch runs.
+// The tool result itself is one generic line the TUI collapses, so without
+// this the session looks dead between admission and the terminal report.
+function noticeText(watch: ActiveWatch): string {
+  const selector = `${watch.args.selector.kind}:${watch.args.selector.value}`
+  const mode = watch.args.mode ?? "checks"
+  const budget = watch.args.time_seconds_max ?? 1800
+  return `⏳ Watching CI for ${watch.args.repo} ${selector} (${mode} mode, up to ${budget}s). This session stays idle; the result arrives here when the wait ends.`
+}
+
+// The notice is posted from a task started at admission, beside the slice
+// loop, and only after the session goes idle: a user message inserted while
+// the coordinator's turn still runs becomes the loop's lastUser and can change
+// that turn. The part is ignored and not synthetic, so the TUI renders the
+// line while the host's message-v2 conversion drops it from model context, and
+// noReply makes the synchronous route return before any turn runs. A failure
+// is logged at warn and never blocks or fails the watch or its report.
+function announceWatchNotice(watch: ActiveWatch): void {
+  watch.notice = postWatchNotice(watch).catch((error) => {
+    log("warn", `ci-watch ${watch.id}: the start notice was not posted (${errorDetail(error)})`)
+  })
+}
+
+async function postWatchNotice(watch: ActiveWatch): Promise<void> {
+  await waitForIdle(watch.sessionID)
+  const identity = await readSessionIdentity(watch.sessionID)
+  const client = requireClient("post the start notice")
+  const body: Record<string, unknown> = {
+    noReply: true,
+    parts: [
+      {
+        type: "text",
+        text: noticeText(watch),
+        ignored: true,
+        metadata: { [CI_WATCH_NOTICE_METADATA]: watch.id },
+      },
+    ],
+  }
+  if (identity.agent !== undefined) body.agent = identity.agent
+  if (identity.model !== undefined) body.model = identity.model
+  const result = await client.post({ url: SESSION_MESSAGES_ROUTE, path: { id: watch.sessionID }, body, signal: AbortSignal.timeout(10_000) })
+  if (!result.response.ok) throw new Error(`the host session message route answered ${result.response.status}`)
+}
+
+// isCiWatchNoticeMessage reports whether every part the host's chat.message
+// hook receives is a ci-watch start-notice part. A message with no parts is
+// never a notice: the host may still be adding parts when the hook fires.
+export function isCiWatchNoticeMessage(parts: unknown): boolean {
+  if (!Array.isArray(parts) || parts.length === 0) return false
+  return parts.every((part) => {
+    if (part === null || typeof part !== "object") return false
+    const metadata = (part as { metadata?: unknown }).metadata
+    if (metadata === null || typeof metadata !== "object") return false
+    return CI_WATCH_NOTICE_METADATA in (metadata as Record<string, unknown>)
+  })
+}
+
 // --- Delivery ---
 
 function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
@@ -569,6 +638,9 @@ function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
 }
 
 async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
+  // The notice always precedes the report: settle waits for the announce task
+  // before it delivers. The task never rejects, so this cannot fail delivery.
+  await watch.notice
   const text = formatReport(watch, report)
   try {
     const outcome = await deliverTerminalReport(watch, text)

@@ -207,8 +207,16 @@ type workflowActionCompletedPayload struct {
 	// next action that opens or accepts against this step epoch. CD-0067
 	// D2 additionally binds the canonical digest of the lane packet so
 	// the durable record names what the window was opened for.
-	WorkerLaneID       string `json:"worker_lane_id,omitempty"`
-	WorkerPacketDigest string `json:"worker_packet_digest,omitempty"`
+	WorkerLaneID string `json:"worker_lane_id,omitempty"`
+	// The dispatch_worker completion binds the authorized lane's registry
+	// identity next to the attempt and packet digest, so the fold can bind
+	// the attempt in flight from the durable record alone. The completion
+	// builder writes the quartet together; a completion without one is a
+	// pre-binding authorization the fold leaves unbound.
+	WorkerLaneVersion     int64  `json:"worker_lane_version,omitempty"`
+	WorkerLaneDigest      string `json:"worker_lane_digest,omitempty"`
+	WorkerCapabilityClass string `json:"worker_capability_class,omitempty"`
+	WorkerPacketDigest    string `json:"worker_packet_digest,omitempty"`
 	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
@@ -1900,6 +1908,30 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
+	// The lane identity is the dispatch_worker completion's in-flight
+	// binding input, so it is reserved for that action and must arrive all
+	// together: a partial identity would bind an attempt the fold cannot
+	// read back.
+	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneVersion != 0, p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
+	laneBound, laneUnbound := 0, 0
+	for _, set := range laneFields {
+		if set {
+			laneBound++
+		} else {
+			laneUnbound++
+		}
+	}
+	if laneBound > 0 && laneUnbound > 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is partially bound", false, "record the complete lane identity on the dispatch_worker completion")
+	}
+	if laneBound > 0 {
+		if p.ActionID != "dispatch_worker" {
+			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
+		}
+		if !workflowString(p.WorkerLaneID, 32) || p.WorkerLaneVersion < 1 || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
+			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
+		}
+	}
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
 	}
@@ -2095,8 +2127,27 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return err
 			}
 		}
+		// The dispatch_worker completion binds its authorized attempt durably
+		// in flight: the attempt is visible in worker_attempts from the
+		// moment its authorization completes, before any worker evidence
+		// exists. A completion without the lane identity is a pre-binding
+		// authorization and stays unbound.
+		if p.ActionID == "dispatch_worker" && p.WorkerLaneID != "" {
+			if err := bindWorkerAttemptInFlightTx(ctx, tx, event, p); err != nil {
+				return err
+			}
+		}
 		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
+		// accept_worker_result is the one advance that moves the shared step
+		// off a step holding live authorized work, so it waits while another
+		// attempt bound at this step is still in flight (see the hold's own
+		// comment).
+		if p.ActionID == "accept_worker_result" && advancesStep {
+			if err := rejectStepAdvancePastLiveAttemptTx(ctx, tx, event.SubjectID, currentStep, p.WorkerAttemptID, event.Seq); err != nil {
 				return err
 			}
 		}
@@ -2280,6 +2331,61 @@ func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definiti
 		return nil
 	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
+}
+
+// bindWorkerAttemptInFlightTx records the durable in-flight binding the
+// dispatch_worker completion owes: the authorized attempt becomes a
+// worker_attempts row the moment its authorization completes, before any
+// worker evidence exists. The binding is what keeps a live attempt visible
+// while its worker runs, so another coordinator can neither treat its window
+// as orphaned nor advance the shared step past it. The lane identity rides
+// the completion payload; the attempt_id primary key refuses a second
+// authorization for an attempt identity already in flight.
+func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
+		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
+		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneVersion, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
+	if err != nil {
+		if isIdentityConflict(err) {
+			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already authorized in flight", false, "open a fresh dispatch_worker authorization with a new attempt identity")
+		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot create the in-flight worker attempt binding", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+// rejectStepAdvancePastLiveAttemptTx is the accept-side half of the step
+// hold. accept_worker_result moves the shared workflow off the step, so it
+// must wait while another authorized attempt bound at that step is still in
+// flight: authorized, with no worker evidence recorded yet. Without the
+// hold, a second coordinator's accept advances the step away from the live
+// attempt and its late evidence refuses at a step where its authorization no
+// longer resolves. The accepted attempt itself is excluded: its report is
+// complete, which is the only lifecycle accept_worker_result admits.
+// beforeSeq bounds the binding search at the caller's own sequence position,
+// so a replay fold sees only the bindings that preceded its event.
+func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID, stepID, acceptedAttemptID string, beforeSeq int64) error {
+	query := `SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.attempt_id<>? AND a.lifecycle_state='in_flight' AND EXISTS (
+	 SELECT 1 FROM domain_events c WHERE c.subject_type=? AND c.subject_id=a.work_id AND c.kind=?
+	   AND json_extract(c.payload,'$.action_id')='dispatch_worker'
+	   AND json_extract(c.payload,'$.worker_attempt_id')=a.attempt_id
+	   AND json_extract(c.payload,'$.step_id')=?`
+	args := []any{workID, acceptedAttemptID, string(SubjectWorkItem), WorkflowActionCompleted, stepID}
+	if beforeSeq > 0 {
+		query += ` AND c.seq<?`
+		args = append(args, beforeSeq)
+	}
+	query += `)`
+	var live int
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&live); err != nil {
+		return workflowProjectionError(err, "cannot inspect in-flight worker attempts for the current workflow attempt")
+	}
+	if live == 0 {
+		return nil
+	}
+	return newFailure(KindIllegalLifecycleTransition, "fold_event", "another live worker attempt holds the step", false, "wait for the live attempt's worker evidence to land, then accept again")
 }
 
 func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID string) (int64, int64, bool, error) {
@@ -3120,6 +3226,16 @@ func upcastWorkflowActionCompletedV1(event Event) (Event, error) {
 	}
 	event.Payload = encoded
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+// upcastWorkflowActionCompletedV2 carries a v2 completion into the v3 payload
+// that may bind the dispatch window's lane identity. v2 completions never
+// carried one, so the upcast is the bytes unchanged at the new version: the
+// fold reads the absent identity as a pre-binding authorization and binds no
+// in-flight row for it.
+func upcastWorkflowActionCompletedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
 	return event, nil
 }
 

@@ -205,8 +205,8 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	if reusedResponse.Outcome != OutcomeError || reusedResponse.Error == nil || !strings.Contains(reusedResponse.Error.Message, "approval challenge binding invalid") {
 		t.Fatalf("reused approval = %+v, want an approval-binding refusal", reusedResponse.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 7 {
-		t.Fatalf("reused approval created %d worker attempts, want 7", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 8 {
+		t.Fatalf("reused approval created %d worker attempts, want 8 (the approved retry's in-flight binding included)", got)
 	}
 
 	// The wall re-arms: a fresh request mints a fresh challenge bound to the

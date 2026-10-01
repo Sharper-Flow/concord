@@ -35,6 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
+import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReportsForMessage, publishCiWatchDefinition } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -68,6 +69,9 @@ async function pushSessionGoalTitle(input: unknown, output: { context: string[] 
 
 export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>, options?: PluginOptions) {
   hostControlPlane().bind(input)
+  // The CI watcher delivers through the same client, so the plugin factory is
+  // the one place the watcher transport is bound.
+  bindCiWatchClient(input)
   // CD-0182: the session opener is the operator's host placement. The host
   // passes the options of the tuple entry to this factory, and the
   // session_opener value is the one argv template a coordinator may run to
@@ -98,12 +102,31 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       concord_work_relate: work_relate,
       concord_work_compact: work_compact,
       concord_work_start: work_start,
+      concord_ci_watch,
     },
-    "chat.message": async (input: { sessionID: string }) => {
+    "chat.message": async (
+      input: { sessionID: string; messageID?: string },
+      output?: { message?: { id?: unknown }; parts?: unknown[] },
+    ) => {
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
+      // The CI watcher queues a terminal report it could not confirm and
+      // injects it here, so a lost wake reaches the model on the next turn.
+      // The host validates drained parts against the stored part schema, so
+      // the drain needs the message the parts will belong to: the input
+      // messageID when the host supplies one, else the host-generated id on
+      // the output message record.
+      if (output !== undefined && Array.isArray(output.parts)) {
+        drainQueuedCiReportsForMessage(input.sessionID, input.messageID, output)
+      }
     },
-    "tool.definition": publishWorkStartDefinition,
+    "tool.definition": async (
+      definitionInput: { toolID: string },
+      output: { description: string; parameters: unknown; jsonSchema?: unknown },
+    ) => {
+      await publishWorkStartDefinition(definitionInput, output)
+      await publishCiWatchDefinition(definitionInput, output)
+    },
     event: async ({ event }: { event: unknown }) => {
       const result = await failDispatchedWorker(event)
       if (result?.error) {

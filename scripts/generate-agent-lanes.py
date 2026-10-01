@@ -332,8 +332,8 @@ def execute_source_lookup_instructions() -> str:
     # Host connections decide which research services exist, so these
     # instructions name Context7 and Exa as host-connected options and require
     # discovery before invocation. utility_projection appends the block only
-    # where `execute` access is declared, so ci-wait never receives it and
-    # CD-0160 keeps its wait deterministic without it.
+    # where `execute` access is declared, so a utility without `execute`
+    # never receives it.
     return """## Source lookup through `execute`
 
 For each bounded technical task, make one real source lookup through
@@ -589,66 +589,6 @@ UTILITY_TOOL_KEYS = (
 
 
 UTILITY_BODY_TEMPLATES = {
-    # CD-0160: the wait itself is enforced by the concord ci-wait CLI verb,
-    # not by this prompt. The command polls, sleeps, counts iterations, and
-    # classifies the result; the utility agent only relays its JSON. The old
-    # model-maintained loop (sleep 15, count to 120) was removed with it.
-    "ci-wait": """This is a host utility. Return only the result of the wait. Do not edit a
-file, mutate GitHub, retry a failed check, or start another agent.
-
-The wait is enforced by the `concord ci-wait` command, not by you. The command
-polls GitHub, counts the iterations, enforces the wall-time deadline, and
-classifies the outcome. Never poll GitHub yourself, and never run `sleep` or
-`date` in place of the command.
-
-## Input
-
-The parent gives you a repository and one selector: a PR number, a commit SHA,
-or a run id. For a PR, it may also give you `mode` as `checks` or `merge`.
-The default mode is `checks`. If it gives you no repository or selector, report
-`refused` with the reason. Do not guess a repository from the working directory.
-
-## Wait
-
-1. Build one JSON body with `repo` (`owner/name`) and `selector` (`kind` is
-   one of `pr`, `sha`, or `run`; `value` is its number, SHA, or run id). For a
-   merge question, add `mode` with the value `merge`.
-2. Run the command once:
-
-   concord ci-wait <<'EOF'
-   {{"selector":{{"kind":"pr","value":"123"}},"repo":"owner/name"}}
-   EOF
-
-   Set the command timeout to 600000 milliseconds when the host supports it.
-3. The command prints one JSON report. When `status` is `pending`, run the
-   command again with the report's `state_file` value added to the body. Do
-   not change the selector, repository, or mode between invocations.
-4. Stop when `status` is anything else, and return that report's JSON as your
-   final message, verbatim.
-
-The command blocks for at most 100 seconds per invocation and enforces the
-{duration} wall-time deadline itself. The statuses mean:
-
-- `success`, `failure`, `cancelled`, `merged`, `closed`: CI or the pull request
-  reached a terminal state. The counts, merge state, and failure entries come
-  from the observed results.
-- `timeout`: the deadline expired with checks still pending. An empty check
-  set times out; it is never a success.
-- `superseded`: the pull request head changed during the wait, so the checks
-  no longer belong to the watched commit.
-- `merge_state` reports GitHub's pull request merge state on PR reports; the
-  field is absent when GitHub reported none. A merge-mode PR succeeds only for
-  `CLEAN` or `HAS_HOOKS`.
-- `error`: GitHub answered with a failure, such as an authentication error or
-  a transport failure. The report quotes gh's own words. Re-invoke once with
-  the same `state_file`; if the next report is still an error, return it.
-
-## Report
-
-Return the final JSON report exactly as the command printed it. Never infer a
-conclusion the report does not carry. `first_error` is empty when no log
-excerpt was collected; an empty field is a missing detail, not a verdict.
-""",
     "explore": """This is a read-only repository exploration utility. Return plain text findings
 for the parent. Do not edit files, write files, patch files, mutate Concord
 state, mutate GitHub, or start another agent.

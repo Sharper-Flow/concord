@@ -146,7 +146,7 @@ re-evaluation, never "set and forget."
 | `morph_edit` vs `edit` routing | Instruction (always-on) | Behavioral policy every agent needs. |
 | `/adv-triage` methodology | Skill (→ workflow type per `workflows.md`) | Procedural; on-demand. |
 | `oc-test-gate`, `oc-fresh` | Host scripts | Standalone executables, cross-tool. |
-| `concord-ci-wait` | Generated utility agent | The registry pins the `concord ci-wait` verb and wall-time cap; the verb owns polling, the deadline, and classification (CD-0160). |
+| CI waiting (`concord_ci_watch`) | OpenCode plugin tool | The plugin spawns the `concord ci-wait` verb slice by slice as a child process with zero model turns and wakes the calling session with the terminal report; the verb keeps polling, the deadline, and classification (CD-0160, CD-0199). |
 | `concord-explore` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap. |
 | `concord-advisor` | Generated utility agent | The registry pins its read-only repository tools, Git command set, and wall-time cap; the generated body owns the collaborative posture (CD-0157). |
 | Worktree locator derivation (`concord worktree-locate`) | Core CLI verb (read-only) | The inputs are authority data — the Project's registered `canonical_path` locator — so only the core can read them without duplicating database access (issue #316). A host script would double-hop through this verb; the adapter owns no path or branch policy; `internal/store` stays verifier-only (`worktree_claim` verifies intent, never authors it). |

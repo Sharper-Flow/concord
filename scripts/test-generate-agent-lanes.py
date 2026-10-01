@@ -176,10 +176,10 @@ class AgentProjectionTests(unittest.TestCase):
 
     def test_utility_projection_projects_declared_tools_and_permissions(self):
         utility = {
-            "id": "ci-wait",
-            "purpose": "Wait for CI.",
+            "id": "advisor",
+            "purpose": "Give an independent opinion.",
             "allowed_tools": ["bash"],
-            "allowed_commands": ["concord ci-wait", "concord ci-wait *"],
+            "allowed_commands": ["git diff *", "git log *"],
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
@@ -188,26 +188,9 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("  read: false", projection)
         self.assertIn("  task: false", projection)
         self.assertIn('"*": deny', projection)
-        self.assertIn('"concord ci-wait": allow', projection)
-        self.assertIn('"concord ci-wait *": allow', projection)
+        self.assertIn('"git diff *": allow', projection)
+        self.assertIn('"git log *": allow', projection)
         self.assertIn("30 minutes", projection)
-
-    def test_ci_wait_projection_delegates_the_wait_to_the_verb(self):
-        # CD-0160. The wait is enforced by the concord ci-wait verb, not by
-        # this prompt: the body must not ask the model to poll, sleep, or
-        # count iterations.
-        utility = {
-            "id": "ci-wait",
-            "purpose": "Wait for CI.",
-            "allowed_tools": ["bash"],
-            "allowed_commands": ["concord ci-wait"],
-            "time_seconds_max": 1800,
-        }
-        projection = generator.utility_projection(utility)
-        self.assertIn("concord ci-wait <<'EOF'", projection)
-        self.assertIn("`state_file`", projection)
-        self.assertNotIn("sleep 15", projection)
-        self.assertNotIn("Count your iterations", projection)
 
     def test_exploration_projection_uses_read_only_tools_and_body(self):
         utility = {
@@ -250,14 +233,14 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn("Context7", projection, utility_id)
             self.assertIn("Exa", projection, utility_id)
 
-    def test_ci_wait_projection_never_receives_the_source_lookup_block(self):
-        # CD-0160 keeps the wait deterministic, and the block is gated on
-        # declared `execute` access, not on the utility id.
+    def test_bash_only_projection_never_receives_the_source_lookup_block(self):
+        # The block is gated on declared `execute` access, not on the utility
+        # id.
         utility = {
-            "id": "ci-wait",
-            "purpose": "Wait for CI.",
+            "id": "advisor",
+            "purpose": "Give an independent opinion.",
             "allowed_tools": ["bash"],
-            "allowed_commands": ["concord ci-wait"],
+            "allowed_commands": ["git diff *"],
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
@@ -381,10 +364,10 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
 
     def test_utilities_never_carry_the_lane_boundary_section(self):
         utility = {
-            "id": "ci-wait",
-            "purpose": "Wait for CI.",
+            "id": "advisor",
+            "purpose": "Give an independent opinion.",
             "allowed_tools": ["bash"],
-            "allowed_commands": ["concord ci-wait"],
+            "allowed_commands": ["git diff *"],
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)

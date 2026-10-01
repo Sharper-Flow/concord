@@ -10,7 +10,7 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/session-scope.test.ts#a coordinator can auto-start the CI wait utility without a dispatch window"
+      "value": "adapter/opencode/session-scope.test.ts#a coordinator can auto-start a generated utility without a dispatch window"
     },
     {
       "kind": "go_test",

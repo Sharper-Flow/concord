@@ -1,0 +1,42 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-041a93a1b50e84c72b45a1d5",
+    "tier": "legislated"
+  },
+  "date": "2026-09-30T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "adapter/opencode/ci-watch.ts",
+    "adapter/opencode/ci-watch.test.ts",
+    "contracts/agent-lanes.v1.json",
+    "cmd/concord/ci_wait.go"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0199",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0160"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0199-the-plugin-owned-watcher-replaces-the-ci-wait-utility.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:1aed8ba5d56a1fef514e7b4764464f302dbf23a46f8486476c00e47dfc585130",
+  "status": "accepted",
+  "summary": "Replaces the concord-ci-wait utility with a plugin-owned concord_ci_watch adapter tool that spawns the unchanged concord ci-wait verb slice by slice, returns at once, and wakes the calling session through the host's in-process client with a synthetic part carrying the session agent and model. Delivery waits for an idle session, confirms an assistant reply follows, and queues any unconfirmed report for the next chat.message. The utility registry entry, generated body, installer entry, and placement docs are removed; the branch ships only behind a live proof of zero model turns and a delivered wake.",
+  "tags": [
+    "agent-surface",
+    "ci-wait",
+    "utilities",
+    "adapter"
+  ],
+  "title": "The plugin-owned watcher replaces the ci-wait utility"
+}

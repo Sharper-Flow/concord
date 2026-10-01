@@ -31,6 +31,25 @@ test("work start publishes optional fields through the host definition hook", as
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
 
+test("ci watch publishes only repo and selector as required through the host definition hook", async () => {
+  const plugin = await ConcordAdapterPlugin()
+  // The host's legacy JSON-schema conversion requires every per-field entry
+  // before it invokes tool.definition.
+  const properties = { ...plugin.tool.concord_ci_watch.args }
+  const output = {
+    description: plugin.tool.concord_ci_watch.description,
+    parameters: {},
+    jsonSchema: { type: "object", properties, required: Object.keys(properties) },
+  }
+  const hook = Reflect.get(plugin, "tool.definition")
+  if (typeof hook === "function") await hook({ toolID: "concord_ci_watch" }, output)
+  const published = JSON.parse(JSON.stringify(output.jsonSchema))
+  expect(published.required).toEqual(["repo", "selector"])
+  expect(published.additionalProperties).toBe(false)
+  expect(Object.keys(published.properties).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(output.description).toBe(plugin.tool.concord_ci_watch.description)
+})
+
 // The text-part channel. The work-state reporter queues operator-facing
 // blocks per session, and this hook drains them into the assistant's own
 // message as the text part completes, so the transcript holds them without a

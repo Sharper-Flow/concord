@@ -386,6 +386,23 @@ export const concord_ci_watch = {
     executeConcordCiWatch(args, context),
 }
 
+// The host's per-field conversion marks every args entry required, but mode
+// and time_seconds_max are optional. The definition hook republishes the view
+// with only repo and selector required; validateCiWatchArgs stays the runtime
+// boundary.
+export async function publishCiWatchDefinition(
+  input: { toolID: string },
+  output: { description: string; parameters: unknown; jsonSchema?: unknown },
+): Promise<void> {
+  if (input.toolID !== "concord_ci_watch") return
+  output.jsonSchema = {
+    type: "object",
+    properties: JSON.parse(JSON.stringify(ciWatchArgsSchema)),
+    required: ["repo", "selector"],
+    additionalProperties: false,
+  }
+}
+
 async function executeConcordCiWatch(
   rawArgs: unknown,
   context: { sessionID: string; abort?: AbortSignal },

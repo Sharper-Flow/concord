@@ -1,5 +1,5 @@
 import { contractOperations, hostToolSchemas } from "./generated-contracts"
-import { concord_ci_watch } from "./ci-watch"
+import { concord_ci_watch, publishCiWatchDefinition } from "./ci-watch"
 import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
@@ -99,8 +99,15 @@ if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) f
 // The watcher is a direct tool: its args are the published argument fields
 // themselves, not a root schema. The host publishes each key of args as one
 // property of the tool's object schema, so repo and selector must appear as
-// fields and never as schema keywords.
-const ciWatchRoot = publishedArgsSchema(concord_ci_watch.args as Record<string, unknown>, "ci watch schema", ["repo", "selector"])
+// fields and never as schema keywords. The host requires every field before
+// tool.definition runs, so the probe applies the production hook to that view.
+const ciWatchDefinition = {
+  description: concord_ci_watch.description,
+  parameters: {},
+  jsonSchema: publishedArgsSchema(concord_ci_watch.args as Record<string, unknown>, "ci watch schema"),
+}
+await publishCiWatchDefinition({ toolID: "concord_ci_watch" }, ciWatchDefinition)
+const ciWatchRoot = object(ciWatchDefinition.jsonSchema, "published ci watch schema")
 inspect(ciWatchRoot)
 const ciWatchProperties = object(ciWatchRoot.properties, "ci watch properties")
 if (

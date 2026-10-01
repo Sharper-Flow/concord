@@ -280,10 +280,36 @@ func RestoreBackup(ctx context.Context, source, destination string) (BackupManif
 		_ = stageDB.Close()
 		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot initialize restore staging database", true, "check destination permissions", err)
 	}
+	restoreErr := runOnlineRestore(ctx, stageDB, source)
+	if restoreErr != nil {
+		return BackupManifest{}, restoreErr
+	}
+
+	if err := verifyRestoredStage(ctx, stage, manifest); err != nil {
+		return BackupManifest{}, err
+	}
+
+	// A hard link followed by unlink is an atomic no-replace promotion on the
+	// same directory. Unlike os.Rename, it cannot overwrite a destination that
+	// appeared after the existence check.
+	if err := os.Link(stage, destination); err != nil {
+		return BackupManifest{}, wrapFailure(KindInvalidOperation, "restore_backup", "cannot atomically promote restore without replacing the destination", false, "choose a clean destination path", err)
+	}
+	if err := os.Remove(stage); err != nil {
+		_ = os.Remove(destination)
+		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
+	}
+	return manifest, nil
+}
+
+// runOnlineRestore copies the verified source into the staging database
+// through SQLite's Online Backup API, stepping with bounded retries until
+// the copy completes.
+func runOnlineRestore(ctx context.Context, stageDB *sql.DB, source string) error {
 	conn, err := stageDB.Conn(ctx)
 	if err != nil {
 		_ = stageDB.Close()
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot acquire restore staging connection", true, "retry the restore", err)
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot acquire restore staging connection", true, "retry the restore", err)
 	}
 	restoreErr := conn.Raw(func(raw any) error {
 		driverConn, ok := raw.(backupper)
@@ -334,27 +360,28 @@ func RestoreBackup(ctx context.Context, source, destination string) (BackupManif
 	if closeErr := stageDB.Close(); restoreErr == nil {
 		restoreErr = closeErr
 	}
-	if restoreErr != nil {
-		return BackupManifest{}, restoreErr
-	}
+	return restoreErr
+}
 
+// verifyRestoredStage proves the staged copy equals the verified source
+// manifest and that rebuilding its projections from the log changes nothing.
+func verifyRestoredStage(ctx context.Context, stage string, manifest BackupManifest) error {
 	verifiedStage, err := verifyBackupFile(ctx, stage, manifest.SchemaVersion, nil)
 	if err != nil {
-		return BackupManifest{}, err
+		return err
 	}
 	if verifiedStage.SchemaVersion != manifest.SchemaVersion || verifiedStage.EventWatermark != manifest.EventWatermark || verifiedStage.IntegrityCheck != manifest.IntegrityCheck || verifiedStage.QuickCheck != manifest.QuickCheck || len(verifiedStage.ForeignKeyCheck) != 0 {
-		return BackupManifest{}, newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source", false, "discard the staging database and restore a verified snapshot")
+		return newFailure(KindInvariantViolation, "restore_backup", "restored staging database does not match the verified source", false, "discard the staging database and restore a verified snapshot")
 	}
-
-	stageDB, err = sql.Open(driverName, dataSourceName(stage))
+	stageDB, err := sql.Open(driverName, dataSourceName(stage))
 	if err != nil {
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot reopen restored staging database", true, "discard the staging database and retry", err)
+		return wrapFailure(KindUnavailable, "restore_backup", "cannot reopen restored staging database", true, "discard the staging database and retry", err)
 	}
 	stageDB.SetMaxOpenConns(1)
 	stageStore := &Store{db: stageDB, path: stage}
 	if err := stageStore.verifyPragmas(ctx); err != nil {
 		_ = stageDB.Close()
-		return BackupManifest{}, err
+		return err
 	}
 	before, err := projectionDigest(ctx, stageDB)
 	if err == nil {
@@ -373,21 +400,7 @@ func RestoreBackup(ctx context.Context, source, destination string) (BackupManif
 	if closeErr := stageDB.Close(); err == nil {
 		err = closeErr
 	}
-	if err != nil {
-		return BackupManifest{}, err
-	}
-
-	// A hard link followed by unlink is an atomic no-replace promotion on the
-	// same directory. Unlike os.Rename, it cannot overwrite a destination that
-	// appeared after the existence check.
-	if err := os.Link(stage, destination); err != nil {
-		return BackupManifest{}, wrapFailure(KindInvalidOperation, "restore_backup", "cannot atomically promote restore without replacing the destination", false, "choose a clean destination path", err)
-	}
-	if err := os.Remove(stage); err != nil {
-		_ = os.Remove(destination)
-		return BackupManifest{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
-	}
-	return manifest, nil
+	return err
 }
 
 func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {

@@ -241,54 +241,15 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 	if err := enterFold(ctx, tx); err != nil {
 		return WorkRemovalReceipt{}, err
 	}
-	var stored WorkRemovalReceipt
-	var handoffRaw string
-	var storedLinearRaw string
-	err = tx.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&stored.OperationID, &stored.IdempotencyKey, &stored.WorkID, &stored.ExpectedVersion, &stored.Reason, &stored.Actor, &stored.ProductID, &storedLinearRaw, &handoffRaw, &stored.HandoffDigest, &stored.State, &stored.EventID)
-	if err == nil {
-		if stored.IdempotencyKey != req.IdempotencyKey || stored.WorkID != req.WorkID || stored.ExpectedVersion != req.ExpectedVersion || stored.Reason != req.Reason || stored.Actor != req.Actor || stored.ProductID != req.ProductID || stored.HandoffDigest != digest || storedLinearRaw != requestedLinearJSON {
-			return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal request")
-		}
-		if json.Unmarshal([]byte(handoffRaw), &stored.Handoff) != nil {
-			return WorkRemovalReceipt{}, newFailure(KindInvalidPayload, "work_removal_prepare", "stored handoff is malformed", false, "repair the removal receipt")
-		}
-		if storedLinearRaw != "{}" {
-			stored.Linear = &LinearHandoffConfirmation{}
-			if json.Unmarshal([]byte(storedLinearRaw), stored.Linear) != nil {
-				return WorkRemovalReceipt{}, newFailure(KindInvalidPayload, "work_removal_prepare", "stored Linear confirmation is malformed", false, "repair the removal receipt")
-			}
-		}
-		if stored.State == "prepared" {
-			if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
-				return WorkRemovalReceipt{}, err
-			}
-			if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
-				return WorkRemovalReceipt{}, err
-			}
-		}
-		if err := leaveFold(ctx, tx); err != nil {
-			return WorkRemovalReceipt{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return WorkRemovalReceipt{}, err
-		}
-		stored.Replayed = true
+	stored, replayed, readErr := readStoredRemovalOperationTx(ctx, tx, req, requestedLinearJSON, digest)
+	if readErr != nil {
+		return WorkRemovalReceipt{}, readErr
+	}
+	if replayed {
 		return stored, nil
 	}
-	if err != sql.ErrNoRows {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read removal operation", true, "retry once the database is readable", err)
-	}
-	var existingWorkOperation string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE work_id=?`, req.WorkID).Scan(&existingWorkOperation); err == nil && existingWorkOperation != req.OperationID {
-		return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "work item already has another removal operation", false, "resume the existing removal operation")
-	} else if err != nil && err != sql.ErrNoRows {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect work removal identity", true, "retry once the receipt is readable", err)
-	}
-	var existingOperation string
-	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&existingOperation); err == nil && existingOperation != req.OperationID {
-		return WorkRemovalReceipt{}, newFailure(KindIdempotencyConflict, "work_removal_prepare", "idempotency key belongs to another removal operation", false, "reuse the original operation identity")
-	} else if err != nil && err != sql.ErrNoRows {
-		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect removal idempotency", true, "retry once the receipt is readable", err)
+	if err := assertRemovalOperationIdentityTx(ctx, tx, req); err != nil {
+		return WorkRemovalReceipt{}, err
 	}
 	if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
 		return WorkRemovalReceipt{}, err
@@ -307,6 +268,69 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot commit removal preparation", true, "retry the same idempotency key", err)
 	}
 	return receipt, nil
+}
+
+// readStoredRemovalOperationTx reads a prior removal operation inside the
+// preparation transaction. A stored row that matches the request's identity
+// replays as-is — revalidating its destination and gates while it is still
+// prepared — and an absent row returns a zero receipt with replayed false.
+func readStoredRemovalOperationTx(ctx context.Context, tx *sql.Tx, req WorkRemovalRequest, requestedLinearJSON, digest string) (WorkRemovalReceipt, bool, error) {
+	var stored WorkRemovalReceipt
+	var handoffRaw string
+	var storedLinearRaw string
+	err := tx.QueryRowContext(ctx, `SELECT operation_id,idempotency_key,work_id,expected_version,reason,actor,product_id,linear_confirmation_json,handoff_json,handoff_digest,state,coalesce(event_id,'') FROM work_removal_operations WHERE operation_id=?`, req.OperationID).Scan(&stored.OperationID, &stored.IdempotencyKey, &stored.WorkID, &stored.ExpectedVersion, &stored.Reason, &stored.Actor, &stored.ProductID, &storedLinearRaw, &handoffRaw, &stored.HandoffDigest, &stored.State, &stored.EventID)
+	if err == sql.ErrNoRows {
+		return WorkRemovalReceipt{}, false, nil
+	}
+	if err != nil {
+		return WorkRemovalReceipt{}, false, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read removal operation", true, "retry once the database is readable", err)
+	}
+	if stored.IdempotencyKey != req.IdempotencyKey || stored.WorkID != req.WorkID || stored.ExpectedVersion != req.ExpectedVersion || stored.Reason != req.Reason || stored.Actor != req.Actor || stored.ProductID != req.ProductID || stored.HandoffDigest != digest || storedLinearRaw != requestedLinearJSON {
+		return WorkRemovalReceipt{}, false, newFailure(KindIdempotencyConflict, "work_removal_prepare", "operation identity is bound to different removal input", false, "reuse the original removal request")
+	}
+	if json.Unmarshal([]byte(handoffRaw), &stored.Handoff) != nil {
+		return WorkRemovalReceipt{}, false, newFailure(KindInvalidPayload, "work_removal_prepare", "stored handoff is malformed", false, "repair the removal receipt")
+	}
+	if storedLinearRaw != "{}" {
+		stored.Linear = &LinearHandoffConfirmation{}
+		if json.Unmarshal([]byte(storedLinearRaw), stored.Linear) != nil {
+			return WorkRemovalReceipt{}, false, newFailure(KindInvalidPayload, "work_removal_prepare", "stored Linear confirmation is malformed", false, "repair the removal receipt")
+		}
+	}
+	if stored.State == "prepared" {
+		if err := validateRemovalDestinationQ(ctx, tx, req); err != nil {
+			return WorkRemovalReceipt{}, false, err
+		}
+		if err := validateRemovalGatesQ(ctx, tx, req); err != nil {
+			return WorkRemovalReceipt{}, false, err
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return WorkRemovalReceipt{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkRemovalReceipt{}, false, err
+	}
+	stored.Replayed = true
+	return stored, true, nil
+}
+
+// assertRemovalOperationIdentityTx refuses a second removal operation for
+// one work item and an idempotency key bound to another operation.
+func assertRemovalOperationIdentityTx(ctx context.Context, tx *sql.Tx, req WorkRemovalRequest) error {
+	var existingWorkOperation string
+	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE work_id=?`, req.WorkID).Scan(&existingWorkOperation); err == nil && existingWorkOperation != req.OperationID {
+		return newFailure(KindIdempotencyConflict, "work_removal_prepare", "work item already has another removal operation", false, "resume the existing removal operation")
+	} else if err != nil && err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect work removal identity", true, "retry once the receipt is readable", err)
+	}
+	var existingOperation string
+	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM work_removal_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&existingOperation); err == nil && existingOperation != req.OperationID {
+		return newFailure(KindIdempotencyConflict, "work_removal_prepare", "idempotency key belongs to another removal operation", false, "reuse the original operation identity")
+	} else if err != nil && err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot inspect removal idempotency", true, "retry once the receipt is readable", err)
+	}
+	return nil
 }
 
 // PrepareWorkRemovalTx performs the preparation inside a caller-owned store

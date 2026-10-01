@@ -657,6 +657,39 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_index_watermark WHERE home_project_id = ? AND home_locator_id = ? AND head_ref = ?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear the git knowledge watermark", true, "retry once the database is writable", err)
 	}
+	if err := insertKnowledgeIndexNotes(ctx, tx, home, notes, laws, commit); err != nil {
+		return err
+	}
+	if !manifestMissing {
+		if err := insertKnowledgeIndexDomains(ctx, tx, home, commit, laws, domainProjectionData); err != nil {
+			return err
+		}
+	}
+	if err := insertKnowledgeLawRelations(ctx, tx, home, commit, laws); err != nil {
+		return err
+	}
+	if err := writeKnowledgeKindCoverage(ctx, tx, home, commit, manifestMissing, manifest); err != nil {
+		return err
+	}
+	// The commit identity is the deterministic observation value. It avoids
+	// rebuild-only wall-clock churn while the query result still exposes the
+	// current observation time in its transient envelope. The content digest
+	// is what freshness compares: it names the projected objects, so a later
+	// commit that changes none of them leaves this row authoritative. The
+	// projection version is what admission compares: a binary older than the
+	// one that stamped this row refuses to rebuild over it.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,1,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, knowledgeProjectionVersion); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	return nil
+}
+
+// insertKnowledgeIndexNotes writes the home's verified notes and law
+// subjects and bodies.
+func insertKnowledgeIndexNotes(ctx context.Context, tx *sql.Tx, home KnowledgeHome, notes []VerifiedNote, laws []indexedLaw, commit string) error {
 	for _, note := range notes {
 		if err := insertKnowledgeNote(ctx, tx, home, note); err != nil {
 			return err
@@ -670,25 +703,35 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			return err
 		}
 	}
-	if !manifestMissing {
-		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
-			return err
+	return nil
+}
+
+// insertKnowledgeIndexDomains writes the Domain projection and each law's
+// Domain home and applicability rows the projection resolves.
+func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw, domainProjectionData domainProjection) error {
+	if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
+		return err
+	}
+	for _, law := range laws {
+		homeDomain, hasHome := domainProjectionData.LawHomes[law.record.ID]
+		if !hasHome {
+			continue
 		}
-		for _, law := range laws {
-			homeDomain, hasHome := domainProjectionData.LawHomes[law.record.ID]
-			if !hasHome {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, homeDomain, law.record.SHA256, commit, law.record.ProductWideRationale); err != nil {
-				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err)
-			}
-			for _, domainID := range domainProjectionData.LawApplicability[law.record.ID] {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
-					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err)
-				}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, homeDomain, law.record.SHA256, commit, law.record.ProductWideRationale); err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain home", true, "retry once the database is writable", err)
+		}
+		for _, domainID := range domainProjectionData.LawApplicability[law.record.ID] {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_domain_applicability(home_project_id,home_locator_id,law_id,product_id,domain_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, domainProjectionData.ProductID, domainID, commit); err != nil {
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write law Domain applicability", true, "retry once the database is writable", err)
 			}
 		}
 	}
+	return nil
+}
+
+// insertKnowledgeLawRelations writes each law's derived relations, ordering
+// a conflicts_with pair canonically.
+func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
 	for _, law := range laws {
 		for _, relation := range law.record.LawRelations {
 			source, target := law.record.ID, relation.TargetID
@@ -700,6 +743,12 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 			}
 		}
 	}
+	return nil
+}
+
+// writeKnowledgeKindCoverage rewrites the home's per-kind coverage rows with
+// the reason each kind is indexed or not at the scanned commit.
+func writeKnowledgeKindCoverage(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, manifestMissing bool, manifest KnowledgeManifest) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear knowledge kind coverage", true, "retry once the database is writable", err)
 	}
@@ -726,19 +775,6 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage (home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES (?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, kind, coverage[kind], reason, commit); err != nil {
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write knowledge kind coverage", true, "retry once the database is writable", err)
 		}
-	}
-	// The commit identity is the deterministic observation value. It avoids
-	// rebuild-only wall-clock churn while the query result still exposes the
-	// current observation time in its transient envelope. The content digest
-	// is what freshness compares: it names the projected objects, so a later
-	// commit that changes none of them leaves this row authoritative. The
-	// projection version is what admission compares: a binary older than the
-	// one that stamped this row refuses to rebuild over it.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,1,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, knowledgeProjectionVersion); err != nil {
-		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return err
 	}
 	return nil
 }

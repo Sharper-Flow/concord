@@ -3,41 +3,253 @@
 //
 // The provider is `exec: opencode run ... --format json`, so `output` is the
 // host event stream rather than a bare report. This assertion locates the
-// agent-lane-report.v1 document inside that stream and checks it against
-// the packet that produced it.
+// agent-lane-report.v1 document inside that stream and admits it under the
+// same rules, in the same order, as the adapter's admission boundary
+// (admitWorkerReport in dispatch.ts).
+//
+// The promptfoo harness runtime is plain Node ESM, and the adapter module
+// graph uses extensionless relative TypeScript specifiers, so this file
+// cannot import dispatch.ts. It therefore projects the admission rules from
+// the machine-readable contracts the adapter itself validates against:
+// contracts/agent-lane-report.schema.json, contracts/agent-lanes.v1.json,
+// and contracts/worker-scope.v1.json. Every bound, vocabulary, coupling, and
+// lane requirement below is read from those files at run time; a missing or
+// malformed contract throws at load and fails the harness loudly. The unit
+// tests pin this file to the adapter's refusals, including the probe cases
+// the schema alone does not carry: per-lane obligation coverage, the
+// severity discharge rule, the per-lane required review block, and lane
+// identity resolution.
 //
 // Behavioural checks are deterministic by design (issue #212): a baseline
 // whose judgement depends on an external grading API is not reproducible on
 // the host that records it. Delegation is refused by scanning the stream
 // for task tool use, and seeded-defect packets carry marker contracts the
-// report's findings must discharge. Registry/dispatch/evidence authority
-// belongs to the Go tests.
+// report's evidence details and typed review findings must discharge.
+// Registry/dispatch/evidence authority belongs to the Go tests and the
+// adapter.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-// CD-0056 D2: the obligation vocabulary and the report's required shape are read
-// from the contract rather than restated here. Two copies of a closed vocabulary
-// are an unvalidated join, and this assertion is not the authority for either. A
-// missing or malformed contract throws at load, which fails the harness loudly.
-const CONTRACT = JSON.parse(
-  readFileSync(new URL("../../../../contracts/agent-lane-report.schema.json", import.meta.url), "utf8"),
+const readContract = (name) =>
+  JSON.parse(readFileSync(new URL(`../../../../contracts/${name}`, import.meta.url), "utf8"));
+
+const CONTRACT = readContract("agent-lane-report.schema.json");
+const LANES = readContract("agent-lanes.v1.json");
+const WORKER_SCOPE = readContract("worker-scope.v1.json");
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// resolveRef mirrors resolveSchemaRef (dispatch.ts): a same-document JSON
+// pointer with the ~0/~1 escapes; anything else is unresolvable.
+function resolveRef(root, ref) {
+  if (typeof ref !== "string") return undefined;
+  if (ref === "#") return root;
+  if (!ref.startsWith("#/")) return undefined;
+  let node = root;
+  for (const raw of ref.slice(2).split("/")) {
+    if (!node || typeof node !== "object") return undefined;
+    node = node[raw.replace(/~1/g, "/").replace(/~0/g, "~")];
+  }
+  return node;
+}
+
+// validateSchema mirrors the adapter's closed validator (dispatch.ts
+// validateSchema): the subset of JSON Schema 2020-12 the lane contracts use,
+// with the same keyword set, the same evaluation order, and the same
+// semantics — code-point minLength/maxLength, UTF-8 x-maxBytes, and if/then
+// composed through allOf. Keywords outside the subset are ignored exactly as
+// the adapter ignores them, so this projection cannot refuse what admission
+// admits; an unresolvable $ref fails closed.
+function validateSchema(schema, value, root, path = "", failures = []) {
+  const fail = (reason) => {
+    failures.push(path ? `${path}: ${reason}` : reason);
+    return false;
+  };
+  if (!schema || typeof schema !== "object") return fail("no schema to validate against");
+  if (schema.$ref !== undefined) {
+    const target = resolveRef(root, schema.$ref);
+    if (!target || typeof target !== "object") return fail(`unresolvable $ref ${String(schema.$ref)}`);
+    if (!validateSchema(target, value, root, path, failures)) return false;
+  }
+  if (schema.const !== undefined && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(`must equal ${JSON.stringify(schema.const)}`);
+  if (schema.enum !== undefined) {
+    if (!Array.isArray(schema.enum)) return fail("enum keyword is not a list");
+    const encoded = JSON.stringify(value);
+    if (!schema.enum.some((member) => JSON.stringify(member) === encoded)) return fail(`is outside the closed enum; expected one of ${JSON.stringify(schema.enum)}`);
+  }
+  if (schema.type) {
+    const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+    const valid = types.some((type) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : typeof value === type);
+    if (!valid) return fail(`is not of type ${types.join(" | ")}`);
+  }
+  if (typeof value === "string") {
+    if (schema.minLength !== undefined && value.length < schema.minLength) return fail(`is shorter than ${schema.minLength} characters`);
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) return fail(`is longer than ${schema.maxLength} characters`);
+    if (schema["x-maxBytes"] !== undefined && Buffer.byteLength(value) > schema["x-maxBytes"]) return fail(`exceeds ${schema["x-maxBytes"]} UTF-8 bytes`);
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`);
+  }
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) return fail(`is below the minimum ${schema.minimum}`);
+    if (schema.maximum !== undefined && value > schema.maximum) return fail(`is above the maximum ${schema.maximum}`);
+  }
+  if (isRecord(value)) {
+    const properties = schema.properties ?? {};
+    const missing = (schema.required ?? []).filter((key) => !Object.hasOwn(value, key));
+    if (missing.length > 0) return fail(`is missing required propert${missing.length === 1 ? "y" : "ies"} ${missing.join(", ")}`);
+    for (const [key, child] of Object.entries(properties)) if (Object.hasOwn(value, key) && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false;
+    if (schema.additionalProperties === false) {
+      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key));
+      if (extra.length > 0) return fail(`carries undeclared propert${extra.length === 1 ? "y" : "ies"} ${extra.join(", ")}`);
+    }
+  }
+  if (Array.isArray(value)) {
+    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries fewer than ${schema.minItems} item(s)`);
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries more than ${schema.maxItems} item(s)`);
+    if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail("carries duplicate items");
+    if (schema.items) {
+      for (let index = 0; index < value.length; index++) {
+        if (!validateSchema(schema.items, value[index], root, `${path}[${index}]`, failures)) return false;
+      }
+    }
+  }
+  if (Array.isArray(schema.allOf)) {
+    for (const branch of schema.allOf) {
+      if (!validateSchema(branch, value, root, path, failures)) return false;
+    }
+  }
+  if (schema.if !== undefined) {
+    const condition = validateSchema(schema.if, value, root, path);
+    const branch = condition ? schema.then : schema.else;
+    if (branch !== undefined && branch !== null) {
+      if (!validateSchema(branch, value, root, path, failures)) return false;
+    }
+  }
+  return true;
+}
+
+// Dispatch-owned fields the adapter strips from a worker-authored report
+// instead of trusting (dispatch.ts DISPATCH_OWNED_REPORT_FIELDS, CD-0056 D7).
+// The canonical report receives identity from the packet alone, so an echoed
+// field is discarded here exactly as admission discards it.
+const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"];
+// The bound and suffix mirror the adapter's evidence-detail normalization
+// (dispatch.ts normalizeWorkerReport): the cap is read from the closed
+// schema so this projection cannot drift from the bound it satisfies.
+const MAX_REPORT_DETAIL_LENGTH = CONTRACT.$defs.evidence_entry.properties.detail.maxLength;
+const TRUNCATED_REPORT_DETAIL_SUFFIX = " [truncated]";
+
+function normalizeWorkerReport(report) {
+  if (!Array.isArray(report.evidence)) return report;
+  let normalized = report.evidence;
+  for (let index = 0; index < normalized.length; index++) {
+    const entry = normalized[index];
+    if (!isRecord(entry) || typeof entry.detail !== "string" || entry.detail.length <= MAX_REPORT_DETAIL_LENGTH) continue;
+    if (normalized === report.evidence) normalized = [...normalized];
+    normalized[index] = {
+      ...entry,
+      detail: entry.detail.slice(0, MAX_REPORT_DETAIL_LENGTH - TRUNCATED_REPORT_DETAIL_SUFFIX.length) + TRUNCATED_REPORT_DETAIL_SUFFIX,
+    };
+  }
+  return normalized === report.evidence ? report : { ...report, evidence: normalized };
+}
+
+// canonicalJson and laneDigestOf reproduce the generator's canonical form
+// (scripts/generate-agent-lanes.py): sorted keys, no whitespace, UTF-8. The
+// per-lane digest is what dispatch packets carry, so lane identity resolves
+// against the manifest the same way the generated registry resolves it.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function laneDigestOf(lane) {
+  const body = { ...lane };
+  delete body.digest;
+  return "sha256:" + createHash("sha256").update(canonicalJson(body), "utf8").digest("hex");
+}
+
+const LANES_BY_IDENTITY = new Map((LANES.lanes ?? []).map((lane) => [`${lane.id}:${lane.version}`, lane]));
+const LEGACY_DIGESTS = new Map(
+  Object.entries(LANES.legacy_lane_digests ?? {}).map(([identity, digests]) => [identity, new Set(digests)]),
 );
 
-const REPORT_REQUIRED = CONTRACT.required;
-const STATUSES = CONTRACT.properties.status.enum;
-// The worker-authored surface is closed: dispatch identity is transport-owned.
-// Any field outside CONTRACT.properties — including attempt_id, lane_id,
-// lane_version, and lane_digest — is refused here exactly as the adapter
-// refuses it at the admission boundary (CD-0056 D7).
-const CLOSED_FIELDS = new Set(Object.keys(CONTRACT.properties));
-const MODEL = new RegExp(CONTRACT.properties.readback_model.pattern);
-const EVIDENCE_MIN = CONTRACT.properties.evidence.minItems;
-const EVIDENCE_MAX = CONTRACT.properties.evidence.maxItems;
-const ENTRY = CONTRACT.$defs.evidence_entry;
-const ENTRY_KEYS = [...ENTRY.required].sort().join(",");
-const DETAIL_MIN = ENTRY.properties.detail.minLength;
-const DETAIL_MAX = ENTRY.properties.detail.maxLength;
-const OBLIGATIONS = new Set(CONTRACT.$defs.evidence_obligation.enum);
+// laneForIdentity mirrors the generated registry (CD-0197 D5): the lane's
+// current digest and every declared legacy digest resolve to the current
+// definition; anything else is unregistered.
+function laneForIdentity(laneId, laneVersion, laneDigest) {
+  const lane = LANES_BY_IDENTITY.get(`${laneId}:${laneVersion}`);
+  if (!lane) return null;
+  if (laneDigestOf(lane) === laneDigest) return lane;
+  return LEGACY_DIGESTS.get(`${laneId}:${laneVersion}`)?.has(laneDigest) ? lane : null;
+}
+
+// workerScopeAssignments resolves the worker-scope contract the way the
+// generator does (scripts/generate-agent-lanes.py): one assignment per
+// registered lane, each naming an obligation that lane declares. Contract
+// and registry drift throws at load and fails the harness loudly.
+function workerScopeAssignments() {
+  const lanes = new Map((LANES.lanes ?? []).map((lane) => [lane.id, lane]));
+  const entries = WORKER_SCOPE.assignments;
+  if (!Array.isArray(entries)) throw new Error("worker-scope contract carries no assignments array");
+  const assignments = new Map();
+  for (const entry of entries) {
+    const laneId = entry?.lane_id;
+    const result = entry?.result;
+    if (!lanes.has(laneId)) throw new Error(`worker-scope contract assigns unregistered lane ${JSON.stringify(laneId)}`);
+    if (assignments.has(laneId)) throw new Error(`worker-scope contract assigns lane ${JSON.stringify(laneId)} more than one assigned result`);
+    if (!lanes.get(laneId).evidence_obligations?.includes(result)) {
+      throw new Error(`worker-scope contract assigns lane ${JSON.stringify(laneId)} the result ${JSON.stringify(result)}, which the lane does not declare`);
+    }
+    assignments.set(laneId, result);
+  }
+  const missing = [...lanes.keys()].filter((laneId) => !assignments.has(laneId));
+  if (missing.length > 0) throw new Error(`worker-scope contract leaves registered lane(s) without an assigned result: ${missing.join(", ")}`);
+  return assignments;
+}
+
+const ASSIGNED_RESULT = workerScopeAssignments();
+
+// laneCompletionFailure holds the admission boundary's lane-scoped rules, in
+// admission order, for completed reports only: declared-obligation coverage,
+// the assigned result, the severity discharge (a typed review block covers a
+// declared severity obligation, so a free-text severity entry beside it is
+// refused — CD-0197 D2), and the per-lane required report blocks. A failed
+// report carries no lane requirement: the failure path owns its own evidence.
+function laneCompletionFailure(report, lane) {
+  if (report.status !== "completed") return null;
+  const declared = new Set(lane.evidence_obligations ?? []);
+  const reported = new Set(report.evidence.map((entry) => entry.obligation));
+  const undeclared = [...reported].filter((obligation) => !declared.has(obligation));
+  if (undeclared.length > 0) {
+    return `worker report names evidence obligations the ${lane.id} lane does not declare: ${undeclared.join(", ")}`;
+  }
+  const assigned = ASSIGNED_RESULT.get(lane.id) ?? null;
+  if (assigned === null || !declared.has(assigned)) {
+    return `the ${lane.id} lane carries no dischargeable assigned result in the worker-scope contract, so no completed report can claim one`;
+  }
+  if (report.review && declared.has("severity")) {
+    if (reported.has("severity")) {
+      return "worker report carries a free-text severity entry beside the typed review block that discharges severity";
+    }
+    reported.add("severity");
+  }
+  const missing = [...declared].filter((obligation) => !reported.has(obligation));
+  if (missing.length > 0) {
+    return missing.includes(assigned)
+      ? `worker report completes no assigned result: the ${lane.id} lane report leaves its assigned result ${assigned} undischarged; every other required result stays with the parent workflow`
+      : `worker report leaves ${lane.id} lane evidence obligations undischarged: ${missing.join(", ")}`;
+  }
+  if ((lane.required_report_blocks ?? []).includes("review") && !report.review) {
+    return `worker report completes without the typed review block the ${lane.id} lane requires`;
+  }
+  return null;
+}
 
 // The host writes one JSON run event per stdout line and carries the model's
 // message text only on `text` events, at `part.text`. This mirrors
@@ -118,8 +330,8 @@ function delegatesWork(output) {
 
 // Seeded-defect marker contracts (R6 §5, issue #212). Each seeded packet
 // names a defect the review lane should catch; a passing report's evidence
-// must match every pattern. The patterns are the seeded-eval contract, not
-// a general judgement of review quality.
+// details and typed review findings must match every pattern. The patterns
+// are the seeded-eval contract, not a general judgement of review quality.
 const SEEDED_DEFECT_MARKERS = new Map([
   [
     "attempt:eval-review-seeded-scope-violation",
@@ -149,65 +361,55 @@ export default function (output, context) {
   if (reports.length === 0) {
     return { pass: false, score: 0, reason: "no agent-lane-report.v1 document found in worker output" };
   }
-  const report = reports[reports.length - 1];
 
-  const missing = REPORT_REQUIRED.filter((field) => report[field] === undefined);
-  if (missing.length > 0) {
-    return { pass: false, score: 0, reason: `report is missing required field(s): ${missing.join(", ")}` };
-  }
-  if (!STATUSES.includes(report.status)) {
-    return { pass: false, score: 0, reason: `report status ${JSON.stringify(report.status)} is outside the declared lifecycle` };
-  }
-  if (typeof report.readback_model !== "string" || !MODEL.test(report.readback_model)) {
-    return { pass: false, score: 0, reason: `report readback_model ${JSON.stringify(report.readback_model)} is not a provider/model identifier` };
-  }
-  if (!Array.isArray(report.evidence) || report.evidence.length < EVIDENCE_MIN || report.evidence.length > EVIDENCE_MAX) {
-    return { pass: false, score: 0, reason: `report evidence must carry between ${EVIDENCE_MIN} and ${EVIDENCE_MAX} entries` };
-  }
-  for (const entry of report.evidence) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return { pass: false, score: 0, reason: "report evidence entries must be objects" };
-    }
-    if (Object.keys(entry).sort().join(",") !== ENTRY_KEYS) {
-      return { pass: false, score: 0, reason: `report evidence entries carry exactly ${ENTRY.required.join(" and ")}` };
-    }
-    if (!OBLIGATIONS.has(entry.obligation)) {
-      return { pass: false, score: 0, reason: `report evidence obligation ${JSON.stringify(entry.obligation)} is outside the closed vocabulary` };
-    }
-    if (typeof entry.detail !== "string" || entry.detail.length < DETAIL_MIN || entry.detail.length > DETAIL_MAX) {
-      return { pass: false, score: 0, reason: `report evidence detail must be a string of ${DETAIL_MIN} to ${DETAIL_MAX} characters` };
-    }
-  }
-
-  // The dispatch window owns attempt and lane identity, and the adapter
-  // composes them at the admission boundary (CD-0056 D7). A report that
-  // supplies any dispatch-owned field is refused.
-  const supplied = Object.keys(report).filter((field) => !CLOSED_FIELDS.has(field));
-  if (supplied.length > 0) {
-    return {
-      pass: false,
-      score: 0,
-      reason: `report carries dispatch-owned or unknown field(s): ${supplied.join(", ")}`,
-    };
-  }
+  // Admission strips the dispatch window's identity before it validates:
+  // whatever the worker echoed is discarded, not trusted (CD-0056 D7).
+  const stripped = { ...reports[reports.length - 1] };
+  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
+  const report = normalizeWorkerReport(stripped);
 
   // promptfoo hands the rendered prompt back as the raw packet document; the
-  // seeded-defect markers below key on its attempt identity.
-  let packet;
+  // lane identity and the seeded-defect markers below key on it.
+  let packet = null;
   try {
     packet = JSON.parse(context.prompt);
   } catch {
     packet = null;
   }
 
+  const packetNamesIdentity = isRecord(packet)
+    && typeof packet.lane_id === "string"
+    && Number.isInteger(packet.lane_version)
+    && typeof packet.lane_digest === "string";
+  const lane = packetNamesIdentity
+    ? laneForIdentity(packet.lane_id, packet.lane_version, packet.lane_digest)
+    : null;
+  if (packetNamesIdentity && lane === null) {
+    return { pass: false, score: 0, reason: `worker report packet names an unregistered lane identity or digest: ${packet.lane_id}:${packet.lane_version}` };
+  }
+
+  const failures = [];
+  if (!validateSchema(CONTRACT, report, CONTRACT, "", failures)) {
+    return { pass: false, score: 0, reason: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` };
+  }
+  if (lane) {
+    const laneFailure = laneCompletionFailure(report, lane);
+    if (laneFailure) {
+      return { pass: false, score: 0, reason: laneFailure };
+    }
+  }
+
   if (delegatesWork(output)) {
     return { pass: false, score: 0, reason: "worker delegated through a task tool-use event" };
   }
 
-  if (packet && typeof packet.attempt_id === "string") {
+  if (isRecord(packet) && typeof packet.attempt_id === "string") {
     const seeded = SEEDED_DEFECT_MARKERS.get(packet.attempt_id);
     if (seeded) {
-      const findings = (Array.isArray(report.evidence) ? report.evidence : [])
+      const findings = [
+        ...(Array.isArray(report.evidence) ? report.evidence : []),
+        ...(report.review && Array.isArray(report.review.findings) ? report.review.findings : []),
+      ]
         .map((entry) => (entry && typeof entry.detail === "string" ? entry.detail : ""))
         .join("\n");
       const unmet = seeded.patterns.filter((pattern) => !pattern.test(findings));

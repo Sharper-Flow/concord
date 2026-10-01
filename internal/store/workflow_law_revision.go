@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -490,24 +493,30 @@ func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, wo
 // WorkflowLawContext is the bounded, typed resolution of the approved
 // contract's binding law and Domain references. The core turns every
 // contract-bound law ID and home or affected Domain ID into its projection
-// state at continuity read time, so a dispatched packet carries the title and
-// repository path of each binding law, not bare IDs.
+// state at continuity read time, so a dispatched packet carries the title of
+// each binding law and a file locator that opens inside the Product's
+// registered knowledge home, not inside whatever repository the lane was
+// dispatched into.
 type WorkflowLawContext struct {
 	Laws    []WorkflowLawContextLaw    `json:"laws"`
 	Domains []WorkflowLawContextDomain `json:"domains"`
-	// RegistryPath is the repository path of the Domain registry shard, set
-	// when the context binds at least one Domain. A dispatched lane holds no
+	// RegistryPath is the knowledge home repository's absolute locator for
+	// the Domain registry shard the home checkout actually carries, set when
+	// the context binds at least one Domain. A dispatched lane holds no
 	// Concord tool access (CD-0017 D4), so the path is how it reads Domain
 	// structure: from the file, never from a tool call.
 	RegistryPath string `json:"registry_path,omitempty"`
 }
 
 type WorkflowLawContextLaw struct {
-	Roles         []string `json:"roles"`
-	LawID         string   `json:"law_id"`
-	Kind          string   `json:"kind,omitempty"`
-	Status        string   `json:"status,omitempty"`
-	Title         string   `json:"title,omitempty"`
+	Roles  []string `json:"roles"`
+	LawID  string   `json:"law_id"`
+	Kind   string   `json:"kind,omitempty"`
+	Status string   `json:"status,omitempty"`
+	Title  string   `json:"title,omitempty"`
+	// Path is the knowledge home repository's absolute locator for the law
+	// document the projection recorded, so the lane opens it inside the home
+	// checkout rather than its own dispatch repository.
 	Path          string   `json:"path,omitempty"`
 	ObligationIDs []string `json:"obligation_ids,omitempty"`
 	// Criteria lists the law's acceptance criteria bound to the reading
@@ -552,7 +561,9 @@ const (
 // carries its role and identity only. Any other bound law without a subject,
 // and any home or affected Domain missing from the registry, refuses with
 // KindProjectionNotFound: the packet would otherwise bind a document no lane
-// can read.
+// can read. Every file locator the context carries is qualified with the
+// Product knowledge home's repository and verified to open there, so a lane
+// dispatched into any member Project reads the home's checkout.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -601,7 +612,11 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 		if err != nil {
 			return nil, err
 		}
-		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
+		homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
+		if err != nil {
+			return nil, err
+		}
+		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
 		if err != nil {
 			return nil, err
 		}
@@ -617,9 +632,139 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 			return nil, err
 		}
 		context.Domains = domains
-		context.RegistryPath = knowledgeRegistryPath
+		registryRepo, err := domainRegistryHomeRepo(ctx, tx, productID)
+		if err != nil {
+			return nil, err
+		}
+		context.RegistryPath, err = knowledgeRegistryLocator(registryRepo)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return context, nil
+}
+
+// domainRegistryHomeRepo reads the checkout of the knowledge home the
+// Product's Domain registry projection was scanned from, so the registry
+// locator names the file the rendered Domains came from. A Product with no
+// registry projection refuses typed rather than naming any repository's file.
+func domainRegistryHomeRepo(ctx context.Context, tx *sql.Tx, productID string) (string, error) {
+	var homeProjectID, homeLocatorID string
+	err := tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id FROM domain_registries WHERE product_id=?`, productID).Scan(&homeProjectID, &homeLocatorID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product has no Domain registry projection", false, "rebuild the Domain registry projection from the Product knowledge home")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the Domain registry home", true, "retry once the Domain registry is readable", err)
+	}
+	return workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
+}
+
+// workflowLawHomeRepo reads the canonical repository path of one resolved Git
+// law home through whichever queryer the caller already holds. A knowledge
+// home locator is a canonical-path locator by designation rule, so its
+// normalized value is the absolute checkout a dispatched lane can open.
+func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) (string, error) {
+	var repo string
+	err := q.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, homeProjectID, homeLocatorID).Scan(&repo)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && repo == "") {
+		return "", newFailure(KindUnknownScope, "read_workflow_law_context", "the Git law home has no canonical repository path", false, "designate the Product knowledge home's canonical-path locator")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the Git law home repository path", true, "retry once the Project locators are readable", err)
+	}
+	return repo, nil
+}
+
+// knowledgeRegistryLocator resolves the Domain registry shard of the layout
+// tier the knowledge home checkout carries and returns it as a home-qualified
+// absolute locator the lane can open. The tier is the newest layout whose
+// manifest head the checkout holds (CD-0194 D5), the rule the committed-shard
+// reader applies; a registry under any other tier is not this home's
+// registry. A checkout that predates the shard homes carries the aggregate
+// manifest itself, so the aggregate file is the locator: its domain_registry
+// member is the registry the lane reads. A home carrying none of the three
+// shapes, or whose selected shape holds no regular registry file, refuses
+// typed: the packet would otherwise advertise a locator no lane can read, or
+// silently drop the Domain binding.
+func knowledgeRegistryLocator(homeRepo string) (string, error) {
+	for _, layout := range knowledgeShardLayouts {
+		head := filepath.Join(homeRepo, filepath.FromSlash(layout.headPath))
+		if _, err := os.Stat(head); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the knowledge manifest head", true, "restore access to the Product knowledge home and retry", err)
+		}
+		registry := filepath.Join(homeRepo, filepath.FromSlash(layout.registryPath))
+		info, err := os.Stat(registry)
+		if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
+			return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the knowledge home's selected layout carries no Domain registry file: "+registry, false, "publish the Domain registry shard beside the knowledge manifest head")
+		}
+		if err != nil {
+			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the Domain registry shard", true, "restore access to the Product knowledge home and retry", err)
+		}
+		if err := checkKnowledgeLocatorReadable(homeRepo, layout.registryPath); err != nil {
+			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the Domain registry shard", true, "restore access to the Product knowledge home and retry", err)
+		}
+		return registry, nil
+	}
+	aggregate := filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath))
+	aggregateInfo, err := os.Stat(aggregate)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no knowledge manifest head under a supported layout", false, "publish the knowledge shards in the knowledge home repository")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the aggregate knowledge manifest", true, "restore access to the Product knowledge home and retry", err)
+	}
+	if !aggregateInfo.Mode().IsRegular() {
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the aggregate knowledge manifest is not a regular file: "+aggregate, false, "commit a regular aggregate manifest file")
+	}
+	if err := checkKnowledgeLocatorReadable(homeRepo, knowledgeManifestPath); err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the aggregate knowledge manifest", true, "restore access to the Product knowledge home and retry", err)
+	}
+	return aggregate, nil
+}
+
+// knowledgeLawLocator qualifies one projected law document path with its
+// knowledge home repository and refuses typed unless the qualified locator is
+// a regular file there: a bound law is a required source, so the packet must
+// never advertise a document the dispatched lane cannot open. The projection's
+// freshness watermark still owns whether the recorded content hash is current;
+// this check owns only the locator's readability.
+func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
+	if subjectPath == "" {
+		return "", nil
+	}
+	qualified := filepath.Join(homeRepo, filepath.FromSlash(subjectPath))
+	info, err := os.Stat(qualified)
+	if errors.Is(err, os.ErrNotExist) {
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law document is missing from the knowledge home checkout: "+qualified, false, "rebuild the accepted Git law projection")
+		failure.CandidateIDs = []string{lawID}
+		return "", failure
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the bound law document in the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
+	}
+	if !info.Mode().IsRegular() {
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law locator is not a regular file in the knowledge home checkout: "+qualified, false, "rebuild the accepted Git law projection")
+		failure.CandidateIDs = []string{lawID}
+		return "", failure
+	}
+	if err := checkKnowledgeLocatorReadable(homeRepo, subjectPath); err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the bound law document in the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
+	}
+	return qualified, nil
+}
+
+// checkKnowledgeLocatorReadable opens one repository-relative knowledge path
+// confined to the knowledge home checkout, so a projected path that escapes
+// the home through ".." or a symlink cannot be advertised as readable.
+func checkKnowledgeLocatorReadable(homeRepo, relative string) error {
+	file, err := os.OpenInRoot(homeRepo, filepath.FromSlash(relative))
+	if err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 // lawContextLaws builds each bound law's identity with its sorted, deduplicated
@@ -645,8 +790,10 @@ func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []
 // one bounded batch. The 128-entry ceiling is the write-side sum of the
 // mandate (32), additions (32), and obligations (64) bounds. Each law's
 // authored criterion bindings ride the row; the ones naming the reading work
-// item's predicates become that law's Criteria (CD-0180).
-func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+// item's predicates become that law's Criteria (CD-0180). Each subject's
+// recorded path is qualified with the knowledge home repository and verified
+// to open there before it reaches the packet.
+func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID, homeRepo, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
 	if len(laws) > 128 {
 		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
 	}
@@ -690,7 +837,12 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 			failure.CandidateIDs = []string{laws[index].LawID}
 			return nil, failure
 		}
-		laws[index].Kind, laws[index].Status, laws[index].Title, laws[index].Path = row.subject.Kind, row.subject.Status, row.subject.Title, row.subject.Path
+		laws[index].Kind, laws[index].Status, laws[index].Title = row.subject.Kind, row.subject.Status, row.subject.Title
+		path, err := knowledgeLawLocator(homeRepo, laws[index].LawID, row.subject.Path)
+		if err != nil {
+			return nil, err
+		}
+		laws[index].Path = path
 		laws[index].Criteria = lawContextCriteria(row.bindings, workID)
 	}
 	return laws, nil

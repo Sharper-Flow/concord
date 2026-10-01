@@ -1975,12 +1975,13 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 			return nil
 		}
 		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowCorrectionRequestAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		var missing string
+		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionState(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
 		if !correctionRecovery {
-			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
+			return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
 		}
 		return nil
 	}
@@ -2115,7 +2116,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			// which replay derives only as its folds reach it. The log stays
 			// the authority for the recorded request.
 			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
-			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event"); err != nil {
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event", event.Seq); err != nil {
 				return err
 			}
 		}

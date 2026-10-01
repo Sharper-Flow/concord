@@ -179,6 +179,12 @@ type KnowledgeManifest struct {
 	Records               []KnowledgeRecord           `json:"records"`
 	Dispositions          []KnowledgeDisposition      `json:"dispositions"`
 	domainRegistryPresent bool
+	// domainRegistryPath is the repository path of the registry shard the
+	// composition read, when the manifest came from shards. An aggregate-era
+	// manifest embeds its registry and carries no shard path. It never
+	// serializes: the projection persists it, and the law context reads the
+	// persisted state.
+	domainRegistryPath string
 }
 
 // KnowledgeOperatorOverride is one recorded operator instruction that admits a

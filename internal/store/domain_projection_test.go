@@ -181,3 +181,78 @@ func domainProjectionIdentitySnapshot(t *testing.T, s *Store) string {
 	}
 	return strings.Join(values, "\n")
 }
+
+// TestRebuildKnowledgeIndexPersistsRegistryPathFromShardLayout pins the
+// registry path a rebuild persists to the shard tier the commit actually
+// carries (CD-0194 D5): a docs/knowledge home records
+// docs/knowledge/domain-registry.json, a .concord/docs/knowledge home records
+// the concord tier, so the workflow law context can only emit a registry path
+// a projection row established.
+func TestRebuildKnowledgeIndexPersistsRegistryPathFromShardLayout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	buildShardedHome := func(t *testing.T, headPath, registryPath, recordPath, recordTree string) {
+		t.Helper()
+		repo := initKnowledgeRepo(t)
+		content := "domain law\n"
+		sum := sha256.Sum256([]byte(content))
+		manifest := KnowledgeManifest{
+			SchemaVersion:  "1.2",
+			SupportedKinds: []string{"decision"},
+			IndexedKinds:   []string{"decision"},
+			DomainRegistry: KnowledgeDomainRegistry{
+				SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+				Domains: []KnowledgeDomain{
+					{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+					{DomainID: "sync", Name: "Sync", Purpose: "Synchronization", Status: "current", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+				},
+			},
+			Records: []KnowledgeRecord{{
+				ID: "CD-0001", Kind: "decision", Path: recordPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
+				Title: "Domain law", Summary: "A domain law", Tags: []string{},
+				Authority:    KnowledgeAuthority{Tier: "derived"},
+				Scopes:       KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{"sync"}, TagIDs: []string{}},
+				HomeDomainID: "sync", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:]),
+			}},
+		}
+		manifestBytes, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var document map[string]json.RawMessage
+		if err := json.Unmarshal(manifestBytes, &document); err != nil {
+			t.Fatal(err)
+		}
+		registryShard := document["domain_registry"]
+		delete(document, "domain_registry")
+		delete(document, "records")
+		headBytes, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordShard, err := json.Marshal(manifest.Records[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeKnowledgeFile(t, repo, headPath, string(headBytes)+"\n")
+		writeKnowledgeFile(t, repo, registryPath, string(registryShard)+"\n")
+		writeKnowledgeFile(t, repo, recordTree+"CD-0001.json", string(recordShard)+"\n")
+		writeKnowledgeFile(t, repo, recordPath, content)
+		commitKnowledgeRepo(t, repo, "sharded knowledge home")
+		s := openTemp(t)
+		home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "locator", RepoPath: repo, HeadRef: "HEAD"}
+		authorizeKnowledgeProductHome(t, s, "concord", home)
+		if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT registry_path FROM domain_registries WHERE product_id='concord'`).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != registryPath {
+			t.Fatalf("persisted registry path = %q, want %q", got, registryPath)
+		}
+	}
+	buildShardedHome(t, knowledgeHeadPath, knowledgeRegistryPath, ".concord/docs/decisions/CD-0001.md", knowledgeRecordTreeDir)
+	buildShardedHome(t, "docs/knowledge/manifest.json", "docs/knowledge/domain-registry.json", "docs/decisions/CD-0001.md", "docs/knowledge/records/")
+}

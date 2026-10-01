@@ -129,7 +129,7 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, homeProjectID, homeLocatorID); err != nil {
 		return fmt.Errorf("pm1fixture: seed Product law home: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,'fixture')`, productID, homeProjectID, homeLocatorID, "fixture-"+productID, FixtureRootDomainID, FixtureDomainRegistryContentHash); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,registry_path,scanned_commit_oid) VALUES(?,?,?,?,?,'1.0',?,?,'fixture')`, productID, homeProjectID, homeLocatorID, "fixture-"+productID, FixtureRootDomainID, FixtureDomainRegistryContentHash, knowledgeRegistryPath); err != nil {
 		return fmt.Errorf("pm1fixture: seed Domain registry: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?,?)`, homeProjectID, homeLocatorID, productID, FixtureRootDomainID, "Fixture root", "Product law fixture", nil, "current", FixtureDomainRegistryContentHash, "fixture"); err != nil {

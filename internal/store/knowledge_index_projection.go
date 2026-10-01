@@ -351,9 +351,15 @@ func nullString(value string) any {
 }
 
 type domainProjection struct {
-	ProductID        string
-	ProductKey       string
-	RegistryHash     string
+	ProductID    string
+	ProductKey   string
+	RegistryHash string
+	// RegistryPath is the repository path of the registry shard the
+	// composition read (CD-0194 D5), persisted so the workflow law context
+	// emits the file the owning Product actually carries. Empty when the
+	// registry came from an aggregate-era manifest, which embeds its registry
+	// and names no shard.
+	RegistryPath     string
 	RootDomainID     string
 	Domains          []domainProjectionDomain
 	Relations        []domainProjectionRelation
@@ -384,7 +390,7 @@ type indexedLaw struct {
 
 func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
 	registry := manifest.DomainRegistry
-	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
+	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RegistryPath: manifest.domainRegistryPath, RootDomainID: registry.RootDomainID}
 	if len(registry.Domains) == 0 {
 		return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "Domain registry contains no Domains", false, "declare the Product root Domain and its retained Domains")
 	}
@@ -465,7 +471,7 @@ func uniqueSorted(values []string) []string {
 }
 
 func insertDomainProjection(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, projection domainProjection) error {
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(home_project_id,home_locator_id,product_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, projection.ProductKey, projection.RootDomainID, "1.0", projection.RegistryHash, commit); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(home_project_id,home_locator_id,product_id,product_key,root_domain_id,schema_version,content_hash,registry_path,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, projection.ProductID, projection.ProductKey, projection.RootDomainID, "1.0", projection.RegistryHash, projection.RegistryPath, commit); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write Domain registry projection", true, "retry once the database is writable", err)
 	}
 	for _, domain := range projection.Domains {

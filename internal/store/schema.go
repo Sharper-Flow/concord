@@ -5386,6 +5386,32 @@ DELETE FROM fold_guard;
 ALTER TABLE work_items DROP COLUMN last_activity_at;
 `,
 	},
+	{
+		Version:  110,
+		Name:     "domain_registries_carry_registry_path",
+		Breaking: false,
+		// domain_registries is git-derived: the event fold never writes it,
+		// so no fold can drift the column. The origin class is the true
+		// rolling-upgrade claim: first derivation wins, and a pre-110 binary's
+		// rebuild leaves the default '' — the same "no registry path
+		// established" state the migration backfills. The law context reads
+		// '' fail-closed (projection_not_found, rebuild recovery), so an
+		// older writer's rows refuse instead of misleading, and the next
+		// current-binary RebuildKnowledgeIndex rewrites the table with the
+		// path its git read established.
+		FoldMaintained: "origin",
+		SQL: `
+-- domain_registries.registry_path records the repository path of the Domain
+-- registry shard the knowledge projection read (CD-0194 D5 shard tiers):
+-- .concord/docs/knowledge/domain-registry.json or docs/knowledge/
+-- domain-registry.json. The workflow law context emits this recorded path so
+-- a dispatched lane reads the registry file the owning Product actually
+-- carries, and refuses fail-closed when no projection row establishes one.
+-- Registry identity stays the recorded content_hash; the path is a locator
+-- only.
+ALTER TABLE domain_registries ADD COLUMN registry_path TEXT NOT NULL DEFAULT '';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

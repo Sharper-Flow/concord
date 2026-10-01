@@ -10,8 +10,17 @@ import (
 
 // seedLawContextFixture initializes one implementation workflow whose approved
 // contract binds spec:one (mandated and modified), law:new (added), and the
-// root and child Domains, with one verification obligation on spec:one.
+// root and child Domains, with one verification obligation on spec:one. The
+// Domain registry projection carries the .concord/docs/knowledge tier path.
 func seedLawContextFixture(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	seedLawContextFixtureWithRegistry(t, s, workID, knowledgeRegistryPath)
+}
+
+// seedLawContextFixtureWithRegistry is seedLawContextFixture with the Domain
+// registry projection's persisted registry path under the test's control. An
+// empty path seeds a projection row that establishes no registry path.
+func seedLawContextFixtureWithRegistry(t *testing.T, s *Store, workID, registryPath string) {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
@@ -29,7 +38,7 @@ func seedLawContextFixture(t *testing.T, s *Store, workID string) {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, []any{hash}},
+		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,registry_path,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,?,'test')`, []any{hash, registryPath}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, []any{hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','Child','Child law','root','current',?,'test')`, []any{hash}},
 		{`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project','workflow-law-locator','spec:one','product','root',content_hash,'test' FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`, nil},
@@ -121,6 +130,49 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	// that binds Domains carries the registry path in the packet's law block.
 	if snapshot.LawContext.RegistryPath != knowledgeRegistryPath {
 		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, knowledgeRegistryPath)
+	}
+}
+
+// The emitted registry path is the path the knowledge projection persisted,
+// not a compiled constant: a Product whose knowledge home uses the
+// docs/knowledge shard tier (CD-0194 D5) carries its registry at
+// docs/knowledge/domain-registry.json, so the packet must name that file.
+func TestContinuityEmitsRegistryPathPersistedByProjection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-registry-docs-tier"
+	seedLawContextFixtureWithRegistry(t, s, workID, "docs/knowledge/domain-registry.json")
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LawContext == nil {
+		t.Fatal("continuity resolved no law context for a contract that binds Domains")
+	}
+	if snapshot.LawContext.RegistryPath != "docs/knowledge/domain-registry.json" {
+		t.Fatalf("law context registry path = %q, want the persisted docs/knowledge tier path", snapshot.LawContext.RegistryPath)
+	}
+}
+
+// A Domain registry projection row that establishes no registry path — a row
+// a rebuild predating the recorded path carried, or an aggregate-era registry
+// — refuses fail-closed: emitting a default path the repository may not own
+// is how a dispatched lane was sent to a file that does not exist.
+func TestContinuityRefusesRegistryProjectionWithoutPersistedPath(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-registry-unpathed"
+	seedLawContextFixtureWithRegistry(t, s, workID, "")
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "product" || failure.RecoveryAction != "rebuild the Domain registry projection" {
+		t.Fatalf("missing registry path diagnosis = %v, want typed projection_not_found naming the Product with the rebuild recovery", err)
 	}
 }
 

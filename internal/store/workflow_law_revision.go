@@ -616,10 +616,40 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 		if err != nil {
 			return nil, err
 		}
+		registryPath, err := workflowDomainRegistryPathTx(ctx, tx, productID)
+		if err != nil {
+			return nil, err
+		}
 		context.Domains = domains
-		context.RegistryPath = knowledgeRegistryPath
+		context.RegistryPath = registryPath
 	}
 	return context, nil
+}
+
+// workflowDomainRegistryPathTx reads the registry path the knowledge
+// projection persisted for the bound Product — the shard-layout tier the
+// accepted revision carries (CD-0194 D5), never a compiled constant. A
+// Product with no projection row, and a row that establishes no path, refuse
+// fail-closed: an emitted default would send the dispatched lane to a file
+// the repository does not own. Registry identity stays the projection's
+// recorded content hash; the path is a locator only.
+func workflowDomainRegistryPathTx(ctx context.Context, tx *sql.Tx, productID string) (string, error) {
+	var registryPath string
+	err := tx.QueryRowContext(ctx, `SELECT registry_path FROM domain_registries WHERE product_id=?`, productID).Scan(&registryPath)
+	if err == sql.ErrNoRows {
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound Domains have no Domain registry projection that establishes a registry path", false, "rebuild the Domain registry projection")
+		failure.CandidateIDs = []string{productID}
+		return "", failure
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the Domain registry projection path", true, "retry once the Domain registry is readable", err)
+	}
+	if registryPath == "" {
+		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "Domain registry projection establishes no registry path", false, "rebuild the Domain registry projection")
+		failure.CandidateIDs = []string{productID}
+		return "", failure
+	}
+	return registryPath, nil
 }
 
 // lawContextLaws builds each bound law's identity with its sorted, deduplicated

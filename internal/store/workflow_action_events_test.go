@@ -202,7 +202,7 @@ func seedIssue31DomainRegistry(t *testing.T, s *Store) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, hash); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,registry_path,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,?,'test')`, hash, knowledgeRegistryPath); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

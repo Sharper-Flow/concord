@@ -60,10 +60,13 @@ var knowledgeShardLayouts = []knowledgeShardLayout{
 // knowledgeShards is the raw material of one manifest: the head, the domain
 // registry, and every record shard keyed by its file name. recordPathPrefix
 // carries the layout tier the shards were read from, so composition
-// validates record paths under the prefix that revision has.
+// validates record paths under the prefix that revision has. registryPath
+// carries the same tier's registry shard path, so the projection can persist
+// the file the registry was actually read from.
 type knowledgeShards struct {
 	head             []byte
 	registry         []byte
+	registryPath     string
 	records          map[string][]byte
 	recordPathPrefix string
 }
@@ -129,7 +132,12 @@ func composeKnowledgeManifest(shards knowledgeShards) (KnowledgeManifest, error)
 	if pathPrefix == "" {
 		pathPrefix = manifestRecordPathPrefix
 	}
-	return parseKnowledgeManifestWithPaths(composed, pathPrefix)
+	manifest, err := parseKnowledgeManifestWithPaths(composed, pathPrefix)
+	if err != nil {
+		return KnowledgeManifest{}, err
+	}
+	manifest.domainRegistryPath = shards.registryPath
+	return manifest, nil
 }
 
 // readKnowledgeShardsAtCommit reads the shard tree at one commit through a
@@ -203,6 +211,7 @@ func readKnowledgeShardsWorkingTree(repo string) (knowledgeShards, error) {
 	shards := knowledgeShards{head: head, records: map[string][]byte{}, recordPathPrefix: manifestRecordPathPrefix}
 	if registry, err := os.ReadFile(path.Join(repo, knowledgeRegistryPath)); err == nil { //nolint:gosec // knowledgeRegistryPath is fixed and repo is the operator-selected Git authority.
 		shards.registry = registry
+		shards.registryPath = knowledgeRegistryPath
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read the domain registry shard", true, "restore the git knowledge home", err)
 	}
@@ -235,6 +244,7 @@ func (s *knowledgeShards) accept(name string, content []byte) bool {
 			s.recordPathPrefix = layout.recordPathPrefix
 		case name == layout.registryPath:
 			s.registry = content
+			s.registryPath = layout.registryPath
 		case strings.HasPrefix(name, layout.recordTreeDir) && strings.HasSuffix(name, ".json") && !strings.Contains(strings.TrimPrefix(name, layout.recordTreeDir), "/"):
 			s.records[strings.TrimPrefix(name, layout.recordTreeDir)] = content
 		default:

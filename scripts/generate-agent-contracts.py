@@ -36,6 +36,16 @@ DELIVERY_RULE_WAIT_DESCRIPTION = (
     "time window. Capture that observation as a follow-up work item and link "
     "it raised_from the delivering item."
 )
+# The store refuses a record_verdict batch whose distinct evidence union
+# (entry evaluation_evidence plus envelope evidence plus any operation-minted
+# reference) exceeds the per-operation evidence bound, so the bound travels in
+# the verdicts field description and a caller learns to split before calling.
+VERDICT_BATCH_EVIDENCE_BOUND_DESCRIPTION = (
+    "The store refuses a batch whose distinct evidence union (entry "
+    "evaluation_evidence plus envelope evidence plus any operation-minted "
+    "reference) exceeds 32 references, the per-operation evidence bound; "
+    "split the batch."
+)
 
 
 def require_delivery_rule_teaching(defs: dict) -> None:
@@ -453,6 +463,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
                     if not isinstance(wait, dict):
                         fail("add_condition payload names no expected_within_seconds field for the delivery-rule teaching")
                     wait["description"] = DELIVERY_RULE_WAIT_DESCRIPTION
+                if action_id == "record_verdict":
+                    verdicts = field_object.get("properties", {}).get("verdicts")
+                    if isinstance(verdicts, dict):
+                        verdicts["description"] = VERDICT_BATCH_EVIDENCE_BOUND_DESCRIPTION
                 branch = {"properties": {"fields": field_object}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}
                 if "required" in field_object:
                     branch["required"] = ["fields"]

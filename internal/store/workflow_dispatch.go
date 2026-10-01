@@ -648,6 +648,15 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		if mint && !contains(refs, "evidence:"+request.OperationID) {
 			refs = append(refs, "evidence:"+request.OperationID)
 		}
+		// The declared batch evidence bound: the call's distinct evidence
+		// union stays within the per-operation bound the action_completed
+		// fold enforces on result_evidence_refs. Refusing here names the
+		// union count before any event exists; without it, a schema-valid
+		// batch would surface as a fold-time refusal the two equivalent
+		// single calls would not hit.
+		if len(refs) > workflowOperationEvidenceRefBound {
+			return nil, false, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("record_verdict batch resolves %d distinct evidence references and the operation evidence bound is %d", len(refs), workflowOperationEvidenceRefBound), false, "split the batch so each call stays within the evidence bound")
+		}
 		return refs, mint, nil
 	}
 	if raw, present := fields["evaluation_evidence"]; present {

@@ -550,6 +550,16 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 
 func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
 
+// workflowOperationEvidenceRefBound is the per-operation evidence bound: the
+// number of distinct evidence references one workflow action operation may
+// resolve. The action_completed fold enforces it on result_evidence_refs, and
+// the record_verdict batch keeps its distinct evidence union (entry
+// evaluation_evidence plus the envelope's references plus any operation-minted
+// reference) within it, so an over-bound batch refuses before any event
+// instead of surfacing as a fold-time refusal the caller cannot tie to a
+// named entry.
+const workflowOperationEvidenceRefBound = 32
+
 // workflowEvidenceRef bounds one evidence reference. An entry of this kind
 // carries a declared evidence locator or immutable subject ref, which the tool
 // surface admits at 1 to 2048 bytes, so the 2-to-128 reference bound that
@@ -1848,7 +1858,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 // worker_attempt_id belongs to the worker result actions and to dispatch_worker
 // alone, and a rejected result carries its full correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, 32, 0); fault != "" {
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, workflowOperationEvidenceRefBound, 0); fault != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
 	}
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {

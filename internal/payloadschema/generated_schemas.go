@@ -10351,6 +10351,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "string"
                   },
                   "verdicts": {
+                    "description": "The store refuses a batch whose distinct evidence union (entry evaluation_evidence plus envelope evidence plus any operation-minted reference) exceeds 32 references, the per-operation evidence bound; split the batch.",
                     "items": {
                       "$ref": "#/$defs/workflow_verdict_batch_entry"
                     },

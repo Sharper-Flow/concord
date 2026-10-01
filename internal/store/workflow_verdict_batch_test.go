@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -20,6 +21,14 @@ import (
 // route fixture's shape with a multi-predicate contract, so a batch has real
 // work to divide and a real omission to leave missing.
 func seedWorkflowVerdictBatchFixture(t *testing.T, workID string) workflowReturnRouteFixture {
+	return seedWorkflowVerdictBatchFixtureWithEvidence(t, workID, 0)
+}
+
+// seedWorkflowVerdictBatchFixtureWithEvidence seeds the batch fixture and
+// binds extraEvidence more durably bound evidence references beyond the three
+// named kinds, named evidence:batch-extra-00 upward, so an evidence-bound
+// regression has real locators to divide.
+func seedWorkflowVerdictBatchFixtureWithEvidence(t *testing.T, workID string, extraEvidence int) workflowReturnRouteFixture {
 	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -87,6 +96,16 @@ func seedWorkflowVerdictBatchFixture(t *testing.T, workID string) workflowReturn
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": kind,
 			"immutable_subject_ref": evidenceRef, "producer_id": "principal/batch-" + kind, "producer_run_ref": "batch-authority-" + kind + "-" + workID,
 			"producer_watermark": "request/batch-" + kind + "-" + workID, "observed_at": "2026-09-12T00:00:00Z",
+		})))
+	}
+	for index := 0; index < extraEvidence; index++ {
+		evidenceRef := fmt.Sprintf("evidence:batch-extra-%02d", index)
+		authorityID := fmt.Sprintf("batch-authority-extra-%s-%02d", workID, index)
+		seedWorkflowAuthority(t, s, authorityID, workID, "principal/batch-extra", "request/"+authorityID, []string{evidenceRef})
+		events = append(events, nextEvent(workflowEventWithActor("batch-evidence-extra-"+workID+"-"+fmt.Sprintf("%02d", index), WorkflowEvidenceBound, workID, ownerRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": "artifact",
+			"immutable_subject_ref": evidenceRef, "producer_id": "principal/batch-extra", "producer_run_ref": authorityID,
+			"producer_watermark": "request/" + authorityID, "observed_at": "2026-09-12T00:00:00Z",
 		})))
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{
@@ -333,5 +352,100 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	}
 	if step != "release" {
 		t.Fatalf("step after confirmation = %q, want release", step)
+	}
+}
+
+// TestWorkflowVerdictBatchEvidenceUnionBound declares the batched form's
+// evidence bound: a record_verdict call's distinct evidence union (entry
+// evaluation_evidence plus the envelope's references plus any operation-minted
+// reference) stays within the per-operation evidence bound the
+// action_completed fold already enforces on result_evidence_refs. A
+// schema-valid batch over the bound refuses before any event, the same
+// predicates recorded as two single calls pass, and a batch whose entries
+// share references under the bound passes, so the batched form never
+// diverges from separate calls with an undeclared refusal.
+func TestWorkflowVerdictBatchEvidenceUnionBound(t *testing.T) {
+	const workID = "batch-union-bound"
+	fixture := seedWorkflowVerdictBatchFixtureWithEvidence(t, workID, 34)
+
+	extra := func(from, to int) []string {
+		refs := make([]string, 0, to-from)
+		for index := from; index < to; index++ {
+			refs = append(refs, fmt.Sprintf("evidence:batch-extra-%02d", index))
+		}
+		return refs
+	}
+	marshal := func(value map[string]any) json.RawMessage {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	batchEntry := func(predicate string, refs []string) map[string]any {
+		return map[string]any{"predicate_id": predicate, "verdict_kind": "ok", "evaluation_evidence": refs}
+	}
+	presentRefs := append([]string{"evidence:return-route-verification"}, extra(0, 16)...)
+	absentRefs := append(extra(16, 32), "evidence:return-route-review")
+
+	eventsForWork := func() int64 {
+		var count int64
+		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := eventsForWork()
+
+	// Two entries of 17 distinct bound references each resolve a 34-reference
+	// union, one past the bound.
+	overbound := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
+		batchEntry("predicate:batch-present", presentRefs),
+		batchEntry("predicate:batch-absent", absentRefs),
+	}})
+	err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", overbound, fixture.owner, fixture.operator)
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindInvalidPayload {
+		t.Fatalf("over-bound batch: err=%v, want %s", err, KindInvalidPayload)
+	}
+	if !strings.Contains(failure.Detail, "34 distinct evidence references") || !strings.Contains(failure.Detail, "the operation evidence bound is 32") || !strings.Contains(failure.RecoveryAction, "split the batch") {
+		t.Fatalf("over-bound refusal = %q / %q, must name the union count, the bound, and the split remedy", failure.Detail, failure.RecoveryAction)
+	}
+	if got := eventsForWork(); got != before {
+		t.Fatalf("over-bound batch moved events from %d to %d; it must refuse before any event", before, got)
+	}
+
+	// The same predicates recorded as two single calls stay inside the bound.
+	present := marshal(map[string]any{"contract_version": 1, "predicate_id": "predicate:batch-present", "verdict_kind": "ok", "evaluation_evidence": presentRefs})
+	absent := marshal(map[string]any{"contract_version": 1, "predicate_id": "predicate:batch-absent", "verdict_kind": "ok", "evaluation_evidence": absentRefs})
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", present, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("single call with entry one's evidence: %v", err)
+	}
+	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", absent, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("single call with entry two's evidence: %v", err)
+	}
+	// Each single call writes one verdict event plus its action_completed.
+	if got := eventsForWork(); got != before+4 {
+		t.Fatalf("the two single calls wrote %d events over %d, want exactly four (two verdicts, two completions)", got-before, before)
+	}
+
+	// A batch whose entries share references keeps the union under the bound
+	// and records both verdicts.
+	const sharedWork = "batch-union-shared"
+	shared := seedWorkflowVerdictBatchFixtureWithEvidence(t, sharedWork, 20)
+	sharedRefs := extra(0, 20)
+	sharedBatch := marshal(map[string]any{"contract_version": 1, "verdicts": []any{
+		batchEntry("predicate:batch-present", sharedRefs),
+		batchEntry("predicate:batch-absent", sharedRefs),
+	}})
+	if err := runIssue933OperatorAction(t, shared.store, sharedWork, "record_verdict", sharedBatch, shared.owner, shared.operator); err != nil {
+		t.Fatalf("batch sharing references under the bound: %v", err)
+	}
+	var recorded int64
+	if err := shared.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, sharedWork, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 2 {
+		t.Fatalf("shared-reference batch recorded %d verdicts, want 2", recorded)
 	}
 }

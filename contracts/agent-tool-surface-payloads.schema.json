@@ -12086,7 +12086,8 @@
                       "$ref": "#/$defs/workflow_verdict_batch_entry"
                     },
                     "minItems": 1,
-                    "maxItems": 8
+                    "maxItems": 8,
+                    "description": "The store refuses a batch whose distinct evidence union (entry evaluation_evidence plus envelope evidence plus any operation-minted reference) exceeds 32 references, the per-operation evidence bound; split the batch."
                   }
                 }
               }

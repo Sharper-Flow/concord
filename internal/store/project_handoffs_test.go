@@ -518,21 +518,210 @@ func TestManagedExecutionRefusesUntilHandoffConsumed(t *testing.T) {
 	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
 		t.Fatalf("post-consume gate refused %v", err)
 	}
-	// A contract replacement makes the consumed handoff stale, and the gate
-	// refuses again until a fresh addressed handoff stands.
+	// A contract replacement leaves the consumed handoff consumed: the bind
+	// already admitted this session once, so a historical admission
+	// requirement never resurrects, and the fresh-handoff recovery stays
+	// reachable.
 	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
-	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
-	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "active contract is version 2") {
-		t.Fatalf("err=%v, want the stale-consumed gate refusal", err)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("post-replacement gate refused %v", err)
 	}
 }
 
-// seedOpenWorkerAttempt records one nonterminal worker attempt and, when it
-// names a dispatch actor, its dispatch attribution inside the fold-guarded
-// write path. An attempt without an attribution event is the unknown-
-// ownership shape: the projection row exists and no dispatch authorization
-// names who ran it.
-func seedOpenWorkerAttempt(t *testing.T, s *Store, workID, attemptID, dispatchActor string) {
+// The review-probe regression: a consumed handoff under a superseded
+// contract never gates, so a fresh successor handoff recorded and consumed
+// under the renewed contract leaves the receiving session admitted.
+func TestManagedExecutionGateIgnoresConsumedHandoffsAfterContractReplacement(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
+	first := recordHandoff(t, f, f.sourceTree)
+	consumeHandoff(t, f, first.HandoffID)
+	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "fresh successor job"
+	req.Now = time.Unix(40, 0).UTC()
+	second, err := runRecordProjectHandoffTx(f, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumeHandoff(t, f, second.HandoffID)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("gate refused after the fresh successor handoff was consumed: %v", err)
+	}
+}
+
+// An unconsumed handoff under a superseded contract holds the gate closed:
+// the stale consume refuses, so only a fresh addressed handoff under the
+// active contract, consumed by the receiving session, reopens admission.
+func TestManagedExecutionGateHoldsOnStaleUnconsumedHandoff(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
+	recordHandoff(t, f, f.sourceTree)
+	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	err := runHandoffGate(t, f.store, f.workID, f.targetSession)
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "stands unconsumed under contract version 1") {
+		t.Fatalf("err=%v, want the stale-unconsumed gate refusal", err)
+	}
+	// A fresh handoff under the active contract supersedes the stale one:
+	// the frontier is now the fresh handoff, and the gate still refuses
+	// while it stands unconsumed.
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "fresh successor job"
+	req.Now = time.Unix(40, 0).UTC()
+	second, recordErr := runRecordProjectHandoffTx(f, req)
+	if recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "stands unconsumed") || strings.Contains(fmt.Sprint(err), "contract version 1") {
+		t.Fatalf("err=%v, want the fresh frontier to hold the gate without the stale version message", err)
+	}
+	consumeHandoff(t, f, second.HandoffID)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("post-consume gate refused %v", err)
+	}
+}
+
+// A session whose Project placement cannot resolve on a handoff-bearing work
+// refuses at the admission boundary, and ordinary handoff-free work stays
+// admitted whatever the caller's placement.
+func TestManagedExecutionGateRefusesUnplacedSessionOnHandoffBearingWork(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	// Handoff-free: an unplaced session is not this feature's subject, and
+	// the gate leaves it alone.
+	if err := runHandoffGate(t, f.store, f.workID, "session/unplaced"); err != nil {
+		t.Fatalf("handoff-free gate refused %v", err)
+	}
+	recordHandoff(t, f, f.sourceTree)
+	err := runHandoffGate(t, f.store, f.workID, "session/unplaced")
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
+		t.Fatalf("err=%v, want the unplaced-session refusal", err)
+	}
+	// An unattributable caller refuses the same way: admission cannot bind
+	// an addressed handoff to an identity it cannot prove.
+	err = runHandoffGate(t, f.store, f.workID, "")
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
+		t.Fatalf("err=%v, want the unattributable-caller refusal", err)
+	}
+	// The placed receiving session is gated only by the handoff addressed to
+	// its own Project, and consuming it reopens admission.
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
+	recorded := mustReadPendingHandoffForProject(t, f, f.targetProject)
+	consumeHandoff(t, f, recorded.HandoffID)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("post-consume gate refused %v", err)
+	}
+}
+
+func mustReadPendingHandoffForProject(t *testing.T, f projectHandoffFixture, projectID string) *ProjectHandoff {
+	t.Helper()
+	handoff, err := ReadPendingProjectHandoffForProject(context.Background(), f.store, f.workID, projectID)
+	if err != nil || handoff == nil {
+		t.Fatalf("handoff=%v err=%v, want the addressed pending handoff", handoff, err)
+	}
+	return handoff
+}
+
+// A recorded landing released the rows its request's claim held; occupancy
+// rows that stand afterwards belong to a later claim, and the old landing
+// proves nothing about this retirement (CD-0190 D2).
+func TestRetirementReadinessRefusesRenewedOccupancyAfterLanding(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	recordHandoff(t, f, f.sourceTree)
+	locators, err := f.store.ProjectLocators(context.Background(), f.sourceProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedSessionVacateAndLanding(t, f.store, f.workID, f.sourceSession, f.sourceTree, locators[0].NormalizedValue)
+	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirement.State != RetirementReady {
+		t.Fatalf("retirement=%+v, want readiness from the verified facts", retirement)
+	}
+	// A later claim's occupancy rows stand: the landing of the old request
+	// no longer proves this session released, so readiness is pending.
+	bindSessionToProjectWorktree(t, f.store, f.sourceTree, f.sourceSession)
+	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirement.State != RetirementPending || retirement.VacateLanded {
+		t.Fatalf("retirement=%+v, want renewed occupancy to hold readiness", retirement)
+	}
+	found := false
+	for _, blocker := range retirement.Blockers {
+		if strings.Contains(blocker, "occupancy rows on this work after its recorded landing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("blockers=%v, want the renewed-occupancy blocker", retirement.Blockers)
+	}
+}
+
+// An ignored, uncommitted artifact survives neither `git status --porcelain`
+// nor the session's worktree, so hash equality alone is not preservation:
+// the probe requires the referenced bytes to be committed at HEAD.
+func TestProjectHandoffRefusesIgnoredUncommittedArtifact(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	if err := os.WriteFile(filepath.Join(f.sourceTree, ".gitignore"), []byte("ephemeral.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, f.sourceTree, "add", ".gitignore")
+	gitRunStore(t, f.sourceTree, "commit", "-m", "ignore the ephemeral artifact")
+	ignored := filepath.Join(f.sourceTree, "ephemeral.txt")
+	if err := os.WriteFile(ignored, []byte("unpreserved artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref := fmt.Sprintf("sha256:%s:%s", artifactDigest(t, ignored), ignored)
+	err := VerifyProjectHandoffArtifactPreservation(context.Background(), f.sourceTree, []string{ref})
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "not committed at the source worktree's HEAD") {
+		t.Fatalf("err=%v, want the uncommitted-artifact refusal", err)
+	}
+	// The same artifact committed at HEAD verifies as durable preservation.
+	gitRunStore(t, f.sourceTree, "add", "-f", "ephemeral.txt")
+	gitRunStore(t, f.sourceTree, "commit", "-m", "preserve the artifact")
+	if err := VerifyProjectHandoffArtifactPreservation(context.Background(), f.sourceTree, []string{ref}); err != nil {
+		t.Fatalf("committed artifact refused: %v", err)
+	}
+}
+
+// An artifact reference whose path resolves through a symlink outside the
+// claimed worktree refuses before any bytes are read: the immutable
+// reference must live inside the claimed source worktree.
+func TestProjectHandoffRefusesSymlinkEscapingArtifact(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(f.sourceTree, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, f.sourceTree, "add", "link.txt")
+	gitRunStore(t, f.sourceTree, "commit", "-m", "link the artifact")
+	ref := fmt.Sprintf("sha256:%s:%s", artifactDigest(t, outside), link)
+	err := VerifyProjectHandoffArtifactPreservation(context.Background(), f.sourceTree, []string{ref})
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "resolves through a symlink outside the claimed source worktree") {
+		t.Fatalf("err=%v, want the symlink-escape refusal", err)
+	}
+}
+
+// seedOrphanWorkerAttemptRow records the anomalous shape the retirement
+// gate must treat as unknown attribution: a nonterminal worker_attempts
+// projection row with no dispatch authorization event at all. The real
+// dispatch chain always writes the authorization beside the row, so this
+// shape is a damaged or legacy projection, and readiness must block on it.
+func seedOrphanWorkerAttemptRow(t *testing.T, s *Store, workID, attemptID string) {
 	t.Helper()
 	ctx := context.Background()
 	lane := BuiltinLaneDefinitions()[0]
@@ -544,26 +733,96 @@ func seedOpenWorkerAttempt(t *testing.T, s *Store, workID, attemptID, dispatchAc
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
-	now := "2026-09-30T00:00:00Z"
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
 		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
-		VALUES (?,?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), "1.0", "1.0", now); err != nil {
+		VALUES (?,?,?,?,?,?,?,?,?, 'dispatched', ?)`, workID, attemptID, lane.ID, lane.Version, lane.Digest, lane.CapabilityClass, preferredModelForLane(lane), "1.0", "1.0", "2026-09-30T00:00:00Z"); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
-	}
-	if dispatchActor != "" {
-		payload, _ := json.Marshal(map[string]any{"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "capability_class": lane.CapabilityClass, "packet_schema_version": "1.0", "report_schema_version": "1.0"})
-		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`,
-			"ph-dispatch-"+attemptID, "worker.dispatched", "work_item", workID, dispatchActor, now, 4, string(payload)); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
 	}
 	if err := leaveFold(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// recordHandoffSessionActor records the session's workflow actor through the
+// real WorkflowActorRecorded fold when the handoff fixture has not recorded
+// it yet, so workflow_actors binds the actor ref to the authenticated
+// session reference exactly as production does. It returns the ref.
+func recordHandoffSessionActor(t *testing.T, f projectHandoffFixture, sessionRef string) string {
+	t.Helper()
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: sessionRef, ActorClass: ActorAgent}
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded int
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded == 1 {
+		return actorRef
+	}
+	version := fixtureWorkVersion(t, f.store, f.workID)
+	event := workflowEventWithActor("ph-actor-"+sessionRef, WorkflowActorRecorded, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": "agent"})
+	if err := applyWorkflowTestOperation(context.Background(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+	return actorRef
+}
+
+func fixtureWorkVersion(t *testing.T, s *Store, workID string) int64 {
+	t.Helper()
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
+// seedSessionOwnedDispatchedAttempt drives the real dispatch authorization
+// chain the retirement gate derives worker ownership from: the session's
+// recorded workflow actor, the dispatch_worker action start on the pinned
+// current step at the next per-step epoch, the dispatch_worker completion
+// that binds the attempt in flight with its lane identity, and the
+// worker.dispatched evidence event whose Actor column carries the
+// authenticated principal/client actor the evidence boundary stamps
+// (cmd/concord applyWorkerEvidence) — never the session reference. The
+// completion fold creates the in_flight worker_attempts row and the evidence
+// fold moves it to dispatched, so the projection rows the gate reads are the
+// folds' own output.
+func seedSessionOwnedDispatchedAttempt(t *testing.T, f projectHandoffFixture, sessionRef, attemptID string) {
+	t.Helper()
+	ctx := context.Background()
+	actorRef := recordHandoffSessionActor(t, f, sessionRef)
+	var currentStep string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&currentStep); err != nil {
+		t.Fatal(err)
+	}
+	var startedCount int64
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='workflow.action_started' AND subject_id=? AND json_extract(payload,'$.step_id')=?`, f.workID, currentStep).Scan(&startedCount); err != nil {
+		t.Fatal(err)
+	}
+	epoch := startedCount + 1
+	version := fixtureWorkVersion(t, f.store, f.workID)
+	lane := BuiltinLaneDefinitions()[0]
+	packetDigest := "sha256:" + strings.Repeat("c", 64)
+	started := workflowEventWithActor("ph-dispatch-start-"+attemptID, WorkflowActionStarted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version, "resulting_version": version + 1, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "dispatch:" + attemptID, "actor_ref": actorRef, "execution_model": preferredModelForLane(lane)})
+	completed := workflowEventWithActor("ph-dispatch-done-"+attemptID, WorkflowActionCompleted, f.workID, actorRef, map[string]any{"work_id": f.workID, "expected_version": version + 1, "resulting_version": version + 2, "step_id": currentStep, "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID, "worker_lane_id": lane.ID, "worker_lane_version": lane.Version, "worker_lane_digest": lane.Digest, "worker_capability_class": lane.CapabilityClass, "worker_packet_digest": packetDigest, "worker_packet_predicate_ids": []any{}, "worker_worktree_identity": f.sourceTree, "result_evidence_refs": []any{}, "changed_refs": []any{f.workID}, "actor_ref": actorRef})
+	// The dispatch completion carries its worker bindings on payload
+	// version 3, the registered current version.
+	completed.PayloadVersion = 3
+	if err := applyWorkflowTestOperation(ctx, f.store, Operation{Events: []Event{started, completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, f.workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+	// The worker evidence stamps its Actor column with the authenticated
+	// client/principal identity the worker-evidence boundary records, which
+	// is never the dispatching session reference.
+	dispatch := Event{EventID: "ph-dispatched-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "client:concord-1:operator", OccurredAt: time.Unix(45, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: packetDigest, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{dispatch}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -620,8 +879,10 @@ func TestRetirementReadinessRequiresEveryVerifiedFact(t *testing.T) {
 	if len(retirement.Blockers) != 1 || !strings.Contains(retirement.Blockers[0], "session_vacate has not recorded") {
 		t.Fatalf("blockers=%v, want the vacate blocker", retirement.Blockers)
 	}
-	// The session's own open worker attempt blocks readiness.
-	seedOpenWorkerAttempt(t, f.store, f.workID, "ph-attempt-1", f.sourceSession)
+	// The session's own open worker attempt blocks readiness: the dispatch
+	// authorization chain attributes the attempt to this session's
+	// authenticated actor.
+	seedSessionOwnedDispatchedAttempt(t, f, f.sourceSession, "ph-attempt-1")
 	retirement, err = EvaluateProjectSessionRetirement(ctx, f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -711,9 +972,10 @@ func TestRetirementUnknownWorkerAttributionBlocksReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedSessionVacateAndLanding(t, f.store, f.workID, f.sourceSession, f.sourceTree, locators[0].NormalizedValue)
-	// An attempt whose dispatch event carries no actor attribution blocks
-	// readiness: unknown ownership never reports optimistic readiness.
-	seedOpenWorkerAttempt(t, f.store, f.workID, "ph-attempt-unknown", "")
+	// An attempt whose projection row stands with no dispatch
+	// authorization blocks readiness: unknown ownership never reports
+	// optimistic readiness.
+	seedOrphanWorkerAttemptRow(t, f.store, f.workID, "ph-attempt-unknown")
 	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)
@@ -722,9 +984,10 @@ func TestRetirementUnknownWorkerAttributionBlocksReadiness(t *testing.T) {
 		t.Fatalf("retirement=%+v, want unknown attribution to block readiness", retirement)
 	}
 	// Another session's positively identified open worker is not this
-	// session's worker.
+	// session's worker: the real dispatch chain attributes the attempt to
+	// the foreign session's authenticated actor.
 	completeWorkerAttempt(t, f.store, f.workID, "ph-attempt-unknown")
-	seedOpenWorkerAttempt(t, f.store, f.workID, "ph-attempt-foreign", "session/foreign")
+	seedSessionOwnedDispatchedAttempt(t, f, "session/foreign", "ph-attempt-foreign")
 	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession)
 	if err != nil {
 		t.Fatal(err)

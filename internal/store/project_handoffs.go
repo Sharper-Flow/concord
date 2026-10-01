@@ -381,9 +381,14 @@ func readFileBounded(path string) ([]byte, error) {
 // git before any mutation transaction. A dirty or untracked worktree refuses
 // with the unpreserved paths named: closing the session would lose them, and
 // the core never auto-commits, stashes, or hides them. Each immutable
-// artifact reference is verified against the real file bytes: the recorded
-// digest must equal the sha256 of the file under the worktree, so a stale or
-// fabricated reference refuses.
+// artifact reference is verified as durable committed content, never as a
+// hash-only claim: the path must be canonical and resolve inside the claimed
+// worktree with no escaping symlink, the recorded digest must equal the
+// sha256 of the file's bytes, AND the same bytes must be committed at the
+// worktree's HEAD — `git status --porcelain` never lists ignored files, so
+// an ignored uncommitted artifact would survive the status probe and vanish
+// with the worktree. A stale, fabricated, uncommitted, or ignored reference
+// refuses.
 func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, artifactRefs []string) error {
 	if sourceWorktree == "" {
 		return newFailure(KindInvalidOperation, "project_handoff", "artifact preservation requires the actual claimed source worktree", false, "supply the source worktree directory the session claimed")
@@ -409,14 +414,31 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 	if len(dirty) > 0 {
 		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the source worktree carries unpreserved changes: %s", strings.Join(dirty, "; ")), false, "commit the candidate or remove the changes before recording the handoff; the core never commits, stashes, or hides files")
 	}
+	resolvedTree, resolveErr := filepath.EvalSymlinks(sourceWorktree)
+	if resolveErr != nil {
+		return newFailure(KindProjectionNotFound, "project_handoff", "the claimed source worktree does not resolve on this machine", false, "probe the claimed source worktree the session verified")
+	}
+	treePrefix := resolvedTree + string(filepath.Separator)
 	for _, ref := range artifactRefs {
 		parts := strings.SplitN(ref, ":", 3)
 		if len(parts) != 3 {
 			return newFailure(KindInvalidOperation, "project_handoff", "an artifact reference does not decode", false, "reference preserved artifacts as sha256:<digest>:<absolute path>")
 		}
 		claimed, path := parts[1], parts[2]
-		if !strings.HasPrefix(path, sourceWorktree+string(filepath.Separator)) && filepath.Clean(path) != sourceWorktree {
+		// Canonicalize before any file access: a traversal or a symlink that
+		// escapes the claimed worktree refuses before its bytes are read.
+		if filepath.Clean(path) != path || !filepath.IsAbs(path) {
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not name a canonical absolute path", ref), false, "reference artifacts by their canonical absolute path inside the claimed source worktree")
+		}
+		if !strings.HasPrefix(path, sourceWorktree+string(filepath.Separator)) {
 			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s names a path outside the claimed source worktree", ref), false, "reference artifacts inside the claimed source worktree")
+		}
+		resolvedPath, resolveErr := filepath.EvalSymlinks(path)
+		if resolveErr != nil {
+			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the claimed source worktree", ref), false, "reference committed artifacts that exist in the worktree")
+		}
+		if !strings.HasPrefix(resolvedPath, treePrefix) {
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s resolves through a symlink outside the claimed source worktree", ref), false, "reference artifacts that live inside the claimed source worktree")
 		}
 		content, readErr := readFileBounded(path)
 		if readErr != nil {
@@ -425,6 +447,14 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 		digest := fmt.Sprintf("%x", sha256.Sum256(content))
 		if digest != claimed {
 			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not match the worktree content", ref), false, "reference the artifact's actual content digest")
+		}
+		relative := strings.TrimPrefix(path, sourceWorktree+string(filepath.Separator))
+		committed, headErr := ExecGitRunner{}.Run(ctx, sourceWorktree, "show", "HEAD:"+filepath.ToSlash(relative))
+		if headErr != nil {
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s is not committed at the source worktree's HEAD; an uncommitted or ignored artifact would not survive session retirement", ref), false, "commit the artifact or reference committed content; the core never commits, stashes, or hides files")
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(committed)) != claimed {
+			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not match the committed content at the source worktree's HEAD", ref), false, "reference the artifact's committed content digest")
 		}
 	}
 	return nil
@@ -566,25 +596,35 @@ func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID str
 }
 
 // RefuseUnconsumedProjectHandoffTx is the core managed-execution admission
-// gate. When a handoff another session recorded stands unconsumed on the
-// work, a consequential (external-effect) action by any other session
-// refuses until that session consumes a handoff addressed to it under the
-// active contract. A consumed handoff recorded under a superseded contract
-// refuses as stale: the receiving session must have a fresh addressed
-// handoff re-recorded under the current contract. The source session keeps
-// acting, and a work with no handoffs is unaffected. It runs inside the
-// caller's transaction so the read observes the caller's own uncommitted
-// events.
+// gate. It reads the current addressed frontier: the newest handoff another
+// session recorded for the acting session's Project. A frontier that stands
+// unconsumed refuses managed execution until the receiving session consumes
+// it — and a frontier recorded under a superseded contract cannot be
+// consumed, so the source session records a fresh addressed handoff whose
+// recording supersedes the stale one. A consumed frontier admits: the bind
+// already admitted this session once, so neither contract replacement nor a
+// superseded historical row resurrects a past admission requirement. A
+// session whose Project placement cannot resolve on a handoff-bearing work
+// refuses: the gate cannot bind an addressed handoff to a Project it cannot
+// prove. A work with no handoffs is unaffected. It runs inside the caller's
+// transaction so the read observes the caller's own uncommitted events.
 func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) error {
-	if sessionRef == "" {
+	// Ordinary handoff-free work stays admitted whatever the caller's
+	// identities or placement.
+	var total int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=?`, workID).Scan(&total); err != nil {
+		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's handoff records", true, "retry once the database is readable", err)
+	}
+	if total == 0 {
 		return nil
 	}
 	// The acting session's Project resolves from the core's own placement
 	// evidence: the occupancy row the verified landing recorded (CD-0178
 	// D3) joined to the claimed worktree. A caller-supplied Project never
-	// decides admission, and a session with no occupied claimed worktree on
-	// this work is not a Project-selected session of it, so no handoff can
-	// address it and the gate leaves it alone.
+	// decides admission. On a handoff-bearing work an unresolvable placement
+	// refuses: the session could be the addressed receiver skipping its
+	// consume, so admission fails closed until a verified landing records
+	// its occupancy.
 	var projectID string
 	projectErr := tx.QueryRowContext(ctx, `SELECT c.project_id
 		FROM worktree_occupancy o
@@ -592,55 +632,38 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		WHERE o.session_ref=? AND c.work_id=?`, sessionRef, workID).Scan(&projectID)
 	if projectErr == sql.ErrNoRows {
-		return nil
+		return newFailure(KindInvalidOperation, "project_handoff", "the work carries Project handoffs, but this session holds no verified placement on it; managed execution refuses until a verified landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement")
 	}
 	if projectErr != nil {
 		return wrapFailure(KindUnavailable, "project_handoff", "cannot resolve the acting session's Project placement", true, "retry once the database is readable", projectErr)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT handoff_id,source_session_ref,contract_version FROM project_handoffs WHERE work_id=? AND target_project_id=? AND source_session_ref<>?`, workID, projectID, sessionRef)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's handoffs", true, "retry once the database is readable", err)
-	}
-	type pending struct {
-		id              string
-		source          string
-		contractVersion int64
-	}
-	var pendingRows []pending
-	for rows.Next() {
-		var item pending
-		if err := rows.Scan(&item.id, &item.source, &item.contractVersion); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "project_handoff", "cannot decode the handoff gate read", true, "retry once the database is readable", err)
-		}
-		pendingRows = append(pendingRows, item)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "project_handoff", "cannot finish the handoff gate read", true, "retry once the database is readable", err)
-	}
-	rows.Close()
-	if len(pendingRows) == 0 {
+	var frontierID, frontierSource string
+	var frontierVersion int64
+	var frontierState string
+	frontierErr := tx.QueryRowContext(ctx, `SELECT handoff_id,source_session_ref,contract_version,state FROM project_handoffs
+		WHERE work_id=? AND target_project_id=? AND source_session_ref<>?
+		ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, sessionRef).Scan(&frontierID, &frontierSource, &frontierVersion, &frontierState)
+	if frontierErr == sql.ErrNoRows {
+		// No handoff from another session addresses this Project: the
+		// session is not the addressed receiver of anything.
 		return nil
 	}
-	for _, item := range pendingRows {
-		var consumed int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=? AND handoff_id=? AND state='consumed' AND consumed_by_session_ref=?`, workID, item.id, sessionRef).Scan(&consumed); err != nil {
-			return wrapFailure(KindUnavailable, "project_handoff", "cannot read the handoff consumption", true, "retry once the database is readable", err)
-		}
-		if consumed == 1 {
-			version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
-			if contractErr != nil && contractErr != sql.ErrNoRows {
-				return contractErr
-			}
-			if contractErr == nil && version != item.contractVersion {
-				return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s was consumed under contract version %d, but the active contract is version %d", item.id, item.contractVersion, version), false, "have the source session record a fresh addressed handoff under the active contract")
-			}
-			continue
-		}
-		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until this session consumes the handoff addressed to it", item.id, item.source), false, "consume the addressed Project handoff before managed execution")
+	if frontierErr != nil {
+		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's addressed handoff frontier", true, "retry once the database is readable", frontierErr)
 	}
-	return nil
+	if frontierState != ProjectHandoffRecorded {
+		// The current frontier was consumed: its bind already admitted the
+		// receiving session once.
+		return nil
+	}
+	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+	if contractErr != nil && contractErr != sql.ErrNoRows {
+		return contractErr
+	}
+	if contractErr == nil && version != frontierVersion {
+		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed under contract version %d, but the active contract is version %d; a stale handoff cannot be consumed, so the source session must record a fresh addressed handoff that supersedes it", frontierID, frontierSource, frontierVersion, version), false, "have the source session record a fresh addressed handoff under the active contract, then consume it")
+	}
+	return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until this session consumes the handoff addressed to it", frontierID, frontierSource), false, "consume the addressed Project handoff before managed execution")
 }
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State
@@ -815,17 +838,25 @@ func sessionClaimedWorktreeTx(ctx context.Context, tx *sql.Tx, workID, projectID
 }
 
 // sessionOwnedExecutionStoppedTx derives whether the session's own open,
-// in-flight, or refused execution stopped. Worker attempts are attributed
-// through their dispatch authorization: the worker.dispatched event's actor
-// is the dispatching session, and the attempt id is the dispatched payload's
-// identity. A nonterminal attempt whose dispatch event carries no actor
-// blocks readiness as unknown attribution, and a positively identified
-// attempt of ANOTHER session never blocks this session's readiness.
-// Nonterminal workflow actions the session started (a started action with no
-// later completed or failed event for the same step and attempt epoch) also
-// block. It runs inside the caller's transaction.
+// in-flight, or refused execution stopped. A nonterminal attempt is one the
+// dispatch authorization bound in flight (lifecycle_state 'in_flight') or
+// whose worker evidence recorded (lifecycle_state 'dispatched'); 'completed'
+// and 'failed' are terminal. Ownership is derived from the dispatch
+// authorization chain, never from name equality: the dispatch_worker
+// completion binds the attempt to the authorizing workflow actor, and the
+// workflow_actors record binds that actor to its authenticated session. The
+// worker.dispatched event's Actor column carries the authenticated
+// principal/client actor the evidence boundary stamps, and workflow actor
+// refs are hashes, so neither is ever compared with the session reference.
+// An attempt with no dispatch authorization, an authorization that names no
+// actor, or an actor with no recorded session blocks readiness as unknown
+// attribution, and a positively identified attempt of ANOTHER session never
+// blocks this session's readiness. Nonterminal workflow actions the
+// session's actors started (a started action with no later completed or
+// failed event for the same step and attempt epoch) also block. It runs
+// inside the caller's transaction.
 func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched'`, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the work's open worker attempts", true, "retry once the database is readable", err)
 	}
@@ -844,24 +875,46 @@ func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, ses
 	}
 	rows.Close()
 	for _, attemptID := range attempts {
-		var actor string
-		scanErr := tx.QueryRowContext(ctx, `SELECT actor FROM domain_events WHERE kind='worker.dispatched' AND subject_id=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, attemptID).Scan(&actor)
+		// The dispatch authorization WorkerAttemptID/ActorRef pair is the
+		// only core ownership evidence: read the authorizing actor from the
+		// dispatch_worker completion, then resolve its authenticated session
+		// through workflow_actors.
+		var actorRef string
+		scanErr := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
+			WHERE kind='workflow.action_completed' AND subject_id=?
+			AND json_extract(payload,'$.action_id')='dispatch_worker'
+			AND json_extract(payload,'$.worker_attempt_id')=?
+			ORDER BY seq DESC LIMIT 1`, workID, attemptID).Scan(&actorRef)
 		if scanErr == sql.ErrNoRows {
 			return false, nil
 		}
 		if scanErr != nil {
 			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the attempt's dispatch attribution", true, "retry once the database is readable", scanErr)
 		}
-		if actor == sessionRef {
+		if actorRef == "" {
+			return false, nil
+		}
+		var ownerSession string
+		actorErr := tx.QueryRowContext(ctx, `SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&ownerSession)
+		if actorErr == sql.ErrNoRows {
+			return false, nil
+		}
+		if actorErr != nil {
+			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot resolve the dispatch actor's authenticated session", true, "retry once the database is readable", actorErr)
+		}
+		if ownerSession == sessionRef {
 			return false, nil
 		}
 	}
-	// The session's own nonterminal workflow actions. A started action whose
-	// step and attempt epoch has no later completed or failed event is still
-	// open, whoever else acted on the work since.
+	// The session's own nonterminal workflow actions. The started action's
+	// actor_ref is a workflow actor hash, so the session binds through the
+	// workflow_actors record, and a started action whose step and attempt
+	// epoch has no later completed or failed event is still open, whoever
+	// else acted on the work since.
 	var open int
 	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
-		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND json_extract(f.payload,'$.actor_ref')=?
+		JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
+		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND a.session_ref=?
 		  AND NOT EXISTS (
 		    SELECT 1 FROM domain_events c
 		    WHERE c.subject_id=f.subject_id AND c.kind IN ('workflow.action_completed','workflow.action_failed')
@@ -877,9 +930,13 @@ func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, ses
 
 // sessionVacateLandingStateTx derives the verified vacate landing fact for
 // one work and session: landed true only when the latest committed
-// relocation request stands completed by a recorded landing (CD-0190 D2).
-// A pending request, a version 1 release, or no request at all reports the
-// blocker text instead. It runs inside the caller's transaction.
+// relocation request stands completed by a recorded landing (CD-0190 D2)
+// AND the session holds no occupancy rows on this work now. A recorded
+// landing released the rows its request's claim held, so rows that stand
+// after it belong to a later claim, and the old landing proves nothing about
+// this retirement. A pending request, a version 1 release, no request at
+// all, or renewed occupancy reports the blocker text instead. It runs inside
+// the caller's transaction.
 func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, string, error) {
 	_, seq, version, err := latestSessionVacateRequestTx(ctx, tx, workID, sessionRef)
 	if err != nil {
@@ -898,6 +955,16 @@ func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessio
 	}
 	if !landed {
 		return false, "the committed session vacate still waits for its verified landing", nil
+	}
+	var occupied int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy o
+		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		WHERE o.session_ref=? AND c.work_id=?`, sessionRef, workID).Scan(&occupied); err != nil {
+		return false, "", wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's current occupancy", true, "retry once the database is readable", err)
+	}
+	if occupied != 0 {
+		return false, "the session holds occupancy rows on this work after its recorded landing; the rows belong to a later claim, whose own verified landing or vacate releases them", nil
 	}
 	return true, "", nil
 }

@@ -1713,9 +1713,9 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "agent-1" })
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
-  // resumable claim rather than a moved session with none. The typed
-  // Project-handoff consume closes the flow after the landing.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "invoke"])
+  // resumable claim rather than a moved session with none. A capture boot
+  // renders no addressed handoff, so it issues no consume invoke.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   // The landing is confirmed, so the session title names the goal the
   // session-prepare contract derived.
@@ -1961,6 +1961,8 @@ const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { e
     if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
     if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
     if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+    // A handoff-free resume renders no project_handoff, so the boot issues no
+    // consume invoke at all; the leg answers only an unexpected call.
     if (command === "invoke") return { exitCode: 0, stdout: consumeNoHandoffAnswer(), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
@@ -1974,9 +1976,9 @@ test("work start resume derives the entry by work_id and moves the session", asy
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
   // The active resume read stays journal-free, the verified landing records
-  // itself afterwards through the claim-landing verb, and the typed
-  // Project-handoff consume closes the boot flow.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "invoke"])
+  // itself afterwards through the claim-landing verb, and a handoff-free
+  // boot issues no Project-handoff consume at all.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -2036,6 +2038,96 @@ test("work start resume records the verified landing naming the session, work it
   expect(mismatch.outcome).toBe("error")
   expect(mismatch.error.kind).toBe("session_directory_mismatch")
   expect(mismatchCalls.some(({ argv }) => argv[1] === "claim-landing")).toBe(false)
+})
+
+// The bounded addressed handoff a Project-selected work-resume renders
+// (CD-0182 amendment): the boot consumes exactly the rendered handoff, by its
+// own id, through the authenticated invoke route, and the consumed bounded
+// job rides the result so the receiving session holds its repository job
+// without the operator copying context.
+const renderedHandoff = () => ({
+  handoff_id: "work-1:project-handoff:project-0:project-1:abcd1234abcd1234",
+  source_project_id: "project-0",
+  bounded_job: "verify the receiving repository's adapter surface",
+  changes: ["adapter/opencode: opener route"],
+  verification: ["bun test adapter/opencode/ pass"],
+  artifact_refs: null,
+  blockers: [],
+  next_action: "consume the handoff and verify the opener route",
+  recorded_at: "2026-09-30T00:00:00Z",
+})
+
+const consumeOKAnswer = (handoffID: string) =>
+  JSON.stringify(coreEnvelope("concord_work_transition", "project_handoff_consume", "ok", {
+    changed_refs: [],
+    next_valid_intents: [],
+    result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", handoff_id: handoffID, already_consumed: false },
+  })) + "\n"
+
+test("work start resume consumes the rendered handoff by id and carries the bounded job", async () => {
+  const { moved } = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  const consumeInput: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: {
+    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+      calls.push({ argv, input, options })
+      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
+      const command = argv[1]
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_handoff: renderedHandoff() }), stderr: "" }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      if (command === "invoke") {
+        const parsed = JSON.parse(input) as { operation: string; input: Record<string, unknown> }
+        expect(parsed.operation).toBe("project_handoff_consume")
+        // The generated tool contract requires handoff_id; the boot sends
+        // the rendered handoff's own id, never an addressed resolution the
+        // contract refuses.
+        expect(parsed.input).toMatchObject({ work_id: "work-1", handoff_id: renderedHandoff().handoff_id })
+        consumeInput.push(calls[calls.length - 1])
+        return { exitCode: 0, stdout: consumeOKAnswer(renderedHandoff().handoff_id), stderr: "" }
+      }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    },
+  } as never })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.project_handoff).toEqual(renderedHandoff())
+  expect(result.output).toContain("verify the receiving repository's adapter surface")
+  expect(consumeInput).toHaveLength(1)
+  expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+})
+
+test("work start resume refuses when the rendered handoff does not bind", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_handoff: renderedHandoff() }), stderr: "" }),
+    "invoke": () => ({ exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "project_handoff_consume", "error", { error: { kind: "invalid_input", retry_safe: false, recovery_action: { kind: "reread_entities" }, effect_state: "none", message: "the handoff was recorded under contract version 1, but the active contract is version 2" } })) + "\n", stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("resume_failure")
+  expect(result.error.message).toContain("did not consume the addressed Project handoff")
+  expect(result.error.message).toContain("active contract is version 2")
+  // The refused boot arms no claimed worktree for dispatch.
+  expect(armedClaimedWorktree("session-1")).toBeNull()
+})
+
+test("work start resume refuses when the landing record fails on a handoff-bearing boot", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_handoff: renderedHandoff() }), stderr: "" }),
+    "claim-landing": () => ({ exitCode: 1, stdout: "", stderr: "concord claim-landing: worktree_ownership_conflict: the claimed worktree is not recorded as occupied by this session" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("error")
+  expect(result.error.kind).toBe("resume_failure")
+  expect(result.error.message).toContain("did not record this session as the occupant")
+  expect(result.error.message).toContain("requires verified placement")
+  // No consume is attempted: the unplaced session cannot bind.
+  expect(calls.some(({ argv }) => argv[1] === "invoke")).toBe(false)
 })
 
 // Occupancy never refuses the move (CD-0104 D5, CD-0119): a landing record the
@@ -2632,7 +2724,7 @@ test("work start replays to convergence after an interrupted step", async () => 
   })
   const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
-  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "invoke"])
+  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })
@@ -3364,7 +3456,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(abandonCalls).toBe(2)
   expect(calls).toEqual([
     "worker-abandon", "project-resolve", "invoke", "vacate-landing", "worker-abandon",
-    "project-resolve", "work-resume", "session-prepare", "claim-landing", "invoke",
+    "project-resolve", "work-resume", "session-prepare", "claim-landing",
   ])
 })
 

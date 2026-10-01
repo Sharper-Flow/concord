@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureCoreBinary, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -20,7 +21,7 @@ const context = () =>
     abort: new AbortController().signal,
     metadata: () => {},
     ask: async () => {},
-  }) as Parameters<typeof consumeAddressedProjectHandoff>[1]
+  }) as Parameters<typeof consumeAddressedProjectHandoff>[2]
 
 // fakeHost wires the plugin's control-plane client so the session route
 // answers the worktree the verified landing read back, and swaps the runner
@@ -137,15 +138,19 @@ afterEach(async () => {
 // the host readback proved and the ambient context the boot flow resolved.
 const landingTransport = () => ({ sessionDirectory: "/worktree", ambient: { projectID: "project-receive", productIDs: ["product-1"], scopeVersion: "sv-1", mainWorktree: false } })
 
+// The bounded job the work-resume rendered for this Project: the consume
+// carries its durable id, never an adapter-invented identity.
+const renderedHandoffID = "work-1:project-handoff:project-source:project-receive:abcd1234abcd"
+
 describe("consumeAddressedProjectHandoff", () => {
-  test("binds the addressed handoff through the owning invoke route with the authenticated call envelope", async () => {
+  test("binds the rendered handoff through the owning invoke route with the required handoff_id and the authenticated call envelope", async () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(okAnswer(), captured))
-    const out = await consumeAddressedProjectHandoff("work-1", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(true)
-    expect(out.handoffID).toBe("work-1:project-handoff:project-source:project-receive:abcd1234abcd")
-    expect(consumedProjectHandoff("session-receive")?.handoffID).toBe("work-1:project-handoff:project-source:project-receive:abcd1234abcd")
+    expect(out.handoffID).toBe(renderedHandoffID)
+    expect(consumedProjectHandoff("session-receive")?.handoffID).toBe(renderedHandoffID)
     // Strict call-envelope boundary: the consume rode the context-resolved
     // transport, so the envelope names the authenticated identities the
     // verified landing supplied — never receiver identities this file could
@@ -166,35 +171,39 @@ describe("consumeAddressedProjectHandoff", () => {
     expect(envelope.selected_product_id).toBe("product-1")
     expect(envelope.scope_version).toBe("sv-1")
     expect(envelope.manifest_digest).toBe(manifestDigest)
-    expect(captured.input).toEqual({ work_id: "work-1", idempotency_key: "handoff-consume-work-1" })
+    // The generated tool contract requires handoff_id on the consume input,
+    // and the idempotency key derives from the handoff identity so a
+    // successor handoff can never replay this bind's cached answer.
+    expect(captured.input).toEqual({ work_id: "work-1", handoff_id: renderedHandoffID, idempotency_key: `handoff-consume-work-1-${createHash("sha256").update(renderedHandoffID).digest("hex").slice(0, 16)}` })
   })
 
   test("a typed stale-contract refusal never binds and carries the typed refusal message", async () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(refusalAnswer("invalid_input", "the handoff was recorded under contract version 1, but the active contract is version 2", "reread_entities"), captured))
-    const out = await consumeAddressedProjectHandoff("work-1", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
     expect(out.message).toContain("invalid_input")
     expect(out.message).toContain("active contract is version 2")
     expect(consumedProjectHandoff("session-receive")).toBeNull()
   })
 
-  test("the ordinary boot state — no handoff addresses this Project — stays quiet", async () => {
+  test("an unknown-scope answer for a rendered handoff fails closed instead of reporting quiet", async () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(refusalAnswer("unknown_scope", "no recorded project handoff addresses this Project", "none"), captured))
-    const out = await consumeAddressedProjectHandoff("work-1", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
-    expect(out.message ?? "").toBe("")
+    expect(out.message).toContain("unknown_scope")
+    expect(out.message).toContain("no recorded project handoff addresses this Project")
     expect(consumedProjectHandoff("session-receive")).toBeNull()
   })
 
-  test("a runner failure at the invoke leg surfaces as a warning, never a bypass", async () => {
+  test("a runner failure at the invoke leg surfaces as a refusal, never a bypass", async () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(okAnswer(), captured, true))
-    const out = await consumeAddressedProjectHandoff("work-1", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
     expect(out.message).toContain("operation_conflict")
     expect(out.message).toContain("core unreachable")
@@ -205,17 +214,17 @@ describe("consumeAddressedProjectHandoff", () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(okAnswer(), captured, false, "concord core answer lost in transit\n"))
-    const out = await consumeAddressedProjectHandoff("work-1", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
     expect(out.message).toContain("malformed_response")
     expect(consumedProjectHandoff("session-receive")).toBeNull()
   })
 
-  test("a missing work or session identity skips the consume entirely", async () => {
+  test("a missing work, handoff, or session identity skips the consume entirely", async () => {
     resetConsumedProjectHandoffs()
     const captured: CapturedInvoke = {}
     await fakeHost(coreRunner(okAnswer(), captured))
-    const out = await consumeAddressedProjectHandoff("", context(), landingTransport())
+    const out = await consumeAddressedProjectHandoff("", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
     expect(out.message).toContain("consume skipped")
     expect(captured.call_envelope).toBeUndefined()

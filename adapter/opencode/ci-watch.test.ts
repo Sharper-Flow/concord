@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { bindCiWatchClient, ciWatchSettled, concord_ci_watch, configureCiWatch, drainQueuedCiReports, type VerbSpawner } from "./ci-watch"
+import { bindCiWatchClient, ciWatchSettled, concord_ci_watch, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
@@ -183,6 +183,44 @@ test("a host that handed the plugin no client is refused because the report coul
   const refused = result(await concord_ci_watch.execute(watchArgs, context))
   expect(refused.status).toBe("refused")
   expect(String(refused.reason)).toContain("cannot deliver the terminal report")
+})
+
+test("a caller whose context was already cancelled is refused and spawns nothing", async () => {
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const { calls, spawner } = verbFixture([])
+  configureCiWatch({ spawner })
+  const controller = new AbortController()
+  controller.abort()
+  const refused = result(await concord_ci_watch.execute(watchArgs, { sessionID: SESSION, abort: controller.signal }))
+  expect(refused.status).toBe("refused")
+  expect(String(refused.reason)).toContain("coordinator surface")
+  expect(String(refused.reason)).toContain("cancelled")
+  expect(calls).toHaveLength(0)
+})
+
+test("a cancellation landing during the managed-scope lookup refuses admission and spawns nothing", async () => {
+  const fixture = hostFixture()
+  const controller = new AbortController()
+  const client = fixture.client
+  const scopeGet = client.get
+  client.get = async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
+    if (request.url === "/session/{id}") await new Promise((resolve) => setTimeout(resolve, 50))
+    return scopeGet(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  const { calls, spawner } = verbFixture([])
+  configureCiWatch({ spawner })
+  const executing = concord_ci_watch.execute(watchArgs, { sessionID: SESSION, abort: controller.signal })
+  controller.abort()
+  const refused = result(await executing)
+  expect(refused.status).toBe("refused")
+  expect(String(refused.reason)).toContain("cancelled")
+  expect(calls).toHaveLength(0)
 })
 
 test("an adapter with no bound core binary is refused at start", async () => {
@@ -559,4 +597,86 @@ test("a queued report survives a chat.message with no resolvable message id and 
   const later = { parts: [] as unknown[] }
   drainQueuedCiReports(SESSION, "msg_later", later)
   expect(later.parts).toHaveLength(1)
+})
+
+test("a watch beyond the session's delivery capacity is refused and every accepted report is retained", async () => {
+  const fixture = hostFixture({ status: "busy" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idleTimeoutMs: 30, idlePollMs: 5 })
+  const spawner: VerbSpawner = async () => ({
+    exitCode: 0,
+    stdout: JSON.stringify({ status: "success", iterations: 1 }),
+    stderr: "",
+  })
+  configureCiWatch({ spawner })
+  const accepted: Array<Record<string, unknown>> = []
+  for (const value of ["1", "2", "3", "4"]) {
+    accepted.push(await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value } }))
+  }
+  const fifth = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "5" } })
+  expect(fifth.status).toBe("refused")
+  expect(String(fifth.reason)).toContain("delivery queue caps at 4")
+  await Promise.all(accepted.map((watch) => ciWatchSettled(String(watch.watch_id))))
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_capacity_drain", output)
+  expect(output.parts).toHaveLength(4)
+  for (const value of ["1", "2", "3", "4"]) {
+    const carried = output.parts.some((part) => String((part as { text: string }).text).includes(`pr:${value}.`))
+    expect(carried).toBe(true)
+  }
+  // The drain released the capacity, so the refused selector can start now.
+  const fifthAgain = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "5" } })
+  expect(fifthAgain.status).toBe("started")
+  await ciWatchSettled(String(fifthAgain.watch_id))
+})
+
+test("a delivered wake releases the session's admission capacity for the next watch", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const first = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "1" } })
+  const blocked = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
+  expect(blocked.status).toBe("refused")
+  expect(String(blocked.reason)).toContain("delivery queue caps at 1")
+  await ciWatchSettled(String(first.watch_id))
+  const second = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
+  expect(second.status).toBe("started")
+  await ciWatchSettled(String(second.watch_id))
+})
+
+test("a queued report that cannot drain yet still holds the session's admission capacity", async () => {
+  const fixture = hostFixture()
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, maxQueuedPerSession: 1, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+    { stdout: JSON.stringify({ status: "success", iterations: 1 }) },
+  ])
+  configureCiWatch({ spawner })
+  const first = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "1" } })
+  await ciWatchSettled(String(first.watch_id))
+  // The report queued unconfirmed; a message with no resolvable id drains nothing.
+  const blocked = { parts: [] as unknown[] }
+  drainQueuedCiReportsForMessage(SESSION, undefined, blocked)
+  expect(blocked.parts).toHaveLength(0)
+  const second = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
+  expect(second.status).toBe("refused")
+  expect(String(second.reason)).toContain("release capacity")
+  const later = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_later_capacity", later)
+  expect(later.parts).toHaveLength(1)
+  const third = await startWatch(fixture, { repo: "owner/name", selector: { kind: "pr", value: "2" } })
+  expect(third.status).toBe("started")
+  await ciWatchSettled(String(third.watch_id))
 })

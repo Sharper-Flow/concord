@@ -14,8 +14,10 @@
 // session's persisted agent and model on the synthetic text part, identify the
 // persisted user message carrying the report, confirm the assistant reply the
 // host parented to that message, and queue the report for the next
-// chat.message when any step fails. Every delivery failure is logged and
-// queued; none is swallowed.
+// chat.message when any step fails. Watch admission bounds each session's
+// unresolved watches plus queued reports at the queue cap, so every accepted
+// report is retained and none is dropped to make room. Every delivery failure
+// is logged and queued; none is swallowed.
 
 import { randomUUID } from "node:crypto"
 import fs from "node:fs"
@@ -317,9 +319,12 @@ function validateCiWatchArgs(args: unknown): CiWatchArgs | string {
 
 // The watcher is a coordinator surface. The check mirrors the adapter's lane
 // boundary and fails closed: a caller the host cannot positively resolve as
-// an unparented coordinator session is refused.
+// an unparented coordinator session is refused. A cancelled context is not a
+// scope answer either, and unlike the core-transport tools nothing downstream
+// cancels the spawn, so a cancellation before or during the scope lookup
+// refuses admission instead of standing down.
 async function coordinatorRefusal(context: { sessionID: string; abort?: AbortSignal }): Promise<string | null> {
-  if (context.abort?.aborted) return null
+  if (context.abort?.aborted) return cancelledCallerRefusal()
   const controlPlane = hostControlPlane()
   if (!controlPlane.available()) {
     return `${CI_WATCH_BOUNDARY}; the host control plane is unbound, so the caller cannot be proven a coordinator session`
@@ -329,10 +334,18 @@ async function coordinatorRefusal(context: { sessionID: string; abort?: AbortSig
       return `${CI_WATCH_BOUNDARY}; the caller session runs under a managed parent`
     }
   } catch (error) {
-    if (context.abort?.aborted) return null
+    if (context.abort?.aborted) return cancelledCallerRefusal()
     return `${CI_WATCH_BOUNDARY}; Concord cannot resolve this session's managed Task scope, so it cannot prove the caller is a coordinator session (${errorDetail(error)})`
   }
+  // The lookup answered unparented, but the caller may have been cancelled
+  // while it ran; admission reads the signal once more so a cancellation that
+  // lands during the lookup cannot convert into a started watch.
+  if (context.abort?.aborted) return cancelledCallerRefusal()
   return null
+}
+
+function cancelledCallerRefusal(): string {
+  return `${CI_WATCH_BOUNDARY}; the calling context was cancelled before admission, so the caller cannot be proven a coordinator session`
 }
 
 function watchKey(sessionID: string, args: CiWatchArgs): string {
@@ -394,6 +407,12 @@ async function executeConcordCiWatch(
   }
   if (activeWatches.size >= config.maxActiveWatches) {
     return refusalResult(`concord_ci_watch already carries ${config.maxActiveWatches} active watches; wait for one to settle`)
+  }
+  const unresolved = unresolvedSessionDeliveries(context.sessionID)
+  if (unresolved >= config.maxQueuedPerSession) {
+    return refusalResult(
+      `concord_ci_watch already holds ${unresolved} unresolved watches and undelivered reports for this session, and the delivery queue caps at ${config.maxQueuedPerSession}; receive a delivered report or send a message to release capacity`,
+    )
   }
   const watch = createWatch(context.sessionID, args, binary)
   watchKeys.set(key, watch.id)
@@ -647,11 +666,28 @@ async function confirmAssistantReply(sessionID: string, injectedMessageID: strin
   }
 }
 
+// unresolvedSessionDeliveries counts the session's accepted watches that can
+// still produce a terminal report plus its already queued reports. Admission
+// refuses at the queue cap, so every accepted watch can retain its report: a
+// watch leaves the count only when its report is delivered, drained, or
+// queued, and a queued report leaves only when it is delivered.
+function unresolvedSessionDeliveries(sessionID: string): number {
+  let active = 0
+  for (const watch of activeWatches.values()) {
+    if (watch.sessionID === sessionID) active++
+  }
+  return active + (queuedReports.get(sessionID)?.length ?? 0)
+}
+
 function queueReport(sessionID: string, watchID: string, text: string): void {
   const queue = queuedReports.get(sessionID) ?? []
   if (queue.length >= config.maxQueuedPerSession) {
-    const dropped = queue.shift()
-    log("error", `ci-watch ${watchID}: the delivery queue for session ${sessionID} is full; the oldest queued report (${dropped?.watchID ?? "unknown"}) is dropped`)
+    // Admission bounds a session's unresolved watches plus queued reports, so
+    // this branch means that bound was exceeded; the accepted report is
+    // retained anyway and the breach is logged, because dropping an earlier
+    // accepted report to make room is the one outcome admission exists to
+    // prevent.
+    log("error", `ci-watch ${watchID}: session ${sessionID} holds more than ${config.maxQueuedPerSession} queued reports, beyond the admission bound; the accepted report is retained and none is dropped`)
   }
   queue.push({ watchID, text })
   queuedReports.set(sessionID, queue)

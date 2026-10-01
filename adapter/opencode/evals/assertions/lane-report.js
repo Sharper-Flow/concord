@@ -135,25 +135,57 @@ function validateSchema(schema, value, root, path = "", failures = []) {
 // The canonical report receives identity from the packet alone, so an echoed
 // field is discarded here exactly as admission discards it.
 const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"];
-// The bound and suffix mirror the adapter's evidence-detail normalization
-// (dispatch.ts normalizeWorkerReport): the cap is read from the closed
-// schema so this projection cannot drift from the bound it satisfies.
-const MAX_REPORT_DETAIL_LENGTH = CONTRACT.$defs.evidence_entry.properties.detail.maxLength;
+// The bounds mirror the adapter's report normalization (dispatch.ts
+// normalizeWorkerReport): each is read from the closed schema so this
+// projection cannot drift from the bound it satisfies. The store counts UTF-8
+// bytes (x-maxBytes), so the cut runs in UTF-8 bytes on a code-point boundary;
+// base_comparison_check.command stays refused when over-long, exactly as the
+// adapter refuses it.
+const EVIDENCE_DETAIL_SCHEMA = CONTRACT.$defs.evidence_entry.properties.detail;
+const FINDING_DETAIL_SCHEMA = CONTRACT.$defs.review_finding.properties.detail;
 const TRUNCATED_REPORT_DETAIL_SUFFIX = " [truncated]";
+const TRUNCATED_REPORT_DETAIL_SUFFIX_BYTES = Buffer.byteLength(TRUNCATED_REPORT_DETAIL_SUFFIX);
+
+// boundedDetailPrefix mirrors boundedTextPrefix (dispatch.ts): a prefix of
+// text that is at most maxBytes UTF-8 bytes and never splits a multi-byte
+// sequence.
+function boundedDetailPrefix(text, maxBytes) {
+  const buffer = Buffer.from(text);
+  if (buffer.byteLength <= maxBytes) return text;
+  let cut = maxBytes;
+  while (cut > 0 && (buffer[cut] & 0xc0) === 0x80) cut -= 1;
+  return buffer.subarray(0, cut).toString("utf8");
+}
+
+function boundDetail(detail, schema) {
+  const maxBytes = schema["x-maxBytes"];
+  if (maxBytes === undefined || Buffer.byteLength(detail) <= maxBytes) return detail;
+  return boundedDetailPrefix(detail, maxBytes - TRUNCATED_REPORT_DETAIL_SUFFIX_BYTES) + TRUNCATED_REPORT_DETAIL_SUFFIX;
+}
 
 function normalizeWorkerReport(report) {
-  if (!Array.isArray(report.evidence)) return report;
-  let normalized = report.evidence;
-  for (let index = 0; index < normalized.length; index++) {
-    const entry = normalized[index];
-    if (!isRecord(entry) || typeof entry.detail !== "string" || entry.detail.length <= MAX_REPORT_DETAIL_LENGTH) continue;
-    if (normalized === report.evidence) normalized = [...normalized];
-    normalized[index] = {
-      ...entry,
-      detail: entry.detail.slice(0, MAX_REPORT_DETAIL_LENGTH - TRUNCATED_REPORT_DETAIL_SUFFIX.length) + TRUNCATED_REPORT_DETAIL_SUFFIX,
-    };
+  let normalized = report;
+  const evidence = boundDetails(report.evidence, EVIDENCE_DETAIL_SCHEMA);
+  if (evidence) normalized = { ...normalized, evidence };
+  const review = normalized.review;
+  if (isRecord(review)) {
+    const findings = boundDetails(review.findings, FINDING_DETAIL_SCHEMA);
+    if (findings) normalized = { ...normalized, review: { ...review, findings } };
   }
-  return normalized === report.evidence ? report : { ...report, evidence: normalized };
+  return normalized;
+}
+
+function boundDetails(entries, schema) {
+  if (!Array.isArray(entries)) return null;
+  let changed = false;
+  const bounded = entries.map((entry) => {
+    if (!isRecord(entry) || typeof entry.detail !== "string") return entry;
+    const detail = boundDetail(entry.detail, schema);
+    if (detail === entry.detail) return entry;
+    changed = true;
+    return { ...entry, detail };
+  });
+  return changed ? bounded : null;
 }
 
 // canonicalJson and laneDigestOf reproduce the generator's canonical form

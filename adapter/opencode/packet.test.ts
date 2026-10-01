@@ -557,11 +557,11 @@ test("every registered lane packet projects only its serialized mandate", async 
 })
 
 test("every installed lane definition states the multi-entry remedy", async () => {
-  const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail.maxLength
+  const detailMax = agentLaneReportSchema.$defs.evidence_entry.properties.detail["x-maxBytes"]
   for (const lane of agentLanes) {
     const agent = await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()
     expect(agent, `${lane.id} omitted the multi-entry remedy`).toContain("One obligation may span several entries")
-    expect(agent).toContain(`${detailMax}-character`)
+    expect(agent).toContain(`${detailMax}-byte (UTF-8)`)
   }
 })
 

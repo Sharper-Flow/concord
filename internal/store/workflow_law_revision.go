@@ -700,7 +700,7 @@ func knowledgeRegistryLocator(homeRepo string) (string, error) {
 		if err != nil {
 			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the Domain registry shard", true, "restore access to the Product knowledge home and retry", err)
 		}
-		if err := checkKnowledgeLocatorReadable(registry); err != nil {
+		if err := checkKnowledgeLocatorReadable(homeRepo, layout.registryPath); err != nil {
 			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the Domain registry shard", true, "restore access to the Product knowledge home and retry", err)
 		}
 		return registry, nil
@@ -733,14 +733,17 @@ func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
 		failure.CandidateIDs = []string{lawID}
 		return "", failure
 	}
-	if err := checkKnowledgeLocatorReadable(qualified); err != nil {
+	if err := checkKnowledgeLocatorReadable(homeRepo, subjectPath); err != nil {
 		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the bound law document in the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
 	}
 	return qualified, nil
 }
 
-func checkKnowledgeLocatorReadable(path string) error {
-	file, err := os.Open(path)
+// checkKnowledgeLocatorReadable opens one repository-relative knowledge path
+// confined to the knowledge home checkout, so a projected path that escapes
+// the home through ".." or a symlink cannot be advertised as readable.
+func checkKnowledgeLocatorReadable(homeRepo, relative string) error {
+	file, err := os.OpenInRoot(homeRepo, filepath.FromSlash(relative))
 	if err != nil {
 		return err
 	}

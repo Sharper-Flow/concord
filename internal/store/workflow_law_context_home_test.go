@@ -525,3 +525,25 @@ func TestContinuityRefusesDomainBindingWithoutRegistryProjection(t *testing.T) {
 		t.Fatalf("missing registry projection diagnosis = %v, want typed domain_registry_absent", err)
 	}
 }
+
+// A projected law path that escapes the knowledge home checkout is not a
+// home locator: the open is confined to the home, so the context refuses
+// rather than advertising a file outside it.
+func TestLawContextRefusesLawPathEscapingTheHome(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	workID := "law-context-escape"
+	seedLawContextFixture(t, s, workID)
+	homeRepo := workflowLawFixtureRepo(t, s)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(homeRepo), "escape.md"), []byte("# Outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','spec','accepted','../escape.md','Escaping law','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:escape','product','root','sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee','test'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	lawContext, err := readLawOnlyContext(t, s, workID, []string{"spec:escape"})
+	var failure *Failure
+	if lawContext != nil || !failureAs(err, &failure) || failure.Kind != KindUnavailable {
+		t.Fatalf("escaping law path = %+v, %v; want typed unavailable", lawContext, err)
+	}
+}

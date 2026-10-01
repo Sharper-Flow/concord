@@ -29,7 +29,7 @@
       "record-reality"
     ]
   },
-  "sha256": "sha256:343bb8ebe2cce07dd0dd0efd0b0e7432391b36dfd355df5bf3822c5bff5459f2",
+  "sha256": "sha256:e6d871bd9f13cb3bd256b49ccb15666d98cd147fdb81d69e7e6e6189b58dc794",
   "status": "published",
   "summary": "Seventeen Concord bugs in four days shared one failure shape: a work item stranded with every workflow action refused. Each was worked as a ready fix that added one guard clause. The shared cause, admission derived separately at four drifting sites with no liveness check, surfaced only when the operator asked.",
   "tags": [

@@ -1,4 +1,5 @@
 import { contractOperations, hostToolSchemas } from "./generated-contracts"
+import { concord_ci_watch } from "./ci-watch"
 import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const tools: Record<string, any> = {
@@ -94,6 +95,23 @@ const workDefineRequest = object(object(workDefineRoot.properties, "work define 
 const urgencyProperty = object(object(object(workDefineRequest.properties, "work define request properties").input, "work define input").properties, "work define input properties").urgency
 const urgency = object(urgencyProperty, "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
+
+// The watcher is a direct tool: its args are the published argument fields
+// themselves, not a root schema. The host publishes each key of args as one
+// property of the tool's object schema, so repo and selector must appear as
+// fields and never as schema keywords.
+const ciWatchRoot = publishedArgsSchema(concord_ci_watch.args as Record<string, unknown>, "ci watch schema", ["repo", "selector"])
+inspect(ciWatchRoot)
+const ciWatchProperties = object(ciWatchRoot.properties, "ci watch properties")
+if (
+  JSON.stringify(Object.keys(ciWatchProperties).sort()) !==
+  JSON.stringify(["mode", "repo", "selector", "time_seconds_max"])
+) {
+  fail("concord_ci_watch does not publish repo, selector, mode, and time_seconds_max as argument fields")
+}
+if (JSON.stringify(ciWatchRoot.required) !== JSON.stringify(["repo", "selector"])) fail("concord_ci_watch does not require repo and selector")
+const ciWatchSelector = object(ciWatchProperties.selector, "ci watch selector")
+if (JSON.stringify(ciWatchSelector.required) !== JSON.stringify(["kind", "value"])) fail("concord_ci_watch selector does not require kind and value")
 
 function publishedArgsSchema(args: Record<string, unknown>, label: string, required = Object.keys(args)): Record<string, any> {
   const properties = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined))

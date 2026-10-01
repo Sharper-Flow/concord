@@ -192,10 +192,16 @@ function log(level: "debug" | "info" | "warn" | "error", message: string): void 
   if (!client) return
   void client
     .post({ url: LOG_ROUTE, body: { service: "concord", level, message }, signal: AbortSignal.timeout(5_000) })
-    .catch(() => {
-      // A logging transport failure must not break the watcher loop; the
-      // condition it tried to report is already carried by the queue or the
-      // delivered report.
+    .then((result) => {
+      if (!result.response.ok) {
+        // The host answered the log write with a failure status, so the entry
+        // is not in the host log; the stderr line is the diagnostic that
+        // survives a logging failure alongside the one being reported.
+        console.error(`concord ci-watch: the host /log route answered ${result.response.status} for a ${level} entry: ${message}`)
+      }
+    })
+    .catch((error) => {
+      console.error(`concord ci-watch: the host /log route failed (${errorDetail(error)}) for a ${level} entry: ${message}`)
     })
 }
 
@@ -215,53 +221,51 @@ const CI_WATCH_DESCRIPTION =
   "turns, and this session receives the terminal JSON report as a message when the wait ends. Pass repo (owner/name), " +
   "one selector (kind pr, sha, or run with its value), and optionally mode (checks or merge) and time_seconds_max."
 
+// OpenCode treats each key of a tool's args record as one argument field and
+// publishes it as a property of the tool's object schema. A root JSON Schema
+// here would publish its own keywords as argument fields instead, so each
+// entry below is one field's schema and the closed validation in
+// validateCiWatchArgs stays the boundary.
 const ciWatchArgsSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["repo", "selector"],
-  properties: {
-    repo: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$", minLength: 3, maxLength: 256 },
-    selector: {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind", "value"],
-      properties: {
-        kind: { type: "string", enum: ["pr", "sha", "run"] },
-        value: { type: "string", minLength: 1, maxLength: 64 },
-      },
+  repo: {
+    type: "string",
+    description: "GitHub repository as owner/name.",
+    pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9.-]*$",
+    minLength: 3,
+    maxLength: 256,
+  },
+  selector: {
+    type: "object",
+    description: "One CI selector: kind pr, sha, or run, with its value.",
+    additionalProperties: false,
+    required: ["kind", "value"],
+    properties: {
+      kind: { type: "string", enum: ["pr", "sha", "run"] },
+      value: { type: "string", minLength: 1, maxLength: 64 },
     },
-    mode: { type: "string", enum: ["checks", "merge"] },
-    time_seconds_max: { type: "integer", minimum: 0, maximum: 1800 },
+  },
+  mode: { type: "string", description: "Wait mode: checks (default) or merge.", enum: ["checks", "merge"] },
+  time_seconds_max: {
+    type: "integer",
+    description: "Maximum wait budget in seconds; the default is 1800.",
+    minimum: 0,
+    maximum: 1800,
   },
 } as const
 
 const CI_WATCH_BOUNDARY =
   "Concord worker lanes hold no Concord tool access; the CI watcher is a coordinator surface"
 
-// Two host bridges can each deliver tool arguments wrapped one extra time:
-// the Code Mode bridge under a `request` property, and schema-presenting
-// callers under the JSON Schema envelope itself (`properties` holding the
-// real fields beside `type`, `required`, and `additionalProperties`). No
-// legitimate argument payload carries those keys at the top level, so each
-// shape names its wrapper.
+// The Code Mode bridge can deliver the tool arguments wrapped one extra time
+// under a `request` property. No legitimate argument payload carries that key
+// at the top level, so the wrapper names itself. Arguments whose shape matches
+// the published schema arrive as the schema's own fields; an argument payload
+// carrying schema keywords instead of fields is a mispublication and is
+// refused by the closed validation.
 function unwrapArgs(args: unknown): unknown {
-  const outer = args as { request?: unknown; properties?: unknown } | null
+  const outer = args as { request?: unknown } | null
   if (outer !== null && typeof outer === "object" && outer.request !== null && typeof outer.request === "object") {
     return outer.request
-  }
-  if (
-    outer !== null &&
-    typeof outer === "object" &&
-    outer.properties !== null &&
-    typeof outer.properties === "object" &&
-    !Array.isArray(outer.properties)
-  ) {
-    const keys = Object.keys(outer)
-    const envelopeKeys = keys.every((key) => key === "type" || key === "properties" || key === "required" || key === "additionalProperties")
-    const inner = outer.properties as Record<string, unknown>
-    if (envelopeKeys && (inner.repo !== undefined || inner.selector !== undefined)) {
-      return inner
-    }
   }
   return args
 }

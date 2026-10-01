@@ -359,6 +359,34 @@ test("a prompt the host refuses is logged and queued, never swallowed", async ()
   expect(output.parts).toHaveLength(1)
 })
 
+test("a failed /log write surfaces on stderr, so a delivery failure keeps a diagnostic", async () => {
+  const fixture = hostFixture({ promptStatus: 400 })
+  const client = fixture.client
+  const post = client.post
+  client.post = async (request: { url: string; body?: unknown }) => {
+    if (request.url === "/log") return { response: new Response(null, { status: 500 }) }
+    return post(request)
+  }
+  hostControlPlane().bind(client)
+  bindCiWatchClient(client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const stderr: string[] = []
+  const originalError = console.error
+  console.error = (...values: unknown[]) => stderr.push(values.map(String).join(" "))
+  try {
+    const started = await startWatch(fixture)
+    await ciWatchSettled(String(started.watch_id))
+  } finally {
+    console.error = originalError
+  }
+  // The delivery failed, the /log write for that failure also failed, and the
+  // stderr line is the one diagnostic that survives both.
+  expect(stderr.some((line) => line.includes("/log route answered 500"))).toBe(true)
+})
+
 test("consecutive verb slice failures deliver an explicit error report and are logged", async () => {
   const fixture = hostFixture()
   hostControlPlane().bind(fixture.client)
@@ -465,13 +493,28 @@ test("the plugin registers the watcher tool and drains a queued report on the ne
   expect(calls).toHaveLength(1)
 })
 
-test("a JSON-Schema envelope of the arguments still starts the watch", async () => {
+test("the host publishes concord_ci_watch args as per-field argument schemas", () => {
+  // OpenCode treats each key of a tool's args record as one argument field
+  // and publishes it as a property of the tool's object schema. A root JSON
+  // Schema passed as args publishes its own keywords as argument fields
+  // instead, so repo and selector never reach the model.
+  const args = concord_ci_watch.args as Record<string, unknown>
+  expect(Object.keys(args).sort()).toEqual(["mode", "repo", "selector", "time_seconds_max"])
+  expect(args.repo).toMatchObject({ type: "string", minLength: 3 })
+  const selector = args.selector as Record<string, unknown>
+  expect(selector).toMatchObject({ type: "object", additionalProperties: false, required: ["kind", "value"] })
+  expect((selector.properties as Record<string, unknown>).kind).toMatchObject({ enum: ["pr", "sha", "run"] })
+  expect(args.mode).toMatchObject({ enum: ["checks", "merge"] })
+  expect(args.time_seconds_max).toMatchObject({ type: "integer", minimum: 0, maximum: 1800 })
+})
+
+test("a JSON-Schema envelope of the arguments is refused, never unwrapped", async () => {
   const fixture = hostFixture({ messages: [] })
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
   configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2 })
   configureCoreBinary("/synthetic/concord")
-  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  const { calls, spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
   configureCiWatch({ spawner })
   const enveloped = {
     type: "object",
@@ -479,9 +522,9 @@ test("a JSON-Schema envelope of the arguments still starts the watch", async () 
     required: ["repo", "selector"],
     properties: { repo: "owner/name", selector: { kind: "pr", value: "12" } },
   }
-  const started = result(await concord_ci_watch.execute(enveloped, context))
-  expect(started.status).toBe("started")
-  await ciWatchSettled(String(started.watch_id))
+  const refused = result(await concord_ci_watch.execute(enveloped, context))
+  expect(refused.status).toBe("refused")
+  expect(calls).toHaveLength(0)
 })
 
 test("a serialized selector string and a flattened kind/value pair both start the watch", async () => {

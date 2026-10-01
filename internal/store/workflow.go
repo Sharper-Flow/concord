@@ -224,9 +224,16 @@ type workflowActionCompletedPayload struct {
 	CorrectionPredicateIDs   []string `json:"correction_predicate_ids,omitempty"`
 	DeliveryArtifact         string   `json:"delivery_artifact,omitempty"`
 	DeliveryState            string   `json:"delivery_state,omitempty"`
-	ResultEvidenceRefs       []string `json:"result_evidence_refs"`
-	ChangedRefs              []string `json:"changed_refs"`
-	ActorRef                 string   `json:"actor_ref"`
+	// VerdictEntryCount carries the number of entries one batched
+	// record_verdict operation judged, so the fold bounds the operation's
+	// result evidence at the schema-bounded batch union instead of the
+	// single-form per-operation bound. The single form and every other action
+	// leave it absent, and payloads stored before the batched form decode
+	// without it, so both keep the bound they have always carried.
+	VerdictEntryCount  int      `json:"verdict_entry_count,omitempty"`
+	ResultEvidenceRefs []string `json:"result_evidence_refs"`
+	ChangedRefs        []string `json:"changed_refs"`
+	ActorRef           string   `json:"actor_ref"`
 }
 
 type workflowActionFailedPayload struct {
@@ -549,6 +556,29 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 }
 
 func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
+
+// workflowOperationEvidenceRefBound is the per-operation evidence bound: the
+// number of distinct evidence references one workflow action operation may
+// resolve. The action_completed fold enforces it on result_evidence_refs. A
+// batched record_verdict operation carries its own schema-bounded union bound
+// derived from its declared entry count, so the bound below stays the
+// single-form and every-other-action bound the fold has always applied.
+const workflowOperationEvidenceRefBound = 32
+
+// workflowVerdictBatchMaxEntries is the declared verdicts array bound: one
+// batched record_verdict call judges at most eight approved predicates.
+const workflowVerdictBatchMaxEntries = 8
+
+// workflowVerdictBatchEvidenceUnionBound is the schema-bounded evidence union
+// one batched record_verdict operation may resolve: each of the declared
+// entries carries at most 32 evaluation references, the call envelope adds at
+// most 32, and the operation-minted reference and the required native-run
+// capture add one each. The fold bounds a batched operation's
+// result_evidence_refs at this union, so the durable operation names every
+// reference the batch resolved without an undeclared refusal.
+func workflowVerdictBatchEvidenceUnionBound(entries int) int {
+	return (entries+1)*workflowOperationEvidenceRefBound + 2
+}
 
 // workflowEvidenceRef bounds one evidence reference. An entry of this kind
 // carries a declared evidence locator or immutable subject ref, which the tool
@@ -1848,7 +1878,14 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 // worker_attempt_id belongs to the worker result actions and to dispatch_worker
 // alone, and a rejected result carries its full correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, 32, 0); fault != "" {
+	bound := workflowOperationEvidenceRefBound
+	if p.VerdictEntryCount != 0 {
+		if p.ActionID != "record_verdict" || p.VerdictEntryCount < 0 || p.VerdictEntryCount > workflowVerdictBatchMaxEntries {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed verdict_entry_count is reserved for a batched record_verdict operation", false, "emit verdict_entry_count only for the batched record_verdict form")
+		}
+		bound = workflowVerdictBatchEvidenceUnionBound(p.VerdictEntryCount)
+	}
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound, 0); fault != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
 	}
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {

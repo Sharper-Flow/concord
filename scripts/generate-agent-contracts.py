@@ -399,6 +399,22 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
         }},
     }
+    # CD-0198 D1: one record_verdict call may carry a verdict per judged
+    # predicate through the fields.verdicts array. Each item names one
+    # approved predicate of the call's contract version and carries its own
+    # verdict kind, evaluation evidence, and incomparable flag. The store
+    # refuses a call that carries fields.predicate_id beside the array, or
+    # neither form, and refuses an entry-level field beside the batch.
+    defs["workflow_verdict_batch_entry"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["predicate_id"],
+        "properties": {
+            "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
+            "incomparable_with_approved": {"type": "boolean"},
+        },
+    }
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):
         fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")

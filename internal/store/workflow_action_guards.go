@@ -691,7 +691,9 @@ func guardLateVerdictRecovery(g *workflowActionGuardContext) error {
 		if fieldsErr != nil {
 			return fieldsErr
 		}
-		if _, present := workflowFieldString(fields, "predicate_id"); !present {
+		_, singlePresent := workflowFieldString(fields, "predicate_id")
+		_, batchPresent := fields["verdicts"]
+		if !singlePresent && !batchPresent {
 			return nil
 		}
 		return newFailure(KindInvalidOperation, "workflow_action", "late verdict recovery requires a missing, non-ok, or incomparable verdict for an active predicate", false, "record the verdict at its normal verification step or refresh the active contract")
@@ -700,20 +702,50 @@ func guardLateVerdictRecovery(g *workflowActionGuardContext) error {
 	return nil
 }
 
+// workflowLateVerdictRecoveryForActionPayload normalizes the call to its
+// ordered entry list first, so both wire shapes answer to one rule: recovery
+// admits a call only when every entry names a predicate whose latest verdict
+// is missing, non-ok, or incomparable for the active contract (CD-0198 D1).
+// A malformed shape is not recovery-eligible and reports false here; the
+// typed shape refusal belongs to the verdict constructor's own validation,
+// which runs before any event and after the consequential boundaries.
 func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage) (bool, error) {
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return false, err
 	}
-	predicateID, present := workflowFieldString(fields, "predicate_id")
-	if !present || predicateID == "" {
+	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
+	if entriesErr != nil {
 		return false, nil
 	}
 	contractVersion, present := workflowFieldIntOK(fields, "contract_version")
 	if !present {
-		contractVersion = 1
+		if _, batchPresent := fields["verdicts"]; batchPresent {
+			// The batched route resolves an omitted contract_version to the
+			// active contract through the caller's queryer, exactly as the
+			// verdict constructor does at the verification step, so a batch
+			// recorded after a supersession is judged on the contract its
+			// entries land on. A projection with no contract row is not
+			// recovery-eligible here; the constructor owns that refusal.
+			active, activeErr := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+			if activeErr != nil {
+				if activeErr == sql.ErrNoRows {
+					return false, nil
+				}
+				return false, activeErr
+			}
+			contractVersion = active
+		} else {
+			contractVersion = 1
+		}
 	}
-	return workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, predicateID, contractVersion)
+	for _, entry := range entries {
+		qualifies, qualifiesErr := workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, entry.PredicateID, contractVersion)
+		if qualifiesErr != nil || !qualifies {
+			return false, qualifiesErr
+		}
+	}
+	return true, nil
 }
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
@@ -1275,6 +1307,7 @@ type workflowActionAssemblyInput struct {
 	operatorNeedsRecord    bool
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
+	envelopeEvidenceRefs   []string
 }
 
 type workflowActionEventAssembly struct {
@@ -1335,7 +1368,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		})
 		events = append(events, Event{EventID: in.request.OperationID + ":checkpoint", Kind: WorkflowActionCheckpointed, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: checkpoint})
 	} else if in.request.ActionID != "complete" {
-		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, in.payload, versionCursor+int64(len(events)-int(versionCursor-in.request.ExpectedVersion)), in.defaultVerdictEvidence)
+		semantic, semanticErr := workflowSemanticActionEvents(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, in.payload, versionCursor+int64(len(events)-int(versionCursor-in.request.ExpectedVersion)), in.defaultVerdictEvidence, in.envelopeEvidenceRefs)
 		if semanticErr != nil {
 			return out, semanticErr
 		}
@@ -1386,6 +1419,19 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	completionValues := map[string]any{
 		"step_id": in.currentStep, "action_id": in.request.ActionID, "attempt_epoch": attemptEpoch, "result_evidence_refs": in.evidenceRefs,
 		"changed_refs": []string{in.request.WorkID}, "actor_ref": in.eventActor,
+	}
+	if in.request.ActionID == "record_verdict" {
+		// The batched form declares its entry count on the completion, so the
+		// fold bounds the operation's result evidence at the schema-bounded
+		// batch union instead of the single-form bound. The single form stays
+		// silent and keeps its bound.
+		if _, batchPresent := fields["verdicts"]; batchPresent {
+			entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
+			if entriesErr != nil {
+				return events, "", entriesErr
+			}
+			completionValues["verdict_entry_count"] = len(entries)
+		}
 	}
 	if in.request.ActionID == "record_delivery" && workflowDefinitionRequiresDeliveryPayload(in.entry.Definition) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")

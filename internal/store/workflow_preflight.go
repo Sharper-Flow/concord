@@ -137,12 +137,12 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		}
 	}
 	if request.ActionID == "request_correction" {
-		available, correctionErr := workflowCorrectionRequestAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+		available, missing, correctionErr := workflowCorrectionRequestAdmissionState(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
 		if correctionErr != nil {
 			return correctionErr
 		}
 		if !available {
-			return newFailure(KindInvalidOperation, "workflow_action_preflight", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
+			return workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", missing)
 		}
 	}
 	// An escalated correction is not refused here. This preflight runs before
@@ -151,7 +151,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	// The dispatch fold owns the escalated wall, and it admits a dispatch only
 	// behind the boundary-consumed operator approval.
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
+		if err := validateCorrectionRequestPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight", 0); err != nil {
 			return err
 		}
 	}
@@ -428,7 +428,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	lateVerdictRecovery := false
 	workerFailureRecovery := false
 	correctionRecovery := false
-	correctionRequestRecovery := false
 	if request.ActionID == "record_verdict" {
 		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
 		if err != nil {
@@ -448,9 +447,16 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "request_correction" {
-		correctionRequestRecovery, err = workflowCorrectionRequestAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-		if err != nil {
-			return RegisteredDefinition{}, err
+		available, missing, admissionErr := workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
+		if admissionErr != nil {
+			return RegisteredDefinition{}, admissionErr
+		}
+		if !available {
+			// The shared admission names the one missing prerequisite. The
+			// refusal must carry that class here exactly as the resolver, the
+			// fold guard, and the read-only preflight state it; the generic
+			// off-step refusal below must not replace it.
+			return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", missing)
 		}
 	}
 	if request.ActionID == "supersede_contract" {
@@ -546,7 +552,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && !correctionRequestRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && request.ActionID != "request_correction" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		if request.ActionID != "bind_evidence" {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
@@ -568,7 +574,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight", 0); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	}

@@ -9,15 +9,15 @@ import (
 	"time"
 )
 
-// dispatchCheckpointReviewAttempt drives one review-lane attempt at the verify
-// checkpoint through the dispatch_worker action and the lane actor dispatch,
-// and returns the attempt epoch the action started.
-func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, attemptID string) int64 {
+// dispatchCheckpointReviewAttempt drives one review-lane attempt at the named
+// checkpoint step through the dispatch_worker action and the lane actor
+// dispatch, and returns the attempt epoch the action started.
+func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, stepID, attemptID string) int64 {
 	t.Helper()
 	s := fixture.store
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(workID, stepID, attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -64,7 +64,7 @@ func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRout
 		t.Fatalf("record_verdict refused: %v", err)
 	}
 	attemptID := "attempt:" + workID + ":failed-review"
-	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, attemptID)
+	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "verify", attemptID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
 	return fixture, attemptID, epoch
 }
@@ -226,7 +226,7 @@ func TestCheckpointRetryDispatchSupersedesTheFailedReview(t *testing.T) {
 	s := fixture.store
 
 	retryID := "attempt:" + workID + ":retry"
-	retryEpoch := dispatchCheckpointReviewAttempt(t, fixture, workID, retryID)
+	retryEpoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "verify", retryID)
 
 	err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+failedAttemptID+`","attempt_epoch":1}`), 0, fixture.owner)
 	var failure *Failure

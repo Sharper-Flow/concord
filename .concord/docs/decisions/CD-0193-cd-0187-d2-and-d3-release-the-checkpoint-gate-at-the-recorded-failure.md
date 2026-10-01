@@ -54,6 +54,11 @@ steps, and the failure record stays off their declared actions while the
 engine admits it as the hold-mode recovery of this clause. The operator's own
 gate remains the step's only advancing exit.
 
+The recorded failure also opens the corrective return. Once the record
+dispositions the failed attempt, a current unhealthy verdict exposes
+`request_correction` at the checkpoint under CD-0143 D1's amended admission,
+and the pinned definition digest still never moves.
+
 ### D2. The checkpoint hold releases on the record, the accept, or a used window
 
 The hold rule is one rule the fold and the work pin both read, with two
@@ -143,6 +148,10 @@ Scenario: The effect-step recovery route is unchanged
 
 - `go test ./internal/store/ -run TestCheckpointFailedReview` proves the
   first and third scenarios.
+- `go test ./internal/store/ -run
+  TestCheckpointFailedReviewCorrection` proves the recorded failure opens the
+  CD-0143 D1 corrective return at the checkpoint, and the failure record
+  never reads as an accepted delivery.
 - `go test ./internal/store/ -run
   TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold` proves the second
   scenario.

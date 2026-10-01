@@ -452,7 +452,7 @@ func (e Envelope) validateOK() error {
 			if err := validateOperation(intent.Tool, intent.Operation, intent.QueryID); err != nil {
 				return fmt.Errorf("invalid next intent: %w", err)
 			}
-			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 1, 64) {
+			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 64) {
 				return errors.New("invalid next intent bounds")
 			}
 		}
@@ -494,7 +494,7 @@ func (e Envelope) validatePending() error {
 	return validateRecoveryAction(*e.NextAction)
 }
 func (e Envelope) validatePartial() error {
-	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 1, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
+	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
 		return errors.New("invalid partial envelope")
 	}
 	if err := validateOperationRef(*e.OperationRef); err != nil {
@@ -560,7 +560,7 @@ func validateEnvelopeCollections(e Envelope) error {
 	}
 	return nil
 }
-func bounded(value string, min, max int) bool { return len(value) >= min && len(value) <= max }
+func bounded(value string, lower, upper int) bool { return len(value) >= lower && len(value) <= upper }
 func oneOf(value string, allowed ...string) bool {
 	for _, candidate := range allowed {
 		if value == candidate {
@@ -762,7 +762,7 @@ func validateError(err TypedError) error {
 	if x := validateRecoveryAction(err.RecoveryAction); x != nil {
 		return x
 	}
-	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 1, 128) || !boundedStrings(err.Violations, 1, 128) {
+	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 128) || !boundedStrings(err.Violations, 128) {
 		return errors.New("error scalar/list bound exceeded")
 	}
 	if len(err.CurrentVersions) > 20 || len(err.Candidates) > 20 || len(err.Violations) > 20 {
@@ -783,7 +783,7 @@ func validateError(err TypedError) error {
 		return errors.New("invalid error details")
 	}
 	if err.Kind == "stale_law_revision" {
-		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
+		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 128) {
 			return errors.New("stale law revision coupling violated")
 		}
 	}
@@ -882,9 +882,9 @@ func validSHA256Proof(value string) bool {
 	}
 	return true
 }
-func boundedStrings(values []string, min, max int) bool {
+func boundedStrings(values []string, upper int) bool {
 	for _, value := range values {
-		if !bounded(value, min, max) {
+		if !bounded(value, 1, upper) {
 			return false
 		}
 	}

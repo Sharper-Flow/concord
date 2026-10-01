@@ -289,7 +289,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
 	if request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, version)
 		if conflictErr != nil {
 			return result, conflictErr
 		}
@@ -475,7 +475,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		// a new session identity). Complete is the one action that does not
 		// consume the assembly's events, so they travel as a prefix here;
 		// dropping them left a restarted session unable to complete (#909).
-		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, currentStep, guards.eventActor, payload, assembly.events)
+		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
 	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
@@ -923,7 +923,7 @@ func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields
 	return []Event{nativeEvent}, nil
 }
 
-func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, definition WorkflowDefinition, stepID, actor string, raw json.RawMessage) (Event, error) {
+func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return Event{}, err

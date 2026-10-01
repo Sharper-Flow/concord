@@ -39,7 +39,7 @@ func (r runtime) readProductResolve(ctx context.Context, base Envelope, input []
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -137,7 +137,7 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -160,7 +160,7 @@ func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte)
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -183,7 +183,7 @@ func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byt
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -206,7 +206,7 @@ func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte)
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readResourceClaims(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -270,7 +270,7 @@ func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []b
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -313,7 +313,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -371,7 +371,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "continuity")
+	return r.wrapCursor(ctx, response, string(binding), "continuity")
 }
 
 func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -484,7 +484,7 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -571,7 +571,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product, "domains")
+		return r.wrapCursor(ctx, response, queryID+":"+product, "domains")
 	case "detail":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil
@@ -593,7 +593,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product+":"+in.DomainID, "work")
+		return r.wrapCursor(ctx, response, queryID+":"+product+":"+in.DomainID, "work")
 	case "attachments":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil

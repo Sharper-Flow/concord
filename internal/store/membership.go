@@ -39,7 +39,7 @@ type ProductScope struct {
 	CrossProduct bool
 }
 
-func validateMembershipPayload(event Event, payload membershipPayload, subjectField, subjectID string) error {
+func validateMembershipPayload(payload membershipPayload, subjectField, subjectID string) error {
 	if payload.ProjectID == "" || payload.Role == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "membership payload requires project_id, role, and reason", false,
 			"supply a valid role and non-empty reason")
@@ -77,7 +77,7 @@ func foldProductProjectAdded(ctx context.Context, tx *sql.Tx, event Event) error
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "product_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
 		return err
 	}
 	if err := insertProductProject(ctx, tx, payload); err != nil {
@@ -94,7 +94,7 @@ func foldProductProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "product_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM product_projects WHERE product_id = ? AND project_id = ? AND role = ?`,
@@ -121,7 +121,7 @@ func foldProductProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event)
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "product_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
 		return err
 	}
 	var oldRole string
@@ -160,7 +160,7 @@ func foldWorkProjectAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "work_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
 		return err
 	}
 	if err := insertWorkProject(ctx, tx, payload); err != nil {
@@ -177,7 +177,7 @@ func foldWorkProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) error 
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "work_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id = ? AND project_id = ? AND role = ?`,
@@ -206,7 +206,7 @@ func foldWorkProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(event, payload, "work_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
 		return err
 	}
 	var oldRole string

@@ -317,9 +317,8 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback()
-		definition := BuiltinWorkflowDefinitions()[0]
 		actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/completion-verdict-omitted")
-		_, err = workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "completion-verdict-omitted", ExpectedVersion: version, OperationID: "completion-verdict-omitted", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, definition, "release", actorRef, json.RawMessage(`{}`))
+		_, err = workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "completion-verdict-omitted", ExpectedVersion: version, OperationID: "completion-verdict-omitted", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, actorRef, json.RawMessage(`{}`))
 		assertFailureKind(t, err, KindInvalidPayload)
 	})
 }

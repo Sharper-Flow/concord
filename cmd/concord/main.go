@@ -365,7 +365,9 @@ func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapsh
 	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
 }
 
-func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) {
+// Candidates satisfies launcher.Port; unparam cannot see the cross-package
+// interface binding, so the fixed signature and nil error stay.
+func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) { //nolint:unparam // launcher.Port interface method
 	return storeport.ScanRootCandidates(), nil
 }
 
@@ -969,7 +971,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			return 1
 		}
 		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -988,7 +990,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		payload := store.WorkerCompletedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, ReportSchemaVersion: request.ReportSchemaVersion, WorkerDirectory: request.WorkerDirectory, Evidence: request.Evidence, EvidenceOrigin: request.EvidenceOrigin, BaseComparison: request.BaseComparison, Review: request.Review}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	case "worker-fail":
 		var request workerFailRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -1003,7 +1005,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			FailureKind:   request.FailureKind,
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-abandon":
 		var request workerAbandonRequest
 		if err := decodeObject(raw, &request); err != nil {
@@ -1018,7 +1020,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 		}
 		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 1, Payload: mustMarshalWorkerPayload(payload)}
-		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, nil, event, out, errOut)
+		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	}
 	writeOperatorDiagnostic(errOut, command, "unsupported command")
 	return 2
@@ -1036,7 +1038,7 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // visible as absent evidence rather than as an indistinguishable attempt.
 // The integrity check sits beside the existing capability, signature, and
 // nonce checks so a worker that fails any one boundary fails consistently.
-func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, resolve func(store.WorkerAttempt) (store.Event, error), event store.Event, out, errOut io.Writer) int {
+func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
 	// CD-0179 D3: an abandoned close releases a legacy occupancy row only on
 	// the lease-set proof, so the verb reads the live host lease set before
 	// the transaction opens and carries the observation to the fold gate on
@@ -1045,7 +1047,6 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
 	}
 	var eventIDs []string
-	var recorded error
 	err := s.Transact(ctx, func(tx *store.Transaction) error {
 		if command == "worker-abandon" {
 			existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
@@ -1076,17 +1077,6 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			binding.LaneID = attempt.LaneID
 			binding.LaneVersion = attempt.LaneVersion
 			binding.LaneDigest = attempt.LaneDigest
-			// CD-0058: the terminal verb's readback is what the host reports
-			// NOW, not the dispatch-time readback. The CLI cannot overwrite
-			// the binding from the stored attempt because that would make
-			// the assertion mismatch when the terminal verb reports a
-			// divergent readback (which the store now accepts as a normal
-			// completion).
-			if resolve != nil {
-				resolved, resolveErr := resolve(attempt)
-				event = resolved
-				recorded = resolveErr
-			}
 		}
 		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
 			// The dispatch window integrity check runs after the attempt
@@ -1134,10 +1124,6 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	// committed; the durability barrier must hold before acknowledging
 	if syncErr := s.SyncDurable(ctx); syncErr != nil {
 		writeOperatorDiagnostic(errOut, command, syncErr.Error())
-		return 1
-	}
-	if recorded != nil {
-		writeOperatorDiagnostic(errOut, command, recorded.Error())
 		return 1
 	}
 	return writeOperatorResult(command, s, eventIDs, nil, out, errOut)
@@ -1760,13 +1746,14 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
 			continue
 		}
-		if op.OpKind == store.LinearOpIssueUpdate {
+		switch op.OpKind {
+		case store.LinearOpIssueUpdate:
 			issue, revision, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
-		} else if op.OpKind == store.LinearOpIssueAdopt {
+		case store.LinearOpIssueAdopt:
 			issue, derr = drainAdopt(ctx, client, payload, teamID)
-		} else if op.OpKind == store.LinearOpIssueAuditComment {
+		case store.LinearOpIssueAuditComment:
 			issue, derr = drainAuditComment(ctx, s, client, op, payload)
-		} else {
+		default:
 			// The create resolves the owning
 			// Initiative's confirmed Project at drain time. The payload
 			// snapshot goes stale whenever the Initiative's project_create
@@ -1831,7 +1818,7 @@ func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, comma
 		// the adopted issue's own text, so an unlabeled adopted issue receives
 		// its repository and optional labels and its Initiative's Project
 		// through one queued issue_update.
-		completeErr := error(nil)
+		var completeErr error
 		if op.OpKind == store.LinearOpIssueAdopt {
 			completeErr = s.CompleteLinearIssueAdoption(ctx, op.OperationID, identity, issue.Title, issue.Description)
 		} else {

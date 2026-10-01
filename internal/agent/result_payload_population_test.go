@@ -543,17 +543,17 @@ func fixtureString(t *testing.T, schema map[string]any) string {
 	if schema["format"] == "date-time" {
 		value = "2026-01-01T00:00:00Z"
 	}
-	if min, ok := schema["minLength"].(json.Number); ok {
-		if need, err := min.Int64(); err == nil && int64(len(value)) < need {
-			value = value + strings.Repeat("a", int(need)-len(value))
+	if lower, ok := schema["minLength"].(json.Number); ok {
+		if need, err := lower.Int64(); err == nil && int64(len(value)) < need {
+			value += strings.Repeat("a", int(need)-len(value))
 		}
 	}
-	if max, ok := schema["maxLength"].(json.Number); ok {
-		if cap, err := max.Int64(); err == nil && int64(len(value)) > cap {
+	if upper, ok := schema["maxLength"].(json.Number); ok {
+		if limit, err := upper.Int64(); err == nil && int64(len(value)) > limit {
 			if _, hasPattern := schema["pattern"].(string); hasPattern {
-				t.Fatalf("patterned fixture value %q exceeds maxLength %s", value, max.String())
+				t.Fatalf("patterned fixture value %q exceeds maxLength %s", value, upper.String())
 			}
-			value = value[:cap]
+			value = value[:limit]
 		}
 	}
 	return value
@@ -562,13 +562,13 @@ func fixtureString(t *testing.T, schema map[string]any) string {
 func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 	t.Helper()
 	value := json.Number("1")
-	if min, ok := schema["minimum"].(json.Number); ok {
-		if min.String() == "-1" || min.String() == "0" || min.String() == "1" {
-			if min.String() != "1" {
+	if lower, ok := schema["minimum"].(json.Number); ok {
+		if lower.String() == "-1" || lower.String() == "0" || lower.String() == "1" {
+			if lower.String() != "1" {
 				value = json.Number("1")
 			}
 		} else {
-			value = min
+			value = lower
 		}
 	}
 	return value

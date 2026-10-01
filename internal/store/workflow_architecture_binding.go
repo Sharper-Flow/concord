@@ -230,22 +230,22 @@ func workflowDefinitionObligations(definition WorkflowDefinition) map[string]str
 }
 
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {
-	copy := binding
-	copy.AffectedDomainIDs = append([]string(nil), binding.AffectedDomainIDs...)
-	copy.DomainModifies = append([]string(nil), binding.DomainModifies...)
-	copy.DomainRelationModifies = append([]WorkflowDomainRelationModification(nil), binding.DomainRelationModifies...)
-	copy.LawAdditions = append([]WorkflowLawAddition(nil), binding.LawAdditions...)
-	copy.VerificationObligations = append([]WorkflowVerificationObligation(nil), binding.VerificationObligations...)
-	sort.Strings(copy.AffectedDomainIDs)
-	sort.Strings(copy.DomainModifies)
-	sort.Slice(copy.DomainRelationModifies, func(i, j int) bool {
-		return relationBindingKey(copy.DomainRelationModifies[i]) < relationBindingKey(copy.DomainRelationModifies[j])
+	canonical := binding
+	canonical.AffectedDomainIDs = append([]string(nil), binding.AffectedDomainIDs...)
+	canonical.DomainModifies = append([]string(nil), binding.DomainModifies...)
+	canonical.DomainRelationModifies = append([]WorkflowDomainRelationModification(nil), binding.DomainRelationModifies...)
+	canonical.LawAdditions = append([]WorkflowLawAddition(nil), binding.LawAdditions...)
+	canonical.VerificationObligations = append([]WorkflowVerificationObligation(nil), binding.VerificationObligations...)
+	sort.Strings(canonical.AffectedDomainIDs)
+	sort.Strings(canonical.DomainModifies)
+	sort.Slice(canonical.DomainRelationModifies, func(i, j int) bool {
+		return relationBindingKey(canonical.DomainRelationModifies[i]) < relationBindingKey(canonical.DomainRelationModifies[j])
 	})
-	sort.Slice(copy.LawAdditions, func(i, j int) bool { return copy.LawAdditions[i].LawID < copy.LawAdditions[j].LawID })
-	sort.Slice(copy.VerificationObligations, func(i, j int) bool {
-		return copy.VerificationObligations[i].LawID+"\x00"+copy.VerificationObligations[i].ObligationID < copy.VerificationObligations[j].LawID+"\x00"+copy.VerificationObligations[j].ObligationID
+	sort.Slice(canonical.LawAdditions, func(i, j int) bool { return canonical.LawAdditions[i].LawID < canonical.LawAdditions[j].LawID })
+	sort.Slice(canonical.VerificationObligations, func(i, j int) bool {
+		return canonical.VerificationObligations[i].LawID+"\x00"+canonical.VerificationObligations[i].ObligationID < canonical.VerificationObligations[j].LawID+"\x00"+canonical.VerificationObligations[j].ObligationID
 	})
-	raw, _ := json.Marshal(copy)
+	raw, _ := json.Marshal(canonical)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

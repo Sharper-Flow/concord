@@ -829,14 +829,12 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 		if ok {
 			resolutionFromWorkID, resolutionToWorkID = overlap.FromWorkID, overlap.ToWorkID
 			resolutionFromContractVersion, resolutionToContractVersion = overlap.FromContractVersion, overlap.ToContractVersion
-		} else {
+		} else if payload.ToWorkID < event.SubjectID {
 			// The pair no longer derives under the current overlap rule, so
 			// replay records the resolution from its payload in the sorted
 			// pair order every recorded compatible_with resolution carries.
-			if payload.ToWorkID < event.SubjectID {
-				resolutionFromWorkID, resolutionToWorkID = payload.ToWorkID, event.SubjectID
-				resolutionFromContractVersion, resolutionToContractVersion = payload.ToContractVersion, payload.FromContractVersion
-			}
+			resolutionFromWorkID, resolutionToWorkID = payload.ToWorkID, event.SubjectID
+			resolutionFromContractVersion, resolutionToContractVersion = payload.ToContractVersion, payload.FromContractVersion
 		}
 	}
 	// The registry comparison pins the event against the current Git-derived

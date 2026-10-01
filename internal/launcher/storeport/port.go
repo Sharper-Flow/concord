@@ -312,7 +312,7 @@ func snapshotFromProduct(result store.LauncherProductResult, product string) lau
 	for _, item := range result.TerminalWorks {
 		s.Ranked = append(s.Ranked, mapWork(item))
 	}
-	s.Relations = relationTree(result.Edges, 3, result.Authority)
+	s.Relations = relationTree(result.Edges, result.Authority)
 	if len(result.Omissions) > 0 {
 		s.Relations.Unavailable = joinOmissions(s.Relations.Unavailable, result.Omissions)
 		s.Relations.Coverage = "unavailable"
@@ -370,7 +370,11 @@ func mapEdges(edges []store.RelationEdge) []launcher.RelationEdge {
 	return out
 }
 
-func relationTree(edges []store.RelationEdge, depth int, authority string) launcher.RelationTree {
+// relationTreeDepth is the accepted render depth for the launcher relation
+// graph; every caller shares the boundary.
+const relationTreeDepth = 3
+
+func relationTree(edges []store.RelationEdge, authority string) launcher.RelationTree {
 	raw := mapEdges(edges)
 	// A superseded chain is represented by its canonical successor once. The
 	// stored relation remains untouched; this is only the launcher projection.
@@ -401,7 +405,7 @@ func relationTree(edges []store.RelationEdge, depth int, authority string) launc
 		}
 	}
 	raw = compact
-	tree := launcher.RelationTree{Edges: raw, Depth: depth, Coverage: authority}
+	tree := launcher.RelationTree{Edges: raw, Depth: relationTreeDepth, Coverage: authority}
 	canonical := map[string][]string{}
 	nodes := map[string]bool{}
 	indegree := map[string]int{}
@@ -458,7 +462,7 @@ func relationTree(edges []store.RelationEdge, depth int, authority string) launc
 	for _, edge := range raw {
 		sourceDepth, sourceOK := distance[edge.Source]
 		targetDepth, targetOK := distance[edge.Target]
-		if !sourceOK || !targetOK || sourceDepth < depth && targetDepth <= depth {
+		if !sourceOK || !targetOK || sourceDepth < relationTreeDepth && targetDepth <= relationTreeDepth {
 			filtered = append(filtered, edge)
 		}
 	}

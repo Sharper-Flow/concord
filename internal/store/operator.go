@@ -64,8 +64,7 @@ func entityVersion(ctx context.Context, q queryer, subjectType SubjectType, id s
 	if id == "" {
 		return 0, newFailure(KindInvalidOperation, "entity_version", "entity and ID are required", false, "supply a known entity")
 	}
-	table := ""
-	label := ""
+	var table, label string
 	switch subjectType {
 	case SubjectProduct:
 		table, label = "products", "Product"

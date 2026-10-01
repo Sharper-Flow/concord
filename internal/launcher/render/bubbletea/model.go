@@ -689,6 +689,10 @@ func (m *Model) filteredRows() []launcher.ProductRow {
 // projection but never lands on the list, the needle keeps the rows whose
 // rendered facts match, and the New/Backlog picker row ends the list. The
 // rows keep the store's order: the launcher never re-sorts.
+// backlogRowLabel is the fixed picker row text; the filter matches a
+// typed fragment inside it.
+const backlogRowLabel = "new backlog"
+
 func filterRanked(snapshot launcher.Snapshot, needle string) []launcher.RankedWork {
 	needle = strings.ToLower(needle)
 	out := make([]launcher.RankedWork, 0, len(snapshot.Ranked)+1)
@@ -700,7 +704,7 @@ func filterRanked(snapshot launcher.Snapshot, needle string) []launcher.RankedWo
 			out = append(out, row)
 		}
 	}
-	if snapshot.Backlog && (needle == "" || strings.Contains("new backlog", needle)) {
+	if snapshot.Backlog && (needle == "" || strings.Contains(backlogRowLabel, needle)) {
 		out = append(out, launcher.RankedWork{ID: "backlog", Kind: "new", Title: "New / Backlog", Lifecycle: "needed", Backlog: true})
 	}
 	return out
@@ -915,7 +919,7 @@ func (m *Model) renderScreen(snapshot launcher.Snapshot, cursor int) renderedPan
 // keeps the marker with its row.
 func (m *Model) displayedRows(snapshot launcher.Snapshot) (rows [][]string, severities []rowSeverity, tableHeaders []string) {
 	if snapshot.Screen == launcher.ScreenPortfolio && m.displayedPortfolio().candidates != nil {
-		return m.candidateRows(snapshot)
+		return m.candidateRows()
 	}
 	tableHeaders = m.projection.Columns
 	if snapshot.Screen == launcher.ScreenProduct {
@@ -956,7 +960,7 @@ func (m *Model) displayedRows(snapshot launcher.Snapshot) (rows [][]string, seve
 	return rows, severities, tableHeaders
 }
 
-func (m *Model) candidateRows(snapshot launcher.Snapshot) (rows [][]string, severities []rowSeverity, tableHeaders []string) {
+func (m *Model) candidateRows() (rows [][]string, severities []rowSeverity, tableHeaders []string) {
 	tableHeaders = []string{"Candidate"}
 	values := m.filteredCandidates()
 	for _, candidate := range values {

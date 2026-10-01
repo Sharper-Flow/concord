@@ -555,7 +555,7 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 	return nil
 }
 
-func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
+func workflowString(value string, upper int) bool { return len(value) >= 2 && len(value) <= upper }
 
 // workflowOperationEvidenceRefBound is the per-operation evidence bound: the
 // number of distinct evidence references one workflow action operation may
@@ -592,9 +592,12 @@ func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(valu
 // field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
 // normalizes the merged refs before the event is written, so a duplicate here
 // is a projection fault rather than ordinary caller input.
-func workflowEvidenceRefsFault(values []string, max, min int) string {
-	if len(values) < min || len(values) > max {
-		return fmt.Sprintf("the list holds %d references and the bound is %d to %d", len(values), min, max)
+// workflowEvidenceRefsFault holds the accepted evidence-list bound: zero or
+// more entries, at most 32, each a declared evidence locator.
+func workflowEvidenceRefsFault(values []string) string {
+	const upper = 32
+	if len(values) > upper {
+		return fmt.Sprintf("the list holds %d references and the bound is %d to %d", len(values), 0, upper)
 	}
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -618,8 +621,8 @@ func workflowRefExcerpt(value string) string {
 	}
 	return strconv.Quote(value[:limit]) + "..."
 }
-func workflowList(values []string, max, min int) bool {
-	if len(values) < min || len(values) > max {
+func workflowList(values []string, upper, lower int) bool {
+	if len(values) < lower || len(values) > upper {
 		return false
 	}
 	seen := make(map[string]bool, len(values))
@@ -655,7 +658,7 @@ func advanceWorkflowVersion(ctx context.Context, tx *sql.Tx, event Event, fields
 		if !exists {
 			return absentSubject(SubjectWorkItem, event.SubjectID)
 		}
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, current, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, event.SubjectID, *fields.ExpectedVersion, current)
 		if conflictErr != nil {
 			return conflictErr
 		}
@@ -729,8 +732,8 @@ func verifyConditionEvidence(ctx context.Context, tx *sql.Tx, authority, workID 
 	return nil
 }
 
-func workflowDigest(value string, prefix string) bool {
-	return len(value) == 71 && strings.HasPrefix(value, prefix)
+func workflowDigest(value string) bool {
+	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
 
 func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -741,7 +744,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest, "sha256:") || !workflowKinds[p.WorkKind] {
+	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
 	registered, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
@@ -945,17 +948,17 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	// The generic outcome union is only syntax.  Meaning is pinned by the
 	// selected definition and must be checked before the immutable contract is
 	// written.
-	if registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
 		return err
-	} else {
-		for _, entry := range p.OutcomePredicates {
-			predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
-			if err != nil || string(predicate.Kind) != entry.OutcomeKind {
-				return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
-			}
-			if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
-				return err
-			}
+	}
+	for _, entry := range p.OutcomePredicates {
+		predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
+		if err != nil || string(predicate.Kind) != entry.OutcomeKind {
+			return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
+		}
+		if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
+			return err
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -967,7 +970,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest)
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1710,7 +1713,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
 		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
 		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
-		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -1799,7 +1802,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -3237,7 +3240,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest, "sha256:") || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {

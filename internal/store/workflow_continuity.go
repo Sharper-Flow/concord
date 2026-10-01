@@ -373,11 +373,11 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
 	}
 	out.Observations = []WorkObservation{}
-	if nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, req.Work); nativeErr != nil {
+	nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, req.Work)
+	if nativeErr != nil {
 		return out, nativeErr
-	} else {
-		out.NativeRuns = nativeRuns
 	}
+	out.NativeRuns = nativeRuns
 	for obsRows.Next() {
 		var o WorkObservation
 		var obsRefs, obsTags string

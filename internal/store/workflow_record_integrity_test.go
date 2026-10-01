@@ -24,9 +24,8 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	definition := BuiltinWorkflowDefinitions()[0]
 	actorRef := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/record-integrity")
-	event, err := workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "record-integrity", ExpectedVersion: version, OperationID: "record-integrity-complete", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, definition, "release", actorRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
+	event, err := workflowCompletionEvent(context.Background(), tx, WorkflowActionExecutionRequest{WorkID: "record-integrity", ExpectedVersion: version, OperationID: "record-integrity-complete", Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}, actorRef, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	if err != nil {
 		t.Fatalf("completion event was refused: %v", err)
 	}

@@ -423,14 +423,14 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 
 func validateNumberKeywords(number json.Number, schema map[string]any, path string) error {
 	n, _ := strconv.ParseFloat(string(number), 64)
-	if min, ok := schema["minimum"].(json.Number); ok {
-		m, _ := strconv.ParseFloat(string(min), 64)
+	if lower, ok := schema["minimum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(lower), 64)
 		if n < m {
 			return fmt.Errorf("minimum at %s", path)
 		}
 	}
-	if max, ok := schema["maximum"].(json.Number); ok {
-		m, _ := strconv.ParseFloat(string(max), 64)
+	if upper, ok := schema["maximum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(upper), 64)
 		if n > m {
 			return fmt.Errorf("maximum at %s", path)
 		}

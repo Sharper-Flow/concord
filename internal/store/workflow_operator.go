@@ -359,12 +359,12 @@ func investigationRefIsKnownWork(ctx context.Context, q queryer, ref string) (bo
 	return true, nil
 }
 
-func boundedQuestionText(value string, max int) string {
-	if len([]rune(value)) <= max {
+func boundedQuestionText(value string, upper int) string {
+	if len([]rune(value)) <= upper {
 		return value
 	}
 	runes := []rune(value)
-	return string(runes[:max])
+	return string(runes[:upper])
 }
 
 // ValidateWorkflowOperatorSelection verifies the semantic answer before any
@@ -411,7 +411,7 @@ func ValidateWorkflowOperatorSelection(ctx context.Context, s *Store, workID str
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot re-read workflow version", true, "retry once the database is readable", err)
 	}
 	if version != expectedVersion {
-		conflict, conflictErr := versionConflictForQuery(ctx, s.db, SubjectWorkItem, workID, expectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, s.db, workID, expectedVersion, version)
 		if conflictErr != nil {
 			return conflictErr
 		}
@@ -501,7 +501,7 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "decision context digest is stale or forged", false, "refresh_context")
 	}
 	if workVersion != request.ExpectedVersion {
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, workVersion, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, workVersion)
 		if conflictErr != nil {
 			return conflictErr
 		}

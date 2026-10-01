@@ -194,7 +194,7 @@ func TestKnowledgeManifestRejectsUnknownFieldsAndInvalidCombinations(t *testing.
 	valid := `{"schema_version":"1.2","supported_kinds":["lesson","research"],"indexed_kinds":["lesson"],"domain_registry":{"schema_version":"1.0","product_key":"concord","root_domain_id":"product-root:concord","domains":[{"domain_id":"product-root:concord","name":"Concord","purpose":"Product-wide Concord law and architecture","status":"current","architecture_relations":[]}]},"records":[{"id":"lesson-1","kind":"lesson","path":".concord/docs/lessons/one.md","status":"published","date":"2026-08-10T00:00:00Z","title":"Lesson","summary":"Summary","tags":[],"authority":{"tier":"derived"},"scopes":{"mode":"home","product_ids":[],"project_ids":[],"domain_ids":[],"tag_ids":[]},"sha256":"sha256:` + strings.Repeat("a", 64) + `"}]}`
 	for name, raw := range map[string]string{
 		"unknown field":  strings.Replace(valid, `"summary":"Summary"`, `"summary":"Summary","body":"forbidden"`, 1),
-		"duplicate id":   strings.Replace(valid, `"records":[{`, `"records":[{`, 1),
+		"duplicate id":   valid,
 		"bad status":     strings.Replace(valid, `"status":"published"`, `"status":"accepted"`, 1),
 		"bad path":       strings.Replace(valid, `.concord/docs/lessons/one.md`, `.concord/docs/generated/one.md`, 1),
 		"uppercase hash": strings.Replace(valid, "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("A", 64), 1),

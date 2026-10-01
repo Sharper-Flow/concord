@@ -148,14 +148,14 @@ func TestWorkflowCorpusWF39DispatchesThroughAgentWorkflowAction(t *testing.T) {
 	}
 	for _, scenario := range corpus.Scenarios {
 		if scenario.ID == "WF39-action-error-envelope" {
-			copy := scenario
+			picked := scenario
 			selected = &struct {
 				ID       string         `json:"id"`
 				Action   string         `json:"action"`
 				Setup    corpusSetup    `json:"setup"`
 				Request  corpusRequest  `json:"request"`
 				Expected corpusExpected `json:"expected"`
-			}{copy.ID, copy.Action, copy.Setup, copy.Request, copy.Expected}
+			}{picked.ID, picked.Action, picked.Setup, picked.Request, picked.Expected}
 		}
 	}
 	if selected == nil {

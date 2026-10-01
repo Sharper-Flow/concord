@@ -523,22 +523,22 @@ func q10HistoricalFailure(out *Q10Result, allowDegraded bool, detail string, err
 func classifyQ10HistoricalFailure(detail string, err error) error {
 	var failure *Failure
 	if errors.As(err, &failure) {
-		copy := *failure
-		copy.Op = "PM1.Q10"
-		switch copy.Kind {
+		classified := *failure
+		classified.Op = "PM1.Q10"
+		switch classified.Kind {
 		case KindUnknownScope:
-			copy.Kind = KindKnowledgeUnavailable
+			classified.Kind = KindKnowledgeUnavailable
 		case KindGitUnreachable, KindUnreachable:
-			copy.Kind = KindUnreachable
+			classified.Kind = KindUnreachable
 		case KindInvalidNoteProof:
-			if copy.Err != nil {
-				copy.Kind = KindUnreachable
+			if classified.Err != nil {
+				classified.Kind = KindUnreachable
 			} else {
-				copy.Kind = KindKnowledgeMissing
+				classified.Kind = KindKnowledgeMissing
 			}
 		}
-		copy.Detail = detail + ": " + copy.Detail
-		return &copy
+		classified.Detail = detail + ": " + classified.Detail
+		return &classified
 	}
 	return wrapFailure(KindKnowledgeUnavailable, "PM1.Q10", detail, true, "restore the recorded locator or git proof and retry", err)
 }

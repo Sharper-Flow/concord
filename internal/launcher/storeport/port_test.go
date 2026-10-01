@@ -61,7 +61,7 @@ func TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle(t *testi
 		{Kind: "parent", Source: "b", Target: "c"},
 		{Kind: "blocks", Source: "c", Target: "d"},
 		{Kind: "blocked_by", Source: "d", Target: "c"},
-	}, 3, "authoritative")
+	}, "authoritative")
 	if tree.Invariant != "" {
 		t.Fatalf("inverse edge became cycle: %#v", tree)
 	}
@@ -87,7 +87,7 @@ func TestSearchPortUsesOnlyCompositeStoreOperation(t *testing.T) {
 }
 
 func TestRelationTreeSurfacesCycles(t *testing.T) {
-	tree := relationTree([]store.RelationEdge{{Kind: "parent", Source: "a", Target: "b"}, {Kind: "parent", Source: "b", Target: "a"}}, 3, "authoritative")
+	tree := relationTree([]store.RelationEdge{{Kind: "parent", Source: "a", Target: "b"}, {Kind: "parent", Source: "b", Target: "a"}}, "authoritative")
 	if tree.Invariant != "invariant_violation" {
 		t.Fatalf("cycle hidden: %#v", tree)
 	}
@@ -97,7 +97,7 @@ func TestRelationTreeSurfacesCycles(t *testing.T) {
 }
 
 func TestRelationTreeResolvesSupersessionChainOnce(t *testing.T) {
-	tree := relationTree([]store.RelationEdge{{Kind: "supersedes", Source: "old", Target: "middle"}, {Kind: "supersedes", Source: "middle", Target: "current"}}, 3, "authoritative")
+	tree := relationTree([]store.RelationEdge{{Kind: "supersedes", Source: "old", Target: "middle"}, {Kind: "supersedes", Source: "middle", Target: "current"}}, "authoritative")
 	seen := map[string]bool{}
 	for _, edge := range tree.Edges {
 		if edge.Kind == "supersedes" {
@@ -118,7 +118,7 @@ func TestRelationTreeMarksDepthTruncationUnavailable(t *testing.T) {
 		{Kind: "parent", Source: "b", Target: "c"},
 		{Kind: "parent", Source: "c", Target: "d"},
 		{Kind: "parent", Source: "d", Target: "e"},
-	}, 3, "authoritative")
+	}, "authoritative")
 	if tree.Coverage != "unavailable" || tree.Unavailable != "relation depth limit reached" {
 		t.Fatalf("depth truncation must be visible: %#v", tree)
 	}

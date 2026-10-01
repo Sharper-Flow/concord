@@ -559,7 +559,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 
 	// The same worktree with every live session elsewhere reclaims normally.
 	free := reclaimWith("wt-reclaim-free", []map[string]any{
-		{"session_ref": "ses_live", "directory": filepath.Join(repoRoot)},
+		{"session_ref": "ses_live", "directory": repoRoot},
 	})
 	if free.Outcome != OutcomeOK {
 		t.Fatalf("response=%+v, want the reclaim to proceed", free)

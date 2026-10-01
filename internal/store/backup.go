@@ -197,9 +197,9 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if err := validateBackupDestination("", destination); err != nil {
 		return BackupManifest{}, err
 	}
-	max := CurrentSchemaVersion()
+	maxSupported := CurrentSchemaVersion()
 	if len(supportedMax) > 0 {
-		max = supportedMax[0]
+		maxSupported = supportedMax[0]
 	}
 	manifest, err := readBackupManifest(destination)
 	if err != nil {
@@ -211,7 +211,7 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if _, err := time.Parse(time.RFC3339Nano, manifest.CreatedAt); err != nil {
 		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup manifest creation time is invalid", false, "create a fresh verified backup")
 	}
-	verified, err := verifyBackupFile(ctx, destination, max, nil)
+	verified, err := verifyBackupFile(ctx, destination, maxSupported, nil)
 	if err != nil {
 		return BackupManifest{}, err
 	}

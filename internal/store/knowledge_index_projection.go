@@ -715,11 +715,12 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	}
 	for _, kind := range sortedKnowledgeKinds() {
 		reason := "manifest absent at scanned commit"
-		if kind == "work_note" {
+		switch {
+		case kind == "work_note":
 			reason = "canonical .concord/docs/work directory scanned"
-		} else if !manifestMissing && coverage[kind] == "indexed" {
+		case !manifestMissing && coverage[kind] == "indexed":
 			reason = "manifest indexed kind at scanned commit"
-		} else if kind == "research" {
+		case kind == "research":
 			reason = "research has no accepted canonical manifest form"
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_kind_coverage (home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES (?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, kind, coverage[kind], reason, commit); err != nil {
@@ -808,11 +809,12 @@ func indexedNoteConstraintFailure(home KnowledgeHome, note VerifiedNote, err err
 		return nil
 	}
 	constraint := "database"
-	if isIdentityConflict(err) {
+	switch {
+	case isIdentityConflict(err):
 		constraint = "note identity"
-	} else if isForeignKeyViolation(err) {
+	case isForeignKeyViolation(err):
 		constraint = "knowledge-home scope"
-	} else if isCheckViolation(err) {
+	case isCheckViolation(err):
 		constraint = "indexed note field"
 	}
 	return newFailure(KindInvalidInput, "rebuild_knowledge_index", fmt.Sprintf("indexed note %q violates the %s constraint in knowledge home %q", note.ID, constraint, home.HomeLocatorID), false, "repair the indexed note identity or scope before rebuilding")

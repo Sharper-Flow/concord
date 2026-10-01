@@ -22,14 +22,15 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	for i, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
-		fields := ""
-		if action == "record_proposal" {
+		var fields string
+		switch action {
+		case "record_proposal":
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
-		} else if action == "record_alignment" {
+		case "record_alignment":
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
-		} else if action == "record_design" {
+		case "record_design":
 			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		} else {
+		default:
 			fields = `,"fields":{}`
 		}
 		// Cumulative expected versions: proposal and design each consume two

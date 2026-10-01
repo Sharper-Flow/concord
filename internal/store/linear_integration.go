@@ -1945,11 +1945,12 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	reviveFailed := false
 	if opKind == LinearOpIssueCreate {
 		var linkState string
-		if err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err == sql.ErrNoRows {
+		switch scanErr := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); {
+		case scanErr == sql.ErrNoRows:
 			createLink = true
-		} else if err != nil {
-			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
-		} else if linkState == LinearLinkUnpublished {
+		case scanErr != nil:
+			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", scanErr)
+		case linkState == LinearLinkUnpublished:
 			var pending bool
 			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_outbox WHERE work_id=? AND op_kind=? AND state IN (?,?))`, workID, LinearOpIssueCreate, LinearOutboxQueued, LinearOutboxInFlight).Scan(&pending); err != nil {
 				return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect pending issue create", true, "retry once the database is readable", err)
@@ -1966,7 +1967,7 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 			}
 			clientUUID = idempotencyKey
 			reviveFailed = true
-		} else {
+		default:
 			// One issue per work item is enforced where the create is
 			// requested, not where the drain meets Linear's insert conflict.
 			// Every link state means a create was already queued or already

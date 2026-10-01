@@ -497,7 +497,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		return err
 	}
 	if got != req.ExpectedVersion {
-		conflict, conflictErr := versionConflictForQuery(ctx, q, SubjectWorkItem, req.WorkID, req.ExpectedVersion, got, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, q, req.WorkID, req.ExpectedVersion, got)
 		if conflictErr != nil {
 			return conflictErr
 		}

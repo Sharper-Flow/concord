@@ -603,11 +603,11 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		var copy workflowScenario
-		if err := json.Unmarshal(raw, &copy); err != nil {
+		var cloned workflowScenario
+		if err := json.Unmarshal(raw, &cloned); err != nil {
 			t.Fatal(err)
 		}
-		return copy
+		return cloned
 	}
 	mutations := []struct {
 		name    string
@@ -802,7 +802,7 @@ func workflowObservationAssertionError(observation workflowObservation, assertio
 	if !present {
 		return fmt.Errorf("path %s is absent", assertion.Path)
 	}
-	pass := false
+	var pass bool
 	switch assertion.Op {
 	case "eq":
 		pass = jsonValueEqual(got, assertion.Value)

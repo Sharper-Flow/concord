@@ -1183,12 +1183,13 @@ func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeRec
 		return probe, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
 	}
 	reclaimFacts := map[string]any{"clean_tree": true}
-	if req.RequireUnstarted {
+	switch {
+	case req.RequireUnstarted:
 		reclaimFacts["default_ref"] = defaultRef
 		reclaimFacts["commits_beyond"] = 0
-	} else if squashMerged {
+	case squashMerged:
 		reclaimFacts["squash_merged"] = true
-	} else {
+	default:
 		reclaimFacts["remote_reachable"] = true
 	}
 	probe.Facts = jsonMustMarshal(reclaimFacts)

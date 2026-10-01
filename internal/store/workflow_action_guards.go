@@ -201,7 +201,7 @@ func workflowContractCorrectionRoute(ctx context.Context, q queryer, workID stri
 	if rejected {
 		return fmt.Sprintf("run reject_worker_result, then supersede_contract, before %s", actionID), nil
 	}
-	failed := false
+	var failed bool
 	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
 		failed, err = workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, true)
 	} else {
@@ -1356,7 +1356,8 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		})
 		events = append(events, Event{EventID: in.request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: in.request.WorkID, Actor: actor, OccurredAt: in.request.Now, PayloadVersion: 1, Payload: startPayload})
 	}
-	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint {
+	switch {
+	case builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint:
 		resultVersion := versionCursor + int64(len(events)-int(versionCursor-in.request.ExpectedVersion)) + 1
 		checkpointPayload, _ := json.Marshal(map[string]any{"action_id": in.request.ActionID, "fields": in.payload})
 		checkpoint, _ := json.Marshal(map[string]any{
@@ -1376,7 +1377,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 			events = append(events, semantic...)
 			out.nativeRun = nativeRunFromSemanticEvents(semantic)
 		}
-	} else {
+	default:
 		staleness, present, stalenessErr := workflowStalenessObservationEvent(in.request.OperationID+":staleness", in.request.WorkID, actor, in.request.AcceptedInputsDigest, in.payload, in.request.Now)
 		if stalenessErr != nil {
 			return out, stalenessErr
@@ -1654,7 +1655,7 @@ func nativeRunFromSemanticEvents(semantic []Event) *NativeRunReport {
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
 // The caller's fold scope guards the whole action region.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, entry RegisteredDefinition, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if scope == nil {
 		return result, newFailure(KindInvalidOperation, "complete_workflow", "fold scope is required", false, "open the fold scope with beginFold")
@@ -1689,7 +1690,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *foldS
 		return result, bindingErr
 	}
 	request.ExpectedVersion += int64(len(bindingEvents))
-	completion, completionErr := workflowCompletionEvent(ctx, tx, request, entry.Definition, currentStep, actor, payload)
+	completion, completionErr := workflowCompletionEvent(ctx, tx, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
 	}

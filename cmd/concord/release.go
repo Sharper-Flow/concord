@@ -48,7 +48,7 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 		Directory string `json:"directory"`
 		Worktree  string `json:"worktree"`
 	}
-	if code := decodeReleaseInput(args, in, out, errOut, "host-lease", &request); code != 0 {
+	if code := decodeReleaseInput(args, in, errOut, "host-lease", &request); code != 0 {
 		return code
 	}
 	if request.PID <= 0 {
@@ -98,7 +98,7 @@ func runHostLeaseCommand(args []string, in io.Reader, out, errOut io.Writer) int
 
 func runHostLeasesCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	var ignored struct{}
-	if code := decodeReleaseInput(args, in, out, errOut, "host-leases", &ignored); code != 0 {
+	if code := decodeReleaseInput(args, in, errOut, "host-leases", &ignored); code != 0 {
 		return code
 	}
 	dataRoot, err := leaseDataRoot()
@@ -165,7 +165,7 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 
 func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	var ignored struct{}
-	if code := decodeReleaseInput(args, in, out, errOut, "upgrade", &ignored); code != 0 {
+	if code := decodeReleaseInput(args, in, errOut, "upgrade", &ignored); code != 0 {
 		return code
 	}
 	path, err := databasePath()
@@ -202,7 +202,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 // decodeReleaseInput applies the shared argument and stdin discipline to the
 // release verbs. Each reads at most one JSON object, and host-leases and
 // upgrade accept an empty one.
-func decodeReleaseInput(args []string, in io.Reader, out, errOut io.Writer, command string, target any) int {
+func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command string, target any) int {
 	if len(args) != 0 {
 		writeDiagnostic(errOut, fmt.Sprintf("concord %s: unsupported arguments: %s", command, args[0]))
 		writeCommandUsageSection(errOut, command)

@@ -928,7 +928,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID)
+	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, map[string]bool{"dispatched": true})
 	if err != nil {
 		return err
 	}
@@ -1000,7 +1000,16 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID)
+	// A dispatched attempt is closable by every failure kind. An in_flight
+	// binding — authorized by a dispatch_worker completion whose window was
+	// lost before the native task call — is closable by abandonment alone:
+	// no worker evidence exists for it, so no evidence-demanding failure
+	// kind can honestly describe it (CON-791).
+	admittedTerminal := map[string]bool{"dispatched": true}
+	if payload.FailureKind == WorkerFailureAbandoned {
+		admittedTerminal["in_flight"] = true
+	}
+	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, admittedTerminal)
 	if err != nil {
 		return err
 	}
@@ -1013,10 +1022,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.FailureKind == WorkerFailureAbandoned {
 		// Abandonment has no worker readback. Preserve the model recorded when
 		// the attempt was dispatched instead of accepting caller-supplied data.
+		// An in_flight binding carries none, so the abandoned row keeps the
+		// empty model the binding recorded.
 		readbackModel = attempt.ReadbackModel
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
-	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state='dispatched'`, readbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, attempt.WorkID)
+	result, err := tx.ExecContext(ctx, `UPDATE worker_attempts SET readback_model=?, lifecycle_state='failed', failure_kind=?, failure_detail=?, failed_at=? WHERE attempt_id=? AND work_id=? AND lifecycle_state=?`, readbackModel, payload.FailureKind, payload.Detail, now, payload.AttemptID, attempt.WorkID, attempt.Lifecycle)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fail worker attempt projection", true, "retry once the database is writable", err)
 	}
@@ -1122,8 +1133,11 @@ type workerTerminalAttempt struct {
 
 // readWorkerTerminalAttempt reads through the passed transaction only. The
 // store pools one connection, so any *Store method call here would park on the
-// pool forever while this transaction holds it.
-func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string) (workerTerminalAttempt, error) {
+// pool forever while this transaction holds it. admittedTerminal names the
+// lifecycle states the calling fold may take terminal: a completion admits a
+// dispatched attempt only, while a failure additionally admits an in_flight
+// binding for the abandoned kind (CON-791).
+func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, attemptID string, admittedTerminal map[string]bool) (workerTerminalAttempt, error) {
 	var attempt workerTerminalAttempt
 	if event.SubjectType != SubjectWorkItem {
 		return attempt, newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
@@ -1137,8 +1151,8 @@ func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, att
 	if attempt.WorkID != event.SubjectID {
 		return attempt, newFailure(KindInvalidOperation, "fold_event", "worker terminal event subject does not own the worker attempt", false, "use the attempt's owning work item as the event subject")
 	}
-	if attempt.Lifecycle != "dispatched" {
-		return attempt, newFailure(KindProjectionConflict, "fold_event", "worker attempt is already terminal", false, "use a new attempt identity")
+	if !admittedTerminal[attempt.Lifecycle] {
+		return attempt, newFailure(KindProjectionConflict, "fold_event", "worker attempt lifecycle is not admissible for this terminal event", false, "use a new attempt identity")
 	}
 	return attempt, nil
 }

@@ -3677,6 +3677,149 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "project_handoff_consume_result": {
+      "additionalProperties": false,
+      "properties": {
+        "already_consumed": {
+          "description": "True when the same receiving session's standing bind replays with no event.",
+          "type": "boolean"
+        },
+        "changed_refs": {
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "handoff_id": {
+          "$ref": "#/$defs/id"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "work_id",
+        "handoff_id",
+        "already_consumed"
+      ],
+      "type": "object"
+    },
+    "project_handoff_record_result": {
+      "additionalProperties": false,
+      "properties": {
+        "already_recorded": {
+          "description": "True when a same-content replay resolved the recorded handoff from state with no event.",
+          "type": "boolean"
+        },
+        "changed_refs": {
+          "items": {
+            "$ref": "#/$defs/mutation_changed_ref"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "handoff_id": {
+          "$ref": "#/$defs/id"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "changed_refs",
+        "next_valid_intents",
+        "work_id",
+        "handoff_id",
+        "already_recorded"
+      ],
+      "type": "object"
+    },
+    "project_retirement_result": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts_preserved": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "recorded_handoff": {
+          "type": "boolean"
+        },
+        "session_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "description": "ready_to_close_or_replace derives only from the four verified facts; pending names the open blockers.",
+          "enum": [
+            "ready_to_close_or_replace",
+            "pending"
+          ],
+          "type": "string"
+        },
+        "vacate_landed": {
+          "type": "boolean"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workers_stopped": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "work_id",
+        "project_id",
+        "session_ref",
+        "state",
+        "recorded_handoff",
+        "artifacts_preserved",
+        "workers_stopped",
+        "vacate_landed",
+        "blockers"
+      ],
+      "type": "object"
+    },
     "proposal_affected_text": {
       "maxLength": 256,
       "minLength": 1,
@@ -7429,6 +7572,24 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "page": {
           "$ref": "#/$defs/page"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id"
+      ],
+      "type": "object"
+    },
+    "work_trace_project_retirement_input": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -11654,6 +11815,116 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "target",
         "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_project_handoff_consume_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "handoff_id": {
+          "$ref": "#/$defs/id",
+          "description": "The recorded handoff to bind. The consuming Project and session come from the authenticated call context; a wrong-target or stale consume refuses."
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "handoff_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_project_handoff_record_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "artifact_refs": {
+          "description": "Immutable sha256:path references into the claimed source worktree; each digest is verified against the real file bytes.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^sha256:[0-9a-f]{64}:/.+$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "blockers": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "bounded_job": {
+          "description": "The bounded repository job the receiving session executes; not a whole-work resume instruction.",
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "changes": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "next_action": {
+          "description": "The exact next action the receiving session takes first.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "target_project_id": {
+          "$ref": "#/$defs/id",
+          "description": "The receiving Project the handoff addresses. The source Project and session come from the authenticated call context, never from this input."
+        },
+        "verification": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "target_project_id",
+        "bounded_job",
+        "next_action",
         "idempotency_key"
       ],
       "type": "object"

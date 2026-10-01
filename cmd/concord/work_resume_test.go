@@ -369,3 +369,61 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 		t.Fatalf("empty task prompt carries a task line: %q", prepared.Prompt)
 	}
 }
+
+// TestWorkResumeNamesTheAddressedBoundedJob pins the Project-selected
+// boot/resume visibility for the v1 Project-session handoff (CD-0182
+// amendment): the addressed handoff rides the resume answer, the consumed
+// handoff stops riding, and a handoff-free resume carries no section.
+func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, output, stderr := resumeCLI(t, s, repo, origin.WorkID); code != 0 || output.ProjectHandoff != nil {
+		t.Fatalf("handoff-free resume code=%d handoff=%+v stderr=%q", code, output.ProjectHandoff, stderr)
+	}
+	recorded, err := json.Marshal(map[string]any{
+		"work_id": origin.WorkID, "handoff_id": origin.WorkID + ":project-handoff:project-other:project-wl:deadbeefdeadbeef",
+		"contract_version": 1, "source_project_id": "project-other", "target_project_id": "project-wl",
+		"source_session_ref": "session/source", "bounded_job": "verify the receiving repository's adapter surface",
+		"changes": []string{"adapter/opencode: opener route"}, "verification": []string{"bun test adapter/opencode/"},
+		"artifact_refs": []string{}, "blockers": []string{}, "next_action": "consume the handoff and run the bounded job",
+		"recorded_at": "2026-09-30T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumed, err := json.Marshal(map[string]any{
+		"handoff_id":       origin.WorkID + ":project-handoff:project-other:project-wl:deadbeefdeadbeef",
+		"contract_version": 1, "target_project_id": "project-wl", "consumed_by_session_ref": "session/receive",
+		"consumed_at": "2026-09-30T01:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{
+		EventID: "resume-handoff-recorded", Kind: "work.project_handoff_recorded", SubjectType: store.SubjectWorkItem, SubjectID: origin.WorkID,
+		Actor: "session/source", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: recorded,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr := resumeCLI(t, s, repo, origin.WorkID)
+	if code != 0 {
+		t.Fatalf("resume with handoff code=%d stderr=%q", code, stderr)
+	}
+	if output.ProjectHandoff == nil || output.ProjectHandoff.BoundedJob != "verify the receiving repository's adapter surface" || output.ProjectHandoff.HandoffID != origin.WorkID+":project-handoff:project-other:project-wl:deadbeefdeadbeef" {
+		t.Fatalf("resume handoff=%+v, want the addressed bounded job", output.ProjectHandoff)
+	}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{
+		EventID: "resume-handoff-consumed", Kind: "work.project_handoff_consumed", SubjectType: store.SubjectWorkItem, SubjectID: origin.WorkID,
+		Actor: "session/receive", OccurredAt: time.Unix(21, 0).UTC(), PayloadVersion: 1, Payload: consumed,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if code, output, stderr := resumeCLI(t, s, repo, origin.WorkID); code != 0 || output.ProjectHandoff != nil {
+		t.Fatalf("consumed resume code=%d handoff=%+v stderr=%q", code, output.ProjectHandoff, stderr)
+	}
+}

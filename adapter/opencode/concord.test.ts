@@ -1635,9 +1635,36 @@ const retargetRunner = (calls: RetargetCall[], overrides: Record<string, () => {
     if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
     if (command === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify(bootstrapSuccess()), stderr: "" }
     if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+    if (command === "invoke") return { exitCode: 0, stdout: consumeNoHandoffAnswer(), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
+
+// The typed Project-handoff consume rides the boot flow after the verified
+// landing. The ordinary boot state — no handoff addresses this Project — is
+// a typed unknown_scope refusal the consume treats as quiet, so flows that
+// are not about handoffs carry no warning line.
+const consumeNoHandoffAnswer = () =>
+  JSON.stringify({
+    schema_version: "1.0",
+    request_id: "core-answer",
+    origin: "core",
+    tool: "concord_work_transition",
+    operation: "project_handoff_consume",
+    outcome: "error",
+    manifest_digest: manifestDigest,
+    resolved_scope: null,
+    authority: "authoritative",
+    freshness: null,
+    source_version_watermark: [],
+    ordering_keys: [],
+    next_cursor: null,
+    omissions: [],
+    warnings: [],
+    evidence_refs: [],
+    replayed: false,
+    error: { kind: "unknown_scope", retry_safe: false, recovery_action: { kind: "none" }, effect_state: "none", message: "no recorded project handoff addresses this Project" },
+  }) + "\n"
 
 // bindRetargetRoute stands in for the host's control plane. A test drives the
 // route's answers directly, so the contract is exercised without a server.
@@ -1686,8 +1713,9 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(result).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1", agent: "agent-1" })
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   // The claim exists before the session moves, so a failed move leaves a
-  // resumable claim rather than a moved session with none.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+  // resumable claim rather than a moved session with none. The typed
+  // Project-handoff consume closes the flow after the landing.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "invoke"])
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
   // The landing is confirmed, so the session title names the goal the
   // session-prepare contract derived.
@@ -1933,6 +1961,7 @@ const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { e
     if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
     if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
     if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: (JSON.parse(input) as { work_id: string }).work_id, already_recorded: false }) + "\n", stderr: "" }
+    if (command === "invoke") return { exitCode: 0, stdout: consumeNoHandoffAnswer(), stderr: "" }
     throw new Error(`unexpected command ${argv.join(" ")}`)
   },
 })
@@ -1944,9 +1973,10 @@ test("work start resume derives the entry by work_id and moves the session", asy
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(await hostControlPlane().taskScope("session-1")).toBe("managed")
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
-  // The active resume read stays journal-free, and the verified landing
-  // records itself afterwards through the claim-landing verb.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing"])
+  // The active resume read stays journal-free, the verified landing records
+  // itself afterwards through the claim-landing verb, and the typed
+  // Project-handoff consume closes the boot flow.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "invoke"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -2602,7 +2632,7 @@ test("work start replays to convergence after an interrupted step", async () => 
   })
   const converged: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
   expect(converged).toMatchObject({ outcome: "ok", work_id: "work-1", worktree_path: WORKTREE, session_id: "session-1" })
-  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare"])
+  expect(second.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-bootstrap", "session-prepare", "invoke"])
   expect(JSON.parse(second[1].input).idempotency_key).toBe(bootstrapArgs.idempotency_key)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })
@@ -3311,6 +3341,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
       if (command === "invoke") {
         const operation = (JSON.parse(input) as { operation: string }).operation
         if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", "ok", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: WORKTREE, destination_directory: MAIN_CHECKOUT }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+        if (operation === "project_handoff_consume") return { exitCode: 0, stdout: consumeNoHandoffAnswer(), stderr: "" }
       }
       if (command === "work-resume") return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
       if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
@@ -3333,7 +3364,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(abandonCalls).toBe(2)
   expect(calls).toEqual([
     "worker-abandon", "project-resolve", "invoke", "vacate-landing", "worker-abandon",
-    "project-resolve", "work-resume", "session-prepare", "claim-landing",
+    "project-resolve", "work-resume", "session-prepare", "claim-landing", "invoke",
   ])
 })
 

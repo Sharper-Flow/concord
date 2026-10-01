@@ -55,6 +55,7 @@
         "concord_work_trace.external_observations",
         "concord_work_trace.continuity",
         "concord_work_trace.relations",
+        "concord_work_trace.project_retirement",
         "concord_work_trace.research"
       ]
     },
@@ -105,6 +106,8 @@
         "concord_work_transition.worker_abandon",
         "concord_work_transition.worktree_claim",
         "concord_work_transition.session_vacate",
+        "concord_work_transition.project_handoff_record",
+        "concord_work_transition.project_handoff_consume",
         "concord_work_transition.worktree_reclaim",
         "concord_work_transition.worktree_audit_reclaim",
         "concord_work_transition.worktree_verify",
@@ -546,6 +549,27 @@
         "context": "ambient",
         "idempotency": "request_id",
         "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.project_retirement",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "CD-0182.R1",
+      "input_schema": "#/schemas/work_trace_project_retirement_input",
+      "result_schema": "#/schemas/project_retirement_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "approval": "none",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "none",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -1065,6 +1089,48 @@
       "query_id": null,
       "input_schema": "#/schemas/work_transition_session_vacate_input",
       "result_schema": "#/schemas/session_vacate_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_transition.project_handoff_record",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_project_handoff_record_input",
+      "result_schema": "#/schemas/project_handoff_record_result",
+      "capability": "work_transition",
+      "consequence": "lifecycle",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_transition.project_handoff_consume",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_project_handoff_consume_input",
+      "result_schema": "#/schemas/project_handoff_consume_result",
       "capability": "work_transition",
       "consequence": "lifecycle",
       "approval": "none",
@@ -2075,6 +2141,30 @@
     "worktree_verify_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/worktree_verify_result",
       "closed": true
+    },
+    "work_transition_project_handoff_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_project_handoff_record_input",
+      "closed": true
+    },
+    "work_transition_project_handoff_consume_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_project_handoff_consume_input",
+      "closed": true
+    },
+    "work_trace_project_retirement_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_project_retirement_input",
+      "closed": true
+    },
+    "project_handoff_record_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/project_handoff_record_result",
+      "closed": true
+    },
+    "project_handoff_consume_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/project_handoff_consume_result",
+      "closed": true
+    },
+    "project_retirement_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/project_retirement_result",
+      "closed": true
     }
   },
   "capabilities": [
@@ -2125,6 +2215,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:19fedc9a4e86965db37a9ced15e6e615840af5adc3ff6233d64dd13733b5de99",
-  "digest": "sha256:f75d75815df241a1f11cde93df7103e08c9b6fcfc8b0c7264cb0cfcd33874573"
+  "payload_digest": "sha256:36ca5ba1b32c73a3c6ad483bcf1bcd8976756aef2f183df426e6b54df3e2f228",
+  "digest": "sha256:35dc0de8f58666cdc97faa4d0516c423025023dd0ece7897fe92a56e4d55bd99"
 }

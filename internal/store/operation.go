@@ -201,6 +201,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.worktree_occupancy_released":        registerEventKind[worktreeOccupancyReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeOccupancyReleased, nil),
 	"work.session_vacated":                    registerEventKind[sessionVacatedPayload](2, 1, map[int]Upcaster{1: upcastSessionVacatedV1}, EventAppendAuthorityGeneric, foldSessionVacated, validateSessionVacatedPayload),
 	"work.session_vacate_landed":              registerEventKind[sessionVacateLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionVacateLanded, nil),
+	"work.project_handoff_recorded":           registerEventKind[projectHandoffRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
+	"work.project_handoff_consumed":           registerEventKind[projectHandoffConsumedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
 	"work.session_claim_landed":               registerEventKind[sessionClaimLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionClaimLanded, nil),
 	"work.transitioned":                       registerEventKind[workTransitionPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.superseded":                         registerEventKind[workSupersededPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
@@ -715,6 +717,9 @@ var replayProjectionClearTables = []string{
 	"worktree_entries",
 	"external_observations",
 	"worker_attempts",
+	// Project-session handoffs (CD-0182 amendment) fold purely from their
+	// recorded and consumed events; the replay rebuilds every bind.
+	"project_handoffs",
 	"workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "workflow_native_runs",
 	"workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings",
 	"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",

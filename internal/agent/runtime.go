@@ -264,6 +264,10 @@ type relationInput struct {
 	Depth         int         `json:"depth"`
 	Budget        budgetInput `json:"budget"`
 }
+type workIDInput struct {
+	WorkID string      `json:"work_id"`
+	Budget budgetInput `json:"budget"`
+}
 type initiativeEntriesInput struct {
 	InitiativeWorkID string      `json:"initiative_work_id"`
 	Budget           budgetInput `json:"budget"`
@@ -1170,6 +1174,8 @@ func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID 
 		return r.readTraceResearch(ctx, base, input)
 	case "concord_work_trace.relations":
 		return r.readTraceRelations(ctx, base, input)
+	case "concord_work_trace.project_retirement":
+		return r.readTraceProjectRetirement(ctx, base, input)
 	case "concord_work_initiative.entries":
 		return r.readInitiativeEntries(ctx, base, input, queryID)
 	case "concord_knowledge.search":
@@ -1683,6 +1689,12 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	}
 	if snapshot.ProposalRecord != nil {
 		pinned["proposal_record"] = proposalContextProjection(snapshot.ProposalRecord)
+	}
+	// The work's newest unconsumed Project-session handoff rides the pinned
+	// projection when present, so a Project-selected boot names the bounded
+	// job the receiving session must consume before managed execution.
+	if snapshot.PendingProjectHandoff != nil {
+		pinned["pending_project_handoff"] = snapshot.PendingProjectHandoff
 	}
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,

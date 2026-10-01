@@ -211,6 +211,32 @@ export class DispatchWindows {
     return true
   }
 
+  // retirementBlocker answers this session's dispatch-window quiescence for
+  // the Project-session retirement read (CD-0182 amendment): the retiring
+  // session's own open, in-flight, settling, or refused window is execution
+  // that must stop before the session is ready to retire, and the core cannot
+  // see these windows, so the adapter supplies the fact. A null answer means
+  // this session holds no retained dispatch record. Another session's
+  // positively identified window is not this session's worker, so the reader
+  // is per-session.
+  retirementBlocker(sessionID: string): string | null {
+    const open = this.#open.get(sessionID)
+    if (open) {
+      return `the session holds an open dispatch window (${open.packet.lane_id} lane, attempt ${open.packet.attempt_id}); complete the authorized dispatch or close the window before retirement`
+    }
+    if (this.#settling.has(sessionID)) {
+      return "the session's worker attempt is still settling; the terminal record must land before retirement"
+    }
+    if (this.#refused.has(sessionID)) {
+      return "the session's last settle was refused; the retained attempt needs the worker_abandon release before retirement"
+    }
+    const inFlight = this.#inFlight.get(sessionID)
+    if (inFlight) {
+      return `the session holds an in-flight worker attempt (${inFlight.packet.lane_id} lane, attempt ${inFlight.packet.attempt_id}); close it with worker_abandon before retirement`
+    }
+    return null
+  }
+
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
   //

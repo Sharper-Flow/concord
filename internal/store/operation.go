@@ -213,6 +213,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product_project.role_changed":            registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductProjectRoleChanged, nil),
 	"product.knowledge_home_designated":       registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeDesignated, nil),
 	"product.knowledge_home_cleared":          registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
+	"product.knowledge_source_registered":     registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRegistered, nil),
+	"product.knowledge_source_removed":        registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRemoved, nil),
 	"product.planning_mode_set":               registerEventKind[productPlanningModeSetPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductPlanningModeSet, nil),
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),

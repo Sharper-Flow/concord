@@ -316,9 +316,13 @@ type KnowledgeDisposition struct {
 
 // KnowledgeRelation is authored in the Git knowledge manifest. It is never a
 // source of precedence by itself; conflicts_with records an unresolved pair.
+// A relation whose target lives in another manifest names that manifest's
+// source Project in SourceProjectID (CD-0200); a target inside the same
+// manifest leaves the field empty.
 type KnowledgeRelation struct {
-	Kind     string `json:"kind"`
-	TargetID string `json:"target_id"`
+	Kind            string `json:"kind"`
+	TargetID        string `json:"target_id"`
+	SourceProjectID string `json:"source_project_id,omitempty"`
 }
 
 type KnowledgeRecordScopes struct {
@@ -485,7 +489,14 @@ func manifestRecordEntry(record KnowledgeRecord) map[string]any {
 	if len(record.LawRelations) > 0 {
 		relations := make([]map[string]string, 0, len(record.LawRelations))
 		for _, relation := range record.LawRelations {
-			relations = append(relations, map[string]string{"kind": relation.Kind, "target_id": relation.TargetID})
+			entry := map[string]string{"kind": relation.Kind, "target_id": relation.TargetID}
+			if relation.SourceProjectID != "" {
+				// CD-0200: a cross-source target names its source Project
+				// through the structured field, so the committed shard
+				// carries the relation's full endpoint identity.
+				entry["source_project_id"] = relation.SourceProjectID
+			}
+			relations = append(relations, entry)
 		}
 		entry["law_relations"] = relations
 	}
@@ -522,13 +533,17 @@ func knowledgeDomainRegistryZero(registry KnowledgeDomainRegistry) bool {
 }
 
 func parseKnowledgeManifest(data []byte) (KnowledgeManifest, error) {
-	return parseKnowledgeManifestWithPaths(data, manifestRecordPathPrefix)
+	return parseKnowledgeManifestForRole(data, manifestRecordPathPrefix, manifestSharedHomeRole)
 }
 
 // parseKnowledgeManifestWithPaths validates record paths under the prefix the
 // manifest's layout tier carries (CD-0194 D5). Authoring passes the current
 // tier; a revision read from history passes the tier that revision has.
 func parseKnowledgeManifestWithPaths(data []byte, pathPrefix string) (KnowledgeManifest, error) {
+	return parseKnowledgeManifestForRole(data, pathPrefix, manifestSharedHomeRole)
+}
+
+func parseKnowledgeManifestForRole(data []byte, pathPrefix string, role knowledgeManifestRole) (KnowledgeManifest, error) {
 	if len(data) == 0 || len(data) > maxKnowledgeManifest {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest is empty or exceeds the bounded size", false, "publish a bounded v1 manifest")
 	}
@@ -545,7 +560,7 @@ func parseKnowledgeManifestWithPaths(data []byte, pathPrefix string) (KnowledgeM
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest contains trailing JSON values", false, "publish exactly one JSON object")
 	}
 	applyLegacyAuthorityTier(&manifest)
-	if err := validateKnowledgeManifestForPaths(manifest, pathPrefix); err != nil {
+	if err := validateKnowledgeManifestForRole(manifest, pathPrefix, role); err != nil {
 		return KnowledgeManifest{}, err
 	}
 	return manifest, nil
@@ -573,23 +588,50 @@ func applyLegacyAuthorityTier(manifest *KnowledgeManifest) {
 }
 
 func validateKnowledgeManifest(manifest KnowledgeManifest) error {
-	return validateKnowledgeManifestForPaths(manifest, manifestRecordPathPrefix)
+	return validateKnowledgeManifestForRole(manifest, manifestRecordPathPrefix, manifestSharedHomeRole)
 }
 
 func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix string) error {
+	return validateKnowledgeManifestForRole(manifest, pathPrefix, manifestSharedHomeRole)
+}
+
+// knowledgeManifestRole names where a manifest sits in a federated Product
+// (CD-0200). The shared-law home role keeps the registry-required validation.
+// A registered source role refuses a local Domain registry — only the
+// shared-law home carries one — and defers its Domain-ID checks to the
+// rebuild, which validates them against the home's registry.
+type knowledgeManifestRole int
+
+const (
+	manifestSharedHomeRole knowledgeManifestRole = iota
+	manifestRegisteredSourceRole
+)
+
+func validateKnowledgeManifestForRole(manifest KnowledgeManifest, pathPrefix string, role knowledgeManifestRole) error {
 	if !knowledgeManifestSchemaAccepted(manifest.SchemaVersion) || manifest.SupportedKinds == nil || manifest.IndexedKinds == nil || manifest.Records == nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "manifest schema version or required root fields are invalid", false, "publish strict schema 1.2 or 1.3 root fields")
 	}
 	hasRegistry := manifest.domainRegistryPresent || !knowledgeDomainRegistryZero(manifest.DomainRegistry)
-	if !hasRegistry {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
-	}
-	if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
-		return err
-	}
-	covered, err := validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
-	if err != nil {
-		return err
+	covered := func(string) bool { return false }
+	if role == manifestRegisteredSourceRole {
+		if hasRegistry {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "only the shared-law home carries the Domain registry", false, "remove the registry from this source manifest and reference the shared home's Domain IDs")
+		}
+		if len(manifest.OperatorOverrides) > 0 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "operator overrides belong to the shared-law home manifest", false, "record CD-0194 placement exceptions in the shared home's manifest")
+		}
+	} else {
+		if !hasRegistry {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "schema 1.2 requires a domain registry", false, "publish the bounded domain registry")
+		}
+		if err := validateKnowledgeDomainRegistry(manifest.DomainRegistry); err != nil {
+			return err
+		}
+		resolved, err := validatedOverrideCoverage(manifest.OperatorOverrides, manifest.DomainRegistry.ProductKey)
+		if err != nil {
+			return err
+		}
+		covered = resolved
 	}
 	supported, err := validateManifestKindList(manifest.SupportedKinds, "supported_kinds")
 	if err != nil {
@@ -616,8 +658,16 @@ func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix st
 		if err := validateKnowledgeRecordForSchema(record, supported, indexed, manifest.SchemaVersion, pathPrefix, covered); err != nil {
 			return err
 		}
-		if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
-			return err
+		if strings.Contains(record.ID, "/") {
+			// CD-0200: the qualified reference form "project_id/law_id"
+			// reserves '/', so a law ID containing one could never be named
+			// unambiguously. The rebuild refuses it for work notes too.
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "stable ID contains '/', which the source-qualified reference form reserves", false, "publish a stable ID without '/'")
+		}
+		if role == manifestSharedHomeRole {
+			if err := validateManifestLawHome(record, manifest.DomainRegistry); err != nil {
+				return err
+			}
 		}
 		if ids[record.ID] {
 			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "manifest contains duplicate stable IDs", false, "assign one stable ID to one canonical record")
@@ -636,8 +686,10 @@ func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix st
 	if err := validateManifestRelations(manifest); err != nil {
 		return err
 	}
-	if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
-		return err
+	if role == manifestSharedHomeRole {
+		if err := validateKnowledgeDomainLawReferences(manifest.DomainRegistry, manifest.Records); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -924,8 +976,31 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" || relation.TargetID == record.ID {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind, target, or self-edge is invalid", false, "use one closed relation kind and a distinct law ID")
 			}
+			if strings.Contains(relation.TargetID, "/") {
+				// A cross-source target is named by the structured
+				// source_project_id field, never by packing the qualified
+				// string form into target_id (CD-0200).
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target contains '/'; name the target source with source_project_id instead", false, "keep target_id a bare law ID and declare source_project_id")
+			}
 			target, ok := byID[relation.TargetID]
-			if !ok || !manifestLawRelationSubjects[target.Kind] {
+			if !ok {
+				if relation.SourceProjectID == "" {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
+				}
+				// Cross-manifest relation: target existence and the
+				// non-home precedence rule validate over the verified
+				// source set at rebuild (CD-0200).
+				key := relation.Kind + "\x00" + record.ID + "\x00" + relation.SourceProjectID + "/" + relation.TargetID
+				if seen[key] {
+					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated", false, "declare each typed law relation once")
+				}
+				seen[key] = true
+				continue
+			}
+			if relation.SourceProjectID != "" {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation names a source for a target declared in the same manifest", false, "declare source_project_id only for a target outside this manifest")
+			}
+			if !manifestLawRelationSubjects[target.Kind] {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")
 			}
 			key := relation.Kind + "\x00" + record.ID + "\x00" + relation.TargetID
@@ -1533,13 +1608,13 @@ func domainRegistryContentHash(registry KnowledgeDomainRegistry) string {
 // that predates the shards carries the aggregate file, and that is the shape
 // it is read in; a commit with neither is the legacy, explicitly-supported
 // state with no manifest.
-func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeManifest, bool, error) {
+func readKnowledgeManifest(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
 	shards, sharded, err := readKnowledgeShardsAtCommit(ctx, repo, commit)
 	if err != nil {
 		return KnowledgeManifest{}, false, err
 	}
 	if sharded {
-		manifest, err := composeKnowledgeManifest(shards)
+		manifest, err := composeKnowledgeManifest(shards, role)
 		if err != nil {
 			return KnowledgeManifest{}, false, err
 		}
@@ -1575,7 +1650,7 @@ func readKnowledgeManifest(ctx context.Context, repo, commit string) (KnowledgeM
 	if err != nil {
 		return KnowledgeManifest{}, false, wrapFailure(KindInvalidNoteProof, "read_knowledge_manifest", "cannot read the committed manifest blob", true, "restore the manifest blob and retry", err)
 	}
-	manifest, err := parseKnowledgeManifestWithPaths(content, aggregateRecordPathPrefix(content))
+	manifest, err := parseKnowledgeManifestForRole(content, aggregateRecordPathPrefix(content), role)
 	if err != nil {
 		return KnowledgeManifest{}, false, err
 	}
@@ -1609,8 +1684,8 @@ func aggregateRecordPathPrefix(data []byte) string {
 	return manifestRecordPathPrefix
 }
 
-func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord) error {
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
+func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, role)
 	if err != nil {
 		return err
 	}

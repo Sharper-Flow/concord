@@ -90,6 +90,22 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	if len(mandated) == 0 {
 		return nil
 	}
+	// CD-0200: a mandated law resolves across the Product's registered
+	// source set. A one-element set keeps the single-home path below
+	// unchanged; a larger set federates the acceptance and conflict checks.
+	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	if err != nil {
+		return err
+	}
+	if productID != "" {
+		sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
+		if err != nil {
+			return err
+		}
+		if len(sources) > 1 {
+			return checkMandatedLawsAcrossSources(ctx, q, sources, mandated, modified, allowAmendment)
+		}
+	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(mandated)), ",")
 	args := []any{homeProjectID, homeLocatorID}
 	for _, id := range mandated {
@@ -256,6 +272,105 @@ func validateLawModificationSubset(mandated, modified []string) error {
 			return newFailure(KindInvalidPayload, "check_mandated_laws", "law_modifies must be a subset of spec_mandate", false, "declare every modified law in spec_mandate")
 		}
 		seen[id] = true
+	}
+	return nil
+}
+
+// checkMandatedLawsAcrossSources is the federated mandated-law boundary check
+// (CD-0200). Each mandated bare ID must resolve to exactly one accepted law
+// subject across the verified source set: a law held by two sources refuses
+// as ambiguous instead of picking one. Conflicts read per source, because a
+// cross-source conflicts_with pair refuses at the declaring source's rebuild
+// and can never project.
+func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {
+	type resolution struct {
+		source KnowledgeHome
+		status string
+		tier   string
+	}
+	resolved := make(map[string]resolution, len(mandated))
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(mandated)), ",")
+	for _, source := range sources {
+		args := []any{source.HomeProjectID, source.HomeLocatorID}
+		for _, id := range mandated {
+			args = append(args, id)
+		}
+		rows, err := q.QueryContext(ctx, `SELECT law_id,status,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
+		if err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects of source "+source.HomeProjectID, true, "retry once the knowledge projection is readable", err)
+		}
+		for rows.Next() {
+			var lawID, status, tier string
+			if err := rows.Scan(&lawID, &status, &tier); err != nil {
+				rows.Close()
+				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law subject", true, "retry once the knowledge projection is readable", err)
+			}
+			if _, clash := resolved[lawID]; clash {
+				rows.Close()
+				failure := newFailure(KindKnowledgeAmbiguous, "check_mandated_laws", "mandated law is held by more than one registered source: "+lawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
+				failure.CandidateIDs = []string{source.HomeProjectID + "/" + lawID}
+				return failure
+			}
+			resolved[lawID] = resolution{source: source, status: status, tier: tier}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
+		}
+		if err := rows.Close(); err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
+		}
+	}
+	missing := make([]string, 0)
+	for _, id := range mandated {
+		if r, ok := resolved[id]; !ok || r.status != "accepted" {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) != 0 {
+		failure := newFailure(KindProjectionNotFound, "check_mandated_laws", "a mandated law is unknown or not currently accepted: "+strings.Join(missing, ","), false, "publish and rebuild the accepted Git law projection")
+		failure.CandidateIDs = missing
+		return failure
+	}
+	modifiedSet := make(map[string]bool, len(modified))
+	for _, id := range modified {
+		modifiedSet[id] = true
+	}
+	for _, source := range sources {
+		args := []any{source.HomeProjectID, source.HomeLocatorID}
+		for _, id := range mandated {
+			args = append(args, id)
+		}
+		conflictRows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND source_law_id IN (`+placeholders+`) AND target_law_id IN (`+placeholders+`) ORDER BY source_law_id,target_law_id LIMIT 33`, append(args, stringArgs(mandated)...)...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
+		if err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		}
+		conflicts := 0
+		for conflictRows.Next() {
+			if conflicts == 32 {
+				_ = conflictRows.Close()
+				return newFailure(KindInvalidPayload, "check_mandated_laws", "derived law conflict query exceeds the bounded result size", false, "reduce the law set or resolve conflicts before retrying")
+			}
+			var sourceLaw, targetLaw string
+			if err := conflictRows.Scan(&sourceLaw, &targetLaw); err != nil {
+				conflictRows.Close()
+				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
+			}
+			conflicts++
+			revisesLegislated := (modifiedSet[sourceLaw] && resolved[sourceLaw].tier != "derived") ||
+				(modifiedSet[targetLaw] && resolved[targetLaw].tier != "derived")
+			if !allowAmendment || (!modifiedSet[sourceLaw] && !modifiedSet[targetLaw]) || revisesLegislated {
+				_ = conflictRows.Close()
+				return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", sourceLaw, targetLaw), false, "resolve the Git law conflict or declare and approve the amendment path")
+			}
+		}
+		if err := conflictRows.Err(); err != nil {
+			conflictRows.Close()
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		}
+		if err := conflictRows.Close(); err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		}
 	}
 	return nil
 }

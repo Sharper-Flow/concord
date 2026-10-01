@@ -359,6 +359,10 @@ type domainProjection struct {
 	Relations        []domainProjectionRelation
 	LawHomes         map[string]string
 	LawApplicability map[string][]string
+	// SourceRole marks a registered source's projection (CD-0200): the
+	// registry rows belong to the shared home, so the write path records
+	// only this source's law Domain homes and applicability.
+	SourceRole bool
 }
 
 type domainProjectionDomain struct {
@@ -383,6 +387,15 @@ type indexedLaw struct {
 }
 
 func prepareDomainProjection(ctx context.Context, s *Store, home KnowledgeHome, manifest KnowledgeManifest) (domainProjection, error) {
+	// CD-0200: a registered source projects its law Domain references from
+	// the shared home's registry instead of carrying its own. A standalone
+	// home outside every source set keeps the registry-required path it
+	// always had.
+	if productID, designated, err := resolveKnowledgeSourceRole(ctx, s.db, home); err != nil {
+		return domainProjection{}, err
+	} else if productID != "" && !designated {
+		return prepareFederatedSourceDomainProjection(ctx, s.db, home, productID, manifest)
+	}
 	registry := manifest.DomainRegistry
 	result := domainProjection{ProductKey: registry.ProductKey, RegistryHash: domainRegistryContentHash(registry), RootDomainID: registry.RootDomainID}
 	if len(registry.Domains) == 0 {
@@ -566,9 +579,18 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 			notes = append(notes, note)
 		}
 	}
-	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
+	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
 	if err != nil {
 		return err
+	}
+	manifest, manifestMissing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
+	if err != nil {
+		return err
+	}
+	if !manifestMissing && role == manifestRegisteredSourceRole {
+		if err := validateFederatedSourceManifest(ctx, s.db, home, manifest); err != nil {
+			return err
+		}
 	}
 	if !manifestMissing {
 		for _, record := range manifest.Records {
@@ -707,10 +729,15 @@ func insertKnowledgeIndexNotes(ctx context.Context, tx *sql.Tx, home KnowledgeHo
 }
 
 // insertKnowledgeIndexDomains writes the Domain projection and each law's
-// Domain home and applicability rows the projection resolves.
+// Domain home and applicability rows the projection resolves. A registered
+// source (CD-0200) writes only its law Domain homes and applicability: the
+// registry rows belong to the shared home, and the source's references
+// validated against that registry at prepare time.
 func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw, domainProjectionData domainProjection) error {
-	if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
-		return err
+	if !domainProjectionData.SourceRole {
+		if err := insertDomainProjection(ctx, tx, home, commit, domainProjectionData); err != nil {
+			return err
+		}
 	}
 	for _, law := range laws {
 		homeDomain, hasHome := domainProjectionData.LawHomes[law.record.ID]
@@ -730,10 +757,16 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 }
 
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
-// a conflicts_with pair canonically.
+// a conflicts_with pair canonically. A cross-source relation (CD-0200)
+// names another home's law, which the same-home foreign keys of
+// law_relations cannot reference; it validates at the rebuild boundary
+// (validateFederatedSourceManifest) and never projects as a same-home row.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
 	for _, law := range laws {
 		for _, relation := range law.record.LawRelations {
+			if relation.SourceProjectID != "" {
+				continue
+			}
 			source, target := law.record.ID, relation.TargetID
 			if relation.Kind == "conflicts_with" && source > target {
 				source, target = target, source

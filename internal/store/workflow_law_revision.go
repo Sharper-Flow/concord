@@ -608,17 +608,41 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	}
 	sort.Strings(lawIDs)
 	if len(lawIDs) > 0 {
+		var laws []WorkflowLawContextLaw
 		homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
 		if err != nil {
 			return nil, err
 		}
-		homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
-		if err != nil {
-			return nil, err
+		// CD-0200: a bound law resolves across the Product's registered
+		// source set; the designated home stays the first resolution target
+		// and a bare ID held by more than one source refuses as ambiguous.
+		productID, _, roleErr := resolveKnowledgeSourceRole(ctx, tx, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+		if roleErr != nil {
+			return nil, roleErr
 		}
-		laws, err := resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
-		if err != nil {
-			return nil, err
+		federated := false
+		if productID != "" {
+			sources, srcErr := resolveKnowledgeQuerySources(ctx, tx, productID, "read_workflow_law_context")
+			if srcErr != nil {
+				return nil, srcErr
+			}
+			if len(sources) > 1 {
+				federated = true
+				laws, err = resolveLawContextSubjectsAcrossSources(ctx, tx, sources, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		if !federated {
+			homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
+			if err != nil {
+				return nil, err
+			}
+			laws, err = resolveLawContextSubjects(ctx, tx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
+			if err != nil {
+				return nil, err
+			}
 		}
 		context.Laws = laws
 	}
@@ -839,6 +863,87 @@ func resolveLawContextSubjects(ctx context.Context, tx *sql.Tx, homeProjectID, h
 		}
 		laws[index].Kind, laws[index].Status, laws[index].Title = row.subject.Kind, row.subject.Status, row.subject.Title
 		path, err := knowledgeLawLocator(homeRepo, laws[index].LawID, row.subject.Path)
+		if err != nil {
+			return nil, err
+		}
+		laws[index].Path = path
+		laws[index].Criteria = lawContextCriteria(row.bindings, workID)
+	}
+	return laws, nil
+}
+
+// resolveLawContextSubjectsAcrossSources resolves each bound law across the
+// Product's registered source set (CD-0200). A bare law ID must resolve to
+// exactly one source's projection; the resolved source's own repository
+// qualifies the law's file locator, so a lane dispatched into any member
+// Project opens the checkout that holds the law.
+func resolveLawContextSubjectsAcrossSources(ctx context.Context, tx *sql.Tx, sources []KnowledgeHome, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+	if len(laws) > 128 {
+		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
+	}
+	type subjectRow struct {
+		subject  WorkflowLawContextLaw
+		bindings []KnowledgeCriterionBinding
+		home     KnowledgeHome
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(laws)), ",")
+	subjects := map[string]subjectRow{}
+	repos := make(map[string]string, len(sources))
+	for _, source := range sources {
+		repo, err := workflowLawHomeRepo(ctx, tx, source.HomeProjectID, source.HomeLocatorID)
+		if err != nil {
+			return nil, err
+		}
+		repos[source.HomeProjectID+"/"+source.HomeLocatorID] = repo
+		args := []any{source.HomeProjectID, source.HomeLocatorID}
+		for _, law := range laws {
+			args = append(args, law.LawID)
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT law_id,kind,status,title,path,criterion_bindings FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every law ID stays parameter-bound.
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot read the law subjects for the bound laws", true, "retry once the law projection is readable", err)
+		}
+		for rows.Next() {
+			var row subjectRow
+			var bindingsJSON string
+			if err := rows.Scan(&row.subject.LawID, &row.subject.Kind, &row.subject.Status, &row.subject.Title, &row.subject.Path, &bindingsJSON); err != nil {
+				rows.Close()
+				return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot decode a bound law subject", true, "retry once the law projection is readable", err)
+			}
+			if err := json.Unmarshal([]byte(bindingsJSON), &row.bindings); err != nil {
+				rows.Close()
+				return nil, newFailure(KindInvariantViolation, "read_workflow_law_context", "a bound law carries criterion bindings the projection cannot decode", false, "rebuild the accepted Git law projection")
+			}
+			if _, clash := subjects[row.subject.LawID]; clash {
+				rows.Close()
+				failure := newFailure(KindKnowledgeAmbiguous, "read_workflow_law_context", "bound law is held by more than one registered source: "+row.subject.LawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
+				failure.CandidateIDs = []string{source.HomeProjectID + "/" + row.subject.LawID}
+				return nil, failure
+			}
+			row.home = source
+			subjects[row.subject.LawID] = row
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot enumerate the bound law subjects", true, "retry once the law projection is readable", err)
+		}
+	}
+	for index := range laws {
+		row, exists := subjects[laws[index].LawID]
+		if !exists {
+			if listedAsAddition(laws[index].Roles) {
+				continue
+			}
+			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law is missing from the current Git-derived projection", false, "rebuild the accepted Git law projection")
+			failure.CandidateIDs = []string{laws[index].LawID}
+			return nil, failure
+		}
+		laws[index].Kind, laws[index].Status, laws[index].Title = row.subject.Kind, row.subject.Status, row.subject.Title
+		repo := repos[row.home.HomeProjectID+"/"+row.home.HomeLocatorID]
+		path, err := knowledgeLawLocator(repo, laws[index].LawID, row.subject.Path)
 		if err != nil {
 			return nil, err
 		}

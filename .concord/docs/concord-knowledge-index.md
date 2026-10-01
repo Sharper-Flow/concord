@@ -44,6 +44,16 @@ cycles, and supersession edges that disagree with `successor` are rejected.
 implies precedence. Relations are authored only by an operator-approved Git
 manifest/spec/decision delta.
 
+Amended 2026-10-01 by CD-0200: a relation target outside the declaring
+manifest names its source Project through a structured `source_project_id`
+field instead of a packed qualified ID. At the declaring registered source's
+rebuild, the relation validates over the Product's verified source set, a
+cross-source `conflicts_with` pair blocks the rebuild, and a non-home source
+may not declare precedence toward shared-home law. Only the shared-law home
+manifest carries the domain registry; a registered source manifest that
+ships one refuses, and its Domain references validate against the shared
+home's registry.
+
 `scopes.mode` is explicit: `home` means the record belongs to this canonical
 home and has no installation-local IDs; `explicit` requires the declared ID
 arrays. Home records remain visible to Product/Project-scoped Q9 calls resolved

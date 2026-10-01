@@ -389,14 +389,14 @@ func TestManifestQ10VerifiesThePersistedProjectionOfRichRecords(t *testing.T) {
 		Evidence: []string{decision},
 	})
 	commit := commitKnowledgeRepo(t, repo, "rich manifest knowledge")
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
 	if err != nil || missing || len(manifest.Records) != 1 {
 		t.Fatalf("read rich manifest=%#v missing=%v err=%v", manifest, missing, err)
 	}
 	driftedProjection := manifest.Records[0]
 	driftedProjection.Title = "Drifted"
 	driftedProjection.Evidence = nil
-	err = verifyManifestRecord(ctx, repo, commit, driftedProjection)
+	err = verifyManifestRecord(ctx, repo, commit, driftedProjection, manifestSharedHomeRole)
 	assertFailureKind(t, err, KindInvalidNoteProof)
 	if !strings.Contains(err.Error(), "title") {
 		t.Fatalf("invalid_note_proof did not name title: %v", err)

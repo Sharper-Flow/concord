@@ -189,7 +189,7 @@ func TestCommittedReaderProvesOverrideAnchors(t *testing.T) {
 	ctx := context.Background()
 	document := anchorDocument("concord", true)
 	repo, commit := overrideCommitRepo(t, document, sha256Hex(document))
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, manifestSharedHomeRole)
 	if err != nil || missing {
 		t.Fatalf("a committed override-backed manifest refused to read: missing=%v err=%v", missing, err)
 	}
@@ -198,12 +198,12 @@ func TestCommittedReaderProvesOverrideAnchors(t *testing.T) {
 	}
 
 	brokenRepo, brokenCommit := overrideCommitRepo(t, document, sha256Hex(document+"tampered\n"))
-	_, _, err = readKnowledgeManifest(ctx, brokenRepo, brokenCommit)
+	_, _, err = readKnowledgeManifest(ctx, brokenRepo, brokenCommit, manifestSharedHomeRole)
 	wantAnchorRefusal(t, err, "does not match the record's immutable hash proof")
 
 	blocklessDoc := anchorDocument("concord", false)
 	blocklessRepo, blocklessCommit := overrideCommitRepo(t, blocklessDoc, sha256Hex(blocklessDoc))
-	_, _, err = readKnowledgeManifest(ctx, blocklessRepo, blocklessCommit)
+	_, _, err = readKnowledgeManifest(ctx, blocklessRepo, blocklessCommit, manifestSharedHomeRole)
 	wantAnchorRefusal(t, err, "carries no operator instruction for Product concord")
 }
 

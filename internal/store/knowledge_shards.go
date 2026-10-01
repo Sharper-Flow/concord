@@ -72,7 +72,7 @@ type knowledgeShards struct {
 // describe and parses it under the same strict rules as an authored
 // aggregate. Records are ordered by shard file name, which the generator
 // pins to the record id.
-func composeKnowledgeManifest(shards knowledgeShards) (KnowledgeManifest, error) {
+func composeKnowledgeManifest(shards knowledgeShards, role knowledgeManifestRole) (KnowledgeManifest, error) {
 	if len(shards.head) == 0 {
 		return KnowledgeManifest{}, newFailure(KindInvalidNoteProof, "compose_knowledge_manifest", "knowledge manifest head is empty", false, "commit "+knowledgeHeadPath)
 	}
@@ -129,7 +129,7 @@ func composeKnowledgeManifest(shards knowledgeShards) (KnowledgeManifest, error)
 	if pathPrefix == "" {
 		pathPrefix = manifestRecordPathPrefix
 	}
-	return parseKnowledgeManifestWithPaths(composed, pathPrefix)
+	return parseKnowledgeManifestForRole(composed, pathPrefix, role)
 }
 
 // readKnowledgeShardsAtCommit reads the shard tree at one commit through a

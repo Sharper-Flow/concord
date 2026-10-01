@@ -25,6 +25,18 @@ not an amendment. Manifest parsing validates same-manifest decision/spec
 endpoints, closed kinds, no self or duplicate edges, acyclic directed graphs,
 and exact agreement between supersession edges and `successor` declarations.
 
+Amended 2026-10-01 by CD-0200 D5: a relation whose target lives outside the
+declaring manifest names the target's source Project in a structured field,
+never by packing the qualified form into the target ID. At the declaring
+source's rebuild the relation validates over the Product's verified source
+set: an unregistered target Project or an unprojected target law refuses,
+and a cross-source `conflicts_with` pair blocks the rebuild until an
+accepted relation or amendment resolves it. A non-home source may not
+declare `supersedes`, `refines`, or `subordinate_to` toward shared-home
+law; no precedence between sources is ever inferred. Cross-source relations
+project no `law_relations` row: the same-home foreign keys cannot reference
+another source, and the rebuild boundary is the enforcement point.
+
 The derived projection contains `law_subjects` and `law_relations` only. A
 knowledge-index rebuild replaces those rows transactionally for one Git home;
 invalid input or rollback preserves the prior projection byte-for-byte.
@@ -37,6 +49,12 @@ explicit conflict blocks unless a conflicting endpoint is in `law_modifies`.
 Before completion, the same bounded check runs without that exception. An
 amendment intent therefore permits planning only; completion requires a Git
 manifest delta that removes or resolves the conflict.
+
+Amended 2026-10-01 by CD-0200 D6: over a registered source set, a mandated
+bare law ID resolves across every verified source, refuses as ambiguous when
+two sources hold it, and names the resolving source's repository in the law
+context. A source-qualified `project_id/law_id` reference resolves only
+through that Project's canonical knowledge locator.
 
 Heuristics may suggest conflicts in memory or UI, but they never persist rows,
 events, or blocking decisions. Concord adds no runtime policy engine, LegalRuleML

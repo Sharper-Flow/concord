@@ -1022,6 +1022,6 @@ func orderedStrings(values []string) []string {
 	return result
 }
 
-func knowledgeWatermarkMeta(queryID, watermark, authority string, observedAt time.Time) ResultMeta {
+func knowledgeWatermarkMeta(queryID, _, authority string, observedAt time.Time) ResultMeta {
 	return ResultMeta{QueryID: queryID, ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: ""}, SourceVersionWatermark: 0, Authority: authority, Freshness: Freshness{ObservedAt: observedAt.UTC().Format(time.RFC3339Nano), Age: 0, Stale: authority != "authoritative"}, OrderingKeys: []string{"structured_match", "completed_at_desc", "id"}, NextCursor: nil, Omissions: []string{}, Warnings: []string{}}
 }

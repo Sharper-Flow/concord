@@ -23,7 +23,7 @@ import (
 // records nothing, so a refused move, a destination mismatch, or an unreadable
 // landing leaves occupancy standing.
 func runSessionVacateLanding(raw []byte, s *store.Store, out, errOut io.Writer) int {
-	return runLandingVerb(raw, s, out, errOut, "vacate-landing", func(ctx context.Context, request landingVerbInput, now time.Time) (any, error) {
+	return runLandingVerb(raw, out, errOut, "vacate-landing", func(ctx context.Context, request landingVerbInput, now time.Time) (any, error) {
 		return s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
 			WorkID:          request.WorkID,
 			SessionRef:      request.SessionRef,

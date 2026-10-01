@@ -34,13 +34,10 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	events := []store.Event{
-		{EventID: "wt-dispatch-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Dispatch","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "wt-dispatch-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"WT Project"}`)},
-		{EventID: "wt-dispatch-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"worktree dispatch fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "wt-dispatch-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Worktree Dispatch","priority":1}`)},
-		{EventID: "wt-dispatch-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
+	events := append(agentFixtureProductEvents("wt-dispatch", "product-1", "project-1", "WT Dispatch", "WT Project", "worktree dispatch fixture"),
+		store.Event{EventID: "wt-dispatch-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Worktree Dispatch","priority":1}`)},
+		store.Event{EventID: "wt-dispatch-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	)
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +359,7 @@ func seedWorkTransition(t *testing.T, s *store.Store, workID, from, to string, e
 
 // claimLinkedWorktree claims a worktree for work-1 through the tool surface
 // from a linked-worktree resolution.
-func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, worktreePath, baseSHA, branch, key string) {
+func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant Authority, _, baseSHA, _, key string) {
 	t.Helper()
 	claimInput, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 		"work_id": "work-1", "project_id": "project-1",
@@ -523,7 +520,7 @@ func TestWorktreeReclaimRefusesOccupiedWorktreeThroughToolSurface(t *testing.T) 
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	claimLinkedWorktree(t, s, service, grant, worktreePath, baseSHA, "work/dispatch-1", "wt-claim-occupied")
 
-	reclaimWith := func(key string, observed []map[string]any) Envelope {
+	reclaimWith := func(key string, _ []map[string]any) Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",
@@ -591,7 +588,7 @@ func TestReclaimForwardsObservedSessionDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reclaimWith := func(key string, observed []map[string]any) Envelope {
+	reclaimWith := func(key string, _ []map[string]any) Envelope {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{
 			"work_id": "work-1", "project_id": "project-1", "default_ref": "main",

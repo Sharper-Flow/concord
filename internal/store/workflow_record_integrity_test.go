@@ -67,17 +67,7 @@ func TestLaneDispatchRotatesTheLeaseNotTheAuthorship(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := workflowFixtureDefinition(t, 2).Digest
-	setup := []Event{
-		workflowEvent("rot-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("rot-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
-		workflowActionCompletedFixture("rot-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("rot-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("rot-design", workID, ownerRef, 6, "design", "record_design"),
-		workflowActionCompletedFixture("rot-planning", workID, ownerRef, 7, "planning", "approve_contract"),
-		workflowEventWithActor("rot-start", WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "rot:start", "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
-		workflowEvent("rot-lane-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
-	}
+	setup := workflowExecutionSetupEvents(t, "rot", workID, ownerRef, owner, laneRef, laneActor, lane)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}

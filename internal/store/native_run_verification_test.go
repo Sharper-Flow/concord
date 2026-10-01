@@ -191,13 +191,7 @@ func seedNativeRunFixture(t *testing.T, s *Store) string {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		events := []Event{
-			{EventID: "gate-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-			{EventID: "gate-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-			{EventID: "gate-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-			{EventID: "gate-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-gate", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"Gate","priority":1}`)},
-			{EventID: "gate-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-gate", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		}
+		events := storeFixtureEvents("gate", "work-gate", "Gate")
 		_, applyErr := ApplyOperationTx(ctx, tx, Operation{Events: events})
 		return applyErr
 	}); err != nil {

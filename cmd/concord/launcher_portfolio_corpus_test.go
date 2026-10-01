@@ -297,10 +297,10 @@ func bindFocusPriority(t *testing.T, _ launcherPortfolioCase) launcherPortfolioO
 	seedLauncherCorpusWork(t, s, "competition-progress", "focus-competition", "task", "Progress", "in_progress", 100, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 	seedLauncherCorpusWork(t, s, "competition-ready", "focus-competition", "task", "Ready", "needed", 100, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 
-	seedTieWork(t, s, "active-problem", "problem-high-priority", "problem-low-priority", "bug", "needed", 2, 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
-	seedTieWork(t, s, "blocked", "blocked-high-priority", "blocked-low-priority", "task", "needed", 2, 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
-	seedTieWork(t, s, "in-progress", "progress-new", "progress-old", "task", "in_progress", 1, 1, "2026-08-02T00:00:00Z", "2026-08-01T00:00:00Z")
-	seedTieWork(t, s, "ready", "ready-b", "ready-a", "task", "needed", 1, 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
+	seedTieWork(t, s, "active-problem", "problem-high-priority", "problem-low-priority", "bug", "needed", 2, "2026-08-01T00:00:00Z")
+	seedTieWork(t, s, "blocked", "blocked-high-priority", "blocked-low-priority", "task", "needed", 2, "2026-08-01T00:00:00Z")
+	seedTieWork(t, s, "in-progress", "progress-new", "progress-old", "task", "in_progress", 1, "2026-08-02T00:00:00Z")
+	seedTieWork(t, s, "ready", "ready-b", "ready-a", "task", "needed", 1, "2026-08-01T00:00:00Z")
 	seedOutsideProject(t, s)
 	seedLauncherCorpusWork(t, s, "blocked-low-blocker", "outside", "task", "Blocker", "in_progress", 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 	seedLauncherCorpusWork(t, s, "blocked-high-blocker", "outside", "task", "Blocker", "in_progress", 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
@@ -453,9 +453,9 @@ func seedLauncherCorpusWork(t *testing.T, s *store.Store, id, productID, kind, t
 	corpusExec(t, s, `INSERT INTO work_projects(work_id,project_id,role) VALUES (?,?,'primary')`, id, projectID)
 }
 
-func seedTieWork(t *testing.T, s *store.Store, productID, firstID, secondID, kind, lifecycle string, firstPriority, secondPriority int, firstTime, secondTime string) {
+func seedTieWork(t *testing.T, s *store.Store, productID, firstID, secondID, kind, lifecycle string, firstPriority int, firstTime string) {
 	seedLauncherCorpusWork(t, s, firstID, productID, kind, firstID, lifecycle, firstPriority, firstTime, firstTime)
-	seedLauncherCorpusWork(t, s, secondID, productID, kind, secondID, lifecycle, secondPriority, secondTime, secondTime)
+	seedLauncherCorpusWork(t, s, secondID, productID, kind, secondID, lifecycle, 1, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 }
 
 func seedApprovalWorkflow(t *testing.T, s *store.Store, workID string) {

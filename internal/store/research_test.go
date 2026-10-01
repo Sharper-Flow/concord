@@ -219,7 +219,7 @@ func createSimplePack(t *testing.T, s *Store, key, owner string) ResearchPack {
 
 func terminalizeResearchOwner(t *testing.T, s *Store, id string) {
 	t.Helper()
-	event, _ := operationEventForResearch("terminal-"+id, "work.transitioned", SubjectWorkItem, id, map[string]any{"from": "needed", "to": "completed", "reason": "archive", "expected_version": 2, "resulting_version": 3})
+	event := operationEventForResearch("terminal-"+id, "work.transitioned", id, map[string]any{"from": "needed", "to": "completed", "reason": "archive", "expected_version": 2, "resulting_version": 3})
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 2}}); err != nil {
 		t.Fatal(err)
 	}
@@ -414,14 +414,10 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 				}
 			}
 			var event Event
-			var err error
 			if tc.kind == "work.superseded" {
-				event, err = operationEventForResearch(tc.name+"-consumer-terminal", tc.kind, SubjectWorkItem, "consumer", map[string]any{"successor": "successor", "superseded": "consumer", "reason": "done", "expected_version": 2, "resulting_version": 3})
+				event = operationEventForResearch(tc.name+"-consumer-terminal", tc.kind, "consumer", map[string]any{"successor": "successor", "superseded": "consumer", "reason": "done", "expected_version": 2, "resulting_version": 3})
 			} else {
-				event, err = operationEventForResearch(tc.name+"-consumer-terminal", tc.kind, SubjectWorkItem, "consumer", map[string]any{"from": "needed", "to": tc.to, "reason": "done", "expected_version": 2, "resulting_version": 3})
-			}
-			if err != nil {
-				t.Fatal(err)
+				event = operationEventForResearch(tc.name+"-consumer-terminal", tc.kind, "consumer", map[string]any{"from": "needed", "to": tc.to, "reason": "done", "expected_version": 2, "resulting_version": 3})
 			}
 			if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "consumer"): 2}}); err != nil {
 				t.Fatal(err)
@@ -466,15 +462,15 @@ func compactionFixture(t *testing.T, required bool) (*Store, KnowledgeHome, Rese
 	return s, home, pack, commit, path
 }
 
-func compactionRequest(home KnowledgeHome, commit, path, eventID string, expected int64) CompactionLinkRequest {
-	return CompactionLinkRequest{EventID: eventID, WorkID: "owner", ExpectedVersion: expected, Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: path, Reason: "proof-backed archive"}
+func compactionRequest(home KnowledgeHome, commit, path, eventID string) CompactionLinkRequest {
+	return CompactionLinkRequest{EventID: eventID, WorkID: "owner", ExpectedVersion: 3, Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: path, Reason: "proof-backed archive"}
 }
 
 func TestPublishCompactionLinkPreflightsRequiredResearchConsumer(t *testing.T) {
 	t.Parallel()
 	s, home, pack, commit, path := compactionFixture(t, true)
 	beforeEvents := countRows(t, s, "domain_events")
-	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, commit, path, "blocked-compaction", 3)); err == nil {
+	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, commit, path, "blocked-compaction")); err == nil {
 		t.Fatal("compaction succeeded with required active consumer")
 	} else {
 		assertFailureKind(t, err, KindResearchConsumerBlocked)
@@ -526,11 +522,11 @@ func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("secret-revision"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: secret, ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "test"}}); err != nil {
 		t.Fatal(err)
 	}
-	consumerDone, _ := operationEventForResearch("consumer-terminal", "work.transitioned", SubjectWorkItem, "consumer", map[string]any{"from": "needed", "to": "completed", "reason": "done", "expected_version": 2, "resulting_version": 3})
+	consumerDone := operationEventForResearch("consumer-terminal", "work.transitioned", "consumer", map[string]any{"from": "needed", "to": "completed", "reason": "done", "expected_version": 2, "resulting_version": 3})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{consumerDone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "consumer"): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "successful-compaction", 3)); err != nil {
+	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "successful-compaction")); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"active_research_packs", "active_research_revisions", "active_research_findings", "active_research_sources", "active_research_finding_sources", "active_research_consumers"} {
@@ -573,7 +569,7 @@ func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
 	if countRows(t, s, "active_research_packs") != 1 {
 		t.Fatal("crash-window setup did not retain pack before cleanup")
 	}
-	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "crash-window-link", 3)); err != nil {
+	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "crash-window-link")); err != nil {
 		t.Fatal(err)
 	}
 	if countRows(t, s, "active_research_packs") != 0 || countRows(t, s, "active_research_revisions") != 0 || pack.PackID == "" {
@@ -588,7 +584,7 @@ func TestArchiveFailureBeforeGitProofLeavesPackIntact(t *testing.T) {
 	pack := createSimplePack(t, s, "proof-failure", "owner")
 	terminalizeResearchOwner(t, s, "owner")
 	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "missing", RepoPath: t.TempDir(), HeadRef: "HEAD"}
-	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, strings.Repeat("a", 40), ".concord/docs/work/missing.md", "proof-failure-link", 3)); err == nil {
+	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, strings.Repeat("a", 40), ".concord/docs/work/missing.md", "proof-failure-link")); err == nil {
 		t.Fatal("compaction without Git proof succeeded")
 	}
 	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "archived_work") != 0 {
@@ -654,7 +650,7 @@ func TestArchitectureSpikeCompletionFailsClosedBeforeDecisionWorkflow(t *testing
 		t.Fatal(err)
 	}
 	beforeEvents := countRows(t, s, "domain_events")
-	event, _ := operationEventForResearch("spike-complete", "work.transitioned", SubjectWorkItem, "spike", map[string]any{"from": "needed", "to": "completed", "reason": "research complete", "evidence_refs": []string{"research:f1"}, "expected_version": 4, "resulting_version": 5})
+	event := operationEventForResearch("spike-complete", "work.transitioned", "spike", map[string]any{"from": "needed", "to": "completed", "reason": "research complete", "evidence_refs": []string{"research:f1"}, "expected_version": 4, "resulting_version": 5})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "spike"): 4}}); err == nil {
 		t.Fatal("architecture_spike completed without accepted decision proof")
 	} else {
@@ -744,14 +740,14 @@ func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
 		t.Fatalf("rebuilt entries=%+v err=%v", entries, err)
 	}
 	for _, relationKind := range []string{"parent", "includes"} {
-		blockedRelation, _ := operationEventForResearch("generic-"+relationKind, "relation.added", SubjectWorkItem, "initiative", map[string]any{"from": "initiative", "to": "child2", "kind": relationKind, "reason": "generic relation must not own membership", "expected_version": 4, "resulting_version": 5})
+		blockedRelation := operationEventForResearch("generic-"+relationKind, "relation.added", "initiative", map[string]any{"from": "initiative", "to": "child2", "kind": relationKind, "reason": "generic relation must not own membership", "expected_version": 4, "resulting_version": 5})
 		if err := ApplyOperation(ctx, s, Operation{Events: []Event{blockedRelation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
 			t.Fatalf("generic %s relation touching Initiative was accepted", relationKind)
 		} else {
 			assertFailureKind(t, err, KindRelationContractViolation)
 		}
 	}
-	blocked, _ := operationEventForResearch("blocked-complete", "work.transitioned", SubjectWorkItem, "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 4, "resulting_version": 5})
+	blocked := operationEventForResearch("blocked-complete", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 4, "resulting_version": 5})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{blocked}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
 		t.Fatal("Initiative completed with required nonterminal child")
 	} else {
@@ -765,7 +761,7 @@ func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{requiredness}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 5}}); err != nil {
 		t.Fatal(err)
 	}
-	complete, _ := operationEventForResearch("complete-initiative", "work.transitioned", SubjectWorkItem, "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 6, "resulting_version": 7})
+	complete := operationEventForResearch("complete-initiative", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 6, "resulting_version": 7})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{complete}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 6}}); err != nil {
 		t.Fatal(err)
 	}
@@ -869,8 +865,8 @@ func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	}
 }
 
-func operationEventForResearch(id, kind string, subject SubjectType, subjectID string, payload map[string]any) (Event, error) {
-	return Event{EventID: id, Kind: kind, SubjectType: subject, SubjectID: subjectID, Actor: "test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(payload)}, nil
+func operationEventForResearch(id, kind string, subjectID string, payload map[string]any) Event {
+	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: subjectID, Actor: "test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(payload)}
 }
 
 // A consumed revision is immutable, so a researcher who learns one more thing must

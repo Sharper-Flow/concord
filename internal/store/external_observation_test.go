@@ -274,13 +274,7 @@ func seedExternalObservationFixture(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		events := []Event{
-			{EventID: "fx-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-			{EventID: "fx-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
-			{EventID: "fx-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-			{EventID: "fx-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-ext", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"External","priority":1}`)},
-			{EventID: "fx-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-ext", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		}
+		events := storeFixtureEvents("fx", "work-ext", "External")
 		if _, err := ApplyOperationTx(ctx, tx, Operation{Events: events}); err != nil {
 			return err
 		}
@@ -314,4 +308,17 @@ func mustPolicy(t *testing.T, kind string) ExternalSubjectPolicy {
 		t.Fatalf("no reviewed policy for %s", kind)
 	}
 	return policy
+}
+
+// storeFixtureEvents builds the canonical five-event fixture the store-level
+// gate tests seed: Product, Project, membership, one work item, and the
+// work's primary membership.
+func storeFixtureEvents(prefix, workID, workTitle string) []Event {
+	return []Event{
+		{EventID: prefix + "-product", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
+		{EventID: prefix + "-project", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"Project"}`)},
+		{EventID: prefix + "-product-project", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
+		{EventID: prefix + "-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 2, Payload: []byte(`{"work_kind":"task","title":"` + workTitle + `","priority":1}`)},
+		{EventID: prefix + "-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Now().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	}
 }

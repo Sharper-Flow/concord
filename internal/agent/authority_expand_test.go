@@ -20,9 +20,9 @@ func expandService(t *testing.T) *Service {
 	return service
 }
 
-func readBackPolicy(t *testing.T, service *Service, clientRef string) (capabilities, products, projects []string, principal string) {
+func readBackPolicy(t *testing.T, service *Service) (capabilities, products, projects []string, principal string) {
 	t.Helper()
-	client, _, err := service.Store.TrustedClientWithKey(context.Background(), clientRef)
+	client, _, err := service.Store.TrustedClientWithKey(context.Background(), "client-1")
 	if err != nil {
 		t.Fatalf("read back trusted client: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestExpandTrustedClientPolicyPreservesEveryExistingGrant(t *testing.T) {
 	if err := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{Capabilities: []Capability{"cross_scope"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"pokeedge-main"}}); err != nil {
 		t.Fatalf("expand: %v", err)
 	}
-	capabilities, products, projects, principal := readBackPolicy(t, service, "client-1")
+	capabilities, products, projects, principal := readBackPolicy(t, service)
 	assertStringSet(t, "capabilities", capabilities, "product_read", "work_define", "cross_scope")
 	assertStringSet(t, "product scope", products, "product-1", "pokeedge")
 	assertStringSet(t, "project scope", projects, "project-1", "project-2", "pokeedge-main")
@@ -94,7 +94,7 @@ func TestExpandTrustedClientPolicyReplayIsIdempotent(t *testing.T) {
 		if err := service.ExpandTrustedClientPolicy(ctx, "client-1", additions); err != nil {
 			t.Fatalf("expand run %d: %v", run, err)
 		}
-		capabilities, products, projects, principal := readBackPolicy(t, service, "client-1")
+		capabilities, products, projects, principal := readBackPolicy(t, service)
 		assertStringSet(t, "capabilities", capabilities, "product_read", "work_define")
 		assertStringSet(t, "product scope", products, "product-1", "pokeedge")
 		assertStringSet(t, "project scope", projects, "project-1", "pokeedge-main")
@@ -114,7 +114,7 @@ func TestExpandTrustedClientPolicyEmptyAdditionsChangeNothing(t *testing.T) {
 	if err := service.ExpandTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{}); err != nil {
 		t.Fatalf("empty expansion: %v", err)
 	}
-	capabilities, products, projects, _ := readBackPolicy(t, service, "client-1")
+	capabilities, products, projects, _ := readBackPolicy(t, service)
 	assertStringSet(t, "capabilities", capabilities, "product_read")
 	assertStringSet(t, "product scope", products, "product-1")
 	assertStringSet(t, "project scope", projects, "project-1")
@@ -143,7 +143,7 @@ func TestExpandTrustedClientPolicyRefusesInvalidAdditionsAndKeepsPolicyUnchanged
 			t.Fatalf("%s: expansion was accepted", testCase.label)
 		}
 	}
-	capabilities, products, projects, _ := readBackPolicy(t, service, "client-1")
+	capabilities, products, projects, _ := readBackPolicy(t, service)
 	assertStringSet(t, "capabilities after refusals", capabilities, "product_read")
 	assertStringSet(t, "product scope after refusals", products, "product-1")
 	assertStringSet(t, "project scope after refusals", projects, "project-1")
@@ -177,7 +177,7 @@ func TestExpandTrustedClientPolicyRefusesWhenUnionExceedsTheScopeBound(t *testin
 	if !errors.As(expandErr, &failure) || failure.Kind != store.KindInvalidOperation {
 		t.Fatalf("bound refusal error = %v, want KindInvalidOperation", expandErr)
 	}
-	_, products, _, _ := readBackPolicy(t, service, "client-1")
+	_, products, _, _ := readBackPolicy(t, service)
 	if len(products) != 100 {
 		t.Fatalf("product scope count after bound refusal = %d, want the stored 100", len(products))
 	}
@@ -193,7 +193,7 @@ func TestExpandTrustedClientPolicyLeavesReplaceVerbSemanticsUnchanged(t *testing
 	if err := service.UpdateTrustedClientPolicy(ctx, "client-1", TrustedClientPolicy{PrincipalRef: "human-2", Capabilities: []Capability{"product_read"}, ProductScope: []string{"pokeedge"}, ProjectScope: []string{"project-1"}}); err != nil {
 		t.Fatal(err)
 	}
-	capabilities, products, _, principal := readBackPolicy(t, service, "client-1")
+	capabilities, products, _, principal := readBackPolicy(t, service)
 	assertStringSet(t, "capabilities after replace", capabilities, "product_read")
 	assertStringSet(t, "product scope after replace", products, "pokeedge")
 	if principal != "human-2" {

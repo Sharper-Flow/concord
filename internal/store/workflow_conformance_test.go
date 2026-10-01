@@ -2049,7 +2049,7 @@ func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64,
 	return sequence, err
 }
 
-func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, actorRef string, initializeMissing bool) error {
+func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, _ string, initializeMissing bool) error {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		productCreatedEvent("product", "workflow-corpus-product"),
 		projectCreatedEvent("project", "workflow-corpus-project"),

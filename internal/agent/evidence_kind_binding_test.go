@@ -17,7 +17,7 @@ import (
 // several subjects and are refused at the boundary (#945).
 const ekbMixed = "evidence array carries more than one kind"
 
-func ekbDispatch(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, workID string, version int64, actionID string, fields map[string]any, evidence []EvidenceRef, key string) (Envelope, int64) {
+func ekbDispatch(t *testing.T, _ context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, workID string, version int64, actionID string, fields map[string]any, evidence []EvidenceRef, key string) (Envelope, int64) {
 	t.Helper()
 	input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": key}
 	if fields != nil {

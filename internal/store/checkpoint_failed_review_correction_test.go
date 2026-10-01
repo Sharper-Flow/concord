@@ -547,17 +547,17 @@ func checkpointCorrectionRequestOpen(t *testing.T, s *Store, workID string) int6
 // runCheckpointOperatorAction runs one operator-decision action with an
 // optional verified operator identity, so the approval-wall tests can ask
 // what the failed-review return does without one and with the wrong one.
-func runCheckpointOperatorAction(t *testing.T, s *Store, workID, action, key string, payload json.RawMessage, owner WorkflowActor, operator *WorkflowActor) error {
+func runCheckpointOperatorAction(t *testing.T, s *Store, workID, key string, payload json.RawMessage, owner WorkflowActor, operator *WorkflowActor) error {
 	t.Helper()
 	version := verdictItemVersion(t, s, workID)
-	operationID := action + "-" + workID + "-" + key + "-" + fmt.Sprint(version)
+	operationID := "request_correction" + "-" + workID + "-" + key + "-" + fmt.Sprint(version)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner, OperatorActor: operator,
+		WorkID: workID, ExpectedVersion: version, ActionID: "request_correction", Payload: payload, Actor: owner, OperatorActor: operator,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 		ContractDigest: testManifestDigest, Now: time.Unix(21, version).UTC(),
@@ -581,12 +581,12 @@ func TestCheckpointFailedReviewCorrectionRequiresExactOperatorApproval(t *testin
 	}
 	correction := json.RawMessage(`{"diagnosis":"the review failed while the delivered subject still mismatches","strategy":"rebuild the helper and re-verify with a fresh review","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 
-	noOperator := runCheckpointOperatorAction(t, s, workID, "request_correction", "no-operator", correction, fixture.owner, nil)
+	noOperator := runCheckpointOperatorAction(t, s, workID, "no-operator", correction, fixture.owner, nil)
 	var approvalFailure *Failure
 	if !errors.As(noOperator, &approvalFailure) || approvalFailure.Kind != KindApprovalRequired || !strings.Contains(approvalFailure.Detail, "verified operator approval identity") {
 		t.Fatalf("correction without an operator identity = %v, want the operator approval wall", noOperator)
 	}
-	selfApproval := runCheckpointOperatorAction(t, s, workID, "request_correction", "self-operator", correction, fixture.owner, &fixture.owner)
+	selfApproval := runCheckpointOperatorAction(t, s, workID, "self-operator", correction, fixture.owner, &fixture.owner)
 	var relabelFailure *Failure
 	if !errors.As(selfApproval, &relabelFailure) || relabelFailure.Kind != KindUnauthorized {
 		t.Fatalf("invoking agent relabeled as the operator = %v, want an unauthorized refusal", selfApproval)
@@ -598,7 +598,7 @@ func TestCheckpointFailedReviewCorrectionRequiresExactOperatorApproval(t *testin
 		t.Fatalf("refused approvals recorded %d correction requests, want none", got)
 	}
 
-	if err := runCheckpointOperatorAction(t, s, workID, "request_correction", "exact-operator", correction, fixture.owner, &fixture.operator); err != nil {
+	if err := runCheckpointOperatorAction(t, s, workID, "exact-operator", correction, fixture.owner, &fixture.operator); err != nil {
 		t.Fatalf("exact operator approval refused: %v", err)
 	}
 	if got := currentStep(t, s, workID); got != "repair" {
@@ -621,19 +621,19 @@ func TestCheckpointFailedReviewCorrectionRefusesUnboundPredicatesAndEvidence(t *
 		t.Fatalf("record_worker_failure refused: %v", err)
 	}
 	unboundPredicate := json.RawMessage(`{"diagnosis":"the review failed","strategy":"rebuild and re-verify","predicate_ids":["predicate:elsewhere"],"evidence_refs":["evidence:return-route-verification"]}`)
-	errPredicate := runCheckpointOperatorAction(t, s, workID, "request_correction", "unbound-predicate", unboundPredicate, fixture.owner, &fixture.operator)
+	errPredicate := runCheckpointOperatorAction(t, s, workID, "unbound-predicate", unboundPredicate, fixture.owner, &fixture.operator)
 	var predicateFailure *Failure
 	if !errors.As(errPredicate, &predicateFailure) || predicateFailure.Kind != KindInvalidPayload || !strings.Contains(predicateFailure.Detail, "without a current non-ok verdict") {
 		t.Fatalf("unbound predicate = %v, want the verdict-class payload refusal", errPredicate)
 	}
 	unboundEvidence := json.RawMessage(`{"diagnosis":"the review failed","strategy":"rebuild and re-verify","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:unbound"]}`)
-	errEvidence := runCheckpointOperatorAction(t, s, workID, "request_correction", "unbound-evidence", unboundEvidence, fixture.owner, &fixture.operator)
+	errEvidence := runCheckpointOperatorAction(t, s, workID, "unbound-evidence", unboundEvidence, fixture.owner, &fixture.operator)
 	var evidenceFailure *Failure
 	if !errors.As(errEvidence, &evidenceFailure) || evidenceFailure.Kind != KindMissingEvidence || !strings.Contains(evidenceFailure.Detail, "not durably bound") {
 		t.Fatalf("unbound evidence = %v, want the evidence-binding refusal", errEvidence)
 	}
 	incomplete := json.RawMessage(`{"diagnosis":"the review failed","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	errIncomplete := runCheckpointOperatorAction(t, s, workID, "request_correction", "incomplete", incomplete, fixture.owner, &fixture.operator)
+	errIncomplete := runCheckpointOperatorAction(t, s, workID, "incomplete", incomplete, fixture.owner, &fixture.operator)
 	var payloadFailure *Failure
 	if !errors.As(errIncomplete, &payloadFailure) || payloadFailure.Kind != KindInvalidPayload || !strings.Contains(payloadFailure.Detail, "requires diagnosis, strategy") {
 		t.Fatalf("incomplete disposition = %v, want the payload-completeness refusal", errIncomplete)

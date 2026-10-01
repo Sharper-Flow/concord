@@ -20,7 +20,7 @@ import (
 // the OpenCode process that holds the session; the core reads that process's
 // start time from /proc itself and never accepts one from the caller.
 func runWorktreeClaimLanding(raw []byte, s *store.Store, out, errOut io.Writer) int {
-	return runLandingVerb(raw, s, out, errOut, "claim-landing", func(ctx context.Context, request landingVerbInput, now time.Time) (any, error) {
+	return runLandingVerb(raw, out, errOut, "claim-landing", func(ctx context.Context, request landingVerbInput, now time.Time) (any, error) {
 		return s.RecordWorktreeClaimLanding(ctx, store.WorktreeClaimLandingRequest{
 			WorkID:          request.WorkID,
 			SessionRef:      request.SessionRef,

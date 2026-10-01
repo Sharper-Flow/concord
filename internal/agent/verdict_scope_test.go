@@ -37,13 +37,10 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	events := []store.Event{
-		{EventID: "verdict-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Verdict Scope","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "verdict-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Verdict Project"}`)},
-		{EventID: "verdict-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"verdict fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "verdict-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Verdict Scope Work","priority":1}`)},
-		{EventID: "verdict-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
+	events := append(agentFixtureProductEvents("verdict", "product-1", "project-1", "Verdict Scope", "Verdict Project", "verdict fixture"),
+		store.Event{EventID: "verdict-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"bug","title":"Verdict Scope Work","priority":1}`)},
+		store.Event{EventID: "verdict-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
+	)
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func TestOccupancyRefusalNamesSessionVacate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 
 	_, err = s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",

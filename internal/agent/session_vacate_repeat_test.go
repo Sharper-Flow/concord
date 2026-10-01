@@ -37,7 +37,7 @@ func TestSessionVacateRepeatsWithinOneSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claim := func(workID, worktreePath, branch, key string) {
+	claim := func(workID, _, _, key string) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1",
@@ -129,7 +129,7 @@ func TestSessionVacateReplayRefusesAfterLaterClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claim := func(workID, worktreePath, branch, key string) {
+	claim := func(workID, _, _, key string) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1",
@@ -228,7 +228,7 @@ func TestSessionVacateReplayResolvesPendingFromSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := func(workID, worktreePath, branch, key string) {
+	claim := func(workID, _, _, key string) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1",
@@ -314,7 +314,7 @@ func TestSessionVacateNewKeyRetryResolvesPendingFromSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := func(workID, worktreePath, branch, key string) {
+	claim := func(workID, _, _, key string) {
 		t.Helper()
 		input, _ := json.Marshal(map[string]any{"host_pid": os.Getpid(),
 			"work_id": workID, "project_id": "project-1",

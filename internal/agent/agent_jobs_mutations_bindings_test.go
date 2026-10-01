@@ -40,7 +40,7 @@ import (
 func bindAJ5FrameInitiative(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	seed, _ := sc.InitialState["idempotency_seed"].(string)
 	if seed == "" {
 		t.Fatal("AJ5-frame-initiative: missing idempotency_seed")
@@ -91,7 +91,7 @@ func bindAJ5FrameInitiative(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	idempotencySeed, _ := sc.InitialState["idempotency_seed"].(string)
 	if idempotencySeed == "" {
@@ -191,7 +191,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preLifecycle, preVersion := readWorkFromStore(t, s, "work-ready-high")
 	if preLifecycle != "needed" {
@@ -275,7 +275,7 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preLifecycle, preVersion := readWorkFromStore(t, s, "work-cross")
 	if preLifecycle != "in_progress" {
@@ -408,7 +408,7 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preLifecycle, preVersion := readWorkFromStore(t, s, "work-cross")
 	if preLifecycle != "in_progress" {
@@ -513,7 +513,7 @@ func bindAJ4CompletionMissingEvidence(t *testing.T, sc jobScenario) jobObservati
 func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preLifecycle, preVersion := readWorkFromStore(t, s, "work-ready-low")
 	if preLifecycle != "needed" || preVersion != 2 {
@@ -596,13 +596,13 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	// Pre-probe: schema check — work_items must not carry a stored
 	// blocked/ready column. The runner's absent assertion depends on
 	// this guarantee; without it the assertion could pass by
 	// coincidence rather than from derivation.
-	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting())
 	for _, c := range cols {
 		if c == "blocked" || c == "ready" {
 			t.Fatalf("work_items has stored %q column; the derived_blocked assertion becomes a coincidence", c)
@@ -627,7 +627,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	// Probe: only one blocks relation from work-cross to work-ready-low.
-	if n := readRelationsFor(t, s, "work-cross", "work-ready-low", "blocks"); n != 1 {
+	if n := readRelationsFor(t, s, "work-cross", "work-ready-low"); n != 1 {
 		t.Fatalf("blocks relations from work-cross to work-ready-low=%d, want 1", n)
 	}
 
@@ -643,7 +643,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	if !replay.Replayed {
 		t.Fatalf("replay did not set Replayed=true")
 	}
-	if n := readRelationsFor(t, s, "work-cross", "work-ready-low", "blocks"); n != 1 {
+	if n := readRelationsFor(t, s, "work-cross", "work-ready-low"); n != 1 {
 		t.Fatalf("replay created an additional blocks relation: count=%d", n)
 	}
 
@@ -675,7 +675,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 	// Blockedness must be derived at read time from relations; a
 	// stored column would let the absent assertion pass by coincidence
 	// rather than from genuine derivation.
-	postCols := tableColumns(t, s.DatabaseForTesting(), "work_items")
+	postCols := tableColumns(t, s.DatabaseForTesting())
 	storedColumn := ""
 	for _, c := range postCols {
 		switch c {
@@ -705,7 +705,7 @@ func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	preCount := 0
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&preCount); err != nil {
@@ -744,7 +744,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	if postCount != preCount {
 		t.Fatalf("cycle rejection left %d new relation rows (pre=%d, post=%d)", postCount-preCount, preCount, postCount)
 	}
-	if n := readRelationsFor(t, s, "work-blocked", "work-prereq", "blocks"); n != 0 {
+	if n := readRelationsFor(t, s, "work-blocked", "work-prereq"); n != 0 {
 		t.Fatalf("cycle rejection left %d blocks relations work-blocked->work-prereq", n)
 	}
 
@@ -783,7 +783,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 	}
 	attemptedFrom := "work-blocked"
 	attemptedTo := "work-prereq"
-	if n := readRelationsFor(t, s, attemptedFrom, attemptedTo, "blocks"); n != 0 {
+	if n := readRelationsFor(t, s, attemptedFrom, attemptedTo); n != 0 {
 		t.Fatalf("cyclic_relation probe: %d blocks rows for %s->%s; the refused edge must not be persisted", n, attemptedFrom, attemptedTo)
 	}
 	obs.Effects = map[string]any{
@@ -806,7 +806,7 @@ func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	// Honor fixture_override by replaying the legitimate fold events.
 	if err := applyAtomicSupersessionFixtureOverride(t, sc, s); err != nil {
@@ -1117,7 +1117,7 @@ func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
 	}
 	// Seeding moved the Project version, so the call envelope must resolve the
 	// current scope version rather than the pre-seed one.
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	driver := resolveDriver(t, sc)
 	if !driver.approvalWithheld() {
@@ -1212,7 +1212,7 @@ func TestOperatorApprovedScopeCutProceeds(t *testing.T) {
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)
 	}
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	input := []byte(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"approved-cut-1"}`)
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
@@ -1258,7 +1258,7 @@ func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)
 	}
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	input := []byte(`{"title":"Add passkey login with audit","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"governing_requirements":["audit_required"],"idempotency_key":"covered-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
@@ -1270,7 +1270,7 @@ func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
 func TestCaptureRefusesUnknownGoverningRequirement(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	input := []byte(`{"title":"Unknown requirement","value_statement":"reject an invalid governing reference","kind":"task","project_ids":["proj-web"],"governing_requirements":["fabricated_requirement"],"idempotency_key":"unknown-requirement-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
 	if resp.Outcome != OutcomeError || resp.Error == nil {
@@ -1300,7 +1300,7 @@ func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
 	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-api", "cross_project_review", "sibling Project obligation"); err != nil {
 		t.Fatalf("seed governing requirement: %v", err)
 	}
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	input := []byte(`{"title":"Sibling obligation","value_statement":"declaring a sibling Project requirement","kind":"task","project_ids":["proj-web"],"governing_requirements":["cross_project_review"],"idempotency_key":"sibling-requirement-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
@@ -1321,7 +1321,7 @@ func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('capture-law-locator','proj-web','canonical_path','/fixture/capture-law','/fixture/capture-law','fixture','fixture'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('proj-web','capture-law-locator','synthetic-capture-law','decision','accepted','.concord/docs/decisions/synthetic-capture-law.md','Synthetic capture law',?,'test'); DELETE FROM fold_guard`, hash); err != nil {
 		t.Fatalf("seed accepted law: %v", err)
 	}
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["synthetic-capture-law"],"idempotency_key":"accepted-law-1"}`)
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
@@ -1343,7 +1343,7 @@ func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
 func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	workID := "work-budget-audit"
 	definition := store.BuiltinWorkflowDefinitions()[0]
@@ -1434,7 +1434,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 func bindAJ8ApprovalRequired(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	workID := "work-ready-high"
 	_, version := readWorkFromStore(t, s, workID)

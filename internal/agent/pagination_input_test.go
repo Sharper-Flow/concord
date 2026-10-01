@@ -141,7 +141,7 @@ func splitToolOperationID(id string) toolOperation {
 func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	for i := 1; i <= 3; i++ {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
@@ -152,7 +152,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	resp := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_browse",
 		Operation: "list",
@@ -178,7 +178,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 func TestEffectiveLimitPrecedence(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	for i := 1; i <= 4; i++ {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
@@ -189,7 +189,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
 		}
 	}
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	listItems := func(input string) []json.RawMessage {
 		t.Helper()
 		resp := dispatchRead(t, s, service, InvokeRequest{
@@ -225,7 +225,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 func TestTopLevelLimitCursorContinuation(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	first := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_browse",
 		Operation: "list",
@@ -290,7 +290,7 @@ func TestBareFirstCallResources(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed resource: %v", err)
 	}
-	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	readEnv := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	resp := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_product_view",
 		Operation: "resources",

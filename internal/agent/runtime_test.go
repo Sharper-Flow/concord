@@ -27,7 +27,7 @@ import (
 func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
 	t.Parallel()
 	s, _, _, service, grant, _ := tiersFixture(t)
-	completeWork(t, s, "work-2", 3)
+	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, service, grant, filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2"), "post-commit-vacate-2")
 	livePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
 	if err := os.WriteFile(filepath.Join(livePath, "in-flight.md"), []byte("# in flight\n"), 0o644); err != nil {
@@ -494,7 +494,7 @@ func TestKnowledgeReferenceHonorsSelectedProductContainment(t *testing.T) {
 
 func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 	t.Parallel()
-	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
+	s := runtimeKnowledgeStore(t, "home-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	request := InvokeRequest{Tool: "concord_knowledge", Operation: "resolve_note", Input: json.RawMessage(`{"knowledge_id":"home-knowledge"}`)}
 	if err := validateRequestedScope(context.Background(), s, CallEnvelope{SelectedProductID: "product-a"}, Authority{ProductScope: []string{"product-a"}}, request, OperationRead); err != nil {
@@ -506,7 +506,7 @@ func TestKnowledgeResolveNoteDelegatesHomeScopeToQ10(t *testing.T) {
 
 func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
 	t.Parallel()
-	s := runtimeKnowledgeStore(t, "unscoped-knowledge", "lesson", "home", nil, nil)
+	s := runtimeKnowledgeStore(t, "unscoped-knowledge", "lesson", nil, nil)
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "", json.RawMessage(`{"knowledge_id":"unscoped-knowledge"}`))
 	assertRuntimeKnowledgeState(t, response, "canonical")
@@ -514,7 +514,7 @@ func TestKnowledgeResolveNoteUnscopedUsesRecordedLocator(t *testing.T) {
 
 func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 	t.Parallel()
-	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", "home", nil, nil)
+	s := runtimeKnowledgeStore(t, "drifted-knowledge", "lesson", nil, nil)
 	defer s.Close()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE archived_work SET title='Drifted' WHERE id='drifted-knowledge'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
@@ -549,7 +549,7 @@ func TestConcurrentKnowledgeResolveNoteFailuresStayTyped(t *testing.T) {
 
 func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
 	t.Parallel()
-	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", "home", []string{"product-a"}, map[string]string{"product-b": "member"})
+	s := runtimeKnowledgeStore(t, "frozen-work", "work_note", []string{"product-a"}, map[string]string{"product-b": "member"})
 	defer s.Close()
 	request := json.RawMessage(`{"work_id":"frozen-work"}`)
 	assertRuntimeKnowledgeState(t, runtimeResolveNote(t, s, "product-a", request), "canonical")
@@ -561,7 +561,7 @@ func TestKnowledgeResolveNotePreservesFrozenWorkNoteScope(t *testing.T) {
 
 func TestKnowledgeResolveNoteRejectsUnrelatedSelectedProduct(t *testing.T) {
 	t.Parallel()
-	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", "home", nil, map[string]string{"product-a": "member"})
+	s := runtimeKnowledgeStore(t, "scoped-knowledge", "lesson", nil, map[string]string{"product-a": "member"})
 	defer s.Close()
 	response := runtimeResolveNote(t, s, "product-b", json.RawMessage(`{"knowledge_id":"scoped-knowledge"}`))
 	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "unknown_scope" {
@@ -605,7 +605,7 @@ func recordAuthorityForKind(kind string) map[string]any {
 	return map[string]any{"tier": "derived"}
 }
 
-func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProducts []string, memberships map[string]string) *store.Store {
+func runtimeKnowledgeStore(t *testing.T, id, kind string, frozenProducts []string, memberships map[string]string) *store.Store {
 	t.Helper()
 	repo := t.TempDir()
 	notePath := ".concord/docs/lessons/" + id + ".md"
@@ -649,7 +649,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 				"id": id, "kind": kind, "path": notePath, "status": "published", "date": "2026-08-10T00:00:00Z",
 				"title": "Durable lesson", "summary": "Durable summary", "tags": []string{},
 				"authority": recordAuthorityForKind(kind),
-				"scopes":    map[string]any{"mode": scopeMode, "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
+				"scopes":    map[string]any{"mode": "home", "product_ids": []string{}, "project_ids": []string{}, "domain_ids": []string{}, "tag_ids": []string{}},
 				"sha256":    contentHash,
 			}},
 		}
@@ -690,7 +690,7 @@ func runtimeKnowledgeStore(t *testing.T, id, kind, scopeMode string, frozenProdu
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Durable lesson", "2026-08-10T00:00:00Z", "published", "[]", "completed", 1, "Durable summary", "stored-project", "stored-locator", notePath, commit, contentHash, scopeMode); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, kind, "Durable lesson", "2026-08-10T00:00:00Z", "published", "[]", "completed", 1, "Durable summary", "stored-project", "stored-locator", notePath, commit, contentHash, "home"); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

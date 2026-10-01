@@ -12,12 +12,12 @@ import (
 
 // anchorDocument is the decision document an override anchors to. withBlock
 // appends the closed instruction block naming the given Product and path.
-func anchorDocument(product, overridePath string, withBlock bool) string {
+func anchorDocument(product string, withBlock bool) string {
 	document := "# Override anchor\n\nThe operator recorded the instruction below.\n"
 	if !withBlock {
 		return document
 	}
-	return document + "\n<!-- concord-operator-override\nproduct: " + product + "\npath: " + overridePath + "\ndecision: approve\n-->\n"
+	return document + "\n<!-- concord-operator-override\nproduct: " + product + "\npath: external/knowledge/" + "\ndecision: approve\n-->\n"
 }
 
 func sha256Hex(content string) string {
@@ -42,9 +42,9 @@ func anchorGateManifest(anchor KnowledgeRecord, overrides []KnowledgeOperatorOve
 	}
 }
 
-func anchorRecord(id, document string) KnowledgeRecord {
+func anchorRecord(document string) KnowledgeRecord {
 	return KnowledgeRecord{
-		ID: id, Kind: "decision", Path: ".concord/docs/decisions/CD-0001-override.md", Status: "accepted",
+		ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-override.md", Status: "accepted",
 		Date: "2026-09-29T00:00:00Z", Title: "Override anchor", Summary: "Carries the operator instruction", Tags: []string{},
 		Authority:    KnowledgeAuthority{Tier: "legislated", LegislatedBy: "operator", ContractVersion: 1},
 		Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
@@ -70,19 +70,19 @@ func wantAnchorRefusal(t *testing.T, err error, detail string) {
 // anchor admits.
 func TestValidateOverrideAnchorsRefusalClasses(t *testing.T) {
 	t.Parallel()
-	document := anchorDocument("concord", "external/knowledge/", true)
+	document := anchorDocument("concord", true)
 	read := func(string) ([]byte, error) { return []byte(document), nil }
 	override := KnowledgeOperatorOverride{Path: "external/knowledge/", ProductID: "concord", RecordedIn: "CD-0001", Reason: "the operator recorded this placement for the external tree"}
 
-	if err := validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", document), []KnowledgeOperatorOverride{override}), read); err != nil {
+	if err := validateOverrideAnchors(anchorGateManifest(anchorRecord(document), []KnowledgeOperatorOverride{override}), read); err != nil {
 		t.Fatalf("a complete anchor refused: %v", err)
 	}
 
 	missing := override
 	missing.RecordedIn = "CD-4096"
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", document), []KnowledgeOperatorOverride{missing}), read), "names no manifest record")
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(document), []KnowledgeOperatorOverride{missing}), read), "names no manifest record")
 
-	nonDecision := anchorRecord("CD-0001", document)
+	nonDecision := anchorRecord(document)
 	nonDecision.Kind = "reference"
 	nonDecision.Status = "published"
 	nonDecision.Authority = KnowledgeAuthority{Tier: "derived"}
@@ -90,28 +90,28 @@ func TestValidateOverrideAnchorsRefusalClasses(t *testing.T) {
 	nonDecision.ProductWideRationale = ""
 	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(nonDecision, []KnowledgeOperatorOverride{override}), read), "only a decision carries operator override authority")
 
-	superseded := anchorRecord("CD-0001", document)
+	superseded := anchorRecord(document)
 	superseded.Status = "superseded"
 	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(superseded, []KnowledgeOperatorOverride{override}), read), "only an accepted decision carries operator override authority")
 
 	unreadable := func(string) ([]byte, error) { return nil, errors.New("unreadable") }
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", document), []KnowledgeOperatorOverride{override}), unreadable), "cannot be read")
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(document), []KnowledgeOperatorOverride{override}), unreadable), "cannot be read")
 
-	hashMismatch := anchorRecord("CD-0001", document)
+	hashMismatch := anchorRecord(document)
 	hashMismatch.SHA256 = "sha256:" + strings.Repeat("f", 64)
 	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(hashMismatch, []KnowledgeOperatorOverride{override}), read), "does not match the record's immutable hash proof")
 
-	noBlock := anchorDocument("concord", "external/knowledge/", false)
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", noBlock), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(noBlock), nil }), "carries no operator instruction for Product")
+	noBlock := anchorDocument("concord", false)
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(noBlock), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(noBlock), nil }), "carries no operator instruction for Product")
 
 	malformed := document + "\n<!-- concord-operator-override\nnote: stray field\ndecision: approve\n-->\n"
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", malformed), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(malformed), nil }), "instruction is malformed")
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(malformed), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(malformed), nil }), "instruction is malformed")
 
 	denied := strings.Replace(document, "decision: approve", "decision: deny", 1)
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", denied), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(denied), nil }), "records a denial, not an approval")
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(denied), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(denied), nil }), "records a denial, not an approval")
 
-	crossProduct := anchorDocument("other-product", "external/knowledge/", true)
-	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord("CD-0001", crossProduct), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(crossProduct), nil }), "carries no operator instruction for Product concord")
+	crossProduct := anchorDocument("other-product", true)
+	wantAnchorRefusal(t, validateOverrideAnchors(anchorGateManifest(anchorRecord(crossProduct), []KnowledgeOperatorOverride{override}), func(string) ([]byte, error) { return []byte(crossProduct), nil }), "carries no operator instruction for Product concord")
 }
 
 // TestFencedInstructionExampleNeverAdmits proves the parser reads only real
@@ -187,7 +187,7 @@ func overrideCommitRepo(t *testing.T, anchorBody string, anchorSHA string) (stri
 func TestCommittedReaderProvesOverrideAnchors(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	document := anchorDocument("concord", "external/knowledge/", true)
+	document := anchorDocument("concord", true)
 	repo, commit := overrideCommitRepo(t, document, sha256Hex(document))
 	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit)
 	if err != nil || missing {
@@ -201,7 +201,7 @@ func TestCommittedReaderProvesOverrideAnchors(t *testing.T) {
 	_, _, err = readKnowledgeManifest(ctx, brokenRepo, brokenCommit)
 	wantAnchorRefusal(t, err, "does not match the record's immutable hash proof")
 
-	blocklessDoc := anchorDocument("concord", "external/knowledge/", false)
+	blocklessDoc := anchorDocument("concord", false)
 	blocklessRepo, blocklessCommit := overrideCommitRepo(t, blocklessDoc, sha256Hex(blocklessDoc))
 	_, _, err = readKnowledgeManifest(ctx, blocklessRepo, blocklessCommit)
 	wantAnchorRefusal(t, err, "carries no operator instruction for Product concord")

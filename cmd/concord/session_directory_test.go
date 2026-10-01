@@ -175,7 +175,7 @@ func TestSessionRunsInTheResolvedProjectDirectory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENCODE_BIN", "/bin/false")
 	t.Chdir(launcherDir)
-	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
+	setIdentityLaunchEnv(t, "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -229,7 +229,7 @@ func TestSessionLaunchesAConfiguredHostCommand(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENCODE_BIN", "/bin/false")
 	t.Chdir(launcherDir)
-	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
+	setIdentityLaunchEnv(t, "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -264,7 +264,7 @@ func TestSessionLaunchesAConfiguredHostCommand(t *testing.T) {
 func TestSessionRefusesWhenTheProjectDirectoryDoesNotResolve(t *testing.T) {
 	gone := filepath.Join(t.TempDir(), "gone")
 	t.Setenv(dbOverrideEnv, seedSessionProject(t, gone))
-	setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
+	setIdentityLaunchEnv(t, "work-1", "", "")
 
 	identityCalls, runs := 0, 0
 	var out, errOut bytes.Buffer
@@ -308,7 +308,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Setenv(dbOverrideEnv, path)
-		setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
+		setIdentityLaunchEnv(t, "work-1", "", "")
 		identityCalls, runs := 0, 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -332,7 +332,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 	})
 	t.Run("no canonical path locator", func(t *testing.T) {
 		t.Setenv(dbOverrideEnv, seedSessionProject(t, ""))
-		setIdentityLaunchEnv(t, "product-1", "work-1", "", "")
+		setIdentityLaunchEnv(t, "work-1", "", "")
 		identityCalls, runs := 0, 0
 		var out, errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -363,7 +363,7 @@ func TestSessionRefusesWithoutAResolvableProject(t *testing.T) {
 // keeps the launcher's directory and carries identity without a continuity
 // packet. It is the floor anchor for fc1-operator-work-capture.
 func TestProductOnlySessionRemainsIdentityOnly(t *testing.T) {
-	setIdentityLaunchEnv(t, "product-1", "", "", "concord-1")
+	setIdentityLaunchEnv(t, "", "", "concord-1")
 	launcherDir := t.TempDir()
 	t.Chdir(launcherDir)
 	bootstrapCalls, directoryCalls := 0, 0
@@ -454,7 +454,7 @@ func TestSessionStartsInTheActiveWorktree(t *testing.T) {
 	installFakeHost(t, recordDir)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(launcherDir)
-	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
+	setIdentityLaunchEnv(t, "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -485,7 +485,7 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 	installFakeHost(t, recordDir)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(launcherDir)
-	setIdentityLaunchEnv(t, "product-1", "work-1", "", "concord-1")
+	setIdentityLaunchEnv(t, "work-1", "", "concord-1")
 
 	var out, errOut bytes.Buffer
 	code := runSessionCommand(nil, strings.NewReader(""), &out, &errOut, true,
@@ -509,7 +509,7 @@ func TestSessionFallsBackToTheProjectPathWithoutTheWorktreeOnDisk(t *testing.T) 
 // starts.
 func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 	t.Run("selection reaches the resolver and the fixed prompt names the resume route", func(t *testing.T) {
-		setIdentityLaunchEnv(t, "product-1", "work-1", "project-two", "concord-1")
+		setIdentityLaunchEnv(t, "work-1", "project-two", "concord-1")
 		resolvedWork, resolvedProject := "", ""
 		var ranIn string
 		var argv []string
@@ -546,8 +546,11 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 			t.Fatalf("prompt=%q, want the continuity packet after the fixed route", prompt)
 		}
 	})
-	t.Run("selection without a selected work refuses", func(t *testing.T) {
-		setIdentityLaunchEnv(t, "product-1", "", "project-two", "")
+	// Both refusal shapes share one probe: neither callback may run and the
+	// diagnostic names the refused selection.
+	refusesSelection := func(work, project, wantDiagnostic string) {
+		t.Helper()
+		setIdentityLaunchEnv(t, work, project, "")
 		identityCalls, runs := 0, 0
 		var errOut bytes.Buffer
 		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
@@ -565,31 +568,14 @@ func TestSessionProjectSelectionResolvesTheMemberProject(t *testing.T) {
 		if code != 2 || identityCalls != 0 || runs != 0 {
 			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
 		}
-		if !strings.Contains(errOut.String(), "requires a selected work") {
+		if !strings.Contains(errOut.String(), wantDiagnostic) {
 			t.Fatalf("diagnostic=%q", errOut.String())
 		}
+	}
+	t.Run("selection without a selected work refuses", func(t *testing.T) {
+		refusesSelection("", "project-two", "requires a selected work")
 	})
 	t.Run("invalid selection refuses", func(t *testing.T) {
-		setIdentityLaunchEnv(t, "product-1", "work-1", "../escape", "")
-		identityCalls, runs := 0, 0
-		var errOut bytes.Buffer
-		code := runSessionCommand(nil, strings.NewReader(""), &bytes.Buffer{}, &errOut, true,
-			func(context.Context, string, string) (string, error) { return "/unused", nil },
-			hostCommandAt(defaultHostResolution()),
-			nil,
-			func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error {
-				runs++
-				return nil
-			},
-			func(string) error { identityCalls++; return nil },
-			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
-				return "concord-1", nil
-			})
-		if code != 2 || identityCalls != 0 || runs != 0 {
-			t.Fatalf("exit=%d identity=%d runs=%d stderr=%q", code, identityCalls, runs, errOut.String())
-		}
-		if !strings.Contains(errOut.String(), "Project selection is missing or invalid") {
-			t.Fatalf("diagnostic=%q", errOut.String())
-		}
+		refusesSelection("work-1", "../escape", "Project selection is missing or invalid")
 	})
 }

@@ -15,7 +15,7 @@ import (
 // reported lifecycle "completed" always carried an empty evidence_refs.
 func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 
 	_, preVersion := readWorkFromStore(t, s, "work-cross")
 	idempotencyKey := fmt.Sprintf("evidence-refs-cross-%d", preVersion)

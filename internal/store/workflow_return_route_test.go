@@ -238,7 +238,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			workID := "return-route-refusal-" + strings.ReplaceAll(testCase.name, " ", "-")
-			fixture, _ := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+			fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
 			err := InspectWorkflowActionAdmission(context.Background(), fixture.store, WorkflowActionPreflightRequest{
 				WorkID: workID, ActionID: "request_correction", Payload: json.RawMessage(testCase.payload), Actor: fixture.owner,
 			})
@@ -252,7 +252,7 @@ func TestVerdictCorrectionRefusesIncompleteAuthority(t *testing.T) {
 
 func TestVerdictCorrectionRefusesWithoutExactOperatorApproval(t *testing.T) {
 	const workID = "return-route-refusal-without-operator"
-	fixture, _ := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
+	fixture := prepareVerdictCorrectionFixture(t, workID, "workflow.implementation")
 	payload := json.RawMessage(`{"diagnosis":"diagnosis","strategy":"strategy","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	err := runCorrectionActionWithoutOperator(fixture.store, workID, fixture.owner, payload)
 	var failure *Failure
@@ -292,7 +292,7 @@ func TestHistoricalBreakFixPinSupportsVerdictCorrection(t *testing.T) {
 	}
 }
 
-func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string) (workflowReturnRouteFixture, WorkflowActor) {
+func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string) workflowReturnRouteFixture {
 	t.Helper()
 	initialStep := "execution"
 	if definitionRef == "workflow.break_fix" {
@@ -307,7 +307,7 @@ func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string)
 	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
 		t.Fatalf("record refusal fixture verdict: %v", err)
 	}
-	return fixture, reviewer
+	return fixture
 }
 
 func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowActor, payload json.RawMessage) error {

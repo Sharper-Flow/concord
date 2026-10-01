@@ -226,19 +226,8 @@ func TestRebuildRejectsUnknownEventKind(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	e := operationEvent("event-1", "future.created", SubjectProduct, "product-1", map[string]string{"display_name": "future"})
-	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
-		INSERT INTO domain_events
-			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.EventID, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
-	if err != nil {
-		t.Fatalf("insert synthetic unknown event: %v", err)
-	}
-	if _, err := result.LastInsertId(); err != nil {
-		t.Fatalf("unknown event sequence: %v", err)
-	}
-
-	err = RebuildFromLog(context.Background(), s)
+	insertRawEvent(t, s, e)
+	err := RebuildFromLog(context.Background(), s)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnknownEventKind || failure.Stage != StageFold {
 		t.Fatalf("failure = %+v, want unknown event at fold stage", failure)
@@ -251,19 +240,8 @@ func TestRebuildRejectsMalformedEventPayload(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	e := operationEvent("event-1", "product.created", SubjectProduct, "product-1", map[string]int{"display_name": 7})
-	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
-		INSERT INTO domain_events
-			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.EventID, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
-	if err != nil {
-		t.Fatalf("insert synthetic malformed event: %v", err)
-	}
-	if _, err := result.LastInsertId(); err != nil {
-		t.Fatalf("malformed event sequence: %v", err)
-	}
-
-	err = RebuildFromLog(context.Background(), s)
+	insertRawEvent(t, s, e)
+	err := RebuildFromLog(context.Background(), s)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Stage != StageDecode {
 		t.Fatalf("failure = %+v, want invalid payload at decode stage", failure)
@@ -366,4 +344,23 @@ func TestExpectedVersionZeroAgainstPresentSubjectStaysAVersionConflict(t *testin
 	if len(failure.CurrentVersions) != 1 || failure.CurrentVersions[0].Version == 0 {
 		t.Fatalf("current versions = %+v, want one carrier with the present version", failure.CurrentVersions)
 	}
+}
+
+// insertRawEvent writes one synthetic event row the rebuild path must
+// classify, and returns its sequence.
+func insertRawEvent(t *testing.T, s *Store, e Event) int64 {
+	t.Helper()
+	result, err := s.DatabaseForTesting().ExecContext(context.Background(), `
+		INSERT INTO domain_events
+			(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.EventID, e.Kind, e.SubjectType, e.SubjectID, e.Actor, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.PayloadVersion, string(e.Payload))
+	if err != nil {
+		t.Fatalf("insert synthetic event: %v", err)
+	}
+	seq, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("synthetic event sequence: %v", err)
+	}
+	return seq
 }

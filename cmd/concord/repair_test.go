@@ -24,14 +24,14 @@ type repairFixture struct {
 	argvPath    string
 }
 
-func newRepairFixture(t *testing.T, version, installerContent string) *repairFixture {
+func newRepairFixture(t *testing.T, installerContent string) *repairFixture {
 	t.Helper()
 	fixture := &repairFixture{root: t.TempDir()}
 	fixture.dataRoot = filepath.Join(fixture.root, "concord")
 	if err := os.MkdirAll(fixture.dataRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := []byte(`{"version":"` + version + `","adapter_files":{}}`)
+	manifest := []byte(`{"version":"v9.9.9","adapter_files":{}}`)
 	if err := os.WriteFile(filepath.Join(fixture.dataRoot, "install-manifest.json"), manifest, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -45,14 +45,14 @@ func newRepairFixture(t *testing.T, version, installerContent string) *repairFix
 	}
 	digest := sha256.Sum256([]byte(installerContent))
 	fixture.argvPath = filepath.Join(fixture.root, "argv")
-	archive := filepath.Join(fixture.artifactDir, "concord-"+version+".tar.gz")
+	archive := filepath.Join(fixture.artifactDir, "concord-v9.9.9.tar.gz")
 	if err := os.WriteFile(archive, []byte("release archive bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	archiveDigest := sha256.Sum256([]byte("release archive bytes"))
 	checksum := hex.EncodeToString(digest[:]) + "  concord-installer.py\n" +
-		hex.EncodeToString(archiveDigest[:]) + "  concord-" + version + ".tar.gz\n"
-	if err := os.WriteFile(filepath.Join(fixture.artifactDir, "concord-"+version+".sha256"), []byte(checksum), 0o644); err != nil {
+		hex.EncodeToString(archiveDigest[:]) + "  concord-v9.9.9.tar.gz\n"
+	if err := os.WriteFile(filepath.Join(fixture.artifactDir, "concord-v9.9.9.sha256"), []byte(checksum), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, filepath.Join(fixture.dataRoot, "store.db"))
@@ -71,12 +71,11 @@ func runRepairStdin(t *testing.T, stdin string) (int, *bytes.Buffer, *bytes.Buff
 }
 
 func TestRepairRunsTheVerifiedInstallerWithTheInstalledRelease(t *testing.T) {
-	version := "v9.9.9"
 	// The stub records its argv so the test observes exactly what the
 	// verified invocation received.
 	argvPath := filepath.Join(t.TempDir(), "argv")
 	installer := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argvPath + "\"\nexit 0\n"
-	fixture := newRepairFixture(t, version, installer)
+	fixture := newRepairFixture(t, installer)
 
 	code, out, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
 	if code != 0 {
@@ -87,7 +86,7 @@ func TestRepairRunsTheVerifiedInstallerWithTheInstalledRelease(t *testing.T) {
 		t.Fatalf("the verified installer never ran: %v", err)
 	}
 	argv := strings.Fields(string(recorded))
-	want := []string{"repair", "--version", version}
+	want := []string{"repair", "--version", "v9.9.9"}
 	for i, argument := range want {
 		if argv[i] != argument {
 			t.Fatalf("argv[%d] = %q, want %q; full argv %v", i, argv[i], argument, argv)
@@ -102,9 +101,8 @@ func TestRepairRunsTheVerifiedInstallerWithTheInstalledRelease(t *testing.T) {
 }
 
 func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
-	version := "v9.9.9"
 	installer := "#!/bin/sh\nexit 0\n"
-	fixture := newRepairFixture(t, version, installer)
+	fixture := newRepairFixture(t, installer)
 	// A live work database turns on the pre-repair snapshot path, including
 	// the backup parent the verb must create on first use.
 	database, err := store.Open(context.Background(), filepath.Join(fixture.dataRoot, "store.db"))
@@ -130,10 +128,9 @@ func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
 }
 
 func TestRepairRefusesAnInstallerThatFailsItsChecksum(t *testing.T) {
-	version := "v9.9.9"
-	fixture := newRepairFixture(t, version, "#!/bin/sh\nexit 0\n")
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
 	// Tamper with the published checksum so the installer no longer matches.
-	checksumPath := filepath.Join(fixture.artifactDir, "concord-"+version+".sha256")
+	checksumPath := filepath.Join(fixture.artifactDir, "concord-v9.9.9.sha256")
 	if err := os.WriteFile(checksumPath, []byte(strings.Repeat("0", 64)+"  concord-installer.py\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -175,9 +172,8 @@ func TestRepairRefusesWithoutAnInstalledManifest(t *testing.T) {
 }
 
 func TestRepairRefusesAnArtifactDirectoryMissingTheReleaseAssets(t *testing.T) {
-	version := "v9.9.9"
-	fixture := newRepairFixture(t, version, "#!/bin/sh\nexit 0\n")
-	if err := os.Remove(filepath.Join(fixture.artifactDir, "concord-"+version+".tar.gz")); err != nil {
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
+	if err := os.Remove(filepath.Join(fixture.artifactDir, "concord-v9.9.9.tar.gz")); err != nil {
 		t.Fatal(err)
 	}
 

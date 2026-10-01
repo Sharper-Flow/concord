@@ -66,7 +66,7 @@ func seedEnvelopeLinks(t *testing.T, dbPath, projectID string, count int, workID
 // runEnvelopeDivergenceScenario serves every batched id read with stateID and
 // runs the divergence verb over a seeded Product. It reports the batch
 // requests the client made.
-func runEnvelopeDivergenceScenario(t *testing.T, dbPath, productID string, count int, stateID, stateType string) (string, int, []int) {
+func runEnvelopeDivergenceScenario(t *testing.T, dbPath, productID string, _ int, stateID, stateType string) (string, int, []int) {
 	t.Helper()
 	var requests atomic.Int64
 	var batchSizes atomic.Value

@@ -253,11 +253,7 @@ func TestWorkBootstrapRequiresRequestedProjectMainCheckout(t *testing.T) {
 	}
 	defer s.Close()
 	seedLocatorAuthority(t, s, repoA)
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
-		{EventID: "other-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-other", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"display_name":"other","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "other-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-other", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"display_name":"other"}`)},
-		{EventID: "other-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-other", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"product_id":"product-other","project_id":"project-other","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-other"): 0, store.VersionRef(store.SubjectProject, "project-other"): 0}}); err != nil {
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: productProjectMembershipEvents("other", "product-other", "project-other", "other"), ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-other"): 0, store.VersionRef(store.SubjectProject, "project-other"): 0}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AddProjectLocator(context.Background(), "project-other", store.ProjectLocator{ID: "other-path", Kind: store.LocatorCanonicalPath, Value: repoB}, 1); err != nil {

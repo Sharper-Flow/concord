@@ -686,10 +686,7 @@ func TestSpikeCompletionBindsToTheRecordedDecisionRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record_decision fold refused the typed record: %v", err)
 	}
-	event, err := operationEventForResearch(workID+"-complete", "work.transitioned", SubjectWorkItem, workID, map[string]any{"from": "needed", "to": "completed", "reason": "decision accepted", "evidence_refs": []string{"evidence:spike-decision"}, "expected_version": 4, "resulting_version": 5})
-	if err != nil {
-		t.Fatal(err)
-	}
+	event := operationEventForResearch(workID+"-complete", "work.transitioned", workID, map[string]any{"from": "needed", "to": "completed", "reason": "decision accepted", "evidence_refs": []string{"evidence:spike-decision"}, "expected_version": 4, "resulting_version": 5})
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatalf("spike completion with a bound decision record was refused: %v", err)
 	}

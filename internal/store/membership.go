@@ -137,7 +137,7 @@ func foldProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event, subjec
 	subjectID := id(payload)
 	var oldRole string
 	if err := tx.QueryRowContext(ctx, `SELECT role FROM `+table+` WHERE `+idColumn+` = ? AND project_id = ?`,
-		subjectID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows {
+		subjectID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows { //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
 		return newFailure(KindMembershipConflict, "fold_event", label+" membership does not exist", false,
 			"add the membership before changing its role")
 	} else if err != nil {
@@ -149,13 +149,13 @@ func foldProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event, subjec
 			"request a different role")
 	}
 	if payload.Role == "primary" {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = 'secondary' WHERE `+idColumn+` = ? AND role = 'primary' AND project_id <> ?`,
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = 'secondary' WHERE `+idColumn+` = ? AND role = 'primary' AND project_id <> ?`, //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
 			subjectID, payload.ProjectID); err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing "+label+" primary", true,
 				"retry once the database is writable", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = ? WHERE `+idColumn+` = ? AND project_id = ?`,
+	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = ? WHERE `+idColumn+` = ? AND project_id = ?`, //nolint:gosec // the two call sites select table and idColumn from closed literals and all values stay parameter-bound.
 		payload.Role, subjectID, payload.ProjectID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot change "+label+" membership role", true,
 			"retry once the database is writable", err)

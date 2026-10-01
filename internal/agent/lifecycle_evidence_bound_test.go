@@ -30,7 +30,7 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-			env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+			env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 			_, preVersion := readWorkFromStore(t, s, "work-cross")
 
 			evidence := map[string]any{"kind": "verification", "authority": "agent-verifier", "locator_kind": "test", "locator": "verification-pass"}

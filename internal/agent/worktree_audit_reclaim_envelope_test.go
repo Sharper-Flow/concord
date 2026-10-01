@@ -46,7 +46,7 @@ func auditReclaimEnvelopeFixture(t *testing.T, terminal, orphans int) (*store.St
 		}); response.Outcome != OutcomeOK {
 			t.Fatalf("claim %s response=%+v err=%+v", workID, response, response.Error)
 		}
-		completeWork(t, s, workID, 3)
+		completeWork(t, s, workID)
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(root, workID), "audit-paged-vacate-"+workID)
 	}
 	for i := 1; i <= orphans; i++ {

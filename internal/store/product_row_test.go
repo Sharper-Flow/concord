@@ -203,8 +203,8 @@ func TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe(t *testing.T)
 	`, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
-			projectStageChangedEvent("project-row-2", "project-row-2-stage", "beta", "public"),
-			projectStageChangedEvent("project-row-3", "project-row-3-stage", "production", "public"),
+			projectStageChangedEvent("project-row-2", "project-row-2-stage", "beta"),
+			projectStageChangedEvent("project-row-3", "project-row-3-stage", "production"),
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-row-2"): 1, VersionRef(SubjectProject, "project-row-3"): 1},
 	}); err != nil {
@@ -236,7 +236,7 @@ func TestProductRowsC14SingleProjectStageOverride(t *testing.T) {
 		INSERT INTO work_projects(work_id,project_id,role) VALUES ('approval-work','project-override','secondary');
 	`, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
 	if err := ApplyOperation(context.Background(), s, Operation{
-		Events:           []Event{projectStageChangedEvent("project-override", "project-override-stage", "beta", "public")},
+		Events:           []Event{projectStageChangedEvent("project-override", "project-override-stage", "beta")},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-override"): 1},
 	}); err != nil {
 		t.Fatal(err)
@@ -428,7 +428,6 @@ func TestProductRowsC14RepresentativeP99(t *testing.T) {
 		t,
 		"C14 representative",
 		p99,
-		100*time.Millisecond,
 		"100 Products, 200 Projects, 700 work items, 1,400 Project memberships, 200 blocker edges, 100 workflow instances, 100 stage overrides",
 		len(durations),
 	) {
@@ -440,9 +439,9 @@ func fmtProductRowID(i int) string {
 	return fmt.Sprintf("%03d", i)
 }
 
-func projectStageChangedEvent(projectID, eventID, maturity, audience string) Event {
+func projectStageChangedEvent(projectID, eventID, maturity string) Event {
 	return operationEvent(eventID, "project.stage_changed", SubjectProject, projectID, map[string]any{
-		"stage_maturity_override": maturity, "stage_audience_commitment_override": audience,
+		"stage_maturity_override": maturity, "stage_audience_commitment_override": "public",
 	})
 }
 

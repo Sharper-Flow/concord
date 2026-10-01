@@ -82,7 +82,7 @@ func TestReclaimWorktreeReleasesOccupancyOnlyByProcessEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	// The claim's own legacy row is joined by one row the kernel proves
 	// live and one row whose recorded start no longer matches the kernel.
 	insertWorktreeOccupantWithIdentity(t, s, "work-w", "ses-live", pid, pidStart)
@@ -154,7 +154,7 @@ func TestAuditReclaimRejectsLegacyOccupancyWithoutApproval(t *testing.T) {
 	writeProtectingHostLease(t, s)
 	ctx := context.Background()
 	legacyPath := auditWork(t, s, git, "work-legacy", true)
-	completeAuditWork(t, s, "work-legacy", 3)
+	completeAuditWork(t, s, "work-legacy")
 	setWorktreeOccupant(t, s, "work-legacy", "ses-legacy")
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-legacy", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})

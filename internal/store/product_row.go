@@ -543,9 +543,7 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 	out.Freshness.ObservedAt = reliance.ObservedAt
 	out.Freshness.Age = reliance.Age
 	out.Freshness.Stale = reliance.Stale
-	if err := assembleProductRows(ctx, tx, products, reliance); err != nil {
-		return out, err
-	}
+	assembleProductRows(ctx, tx, products, reliance)
 
 	hasNext := len(products) > limit
 	if hasNext {
@@ -641,7 +639,7 @@ func scanProductRowPage(ctx context.Context, tx *sql.Tx, args []any) ([]rawProdu
 
 // assembleProductRows fills each row's reliance, action counts, focus
 // selection, and the blocked-session detail an approval-gated focus carries.
-func assembleProductRows(ctx context.Context, tx *sql.Tx, products []rawProductRow, reliance ProductRowReliance) error {
+func assembleProductRows(ctx context.Context, tx *sql.Tx, products []rawProductRow, reliance ProductRowReliance) {
 	for i := range products {
 		products[i].row.Reliance = reliance
 		unavailableReason, unavailable := productRowSourceUnavailable(reliance)
@@ -673,7 +671,6 @@ func assembleProductRows(ctx context.Context, tx *sql.Tx, products []rawProductR
 			}
 		}
 	}
-	return nil
 }
 
 // productRowActionCounts tallies one Product's works into its action counts.

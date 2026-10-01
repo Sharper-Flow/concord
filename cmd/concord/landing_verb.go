@@ -4,8 +4,6 @@ import (
 	"context"
 	"io"
 	"time"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 // landingVerbInput is the request shape both adapter-invoked landing verbs
@@ -21,7 +19,7 @@ type landingVerbInput struct {
 // runLandingVerb decodes, validates, and records one adapter-invoked landing.
 // The record call is the verb's whole behavior; every refusal records
 // nothing and writes one operator diagnostic.
-func runLandingVerb(raw []byte, s *store.Store, out, errOut io.Writer, verb string, record func(context.Context, landingVerbInput, time.Time) (any, error)) int {
+func runLandingVerb(raw []byte, out, errOut io.Writer, verb string, record func(context.Context, landingVerbInput, time.Time) (any, error)) int {
 	var request landingVerbInput
 	if err := decodeObject(raw, &request); err != nil {
 		writeOperatorDiagnostic(errOut, verb, err.Error())

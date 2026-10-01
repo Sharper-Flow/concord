@@ -681,9 +681,12 @@ func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLoca
 // absolute locator the lane can open. The tier is the newest layout whose
 // manifest head the checkout holds (CD-0194 D5), the rule the committed-shard
 // reader applies; a registry under any other tier is not this home's
-// registry. A home with no manifest head, or whose selected tier holds no
-// regular registry file, refuses typed: the packet would otherwise advertise
-// a locator no lane can read, or silently drop the Domain binding.
+// registry. A checkout that predates the shard homes carries the aggregate
+// manifest itself, so the aggregate file is the locator: its domain_registry
+// member is the registry the lane reads. A home carrying none of the three
+// shapes, or whose selected shape holds no regular registry file, refuses
+// typed: the packet would otherwise advertise a locator no lane can read, or
+// silently drop the Domain binding.
 func knowledgeRegistryLocator(homeRepo string) (string, error) {
 	for _, layout := range knowledgeShardLayouts {
 		head := filepath.Join(homeRepo, filepath.FromSlash(layout.headPath))
@@ -705,7 +708,21 @@ func knowledgeRegistryLocator(homeRepo string) (string, error) {
 		}
 		return registry, nil
 	}
-	return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no knowledge manifest head under a supported layout", false, "publish the knowledge shards in the knowledge home repository")
+	aggregate := filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath))
+	aggregateInfo, err := os.Stat(aggregate)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no knowledge manifest head under a supported layout", false, "publish the knowledge shards in the knowledge home repository")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the aggregate knowledge manifest", true, "restore access to the Product knowledge home and retry", err)
+	}
+	if !aggregateInfo.Mode().IsRegular() {
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the aggregate knowledge manifest is not a regular file: "+aggregate, false, "commit a regular aggregate manifest file")
+	}
+	if err := checkKnowledgeLocatorReadable(homeRepo, knowledgeManifestPath); err != nil {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the aggregate knowledge manifest", true, "restore access to the Product knowledge home and retry", err)
+	}
+	return aggregate, nil
 }
 
 // knowledgeLawLocator qualifies one projected law document path with its

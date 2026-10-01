@@ -462,6 +462,73 @@ func TestContinuityRefusesHomeWithoutManifestHead(t *testing.T) {
 	}
 }
 
+// A knowledge home that predates the shard homes carries the aggregate
+// manifest itself, and its domain_registry member is the registry the lane
+// reads, so the packet names the aggregate file instead of refusing a shape
+// the Product still carries.
+func TestContinuityNamesAggregateManifestAsRegistryLocator(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-aggregate-home"
+	seedLawContextFixture(t, s, workID)
+	homeRepo := workflowLawFixtureRepo(t, s)
+	if err := os.RemoveAll(filepath.Join(homeRepo, ".concord", "docs", "knowledge")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(homeRepo, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aggregate := `{"schema_version":"1.0","product_key":"product","knowledge_roots":["docs/"],"domain_registry":{"schema_version":"1.0","product_key":"product","root_domain_id":"root","domains":[]},"records":[]}`
+	if err := os.WriteFile(filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath)), []byte(aggregate+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LawContext == nil {
+		t.Fatal("continuity resolved no law context for a bound contract")
+	}
+	wantRegistry := filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath))
+	if snapshot.LawContext.RegistryPath != wantRegistry {
+		t.Fatalf("law context registry path = %q, want the aggregate manifest %q", snapshot.LawContext.RegistryPath, wantRegistry)
+	}
+	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
+		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
+	}
+}
+
+// The aggregate fallback names the aggregate manifest only when it is a
+// regular readable file: a directory or a broken entry at the aggregate path
+// is not a registry the packet may advertise.
+func TestContinuityRefusesAggregateManifestReplacedByDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-aggregate-directory"
+	seedLawContextFixture(t, s, workID)
+	homeRepo := workflowLawFixtureRepo(t, s)
+	if err := os.RemoveAll(filepath.Join(homeRepo, ".concord", "docs", "knowledge")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(homeRepo, filepath.Dir(filepath.FromSlash(knowledgeManifestPath))), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
+		t.Fatalf("aggregate directory diagnosis = %v, want typed domain_registry_absent from the law context", err)
+	}
+}
+
 // The registry locator names the file the Domain projection was read from:
 // the Domain registry's own recorded home. A Product whose knowledge home
 // designation is gone must not fall back to the dispatch Project's checkout,

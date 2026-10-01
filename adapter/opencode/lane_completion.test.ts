@@ -9,7 +9,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeDispatchedWorker, failDispatchedWorker, type LaneCompletionDeps } from "./lane_completion"
+import { completeDispatchedWorker, failDispatchedWorker, ProviderCauses, type LaneCompletionDeps } from "./lane_completion"
 import { hostControlPlane, SESSION_LIST_ROUTE, type SessionReader } from "./move-session"
 import type { CredentialStore } from "./credentials"
 
@@ -533,6 +533,88 @@ describe("host task failure", () => {
     const recorded = failureInput?.detail as string
     expect(recorded.startsWith("任务取消：")).toBe(true)
     expect(Buffer.byteLength(recorded, "utf8")).toBeLessThanOrEqual(4096)
+    expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
+  })
+
+  // The host ends a provider-broken worker with the bare tool string "Task
+  // cancelled", so the provider cause must ride the event stream: a
+  // session.status retry event carries the provider message, and the settle
+  // appends the cause held for the child session to the recorded detail. The
+  // coordinator can then tell a rate limit from an interrupt or a crash.
+  const cancelledSettleDeps = (windows: DispatchWindows, runner: DispatchRunner): LaneCompletionDeps => ({
+    windows,
+    credentials: testCredentials,
+    runner,
+    sessionReader: readerFor(exportedSession()),
+    concordBinary: "concord",
+    providerCauses: new ProviderCauses(),
+  })
+
+  const workerFailRunner = (failureInput: { value?: Record<string, unknown> }): DispatchRunner => ({
+    async run(argv, input) {
+      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+      if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+      if (argv[1] === "worker-fail") failureInput.value = JSON.parse(input) as Record<string, unknown>
+      return { exitCode: 0, stdout: "", stderr: "" }
+    },
+  })
+
+  test("retry-event-recorded: a session.status retry cause is appended to the cancelled Task's failure detail", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    // The host observed the provider fault on the child session and published
+    // its retry status carrying the provider message before the cancel ended
+    // the Task.
+    await failDispatchedWorker({
+      type: "session.status",
+      properties: { sessionID: WORKER_SESSION, status: { type: "retry", attempt: 1, message: "AI_APICallError: Rate limit reached for requests", next: 1 } },
+    }, options)
+    const result = await failDispatchedWorker(failedEvent(), options)
+    expect(result?.error?.kind).toBe("error")
+    expect(failureInput.value?.failure_kind).toBe("worker_error")
+    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: AI_APICallError: Rate limit reached for requests")
+    expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
+  })
+
+  test("info-error-fallback-recorded: the child message info.error is appended when no retry status was observed", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    // A provider fault that never entered the retry policy still lands on the
+    // child session's terminal assistant message as a typed info.error.
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", error: { name: "APIError", data: { message: "Rate limit reached for requests", statusCode: 429, isRetryable: false } } } },
+    }, options)
+    const result = await failDispatchedWorker(failedEvent(), options)
+    expect(result?.error?.kind).toBe("error")
+    expect(failureInput.value?.failure_kind).toBe("worker_error")
+    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: APIError: Rate limit reached for requests")
+    expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
+  })
+
+  test("cancel-without-cause-unchanged: a cancelled Task with no provider cause records the bare host string", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    // An abort marker names the operator's interrupt, not a provider fault,
+    // so it is held as no cause and the detail stays exactly as the host
+    // wrote it.
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", error: { name: "MessageAbortedError", data: { message: "The operation was aborted" } } } },
+    }, options)
+    const result = await failDispatchedWorker(failedEvent(), options)
+    expect(result?.error?.kind).toBe("error")
+    expect(failureInput.value?.failure_kind).toBe("worker_error")
+    expect(failureInput.value?.detail).toBe("Task cancelled")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 

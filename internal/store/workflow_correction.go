@@ -624,17 +624,6 @@ type workflowCorrectionVerdictPrerequisites struct {
 	accepted            bool
 }
 
-func workflowVerdictCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	state, err := workflowCorrectionVerdictState(ctx, q, workID, definition, currentStep, subject)
-	if err != nil {
-		return nil, err
-	}
-	if state == nil {
-		return nil, nil
-	}
-	return workflowVerdictCorrectionFromState(ctx, q, workID, definition, currentStep, subject, state)
-}
-
 // workflowVerdictCorrectionFromState closes the accepted-completed-delivery
 // route (CD-0143 D1) on the derived verdict state: the route admits only a
 // correction whose every current non-ok verdict postdates the accepted

@@ -1502,20 +1502,20 @@ func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, wor
 	return s.enqueueLinearIssueForWork(ctx, productID, workID, opKind)
 }
 
-func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
+// runLinearEnqueueTx runs one Linear outbox enqueue inside a fold
+// transaction: begin, enter the fold, run the verb's core and persist steps,
+// leave the fold, commit. The op string and the two messages name the verb in
+// every failure this wrapper writes.
+func (s *Store) runLinearEnqueueTx(ctx context.Context, op, openMsg, commitMsg string, core func(context.Context, *sql.Tx) (ClaimedLinearOperation, error)) (ClaimedLinearOperation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot open enqueue transaction", true, "retry once the database is writable", err)
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, openMsg, true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
 	if err := enterFold(ctx, tx); err != nil {
 		return ClaimedLinearOperation{}, err
 	}
-	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, expectedProductID, workID, opKind)
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err := persistLinearIssueEnqueueTx(ctx, tx, plan, s.now().UTC().Format(time.RFC3339Nano))
+	entry, err := core(ctx, tx)
 	if err != nil {
 		return ClaimedLinearOperation{}, err
 	}
@@ -1523,9 +1523,19 @@ func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID
 		return ClaimedLinearOperation{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot commit queued issue", true, "retry once the database is writable", err)
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, commitMsg, true, "retry once the database is writable", err)
 	}
 	return entry, nil
+}
+
+func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.runLinearEnqueueTx(ctx, "linear_issue_enqueue", "cannot open enqueue transaction", "cannot commit queued issue", func(ctx context.Context, tx *sql.Tx) (ClaimedLinearOperation, error) {
+		plan, err := enqueueLinearIssueForWorkCore(ctx, tx, expectedProductID, workID, opKind)
+		if err != nil {
+			return ClaimedLinearOperation{}, err
+		}
+		return persistLinearIssueEnqueueTx(ctx, tx, plan, s.now().UTC().Format(time.RFC3339Nano))
+	})
 }
 
 type linearIssueEnqueuePlan struct {
@@ -2186,29 +2196,13 @@ const linearAuditCommentMaxLength = 20000
 // goes through explicit adoption or a confirmed create, and the audit
 // comment follows the confirmed identity.
 func (s *Store) EnqueueLinearIssueAuditComment(ctx context.Context, productID, workID, auditBody string) (ClaimedLinearOperation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot open audit comment transaction", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err := enqueueLinearIssueAuditCommentCore(ctx, tx, productID, workID, auditBody)
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err = persistLinearAuditCommentEnqueueTx(ctx, tx, entry, s.now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot commit queued audit comment", true, "retry once the database is writable", err)
-	}
-	return entry, nil
+	return s.runLinearEnqueueTx(ctx, "linear_issue_audit_enqueue", "cannot open audit comment transaction", "cannot commit queued audit comment", func(ctx context.Context, tx *sql.Tx) (ClaimedLinearOperation, error) {
+		entry, err := enqueueLinearIssueAuditCommentCore(ctx, tx, productID, workID, auditBody)
+		if err != nil {
+			return ClaimedLinearOperation{}, err
+		}
+		return persistLinearAuditCommentEnqueueTx(ctx, tx, entry, s.now().UTC().Format(time.RFC3339Nano))
+	})
 }
 
 // enqueueLinearProjectForInitiativeCore builds one project_create or

@@ -2128,6 +2128,26 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 	return Envelope{}, nil, false
 }
 
+// planSingleWorkEvent plans a mutation whose whole effect is one event on
+// the work item subject, guarded by the caller's expected version: versions,
+// scope, intents, and the effect come from the shared shape, so a builder
+// supplies only the event identity, its payload, and the subject ref the
+// result names. The effect marshals the payload map at execution time, so a
+// builder may add grant-dependent fields by mutating the map it passed.
+func (r runtime) planSingleWorkEvent(plan *mutationPlan, workID string, expectedVersion int64, intents []NextIntent, eventID, kind string, payload map[string]any, resultRef string) {
+	plan.versions["work"] = expectedVersion
+	plan.scope["work_ids"] = []string{workID}
+	plan.intents = intents
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		payloadBytes, _ := json.Marshal(payload)
+		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: eventID, Kind: kind, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payloadBytes}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): expectedVersion}}); err != nil {
+			return nil, nil, nil, err
+		}
+		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(expectedVersion+1, 10)}}
+		return mutationPayload(changed, plan.intents), []string{resultRef}, changed, nil
+	}
+}
+
 // planResourceClaim plans concord_work_relate.resource_claim.
 func (r runtime) planResourceClaim(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in resourceClaimInput
@@ -2137,16 +2157,16 @@ func (r runtime) planResourceClaim(_ context.Context, base Envelope, raw []byte,
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.versions["work"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}}
+	payload := map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason}
+	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
+		[]NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_claim", RequiredFields: []string{"product_id"}}},
+		digest+":claim", "work.resource_claimed", payload, in.ResourceKey)
+	// The claim payload names the holding agent, so the grant completes it.
+	inner := plan.effect
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey, "reason": in.Reason, "holder_agent": grant.AgentRef, "holder_session": grant.SessionRef})
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":claim", Kind: "work.resource_claimed", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
+		payload["holder_agent"] = grant.AgentRef
+		payload["holder_session"] = grant.SessionRef
+		return inner(ctx, tx, grant)
 	}
 	return Envelope{}, nil, false
 }
@@ -2160,17 +2180,11 @@ func (r runtime) planResourceRelease(_ context.Context, base Envelope, raw []byt
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.versions["work"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey})
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":release", Kind: "work.resource_claim_released", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.ResourceKey}, changed, nil
-	}
+	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
+		[]NextIntent{{Tool: "concord_work_browse", Operation: "resource_claims", QueryID: "PM1.Q13", ReasonCode: "verify_release", RequiredFields: []string{"product_id"}}},
+		digest+":release", "work.resource_claim_released",
+		map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "resource_key": in.ResourceKey},
+		in.ResourceKey)
 	return Envelope{}, nil, false
 }
 
@@ -2245,17 +2259,11 @@ func (r runtime) planMessageWithdraw(_ context.Context, base Envelope, raw []byt
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	plan.versions["work"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.WorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID})
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":withdraw", Kind: "work.message_withdrawn", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.MessageID}, changed, nil
-	}
+	r.planSingleWorkEvent(plan, in.WorkID, in.ExpectedVersion,
+		[]NextIntent{{Tool: "concord_work_browse", Operation: "messages", QueryID: "PM1.Q14", ReasonCode: "read_messages", RequiredFields: []string{"product_id", "work_id"}}},
+		digest+":withdraw", "work.message_withdrawn",
+		map[string]any{"work_id": in.WorkID, "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1, "message_id": in.MessageID},
+		in.MessageID)
 	return Envelope{}, nil, false
 }
 

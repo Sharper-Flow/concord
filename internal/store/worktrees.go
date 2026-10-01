@@ -1546,28 +1546,9 @@ type WorktreeClaimLandingResult struct {
 // itself through hostlease.ProcessStart and stores the result alongside it
 // (CD-0178 D3).
 func (s *Store) RecordWorktreeClaimLanding(ctx context.Context, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {
-	if s == nil || s.db == nil {
-		return WorktreeClaimLandingResult{}, newFailure(KindUnavailable, "claim-landing", "store is not open", false, "open the authority database")
-	}
-	if req.WorkID == "" || req.SessionRef == "" || req.LandedDirectory == "" {
-		return WorktreeClaimLandingResult{}, newFailure(KindInvalidOperation, "claim-landing", "landing is missing the work, session, or landed directory", false, "supply the work id, session ref, and verified landed path")
-	}
-	if req.HostPID <= 0 {
-		return WorktreeClaimLandingResult{}, newFailure(KindInvalidOperation, "claim-landing", "landing requires the host process pid", false, "supply the adapter's process.pid with the landing request")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return WorktreeClaimLandingResult{}, wrapFailure(KindUnavailable, "claim-landing", "cannot begin landing", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	out, err := recordWorktreeClaimLandingTx(ctx, tx, req)
-	if err != nil {
-		return WorktreeClaimLandingResult{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorktreeClaimLandingResult{}, wrapFailure(KindUnavailable, "claim-landing", "cannot commit landing", true, "retry the same landing", err)
-	}
-	return out, nil
+	return recordLanding(s, ctx, "claim-landing", req.WorkID, req.SessionRef, req.LandedDirectory, req.HostPID, func(ctx context.Context, tx *sql.Tx) (WorktreeClaimLandingResult, error) {
+		return recordWorktreeClaimLandingTx(ctx, tx, req)
+	})
 }
 
 func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimLandingRequest) (WorktreeClaimLandingResult, error) {

@@ -114,42 +114,53 @@ func foldProductProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) err
 }
 
 func foldProductProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectProduct); err != nil {
+	return foldProjectRoleChanged(ctx, tx, event, SubjectProduct, "Product", "product_projects", "product_id", "products", "Product", func(payload membershipPayload) string { return payload.ProductID })
+}
+
+// foldProjectRoleChanged folds one product.project_role_changed or
+// work.project_role_changed event. The two subjects share the whole fold:
+// read the old role, refuse a no-op, demote the existing primary when the
+// new role is primary, apply the change, and bump the subject's version.
+// label names the subject in every refusal message; table, idColumn, and the
+// id selector carry the subject's own projection.
+func foldProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event, subject SubjectType, label, table, idColumn, versionTable, versionLabel string, id func(membershipPayload) string) error {
+	if err := checkSubject(event, subject); err != nil {
 		return err
 	}
 	var payload membershipPayload
 	if err := decodePayload(event, &payload); err != nil {
 		return err
 	}
-	if err := validateMembershipPayload(payload, "product_id", event.SubjectID); err != nil {
+	if err := validateMembershipPayload(payload, idColumn, event.SubjectID); err != nil {
 		return err
 	}
+	subjectID := id(payload)
 	var oldRole string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM product_projects WHERE product_id = ? AND project_id = ?`,
-		payload.ProductID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows {
-		return newFailure(KindMembershipConflict, "fold_event", "Product membership does not exist", false,
+	if err := tx.QueryRowContext(ctx, `SELECT role FROM `+table+` WHERE `+idColumn+` = ? AND project_id = ?`,
+		subjectID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows {
+		return newFailure(KindMembershipConflict, "fold_event", label+" membership does not exist", false,
 			"add the membership before changing its role")
 	} else if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read Product membership", true,
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read "+label+" membership", true,
 			"retry once the database is readable", err)
 	}
 	if oldRole == payload.Role {
-		return newFailure(KindMembershipConflict, "fold_event", "Product membership already has that role", false,
+		return newFailure(KindMembershipConflict, "fold_event", label+" membership already has that role", false,
 			"request a different role")
 	}
 	if payload.Role == "primary" {
-		if _, err := tx.ExecContext(ctx, `UPDATE product_projects SET role = 'secondary' WHERE product_id = ? AND role = 'primary' AND project_id <> ?`,
-			payload.ProductID, payload.ProjectID); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing Product primary", true,
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = 'secondary' WHERE `+idColumn+` = ? AND role = 'primary' AND project_id <> ?`,
+			subjectID, payload.ProjectID); err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing "+label+" primary", true,
 				"retry once the database is writable", err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE product_projects SET role = ? WHERE product_id = ? AND project_id = ?`,
-		payload.Role, payload.ProductID, payload.ProjectID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot change Product membership role", true,
+	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET role = ? WHERE `+idColumn+` = ? AND project_id = ?`,
+		payload.Role, subjectID, payload.ProjectID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot change "+label+" membership role", true,
 			"retry once the database is writable", err)
 	}
-	return bumpVersion(ctx, tx, "products", event, payload.ExpectedVersion, payload.ResultingVersion, "Product")
+	return bumpVersion(ctx, tx, versionTable, event, payload.ExpectedVersion, payload.ResultingVersion, versionLabel)
 }
 
 func foldWorkProjectAdded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -199,42 +210,7 @@ func foldWorkProjectRemoved(ctx context.Context, tx *sql.Tx, event Event) error 
 }
 
 func foldWorkProjectRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload membershipPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if err := validateMembershipPayload(payload, "work_id", event.SubjectID); err != nil {
-		return err
-	}
-	var oldRole string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM work_projects WHERE work_id = ? AND project_id = ?`,
-		payload.WorkID, payload.ProjectID).Scan(&oldRole); err == sql.ErrNoRows {
-		return newFailure(KindMembershipConflict, "fold_event", "work membership does not exist", false,
-			"add the membership before changing its role")
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot read work membership", true,
-			"retry once the database is readable", err)
-	}
-	if oldRole == payload.Role {
-		return newFailure(KindMembershipConflict, "fold_event", "work membership already has that role", false,
-			"request a different role")
-	}
-	if payload.Role == "primary" {
-		if _, err := tx.ExecContext(ctx, `UPDATE work_projects SET role = 'secondary' WHERE work_id = ? AND role = 'primary' AND project_id <> ?`,
-			payload.WorkID, payload.ProjectID); err != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot demote the existing work primary", true,
-				"retry once the database is writable", err)
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE work_projects SET role = ? WHERE work_id = ? AND project_id = ?`,
-		payload.Role, payload.WorkID, payload.ProjectID); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot change work membership role", true,
-			"retry once the database is writable", err)
-	}
-	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
+	return foldProjectRoleChanged(ctx, tx, event, SubjectWorkItem, "work", "work_projects", "work_id", "work_items", "work item", func(payload membershipPayload) string { return payload.WorkID })
 }
 
 func insertProductProject(ctx context.Context, tx *sql.Tx, payload membershipPayload) error {

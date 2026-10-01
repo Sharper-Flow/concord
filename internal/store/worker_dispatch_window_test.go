@@ -1265,6 +1265,117 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	}
 }
 
+// TestStrandedInFlightAttemptClosesThroughAbandonment is the CON-791 repair
+// proof: a dispatch_worker authorization whose window died with its host —
+// no worker.dispatched evidence ever landed — must not strand the shared
+// step. The stranded binding holds accept_worker_result, and the recovery
+// routes that demand dispatch evidence keep refusing it, so the abandonment
+// route is the one terminal exit left: the worker.failed(abandoned) fold
+// admits the authorized-but-never-started binding, the live hold releases,
+// and the surviving attempt's accept advances the shared step.
+func TestStrandedInFlightAttemptClosesThroughAbandonment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seed := seedDispatchFixture(t, s, "work-791-strand")
+	workID := seed.workID
+	claimed := dispatchSessionWorktree(t, s, workID)
+
+	// The host restart lands between dispatch_worker and the native task
+	// call: the authorization completes and binds the attempt durably in
+	// flight, but no worker ever dispatches, so the attempt carries no
+	// worker.dispatched evidence and no report.
+	stranded := "attempt-791-stranded"
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), stranded, seed.ownerActor, claimed, "cd791-stranded")); err != nil {
+		t.Fatalf("stranded dispatch_worker failed: %v", err)
+	}
+	assertWorkerAttemptState(t, s, workID, stranded, "in_flight")
+
+	// A fresh coordinator dispatches again and its worker completes.
+	fresh := "attempt-791-fresh"
+	freshDigest := cd781DispatchPacketDigest(t, workID, fresh)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), fresh, seed.ownerActor, claimed, "cd791-fresh")); err != nil {
+		t.Fatalf("fresh dispatch_worker failed: %v", err)
+	}
+	if err := seedWorkerEvidenceForAttempt(t, s, workID, fresh, "cd791-fresh", freshDigest); err != nil {
+		t.Fatal(err)
+	}
+	assertWorkerAttemptState(t, s, workID, fresh, "completed")
+
+	// The stranded binding holds the accept-side advance: accepting the
+	// completed attempt would move the shared step away from a live
+	// authorization.
+	freshEpoch := cd781WindowEpoch(t, s, workID, fresh)
+	accept := func(label string) WorkflowActionExecutionRequest {
+		return WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "accept_worker_result",
+			Payload:         mustJSONValue(map[string]any{"attempt_id": fresh, "attempt_epoch": freshEpoch}),
+			SessionWorktree: claimed, Actor: seed.ownerActor,
+			AcceptedInputsDigest: cd0059TestDigest(t, label+"-inputs"),
+			IdempotencyIdentity:  label + "-op", OperationID: "op-" + label, PrincipalRef: seed.ownerActor.PrincipalRef,
+			Tool: "concord_work_transition", IdempotencyKey: label + "-key", RequestID: "req-" + label,
+			AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+		}
+	}
+	_, acceptErr := invokeWorkflowActionForCD0059(ctx, t, s, accept("cd791-accept"))
+	if !hasFailureKind(acceptErr, KindIllegalLifecycleTransition) {
+		t.Fatalf("accept while the stranded attempt was live = %v, want illegal_lifecycle_transition", acceptErr)
+	}
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("current_step = %q, want execution after the refused accept", got)
+	}
+
+	// The recovery route that demands dispatch evidence keeps refusing the
+	// stranded attempt: it never dispatched, so no worker.dispatched event
+	// exists for it. Which layer refuses depends on the step's declared
+	// actions — the fold's dispatch-event check on workflows that declare
+	// record_worker_failure at the step, the preflight's declaration gate
+	// here — but every such route is closed to an in_flight binding.
+	strandedEpoch := cd781WindowEpoch(t, s, workID, stranded)
+	_, failureErr := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_worker_failure",
+		Payload:         mustJSONValue(map[string]any{"attempt_id": stranded, "attempt_epoch": strandedEpoch}),
+		SessionWorktree: claimed, Actor: seed.ownerActor,
+		AcceptedInputsDigest: cd0059TestDigest(t, "cd791-failure-inputs"),
+		IdempotencyIdentity:  "cd791-failure-op", OperationID: "op-cd791-failure", PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: "cd791-failure-key", RequestID: "req-cd791-failure",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	if failureErr == nil {
+		t.Fatal("record_worker_failure on the stranded in-flight attempt was accepted")
+	}
+
+	// The abandonment route is the exit: worker.failed(abandoned) closes the
+	// authorized-but-never-started binding. The fixture claims no occupancy
+	// rows, so the CD-0178 D3 liveness gate admits the close.
+	abandon := Event{
+		EventID: "cd791-abandon", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerFailedPayload{
+			AttemptID: stranded, FailureKind: WorkerFailureAbandoned,
+			Detail: "the dispatch window was lost to a host restart before the task call"}),
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{abandon}}); err != nil {
+		t.Fatalf("abandoning the stranded in-flight attempt: %v", err)
+	}
+	var state, failureKind string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state,failure_kind FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, stranded).Scan(&state, &failureKind); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" || failureKind != WorkerFailureAbandoned {
+		t.Fatalf("stranded close projection = %q/%q, want failed/%s", state, failureKind, WorkerFailureAbandoned)
+	}
+
+	// The live hold released: the completed attempt's accept now advances
+	// the shared step off execution.
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, accept("cd791-accept2")); err != nil {
+		t.Fatalf("accept after the stranded attempt closed failed: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("current_step = %q, want acceptance after the step advanced", got)
+	}
+}
+
 // assertWorkerAttemptState reads the attempt's projected lifecycle state, so
 // the interleaving pins the in-flight binding and its promotion directly.
 func assertWorkerAttemptState(t *testing.T, s *Store, workID, attemptID, want string) {

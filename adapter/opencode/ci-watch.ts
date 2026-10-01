@@ -11,10 +11,11 @@
 // Delivery survives the upstream promptAsync lost-wake defects (a busy
 // session persists the prompt but never schedules a turn; an idle session can
 // drop one). The protocol: deliver only to an idle session, carry the
-// session's persisted agent and model on the synthetic text part, confirm an
-// assistant reply follows the injected message, and queue the report for the
-// next chat.message when confirmation fails. Every delivery failure is
-// logged and queued; none is swallowed.
+// session's persisted agent and model on the synthetic text part, identify the
+// persisted user message carrying the report, confirm the assistant reply the
+// host parented to that message, and queue the report for the next
+// chat.message when any step fails. Every delivery failure is logged and
+// queued; none is swallowed.
 
 import { randomUUID } from "node:crypto"
 import fs from "node:fs"
@@ -521,18 +522,20 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
 function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
   const selector = `${watch.args.selector.kind}:${watch.args.selector.value}`
   const mode = watch.args.mode === undefined ? "" : ` (${watch.args.mode} mode)`
-  return `[concord ci-watch] CI wait ${report.status} for ${watch.args.repo} ${selector}${mode}.\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\``
+  // The watch id in the header makes the report text unique, which is how the
+  // persisted user message carrying it is identified after the 204.
+  return `[concord ci-watch ${watch.id}] CI wait ${report.status} for ${watch.args.repo} ${selector}${mode}.\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\``
 }
 
 async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
   const text = formatReport(watch, report)
   try {
-    const outcome = await deliverTerminalReport(watch.sessionID, text)
+    const outcome = await deliverTerminalReport(watch, text)
     if (outcome === "delivered") {
-      log("info", `ci-watch ${watch.id}: the terminal report was delivered and an assistant reply followed`)
+      log("info", `ci-watch ${watch.id}: the terminal report was delivered and the assistant reply parented to it followed`)
     } else {
       queueReport(watch.sessionID, watch.id, text)
-      log("warn", `ci-watch ${watch.id}: no assistant reply followed the injected report within ${Math.round(config.confirmWindowMs / 1000)}s; the report is queued for the next message`)
+      log("warn", `ci-watch ${watch.id}: no assistant reply parented to the injected report followed within ${Math.round(config.confirmWindowMs / 1000)}s; the report is queued for the next message`)
     }
   } catch (error) {
     queueReport(watch.sessionID, watch.id, text)
@@ -540,12 +543,15 @@ async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
   }
 }
 
-async function deliverTerminalReport(sessionID: string, text: string): Promise<"delivered" | "unconfirmed"> {
-  await waitForIdle(sessionID)
-  const identity = await readSessionIdentity(sessionID)
-  const before = await assistantMessageIDs(sessionID)
-  await promptAsync(sessionID, identity, text)
-  const confirmed = await confirmAssistantReply(sessionID, before)
+async function deliverTerminalReport(watch: ActiveWatch, text: string): Promise<"delivered" | "unconfirmed"> {
+  await waitForIdle(watch.sessionID)
+  const identity = await readSessionIdentity(watch.sessionID)
+  await promptAsync(watch.sessionID, identity, text)
+  const injected = await injectedReportMessageID(watch.sessionID, text)
+  if (injected === null) {
+    throw new Error(`the host never persisted the injected report message for session ${watch.sessionID}`)
+  }
+  const confirmed = await confirmAssistantReply(watch.sessionID, injected)
   return confirmed ? "delivered" : "unconfirmed"
 }
 
@@ -576,9 +582,12 @@ async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> 
   const identity: SessionIdentity = {}
   if (typeof record.agent === "string" && record.agent.length > 0) identity.agent = record.agent
   if (record.model !== null && typeof record.model === "object") {
-    const { providerID, modelID } = record.model as { providerID?: unknown; modelID?: unknown }
-    if (typeof providerID === "string" && providerID.length > 0 && typeof modelID === "string" && modelID.length > 0) {
-      identity.model = { providerID, modelID }
+    // The host session record carries the selected model as { id, providerID,
+    // variant? }; the prompt payload's model reference names the same pair
+    // { providerID, modelID }, so the host id maps onto modelID.
+    const model = record.model as { id?: unknown; providerID?: unknown }
+    if (typeof model.providerID === "string" && model.providerID.length > 0 && typeof model.id === "string" && model.id.length > 0) {
+      identity.model = { providerID: model.providerID, modelID: model.id }
     }
   }
   return identity
@@ -593,30 +602,48 @@ async function promptAsync(sessionID: string, identity: SessionIdentity, text: s
   if (!result.response.ok) throw new Error(`the host prompt_async route answered ${result.response.status}`)
 }
 
-async function assistantMessageIDs(sessionID: string): Promise<Set<string>> {
+type SessionMessage = {
+  info?: { id?: unknown; role?: unknown; parentID?: unknown }
+  parts?: Array<{ type?: unknown; text?: unknown }>
+}
+
+async function sessionMessages(sessionID: string): Promise<SessionMessage[]> {
   const client = requireClient("read the session messages")
   const result = await client.get({ url: SESSION_MESSAGES_ROUTE, path: { id: sessionID }, query: { limit: "20" }, signal: AbortSignal.timeout(10_000) })
   if (!result.response.ok) throw new Error(`the host session messages route answered ${result.response.status}`)
-  const messages = Array.isArray(result.data) ? result.data : []
-  const ids = new Set<string>()
-  for (const message of messages) {
-    const info = (message as { info?: { id?: unknown; role?: unknown } }).info
-    if (info !== null && typeof info === "object" && typeof info.id === "string" && info.role === "assistant") {
-      ids.add(info.id)
-    }
-  }
-  return ids
+  return Array.isArray(result.data) ? (result.data as SessionMessage[]) : []
 }
 
-async function confirmAssistantReply(sessionID: string, before: Set<string>): Promise<boolean> {
+// The prompt_async route answers 204 before the host's forked prompt persists
+// anything and its response carries no message id, so the injected report is
+// identified by its own text on the session's user messages.
+async function injectedReportMessageID(sessionID: string, text: string): Promise<string | null> {
   const deadline = Date.now() + config.confirmWindowMs
   for (;;) {
+    for (const message of await sessionMessages(sessionID)) {
+      const info = message.info
+      if (info === null || typeof info !== "object" || info.role !== "user" || typeof info.id !== "string") continue
+      const parts = Array.isArray(message.parts) ? message.parts : []
+      const carries = parts.some((part) => part !== null && typeof part === "object" && part.type === "text" && part.text === text)
+      if (carries) return info.id
+    }
+    if (Date.now() + config.confirmPollMs > deadline) return null
     await sleep(config.confirmPollMs)
-    const ids = await assistantMessageIDs(sessionID)
-    for (const id of ids) {
-      if (!before.has(id)) return true
+  }
+}
+
+// Delivery is proven only by the assistant reply the host parented to the
+// injected report message (the host's Assistant schema requires parentID).
+// Any other new assistant message is concurrent traffic, not the wake.
+async function confirmAssistantReply(sessionID: string, injectedMessageID: string): Promise<boolean> {
+  const deadline = Date.now() + config.confirmWindowMs
+  for (;;) {
+    for (const message of await sessionMessages(sessionID)) {
+      const info = message.info
+      if (info !== null && typeof info === "object" && info.role === "assistant" && info.parentID === injectedMessageID) return true
     }
     if (Date.now() + config.confirmPollMs > deadline) return false
+    await sleep(config.confirmPollMs)
   }
 }
 
@@ -643,4 +670,33 @@ export function drainQueuedCiReports(sessionID: string, messageID: string, outpu
   for (const { text } of queue) {
     output.parts.push({ id: `prt_ciwatch-${randomUUID()}`, sessionID, messageID, type: "text", text, synthetic: true })
   }
+}
+
+// drainQueuedCiReportsForMessage resolves the drain identity the way the host
+// delivers it on chat.message: the input messageID when the caller supplied
+// one, else the host-generated id on the output message record. A queue with
+// no resolvable identity stays queued and the failure is logged — it is never
+// swallowed, and parts are never written without their owning message id.
+export function drainQueuedCiReportsForMessage(
+  sessionID: string,
+  inputMessageID: string | undefined,
+  output: { message?: { id?: unknown }; parts?: unknown[] },
+): void {
+  if (!Array.isArray(output?.parts)) return
+  const queued = queuedReports.get(sessionID)
+  if (queued === undefined || queued.length === 0) return
+  const message = output.message
+  const messageID =
+    inputMessageID ??
+    (message !== null && typeof message === "object" && typeof message.id === "string" && message.id.length > 0
+      ? message.id
+      : undefined)
+  if (messageID === undefined) {
+    log(
+      "error",
+      `ci-watch: the host's chat.message carried no message id, so ${queued.length} queued report(s) for session ${sessionID} cannot be injected and stay queued`,
+    )
+    return
+  }
+  drainQueuedCiReports(sessionID, messageID, output as { parts: unknown[] })
 }

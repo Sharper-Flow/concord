@@ -35,7 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReports } from "./ci-watch"
+import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReportsForMessage } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -104,15 +104,20 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       concord_work_start: work_start,
       concord_ci_watch,
     },
-    "chat.message": async (input: { sessionID: string; messageID?: string }, output?: { parts?: unknown[] }) => {
+    "chat.message": async (
+      input: { sessionID: string; messageID?: string },
+      output?: { message?: { id?: unknown }; parts?: unknown[] },
+    ) => {
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and
       // injects it here, so a lost wake reaches the model on the next turn.
       // The host validates drained parts against the stored part schema, so
-      // the drain needs the message the parts will belong to.
-      if (output !== undefined && Array.isArray(output.parts) && typeof input.messageID === "string") {
-        drainQueuedCiReports(input.sessionID, input.messageID, output as { parts: unknown[] })
+      // the drain needs the message the parts will belong to: the input
+      // messageID when the host supplies one, else the host-generated id on
+      // the output message record.
+      if (output !== undefined && Array.isArray(output.parts)) {
+        drainQueuedCiReportsForMessage(input.sessionID, input.messageID, output)
       }
     },
     "tool.definition": publishWorkStartDefinition,

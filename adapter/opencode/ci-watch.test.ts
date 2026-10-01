@@ -13,14 +13,32 @@ const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ci-watch-test-"))
 
 type RouteRecord = { url: string; path?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown }
 
-// hostFixture is the fake route client every test binds: the control plane
-// reads /session/{id}, the watcher reads /session/status, /session/{id}, and
-// /session/{id}/message, and everything that logs or delivers posts.
+type FixtureMessage = { info: Record<string, unknown>; parts?: Array<Record<string, unknown>> }
+
+// hostFixture is the fake route client every test binds, shaped on the real
+// opencode 1.18.x host: GET /session/{id} returns the session record whose
+// model is { id, providerID, variant? }, GET /session/{id}/message returns
+// { info, parts } records, and POST /session/{id}/prompt_async answers 204
+// with no body — the forked host prompt then persists a user message carrying
+// the report text. `reply` controls what follows that injected message:
+// "none" (default) never replies, "parented" adds the assistant reply whose
+// parentID is the injected message id, "unrelated" adds an assistant reply
+// parented to a concurrent message instead.
 function hostFixture(
-  options: { status?: string; absentStatus?: boolean; session?: Record<string, unknown>; messages?: Array<{ info: { id: string; role: string } }>; promptStatus?: number } = {},
+  options: {
+    status?: string
+    absentStatus?: boolean
+    session?: Record<string, unknown>
+    messages?: FixtureMessage[]
+    promptStatus?: number
+    reply?: "parented" | "unrelated" | "none"
+    inject?: boolean
+  } = {},
 ) {
   const gets: RouteRecord[] = []
   const posts: RouteRecord[] = []
+  let promptCount = 0
+  const injected: FixtureMessage[] = []
   const client = {
     get: async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
       gets.push({ url: request.url, path: request.path, query: request.query })
@@ -32,19 +50,35 @@ function hostFixture(
       }
       if (request.url === "/session/{id}") {
         return {
-          data: options.session ?? { id: SESSION, agent: "concord-1", model: { providerID: "zai", modelID: "glm-test" } },
+          data: options.session ?? { id: SESSION, agent: "concord-1", model: { id: "glm-test", providerID: "zai" } },
           response: new Response(null, { status: 200 }),
         }
       }
       if (request.url === "/session/{id}/message") {
-        return { data: options.messages ?? [], response: new Response(null, { status: 200 }) }
+        return { data: [...(options.messages ?? []), ...injected], response: new Response(null, { status: 200 }) }
       }
       return { response: new Response(null, { status: 404 }) }
     },
     post: async (request: { url: string; body?: unknown }) => {
       posts.push({ url: request.url, body: request.body })
       if (request.url === "/session/{id}/prompt_async") {
-        return { response: new Response(null, { status: options.promptStatus ?? 204 }) }
+        promptCount++
+        const status = options.promptStatus ?? 204
+        if (status !== 204) return { response: new Response(null, { status }) }
+        if (options.inject !== false) {
+          const id = `msg_report_${promptCount}`
+          const text = (request.body as { parts?: Array<{ text?: string }> })?.parts?.[0]?.text ?? ""
+          injected.push({ info: { id, role: "user" }, parts: [{ type: "text", text }] })
+          if (options.reply === "unrelated") {
+            injected.push({
+              info: { id: `msg_unrelated_${promptCount}`, role: "assistant", parentID: "msg_concurrent_turn" },
+              parts: [],
+            })
+          } else if (options.reply === "parented") {
+            injected.push({ info: { id: `msg_reply_${promptCount}`, role: "assistant", parentID: id }, parts: [] })
+          }
+        }
+        return { response: new Response(null, { status: 204 }) }
       }
       return { response: new Response(null, { status: 200 }) }
     },
@@ -447,4 +481,82 @@ test("an entry absent from the session status map is idle, so delivery proceeds"
   await ciWatchSettled(String(started.watch_id))
   const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
   expect(prompts).toHaveLength(1)
+})
+
+test("the assistant reply parented to the injected report confirms delivery", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
+  expect(delivered).toHaveLength(1)
+  expect(String((delivered[0].body as { message: string }).message)).toContain("delivered")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_drain_parented", output)
+  expect(output.parts).toEqual([])
+})
+
+test("a concurrent assistant reply not parented to the injected report does not confirm the wake", async () => {
+  const fixture = hostFixture({ reply: "unrelated" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 30 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = await startWatch(fixture)
+  await ciWatchSettled(String(started.watch_id))
+  const delivered = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "info")
+  expect(delivered).toHaveLength(0)
+  const logged = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "warn")
+  expect(logged).toHaveLength(1)
+  expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
+  const output = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_drain_unrelated", output)
+  expect(output.parts).toHaveLength(1)
+})
+
+test("the drain resolves the message id from the chat.message output when the host omits input.messageID", async () => {
+  const fixture = hostFixture()
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { calls, spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  expect(plugin.tool.concord_ci_watch).toBeDefined()
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  expect(started.status).toBe("started")
+  await ciWatchSettled(String(started.watch_id))
+  const output = { message: { id: "msg_host_generated" }, parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION }, output)
+  expect(output.parts).toHaveLength(1)
+  const part = output.parts[0] as { messageID: string; synthetic: boolean }
+  expect(part.messageID).toBe("msg_host_generated")
+  expect(part.synthetic).toBe(true)
+  expect(calls).toHaveLength(1)
+})
+
+test("a queued report survives a chat.message with no resolvable message id and the failure is logged", async () => {
+  const fixture = hostFixture()
+  configureCoreBinary("/synthetic/concord")
+  configureCiWatch({ stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 20 })
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const plugin = await ConcordAdapterPlugin({ client: { _client: fixture.client } as never })
+  const started = result(await plugin.tool.concord_ci_watch.execute!(watchArgs, context))
+  await ciWatchSettled(String(started.watch_id))
+  const output = { parts: [] as unknown[] }
+  await plugin["chat.message"]({ sessionID: SESSION }, output)
+  expect(output.parts).toHaveLength(0)
+  const errors = fixture.posts.filter((post) => post.url === "/log" && (post.body as { level: string }).level === "error")
+  expect(errors.length).toBeGreaterThanOrEqual(1)
+  expect(String((errors[0].body as { message: string }).message)).toContain("stay queued")
+  const later = { parts: [] as unknown[] }
+  drainQueuedCiReports(SESSION, "msg_later", later)
+  expect(later.parts).toHaveLength(1)
 })

@@ -592,12 +592,15 @@ func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(valu
 // field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
 // normalizes the merged refs before the event is written, so a duplicate here
 // is a projection fault rather than ordinary caller input.
-// workflowEvidenceRefsFault holds the accepted evidence-list bound: zero or
-// more entries, at most 32, each a declared evidence locator.
-func workflowEvidenceRefsFault(values []string) string {
-	const upper = 32
+// workflowEvidenceRefsFault names the entry that fails the evidence reference
+// bound, and returns the empty string when the list holds. A caller correcting
+// the call learns which locator to change instead of learning only that some
+// field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
+// normalizes the merged refs before the event is written, so a duplicate here
+// is a projection fault rather than ordinary caller input.
+func workflowEvidenceRefsFault(values []string, upper int) string {
 	if len(values) > upper {
-		return fmt.Sprintf("the list holds %d references and the bound is %d to %d", len(values), 0, upper)
+		return fmt.Sprintf("the list holds %d references and the bound is 0 to %d", len(values), upper)
 	}
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -1888,7 +1891,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 		}
 		bound = workflowVerdictBatchEvidenceUnionBound(p.VerdictEntryCount)
 	}
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound, 0); fault != "" {
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound); fault != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
 	}
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {

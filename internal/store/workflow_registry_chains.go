@@ -85,6 +85,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationCheckpointReviewV17(),
 		implementationRefineProofV18(),
 		implementationConfirmPremiseV19(),
+		implementationVerdictBatchV20(),
 	}
 }
 
@@ -109,6 +110,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		breakFixCheckpointReviewV15(),
 		breakFixRefineProofV16(),
 		breakFixConfirmPremiseV17(),
+		breakFixVerdictBatchV18(),
 	}
 }
 
@@ -127,6 +129,7 @@ func researchVersionChain() []WorkflowDefinition {
 		researchDeliveryPayloadV9(),
 		researchCheckpointReviewV10(),
 		researchConfirmPremiseV11(),
+		researchVerdictBatchV12(),
 	}
 }
 
@@ -146,6 +149,7 @@ func architectureSpikeVersionChain() []WorkflowDefinition {
 		architectureDeliveryPayloadV10(),
 		architectureCheckpointReviewV11(),
 		architectureConfirmPremiseV12(),
+		architectureVerdictBatchV13(),
 	}
 }
 
@@ -166,6 +170,7 @@ func opsRunbookVersionChain() []WorkflowDefinition {
 		opsRunbookDeliveryPayloadV11(),
 		opsRunbookCheckpointReviewV12(),
 		opsRunbookConfirmPremiseV13(),
+		opsRunbookVerdictBatchV14(),
 	}
 }
 
@@ -183,6 +188,7 @@ func staticAnalysisVersionChain() []WorkflowDefinition {
 		staticAnalysisDeliveryPayloadV8(),
 		staticAnalysisCheckpointReviewV9(),
 		staticAnalysisConfirmPremiseV10(),
+		staticAnalysisVerdictBatchV11(),
 	}
 }
 
@@ -201,5 +207,6 @@ func genericOneOffVersionChain() []WorkflowDefinition {
 		genericOneOffDeliveryPayloadV9(),
 		genericOneOffCheckpointReviewV10(),
 		genericOneOffConfirmPremiseV11(),
+		genericOneOffVerdictBatchV12(),
 	}
 }

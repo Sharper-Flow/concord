@@ -423,6 +423,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
 		return result, err
 	}
+	// The envelope's own evidence references, before the verdict merge below
+	// extends them. The verdict constructor resolves each defaulted entry
+	// against this list, not against the merged set.
+	envelopeEvidenceRefs := dedupeWorkflowRefs(request.EvidenceRefs)
 	evidenceRefs, defaultVerdictEvidence, err := workflowActionEvidenceRefs(request, payload)
 	if err != nil {
 		return result, err
@@ -456,6 +460,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
+		envelopeEvidenceRefs: envelopeEvidenceRefs,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -621,6 +626,29 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return nil, false, err
+	}
+	if _, batchPresent := fields["verdicts"]; batchPresent {
+		// The batched form's evidence authority is the union of every entry's
+		// evaluation references with the envelope's own. One operation-minted
+		// born-bound reference joins the set when a defaulted entry needs it,
+		// so the durable operation names every reference the call resolves.
+		entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
+		if entriesErr != nil {
+			return nil, false, entriesErr
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		for _, entry := range entries {
+			for _, ref := range entry.EvaluationEvidence {
+				if !contains(refs, ref) {
+					refs = append(refs, ref)
+				}
+			}
+		}
+		mint := workflowVerdictEntriesMint(entries, request.EvidenceRefs)
+		if mint && !contains(refs, "evidence:"+request.OperationID) {
+			refs = append(refs, "evidence:"+request.OperationID)
+		}
+		return refs, mint, nil
 	}
 	if raw, present := fields["evaluation_evidence"]; present {
 		refs := workflowFieldStrings(fields, "evaluation_evidence")
@@ -814,7 +842,7 @@ func workflowProposalRecordedEvents(definition WorkflowDefinition, request Workf
 	return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool) ([]Event, error) {
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool, envelopeEvidenceRefs []string) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err
@@ -844,7 +872,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
-		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence)
+		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence, envelopeEvidenceRefs)
 	case "confirm_premise":
 		return workflowConfirmPremiseEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "link_successor":

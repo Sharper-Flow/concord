@@ -957,3 +957,80 @@ func genericOneOffConfirmPremiseV11() WorkflowDefinition {
 	d.Version = 11
 	return withCurrentConfirmPremise(d)
 }
+
+// verdictBatchActionFields declares record_verdict's batched payload
+// (CD-0198 D1): the single-form fields stay and predicate_id becomes optional
+// beside the new verdicts array. Each verdicts item answers to the generated
+// workflow_verdict_batch_entry schema; the store refuses a call that carries
+// both shapes or neither, and refuses an entry-level field beside the batch.
+func verdictBatchActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionRefField("predicate_id", false),
+		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
+		actionStringField("verdict_actor_ref", false, 70),
+		actionListField("evaluation_evidence", false, 1, 32),
+		WorkflowPayloadField{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
+		actionItemArrayField("verdicts", false, 1, 8, "workflow_verdict_batch_entry"),
+	}
+}
+
+// withCurrentVerdictBatch restates record_verdict's payload as the batched
+// contract. Released versions keep the payload they were pinned under, and
+// builtinActionPolicies stays byte-identical so every released definition
+// digest holds.
+func withCurrentVerdictBatch(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "record_verdict" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: verdictBatchActionFields()}
+	}
+	return definition
+}
+
+// Each builder below ships the record_verdict batch declaration at its
+// family's next version. The definition content stays the predecessor's; the
+// only content change is record_verdict's declared payload.
+func implementationVerdictBatchV20() WorkflowDefinition {
+	d := implementationConfirmPremiseV19()
+	d.Version = 20
+	return withCurrentVerdictBatch(d)
+}
+
+func breakFixVerdictBatchV18() WorkflowDefinition {
+	d := breakFixConfirmPremiseV17()
+	d.Version = 18
+	return withCurrentVerdictBatch(d)
+}
+
+func researchVerdictBatchV12() WorkflowDefinition {
+	d := researchConfirmPremiseV11()
+	d.Version = 12
+	return withCurrentVerdictBatch(d)
+}
+
+func architectureVerdictBatchV13() WorkflowDefinition {
+	d := architectureConfirmPremiseV12()
+	d.Version = 13
+	return withCurrentVerdictBatch(d)
+}
+
+func opsRunbookVerdictBatchV14() WorkflowDefinition {
+	d := opsRunbookConfirmPremiseV13()
+	d.Version = 14
+	return withCurrentVerdictBatch(d)
+}
+
+func staticAnalysisVerdictBatchV11() WorkflowDefinition {
+	d := staticAnalysisConfirmPremiseV10()
+	d.Version = 11
+	return withCurrentVerdictBatch(d)
+}
+
+func genericOneOffVerdictBatchV12() WorkflowDefinition {
+	d := genericOneOffConfirmPremiseV11()
+	d.Version = 12
+	return withCurrentVerdictBatch(d)
+}

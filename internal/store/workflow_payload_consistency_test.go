@@ -101,7 +101,7 @@ func TestNativeTimestampOptionalButValidatedWhenPresent(t *testing.T) {
 func TestNativeTimestampDefaultAndSkewBoundary(t *testing.T) {
 	now := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
 	raw := json.RawMessage(`{"run_id":"run-ts","native_subject_ref":"native:test","status":"started","evidence_ref":"artifact:test","evidence_digest":"sha256:` + strings.Repeat("a", 64) + `"}`)
-	events, err := workflowSemanticActionEvents(context.Background(), nil, opsRunbookTimestampV7(), WorkflowActionExecutionRequest{WorkID: "work-ts", OperationID: "op-ts", ActionID: "start_run", Actor: livenessActor(), Now: now}, "execute", "actor-ts", raw, 1, false)
+	events, err := workflowSemanticActionEvents(context.Background(), nil, opsRunbookTimestampV7(), WorkflowActionExecutionRequest{WorkID: "work-ts", OperationID: "op-ts", ActionID: "start_run", Actor: livenessActor(), Now: now}, "execute", "actor-ts", raw, 1, false, nil)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("native event: %v %+v", err, events)
 	}

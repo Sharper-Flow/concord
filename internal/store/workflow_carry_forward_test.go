@@ -42,8 +42,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 17 {
-		t.Fatalf("current break_fix version = %d, want 17", current.Definition.Version)
+	if current.Definition.Version != 18 {
+		t.Fatalf("current break_fix version = %d, want 18", current.Definition.Version)
 	}
 	// An in-flight attempt on the held step: the stranded shape the carry
 	// forward exists for.
@@ -55,8 +55,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 		t.Fatalf("carry forward refused: %v", err)
 	}
 	ref, version, digest := workflowInstancePin(t, s, workID)
-	if ref != "workflow.break_fix" || version != 17 || digest != current.Digest {
-		t.Fatalf("pin after carry forward = %s v%d %s, want workflow.break_fix v17 %s", ref, version, digest, current.Digest)
+	if ref != "workflow.break_fix" || version != 18 || digest != current.Digest {
+		t.Fatalf("pin after carry forward = %s v%d %s, want workflow.break_fix v18 %s", ref, version, digest, current.Digest)
 	}
 	if got := readInstanceStep(t, s, workID); got != "diagnose" {
 		t.Fatalf("step after carry forward = %q, want diagnose preserved", got)
@@ -184,8 +184,8 @@ func TestCarryForwardKeepsAnApprovedContractAuthoritative(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("carry forward with an approved contract refused: %v", err)
 	}
-	if _, version, _ := workflowInstancePin(t, s, workID); version != 11 {
-		t.Fatalf("pin after carry forward = v%d, want v11", version)
+	if _, version, _ := workflowInstancePin(t, s, workID); version != 12 {
+		t.Fatalf("pin after carry forward = v%d, want v12", version)
 	}
 	var active int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {

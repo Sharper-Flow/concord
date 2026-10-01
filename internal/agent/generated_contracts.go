@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:05619130e0f60f1a2778b0b6f6a6d76facbbf6ce78375208c51fff664057bf9e"
+const ManifestDigest = "sha256:53b984d0f76235995c633dd7218963e93867b59b86d9ed7bbd98ca5b3dd460bd"
 
 type OperationKind string
 
@@ -310,6 +310,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_proposal_record":                       {Required: []string{"problem", "user_outcomes", "constraints"}, Properties: []string{"problem", "user_outcomes", "constraints"}},
 	"workflow_read":                                  {Required: []string{"work_id", "state", "current_step", "definition", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "definition", "contract", "operator_question", "candidate_ids", "conditions", "unresolved_conditions", "unreadable_conditions", "ready", "blocking_conditions", "impact_notices", "completion_warnings", "parked_delivery", "stale_law_revision", "delivery_assertion"}},
 	"workflow_self_repair":                           {Required: []string{"refusal_kind", "blocked_operation", "evidence_refs"}, Properties: []string{"refusal_kind", "blocked_operation", "evidence_refs"}},
+	"workflow_verdict_batch_entry":                   {Required: []string{"predicate_id"}, Properties: []string{"predicate_id", "verdict_kind", "evaluation_evidence", "incomparable_with_approved"}},
 	"worktree_audit_page":                            {Required: []string{"root", "drift"}, Properties: []string{"root", "drift"}},
 	"worktree_audit_reclaim_result":                  {Required: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents"}, Properties: []string{"root", "rows", "report_only", "changed_refs", "next_valid_intents", "work_pins"}},
 	"worktree_claim_result":                          {Required: []string{"changed_refs", "next_valid_intents", "path"}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "path"}},

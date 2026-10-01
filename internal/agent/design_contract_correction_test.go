@@ -19,7 +19,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
-		invokeWorkflowIssue31Action(t, s, service, env, "work-1", action, version, "design-correction-"+action)
+		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workflowIssue31Version(t, s)
 	}
 	fields := workflowContractFieldsFixture()

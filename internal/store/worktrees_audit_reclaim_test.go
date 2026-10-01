@@ -3,15 +3,14 @@ package store
 import (
 	"context"
 	"errors"
-	"strconv"
 	"testing"
 	"time"
 )
 
-func completeAuditWork(t *testing.T, s *Store, workID string, version int64) {
+func completeAuditWork(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	payload := `{"from":"needed","to":"completed","reason":"merged","expected_version":` + strconv.FormatInt(version, 10) + `,"resulting_version":` + strconv.FormatInt(version+1, 10) + `}`
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: workID + "-complete", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+	payload := `{"from":"needed","to":"completed","reason":"merged","expected_version":3,"resulting_version":4}`
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: workID + "-complete", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 3}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -27,7 +26,7 @@ func TestWorktreeAuditClassifiesTerminalPresentWorktrees(t *testing.T) {
 	auditWork(t, s, git, "work-live", true)
 	git.ahead["work/work-live"] = 1
 	auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 
 	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
@@ -54,9 +53,9 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	auditWork(t, s, git, "work-live", true)
 	git.ahead["work/work-live"] = 1
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 	dirtyPath := auditWork(t, s, git, "work-dirty", true)
-	completeAuditWork(t, s, "work-dirty", 3)
+	completeAuditWork(t, s, "work-dirty")
 	git.dirty[dirtyPath] = true
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
@@ -166,7 +165,7 @@ func TestWorktreeAuditReclaimRefusesOccupiedWorktree(t *testing.T) {
 	writeProtectingHostLease(t, s)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 	setWorktreeOccupant(t, s, "work-done", "ses-1")
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-occupied", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
@@ -186,7 +185,7 @@ func TestWorktreeAuditReclaimIgnoresUncoveredObservation(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{
 		ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1",
@@ -208,7 +207,7 @@ func TestWorktreeAuditReclaimIgnoresUnscopedObservation(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{
 		ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1",
@@ -231,7 +230,7 @@ func TestWorktreeAuditReclaimUsesRecordedOccupancy(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-reclaim-unobserved", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
 	if err != nil {
@@ -352,8 +351,8 @@ func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
 	git.dirty[dirtyPath] = true
 	unpushedPath := auditWork(t, s, git, "work-unpushed-content", true)
 	git.unpushed["work/work-unpushed-content"] = 2
-	completeAuditWork(t, s, "work-dirty-content", 3)
-	completeAuditWork(t, s, "work-unpushed-content", 3)
+	completeAuditWork(t, s, "work-dirty-content")
+	completeAuditWork(t, s, "work-unpushed-content")
 
 	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
 	if err != nil {
@@ -400,7 +399,7 @@ func TestWorktreeAuditReclaimsSquashContainedTerminalWork(t *testing.T) {
 	auditWork(t, s, git, "work-live", true)
 	git.ahead["work/work-live"] = 1
 	squashedPath := auditWork(t, s, git, "work-squashed", true)
-	completeAuditWork(t, s, "work-squashed", 3)
+	completeAuditWork(t, s, "work-squashed")
 	git.unpushed["work/work-squashed"] = 2
 	git.squashMergeIntoDefault("work/work-squashed")
 
@@ -551,13 +550,13 @@ func TestAuditReclaimLimitCountsReclaimAttemptsOnly(t *testing.T) {
 	dirtyPaths := []string{}
 	for _, name := range []string{"work-dirty-a", "work-dirty-b", "work-dirty-c"} {
 		path := auditWork(t, s, git, name, true)
-		completeAuditWork(t, s, name, 3)
+		completeAuditWork(t, s, name)
 		git.dirty[path] = true
 		dirtyPaths = append(dirtyPaths, path)
 	}
 	for _, name := range []string{"work-done-a", "work-done-b", "work-done-c"} {
 		auditWork(t, s, git, name, true)
-		completeAuditWork(t, s, name, 3)
+		completeAuditWork(t, s, name)
 	}
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "audit-limit-order", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 2})

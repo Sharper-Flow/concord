@@ -238,7 +238,7 @@ func validateLessonCoverage(coverage *LessonCoverageDeclaration) error {
 }
 
 func validateLessonCoverageAnchor(anchor LessonCoverageAnchor) error {
-	valueOk := false
+	var valueOk bool
 	switch anchor.Kind {
 	case "go_test":
 		valueOk = lessonGoTestAnchor.MatchString(anchor.Value)

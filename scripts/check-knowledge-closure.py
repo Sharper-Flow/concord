@@ -256,11 +256,7 @@ def compute_unprocessed(
 
 def compute_missing(referenced: set[str]) -> list[str]:
     """Manifest paths whose on-disk file does not exist (warn-mode mirror)."""
-    missing: list[str] = []
-    for path in sorted(referenced):
-        if not (ROOT / path).is_file():
-            missing.append(path)
-    return missing
+    return [path for path in sorted(referenced) if not (ROOT / path).is_file()]
 
 
 def report_unprocessed(unprocessed: list[str]) -> None:
@@ -336,8 +332,7 @@ def main(argv: list[str]) -> int:
     walked = sorted(set(walked))
 
     referenced, malformed = manifest_record_paths(manifest)
-    for path in malformed:
-        findings.append(f"manifest: malformed record path skipped: {path}")
+    findings.extend(f"manifest: malformed record path skipped: {path}" for path in malformed)
 
     dispositions = validate_dispositions(manifest, findings)
     unprocessed = compute_unprocessed(walked, referenced, exclusions, dispositions)

@@ -103,13 +103,7 @@ func TestAuthorizedProductReadBeyondAmbientProjectSucceeds(t *testing.T) {
 func TestReadOfProductOutsidePolicyRefuses(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := crossProductPolicyFixture(t, []Capability{"product_read"})
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "cross-policy-product-3", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product Three","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "cross-policy-project-3", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Third Project"}`)},
-		{EventID: "cross-policy-p3-p3", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-3", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-3","project_id":"project-3","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-3"): 0, store.VersionRef(store.SubjectProject, "project-3"): 0}}); err != nil {
-		t.Fatal(err)
-	}
+	applyAgentFixtureProduct(ctx, t, s, "cross-policy-3", "product-3", "project-3", "Product Three", "Third Project", "fixture")
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

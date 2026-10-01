@@ -45,11 +45,11 @@ func probeDocument(t *testing.T, document any) string {
 
 // concordTuple renders a resolved plugin list with one Concord tuple whose
 // options carry the supplied fields.
-func concordTuple(t *testing.T, options map[string]any, entry string) string {
+func concordTuple(t *testing.T, options map[string]any) string {
 	t.Helper()
 	return probeDocument(t, map[string]any{
 		"agent":  map[string]any{},
-		"plugin": []any{[]any{"file:///hosts/tools/" + entry, options}},
+		"plugin": []any{[]any{"file:///hosts/tools/concord-plugin.ts", options}},
 	})
 }
 
@@ -79,7 +79,7 @@ func TestResolveHostCommandDefaultsToTheBareHost(t *testing.T) {
 // document becomes the registry, and the launch command is the operator's
 // argv for Concord to append its fixed arguments to.
 func TestResolveHostCommandReadsTheConcordTupleAndVerifiesThroughIt(t *testing.T) {
-	bare := concordTuple(t, map[string]any{"host_command": []string{"host-wrapper", "--profile", "work"}}, "concord-plugin.ts")
+	bare := concordTuple(t, map[string]any{"host_command": []string{"host-wrapper", "--profile", "work"}})
 	configured := probeDocument(t, map[string]any{
 		"agent":  map[string]any{"concord-1": map[string]any{"mode": "primary"}},
 		"plugin": []any{[]any{"file:///hosts/tools/concord-plugin.ts", map[string]any{"host_command": []string{"host-wrapper", "--profile", "work"}}}},
@@ -233,7 +233,7 @@ func TestResolveHostCommandRefusesAMalformedValue(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			probe := &probeStub{documents: map[string]string{"opencode": concordTuple(t, map[string]any{"host_command": tc.value}, "concord-plugin.ts")}}
+			probe := &probeStub{documents: map[string]string{"opencode": concordTuple(t, map[string]any{"host_command": tc.value})}}
 			_, err := resolveHostCommand(context.Background(), "", probe.probe)
 			if err == nil {
 				t.Fatal("resolution accepted a malformed host_command")
@@ -254,7 +254,7 @@ func TestResolveHostCommandRefusesAMalformedValue(t *testing.T) {
 // refuse.
 func TestResolveHostCommandRefusesASecondDocumentThatDisagrees(t *testing.T) {
 	configuredCommand := []string{"host-wrapper", "--profile", "work"}
-	bare := concordTuple(t, map[string]any{"host_command": configuredCommand}, "concord-plugin.ts")
+	bare := concordTuple(t, map[string]any{"host_command": configuredCommand})
 	cases := []struct {
 		name      string
 		second    string
@@ -268,7 +268,7 @@ func TestResolveHostCommandRefusesASecondDocumentThatDisagrees(t *testing.T) {
 		},
 		{
 			name:     "second document names a different command",
-			second:   concordTuple(t, map[string]any{"host_command": []string{"other-wrapper"}}, "concord-plugin.ts"),
+			second:   concordTuple(t, map[string]any{"host_command": []string{"other-wrapper"}}),
 			fragment: "but [\"other-wrapper\"]",
 		},
 		{
@@ -340,7 +340,7 @@ func TestResolveHostCommandPreservesAnInterruptedProbe(t *testing.T) {
 		}
 	})
 	t.Run("configured command probe", func(t *testing.T) {
-		bare := concordTuple(t, map[string]any{"host_command": []string{"host-wrapper"}}, "concord-plugin.ts")
+		bare := concordTuple(t, map[string]any{"host_command": []string{"host-wrapper"}})
 		probe := func(_ context.Context, argv []string, _ string) ([]byte, error) {
 			if argv[0] == "opencode" {
 				return []byte(bare), nil

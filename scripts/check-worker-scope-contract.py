@@ -105,9 +105,11 @@ def validate(
         for key, const in premise_consts.items():
             if premise.get(key) != const:
                 findings.append(f"premise-clause: premise.{key} does not carry the approved objective verbatim")
-        for key in premise:
-            if key not in premise_consts:
-                findings.append(f"premise-clause: premise.{key} is not a declared clause")
+        findings.extend(
+            f"premise-clause: premise.{key} is not a declared clause"
+            for key in premise
+            if key not in premise_consts
+        )
 
     if not isinstance(lanes, dict) or not isinstance(lanes.get("lanes"), list):
         findings.append("lane-registry: agent-lanes.v1.json carries no lanes array")
@@ -151,8 +153,10 @@ def validate(
                 "which the lane registry does not declare among its evidence obligations"
             )
 
-    for lane_id in sorted(set(registry_lanes) - set(seen)):
-        findings.append(f"assignment-missing-lane: registered lane {lane_id} carries no assigned result")
+    findings.extend(
+        f"assignment-missing-lane: registered lane {lane_id} carries no assigned result"
+        for lane_id in sorted(set(registry_lanes) - set(seen))
+    )
 
     design_result = seen.get(DESIGN_LANE)
     if design_result is not None and design_result != DESIGN_RESULT:

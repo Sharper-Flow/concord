@@ -1131,7 +1131,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	// recent dispatch_worker start, so seeding all three up front would
 	// bind the gate to attempt-3 before attempt-1 ever dispatches.
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
-	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch1")
+	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-lifecycle-dispatch1")
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
@@ -1144,7 +1144,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	}
 
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-2")
-	failedDispatch := workerDispatchJSON(t, workerKey, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch2")
+	failedDispatch := workerDispatchJSON(t, workerKey, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), "nonce-lifecycle-dispatch2")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(failedDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("failed worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
@@ -1157,7 +1157,7 @@ func TestWorkerCLIRecordsLifecycleAndReadbackOnly(t *testing.T) {
 	// is accepted as a normal completion. The readback is whatever the host
 	// reported, and the only model evidence Concord records.
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-3")
-	divergentDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-lifecycle-dispatch3")
+	divergentDispatch := workerDispatchJSON(t, workerKey, "dispatch-3", "work-1", "attempt-3", lane, preferredLaneModel(lane), "nonce-lifecycle-dispatch3")
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(divergentDispatch), &out, &errOut); code != 0 {
 		t.Fatalf("divergent worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
@@ -1209,7 +1209,7 @@ func TestWorkerCLIRejectsUnknownAndInvalidDispatchIdentity(t *testing.T) {
 			dbPath := freshMigratedCLIDatabase(t)
 			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			value := map[string]any{}
-			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-identity-dispatch01")), &value); err != nil {
+			if err := json.Unmarshal([]byte(workerDispatchJSON(t, seedWorkerEvidenceClient(t), "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-identity-dispatch01")), &value); err != nil {
 				t.Fatal(err)
 			}
 			testCase.mutate(value)
@@ -1231,7 +1231,7 @@ func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testi
 	workerKey := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := "openai/gpt-5.6-luna"
-	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, readback, store.WorkerPacketSchemaVersion, "nonce-fallback-dispatch01")
+	dispatch := workerDispatchJSON(t, workerKey, "dispatch-1", "work-1", "attempt-1", lane, readback, "nonce-fallback-dispatch01")
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch), &out, &errOut); code != 0 {
 		t.Fatalf("dispatch exit=%d stderr=%q", code, errOut.String())
@@ -1254,11 +1254,11 @@ func TestWorkerCLIAcceptsRecordedFallbackAndCompletesOnMatchingReadback(t *testi
 	}
 }
 
-func workerDispatchJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attemptID string, lane store.LaneDefinition, resolvedModel, packetVersion, nonce string) string {
+func workerDispatchJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attemptID string, lane store.LaneDefinition, resolvedModel, nonce string) string {
 	t.Helper()
 	return workerDispatchJSONWith(t, key, eventID, workID, attemptID, lane, resolvedModel, nonce, func(a agent.WorkerEvidenceAssertion) agent.WorkerEvidenceAssertion {
 		return a
-	}, packetVersion)
+	}, store.WorkerPacketSchemaVersion)
 }
 
 // workerDispatchJSONWith builds signed dispatch evidence and lets a caller

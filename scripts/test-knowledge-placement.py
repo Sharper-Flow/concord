@@ -10,7 +10,6 @@ shapes the head fields the placement rules read.
 from __future__ import annotations
 
 import importlib.util
-import json
 import tempfile
 import unittest
 from pathlib import Path

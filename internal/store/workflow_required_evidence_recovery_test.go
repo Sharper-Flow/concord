@@ -383,9 +383,9 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	setRequiredEvidenceKinds(t, s, workID, "verification", wf04OutstandingKind)
 
 	beforeStep, beforeContract, beforeVerdicts := readRecoveryAuthority(t, s, workID)
-	beforeAttempts := countWorkflowEvents(t, s, workID, WorkflowActionCompleted)
-	beforeEvidence := countWorkflowEvents(t, s, workID, WorkflowEvidenceBound)
-	beforeDecisions := countWorkflowEvents(t, s, workID, WorkflowPremiseConfirmed)
+	beforeAttempts := countWorkflowEvents(t, s, WorkflowActionCompleted)
+	beforeEvidence := countWorkflowEvents(t, s, WorkflowEvidenceBound)
+	beforeDecisions := countWorkflowEvents(t, s, WorkflowPremiseConfirmed)
 	beforeDefinition := readDefinitionIdentity(t, s, workID)
 	missing := runRecoveryAction(ctx, t, s, workID, "confirm_premise", workID+":confirm-missing", readWorkVersion(t, s, workID), nil, owner, recoveryOperator(workID))
 	requireRecoveryFailure(t, missing, KindMissingEvidence, "confirmation after an accepted worker result")
@@ -405,16 +405,16 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	if afterStep != beforeStep || afterContract != beforeContract || afterVerdicts != beforeVerdicts {
 		t.Fatalf("recovery changed authority: step %q/%q contract %d/%d verdicts %d/%d", beforeStep, afterStep, beforeContract, afterContract, beforeVerdicts, afterVerdicts)
 	}
-	if got := countWorkflowEvents(t, s, workID, WorkflowEvidenceBound); got != beforeEvidence+1 {
+	if got := countWorkflowEvents(t, s, WorkflowEvidenceBound); got != beforeEvidence+1 {
 		t.Fatalf("recovery evidence history count=%d, want %d", got, beforeEvidence+1)
 	}
-	if got := countWorkflowEvents(t, s, workID, WorkflowPremiseConfirmed); got != beforeDecisions {
+	if got := countWorkflowEvents(t, s, WorkflowPremiseConfirmed); got != beforeDecisions {
 		t.Fatalf("recovery changed operator decision count=%d, want %d", got, beforeDecisions)
 	}
 	if got := readDefinitionIdentity(t, s, workID); got != beforeDefinition {
 		t.Fatalf("recovery changed the released workflow definition from %q to %q", beforeDefinition, got)
 	}
-	if got := countWorkflowEvents(t, s, workID, WorkflowActionCompleted); got != beforeAttempts+1 {
+	if got := countWorkflowEvents(t, s, WorkflowActionCompleted); got != beforeAttempts+1 {
 		t.Fatalf("recovery action history count=%d, want %d", got, beforeAttempts+1)
 	}
 
@@ -455,10 +455,10 @@ func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64
 	return step, contract, verdicts
 }
 
-func countWorkflowEvents(t *testing.T, s *Store, workID, kind string) int {
+func countWorkflowEvents(t *testing.T, s *Store, kind string) int {
 	t.Helper()
 	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, kind).Scan(&count); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, "accepted-worker-recovery-completion", kind).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	return count

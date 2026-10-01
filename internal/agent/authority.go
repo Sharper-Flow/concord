@@ -639,12 +639,12 @@ func intersect(left, right []string) []string {
 	return out
 }
 
-func expiryPassed(stored string, now time.Time) (time.Time, bool) {
+func expiryPassed(stored string, now time.Time) bool {
 	parsed, err := time.Parse(time.RFC3339Nano, stored)
 	if err != nil {
-		return time.Time{}, true
+		return true
 	}
-	return parsed, !parsed.After(now)
+	return !parsed.After(now)
 }
 
 func capabilityStrings(values []Capability) []string {
@@ -811,7 +811,7 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 	if challengeErr == nil {
 		storedScope, _ := json.Marshal(check.Scope)
 		storedVersions, _ := json.Marshal(check.Versions)
-		_, challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
+		challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 		if challenge.Status != "active" || challengeExpired || challenge.OperationDigest != check.OperationDigest || challenge.ScopeJSON != string(storedScope) || challenge.VersionJSON != string(storedVersions) || challenge.Consequence != check.Consequence || challenge.HostAssertionDigest != in.HostAssertionDigest {
 			return false, errors.New("approval challenge binding invalid")
 		}
@@ -883,7 +883,7 @@ func (s *Service) CreateApprovalFromChallengeTx(ctx context.Context, tx *store.T
 	if err != nil {
 		return "", errors.New("approval challenge not found")
 	}
-	_, challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
+	challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 	if challenge.Status != "active" || challenge.UsedCount >= challenge.MaxUses || challenge.HostAssertionDigest != in.HostAssertionDigest || challengeExpired {
 		return "", errors.New("approval challenge invalid")
 	}
@@ -1073,7 +1073,7 @@ func (s *Service) ValidateAndConsumeApprovalTx(ctx context.Context, tx *store.Tr
 	if err != nil {
 		return errors.New("approval not found")
 	}
-	_, approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
+	approvalExpired := expiryPassed(approval.ExpiresAt, s.now())
 	if approval.ClientStatus != "active" || approval.RevokedAt != "" || approval.UsedCount >= approval.MaxUses || approvalExpired || approval.OperationDigest != check.OperationDigest || approval.Consequence != check.Consequence || approval.ClientRef != check.ClientRef || approval.SessionRef != check.SessionRef {
 		return errors.New("approval binding invalid")
 	}

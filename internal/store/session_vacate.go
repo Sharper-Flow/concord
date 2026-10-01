@@ -215,28 +215,9 @@ type SessionVacateLandingResult struct {
 // adapter carries; the core reads pid_start itself through
 // hostlease.ProcessStart and never trusts a caller-supplied start time.
 func (s *Store) RecordSessionVacateLanding(ctx context.Context, req SessionVacateLandingRequest) (SessionVacateLandingResult, error) {
-	if s == nil || s.db == nil {
-		return SessionVacateLandingResult{}, newFailure(KindUnavailable, "vacate-landing", "store is not open", false, "open the authority database")
-	}
-	if req.WorkID == "" || req.SessionRef == "" || req.LandedDirectory == "" {
-		return SessionVacateLandingResult{}, newFailure(KindInvalidOperation, "vacate-landing", "landing is missing the work, session, or landed directory", false, "supply the work id, session ref, and verified landed path")
-	}
-	if req.HostPID <= 0 {
-		return SessionVacateLandingResult{}, newFailure(KindInvalidOperation, "vacate-landing", "landing requires the host process pid", false, "supply the adapter's process.pid with the landing request")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return SessionVacateLandingResult{}, wrapFailure(KindUnavailable, "vacate-landing", "cannot begin landing", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	out, err := recordSessionVacateLandingTx(ctx, tx, req)
-	if err != nil {
-		return SessionVacateLandingResult{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return SessionVacateLandingResult{}, wrapFailure(KindUnavailable, "vacate-landing", "cannot commit landing", true, "retry the same landing", err)
-	}
-	return out, nil
+	return recordLanding(s, ctx, "vacate-landing", req.WorkID, req.SessionRef, req.LandedDirectory, req.HostPID, func(ctx context.Context, tx *sql.Tx) (SessionVacateLandingResult, error) {
+		return recordSessionVacateLandingTx(ctx, tx, req)
+	})
 }
 
 func recordSessionVacateLandingTx(ctx context.Context, tx *sql.Tx, req SessionVacateLandingRequest) (SessionVacateLandingResult, error) {

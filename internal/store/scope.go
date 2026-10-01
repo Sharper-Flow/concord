@@ -315,7 +315,8 @@ func (s *Store) ResolveKnowledgeQueryHome(ctx context.Context, productID, projec
 
 func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projectID string, supplied KnowledgeHome, op string) (KnowledgeHome, error) {
 	var resolved KnowledgeHome
-	if productID != "" {
+	switch {
+	case productID != "":
 		candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
 		if err != nil {
 			return KnowledgeHome{}, err
@@ -336,7 +337,7 @@ func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projec
 				return KnowledgeHome{}, newFailure(KindUnknownScope, op, "Project is not a member of the requested Product", false, "supply a Project belonging to the Product")
 			}
 		}
-	} else if projectID != "" {
+	case projectID != "":
 		candidates, err := projectCanonicalHomeCandidates(ctx, q, projectID)
 		if err != nil {
 			return KnowledgeHome{}, err
@@ -348,7 +349,7 @@ func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projec
 			return KnowledgeHome{}, newAmbiguousScopeFailure(op, "Project has multiple canonical-path knowledge locators", "leave exactly one canonical Project locator", knowledgeHomeCandidateIDs(candidates))
 		}
 		resolved = candidates[0]
-	} else {
+	default:
 		if supplied.HomeProjectID == "" || supplied.HomeLocatorID == "" || supplied.RepoPath == "" || supplied.HeadRef == "" {
 			return KnowledgeHome{}, newFailure(KindInvalidFilter, op, "unscoped knowledge query requires a complete explicit home", false, "supply a Project, Product, or a locator-verified KnowledgeHome")
 		}
@@ -367,9 +368,9 @@ func resolveKnowledgeQueryHome(ctx context.Context, q queryer, productID, projec
 func knowledgeHomeResolutionFailure(err error, op string) error {
 	var failure *Failure
 	if failureAs(err, &failure) {
-		copy := *failure
-		copy.Op = op
-		return &copy
+		classified := *failure
+		classified.Op = op
+		return &classified
 	}
 	return wrapFailure(KindUnavailable, op, "cannot verify the canonical knowledge locator", true, "retry once the database is readable", err)
 }

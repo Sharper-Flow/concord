@@ -288,7 +288,7 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	currentHash := driftStaleRegistryFixture(t, s)
 	// The ops_runbook contract's verdicts require native_run evidence, so the
 	// fixture captures and verifies one run the held verdict can name.
-	seedVerifiedNativeRunCapture(t, s, workID, "xobs:"+strings.Repeat("d", 16))
+	seedVerifiedNativeRunCapture(t, s, workID)
 
 	lateVerdict := func(contractVersion int64, verdict string) json.RawMessage {
 		return mustJSONValue(map[string]any{

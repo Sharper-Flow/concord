@@ -37,7 +37,7 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	}
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verification-retry-1", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", retryAttemptID, pin.Correction)},
+		"idempotency_key": "verification-retry-1", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, retryAttemptID, pin.Correction)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -138,7 +138,7 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	}
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verification-retry-stale", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", retryAttemptID, pin.Correction)},
+		"idempotency_key": "verification-retry-stale", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, retryAttemptID, pin.Correction)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -194,7 +194,7 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	nextAttemptID := "attempt:work-1:verification-9"
 	reusedInput := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verification-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", nextAttemptID, nextPin.Correction)},
+		"idempotency_key": "verification-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, nextAttemptID, nextPin.Correction)},
 	}
 	withSpentApproval := cloneWithApproval(t, reusedInput, challengeRef)
 	reusedRaw, _ := json.Marshal(withSpentApproval)
@@ -205,15 +205,15 @@ func TestEscalatedVerificationCorrectionRetryRefusesStaleApproval(t *testing.T) 
 	if reusedResponse.Outcome != OutcomeError || reusedResponse.Error == nil || !strings.Contains(reusedResponse.Error.Message, "approval challenge binding invalid") {
 		t.Fatalf("reused approval = %+v, want an approval-binding refusal", reusedResponse.Error)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 7 {
-		t.Fatalf("reused approval created %d worker attempts, want 7", got)
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 8 {
+		t.Fatalf("reused approval created %d worker attempts, want 8 (the approved retry's in-flight binding included)", got)
 	}
 
 	// The wall re-arms: a fresh request mints a fresh challenge bound to the
 	// new failed attempt, and its approval admits the next fenced attempt.
 	freshInput := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verification-retry-fresh", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", nextAttemptID, nextPin.Correction)},
+		"idempotency_key": "verification-retry-fresh", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, nextAttemptID, nextPin.Correction)},
 	}
 	freshRaw, _ := json.Marshal(freshInput)
 	freshChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshRaw}, env)
@@ -295,7 +295,7 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		}
 		input := map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-			"idempotency_key": "verification-dispatch-" + strconv.FormatInt(cycle, 10), "fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", attemptID, pin.Correction)},
+			"idempotency_key": "verification-dispatch-" + strconv.FormatInt(cycle, 10), "fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, attemptID, pin.Correction)},
 		}
 		raw, err := json.Marshal(input)
 		if err != nil {
@@ -336,11 +336,11 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 				t.Fatalf("seed verification delivery %s %d: %+v", deliveryStep, cycle, delivery.Error)
 			}
 		}
-		runVerificationStoreAction(t, s, "work-1", "record_verdict", map[string]any{
+		runVerificationStoreAction(t, s, "record_verdict", map[string]any{
 			"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
 			"evaluation_evidence": []string{attemptID}, "incomparable_with_approved": true,
 		}, reviewer, nil, "verdict-"+strconv.FormatInt(cycle, 10))
-		runVerificationStoreAction(t, s, "work-1", "request_correction", map[string]any{
+		runVerificationStoreAction(t, s, "request_correction", map[string]any{
 			"diagnosis":     "the delivered subject still misses the approved predicate",
 			"strategy":      "repeat the implementation external effect",
 			"predicate_ids": []string{"predicate:primary"},
@@ -410,9 +410,9 @@ func applyVerificationWorkerDispatchAndCompletion(t *testing.T, s *store.Store, 
 // runVerificationStoreAction applies one store-level workflow action so the
 // fixture can record verdict and correction records without minting operator
 // approval challenges on the mutation boundary.
-func runVerificationStoreAction(t *testing.T, s *store.Store, workID, action string, fields map[string]any, actor store.WorkflowActor, operator *store.WorkflowActor, suffix string) {
+func runVerificationStoreAction(t *testing.T, s *store.Store, action string, fields map[string]any, actor store.WorkflowActor, operator *store.WorkflowActor, suffix string) {
 	t.Helper()
-	version := workVersion(t, s, workID)
+	version := workVersion(t, s, "work-1")
 	operationID := action + "-verification-" + suffix + "-" + strconv.FormatInt(version, 10)
 	raw, err := json.Marshal(fields)
 	if err != nil {
@@ -420,7 +420,7 @@ func runVerificationStoreAction(t *testing.T, s *store.Store, workID, action str
 	}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
+			WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
 			ContractDigest: ManifestDigest, Now: fixedTime(),

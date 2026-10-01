@@ -43,9 +43,9 @@ from coverage_state import (  # noqa: E402
 )
 import knowledge_index  # noqa: E402
 from evidence_anchors import (  # noqa: E402
-    ANCHOR_KINDS,
+    ANCHOR_KINDS as ANCHOR_KINDS,
     check_anchor,
-    deferred_scenarios,
+    deferred_scenarios as deferred_scenarios,
 )
 
 SCHEMA = ROOT / "contracts/law-coverage.schema.json"
@@ -67,11 +67,11 @@ def indexed_record_ids(findings: list[str]) -> list[str]:
     if not isinstance(records, list):
         findings.append("knowledge index has no records array")
         return []
-    ids: list[str] = []
-    for record in records:
-        if isinstance(record, dict) and isinstance(record.get("id"), str):
-            ids.append(record["id"])
-    return ids
+    return [
+        record["id"]
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("id"), str)
+    ]
 
 
 def check_schema_states() -> list[str]:

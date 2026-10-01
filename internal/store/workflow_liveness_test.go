@@ -386,11 +386,11 @@ func livenessFromSchema(schema map[string]any, depth int) any {
 		return true
 	case "string", nil:
 		text := "liveness"
-		if min := livenessSchemaInt(schema, "minLength"); int64(len(text)) < min {
-			text += strings.Repeat("x", int(min)-len(text))
+		if lower := livenessSchemaInt(schema, "minLength"); int64(len(text)) < lower {
+			text += strings.Repeat("x", int(lower)-len(text))
 		}
-		if max := livenessSchemaInt(schema, "maxLength"); max > 0 && int64(len(text)) > max {
-			text = text[:max]
+		if upper := livenessSchemaInt(schema, "maxLength"); upper > 0 && int64(len(text)) > upper {
+			text = text[:upper]
 		}
 		if pattern, ok := schema["pattern"].(string); ok {
 			return livenessPatternSample(pattern, text)
@@ -785,7 +785,7 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		if err != nil {
 			return nil, err
 		}
-		correction, err := workflowVerdictCorrectionContext(ctx, s.db, workID, entry.Definition, step, "liveness")
+		correction, err := workflowCorrectionRequestContext(ctx, s.db, workID, entry.Definition, step, "liveness")
 		if err != nil {
 			return nil, err
 		}

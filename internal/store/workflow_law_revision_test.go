@@ -133,8 +133,8 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
 	workID := "law-recontract-route"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includePremise: true})
-	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, s, "spec:one", "spec:two")
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	cutoverLawProjection(t, s)
 	version := readWorkVersion(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -206,8 +206,8 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 	t.Parallel()
 	staleWork := "law-recovery-action-stale"
 	staleStore, _ := seedCompletionGateCase(t, staleWork, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, staleStore, staleWork, "spec:one", "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, staleStore, "spec:one", "spec:two")
+	attachWorkflowLawPin(t, staleStore, staleWork, "sha256:"+strings.Repeat("a", 64))
+	cutoverLawProjection(t, staleStore)
 	_, action, err := WorkflowActionDefinitionFor(context.Background(), staleStore, BuiltinWorkflowRegistry(), staleWork, "supersede_contract")
 	if err != nil {
 		t.Fatalf("stale recovery action definition: %v", err)
@@ -218,7 +218,7 @@ func TestWorkflowLawRevisionRecoveryActionIsStaleOnlyAndApprovalRequired(t *test
 
 	currentWork := "law-recovery-action-current"
 	currentStore, _ := seedCompletionGateCase(t, currentWork, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, currentStore, currentWork, "spec:one", "sha256:"+strings.Repeat("a", 64))
+	attachWorkflowLawPin(t, currentStore, currentWork, "sha256:"+strings.Repeat("a", 64))
 	if _, _, err := WorkflowActionDefinitionFor(context.Background(), currentStore, BuiltinWorkflowRegistry(), currentWork, "supersede_contract"); err == nil {
 		t.Fatal("non-stale workflow exposed the contract recovery action")
 	} else {
@@ -233,8 +233,8 @@ func TestWorkflowLawRevisionRecoveryRequiresAcceptedSuccessorPin(t *testing.T) {
 	t.Parallel()
 	workID := "law-recovery-requires-successor-pin"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
-	cutoverLawProjection(t, s, "spec:one", "spec:two")
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
+	cutoverLawProjection(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	currentVersion := readWorkVersion(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -262,7 +262,7 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 	t.Parallel()
 	workID := "law-terminal-route"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	cutoverLawProjection(t, s, "spec:one", "spec:two")
+	cutoverLawProjection(t, s)
 	version := readWorkVersion(t, s, workID)
 	var currentLifecycle string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&currentLifecycle); err != nil {
@@ -281,7 +281,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance(t *tes
 	t.Parallel()
 	workID := "law-cross-connection-order"
 	s1, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, s1, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
+	attachWorkflowLawPin(t, s1, workID, "sha256:"+strings.Repeat("a", 64))
 	s2, err := Open(context.Background(), s1.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 	t.Parallel()
 	workID := "law-cross-process-order"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	attachWorkflowLawPin(t, s, workID, "spec:one", "sha256:"+strings.Repeat("a", 64))
+	attachWorkflowLawPin(t, s, workID, "sha256:"+strings.Repeat("a", 64))
 	version := readWorkVersion(t, s, workID)
 
 	cutover := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
@@ -508,26 +508,26 @@ func mustEnvInt64(t *testing.T, name string) int64 {
 	return value
 }
 
-func attachWorkflowLawPin(t *testing.T, s *Store, workID, lawID, hash string) {
+func attachWorkflowLawPin(t *testing.T, s *Store, workID, hash string) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?); DELETE FROM fold_guard`, workID, 1, lawID, hash); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_law_revisions(work_id,contract_version,law_id,content_hash) VALUES(?,?,?,?); DELETE FROM fold_guard`, workID, 1, "spec:one", hash); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func cutoverLawProjection(t *testing.T, s *Store, oldID, successorID string) {
+func cutoverLawProjection(t *testing.T, s *Store) {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, oldID); err != nil {
+	if _, err := db.Exec(`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id=?`, "spec:one"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, successorID); err != nil {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb','test')`, "spec:two"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'supersedes',?,'test')`, successorID, oldID); err != nil {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator',?,'supersedes',?,'test')`, "spec:two", "spec:one"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {

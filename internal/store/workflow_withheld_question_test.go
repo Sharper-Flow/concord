@@ -22,7 +22,7 @@ func TestWithheldOperatorQuestionStatesItsReason(t *testing.T) {
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	definition := seedWithheldQuestionWorkflow(t, s, workID, "verify")
+	definition := seedWithheldQuestionWorkflow(t, s, workID)
 
 	// A step with no approval-required action withholds nothing. The absent
 	// question there is the shape of the step, not a gate the caller can open.
@@ -97,7 +97,7 @@ func TestConfirmPremiseRefusalNamesTheMissingArtifact(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID, "verify")
+	seedWithheldQuestionWorkflow(t, s, workID)
 
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
@@ -140,7 +140,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID, "verify")
+	seedWithheldQuestionWorkflow(t, s, workID)
 
 	pinIntents := func() (pin WorkPin) {
 		pin, err := ReadWorkPin(ctx, s, workID)
@@ -211,7 +211,7 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 // seedWithheldQuestionWorkflow puts a break-fix instance at one step with an
 // approved contract, which is the least state a pin read and the selection
 // guard both need.
-func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID, step string) WorkflowReadDefinition {
+func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID string) WorkflowReadDefinition {
 	t.Helper()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -237,7 +237,7 @@ func seedWithheldQuestionWorkflow(t *testing.T, s *Store, workID, step string) W
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,?,'running',?)`,
-		workID, registered.Definition.Ref, registered.Definition.Version, digest, step, actorRef); err != nil {
+		workID, registered.Definition.Ref, registered.Definition.Version, digest, "verify", actorRef); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'withheld question premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal')`,

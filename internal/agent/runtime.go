@@ -1291,7 +1291,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 	return cursor.Inner, nil
 }
 
-func (r runtime) wrapCursor(ctx context.Context, response Envelope, inner, binding, detail string) (Envelope, error) {
+func (r runtime) wrapCursor(ctx context.Context, response Envelope, binding, detail string) (Envelope, error) {
 	if response.NextCursor == nil {
 		return response, nil
 	}
@@ -1382,23 +1382,23 @@ func maxArrayLength(raw []byte) int {
 	}
 	var visit func(any) int
 	visit = func(value any) int {
-		max := 0
+		longest := 0
 		switch value := value.(type) {
 		case []any:
-			max = len(value)
+			longest = len(value)
 			for _, child := range value {
-				if childMax := visit(child); childMax > max {
-					max = childMax
+				if childMax := visit(child); childMax > longest {
+					longest = childMax
 				}
 			}
 		case map[string]any:
 			for _, child := range value {
-				if childMax := visit(child); childMax > max {
-					max = childMax
+				if childMax := visit(child); childMax > longest {
+					longest = childMax
 				}
 			}
 		}
-		return max
+		return longest
 	}
 	return visit(value)
 }

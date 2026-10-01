@@ -44,11 +44,11 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			RouteConventions:    []string{"route-1"},
 			SpecMandate:         []string{"spec-1"},
 			LawModifies:         []string{"spec-1"},
-			LawRevisions:        []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex(64)}},
+			LawRevisions:        []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass:          "prototype_internal",
 			ChangesProductTruth: true,
 			ArchitectureBinding: &store.WorkflowArchitectureBinding{
-				DomainRegistryContentHash: "sha256:" + repeatHex(64),
+				DomainRegistryContentHash: "sha256:" + repeatHex(),
 				HomeDomainID:              "child",
 				AffectedDomainIDs:         []string{"root", "child"},
 				DomainModifies:            []string{"child"},
@@ -67,7 +67,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			AllowCustom:           true,
 			PremiseSummary:        "the premise",
 			ContractSummary:       "the contract",
-			DecisionContextDigest: "sha256:" + repeatHex(64),
+			DecisionContextDigest: "sha256:" + repeatHex(),
 		},
 		LatestCheckpoint: &store.ContextCheckpoint{
 			CheckpointID:     "checkpoint-1",
@@ -116,7 +116,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			OverlapClasses:       []string{"architecture"}, ResolutionState: "unresolved", RecoveryActions: []string{"wait"},
 			SharedAffectedDomainCount: 1, SharedLawCount: 1, SharedDomainModificationCount: 1, SharedRelationTupleCount: 1,
 		}},
-		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(64), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
+		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
 	}
 }
 
@@ -297,8 +297,8 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	}
 }
 
-func repeatHex(n int) string {
-	out := make([]byte, n)
+func repeatHex() string {
+	out := make([]byte, 64)
 	for i := range out {
 		out[i] = 'a'
 	}
@@ -343,7 +343,7 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 // slices a shaping that dropped only a copied list would have to name.
 func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	binding := &store.WorkflowArchitectureBinding{
-		DomainRegistryContentHash: "sha256:" + repeatHex(64),
+		DomainRegistryContentHash: "sha256:" + repeatHex(),
 		HomeDomainID:              "child",
 		AffectedDomainIDs:         []string{"root", "child"},
 		DomainModifies:            []string{"child"},
@@ -353,19 +353,19 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 	}
 	return store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex(64)},
+		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Version: 1, Digest: "sha256:" + repeatHex()},
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
 			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
-			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex(64)}},
+			LawModifies: []string{"spec-1"}, LawRevisions: []store.WorkflowLawRevision{{LawID: "spec-1", ContentHash: "sha256:" + repeatHex()}},
 			RigorClass: "prototype_internal", ChangesProductTruth: true, ArchitectureBinding: binding,
 			SelfRepair: &store.WorkflowSelfRepair{RefusalKind: "missing_evidence", BlockedOperation: "workflow_action", EvidenceRefs: []string{"evidence:repair-1"}},
 		},
 		OperatorQuestion: &store.WorkflowOperatorQuestion{
 			ActionID: "confirm_premise", Prompt: "confirm the premise", Header: "premise",
 			Choices:        []store.WorkflowOperatorChoice{{ID: "yes", Label: "Yes", Description: "accept", ActionID: "confirm_premise"}},
-			PremiseSummary: "the premise", ContractSummary: "the contract", DecisionContextDigest: "sha256:" + repeatHex(64),
+			PremiseSummary: "the premise", ContractSummary: "the contract", DecisionContextDigest: "sha256:" + repeatHex(),
 		},
 		WithheldOperatorQuestion: &store.WorkflowOperatorQuestionWithheld{ActionID: "confirm_premise", Reason: "the checkpoint is not open", Remedy: "advance the workflow"},
 		CandidateIDs:             []string{"work-2", "work-3"},
@@ -379,8 +379,8 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		ImpactNotices:            []store.WorkflowReadNotice{},
 		CompletionWarnings:       []string{"a warning"},
 		StaleLawRevision: &store.StaleLawRevision{
-			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(64),
-			AcceptedSuccessorLawID: "spec-2", AcceptedSuccessorContentHash: "sha256:" + repeatHex(64),
+			OldLawID: "spec-1", OldContentHash: "sha256:" + repeatHex(),
+			AcceptedSuccessorLawID: "spec-2", AcceptedSuccessorContentHash: "sha256:" + repeatHex(),
 			RecoveryActions: []string{"supersede_contract"},
 		},
 		ChangesProductTruth: true,
@@ -543,17 +543,17 @@ func fixtureString(t *testing.T, schema map[string]any) string {
 	if schema["format"] == "date-time" {
 		value = "2026-01-01T00:00:00Z"
 	}
-	if min, ok := schema["minLength"].(json.Number); ok {
-		if need, err := min.Int64(); err == nil && int64(len(value)) < need {
-			value = value + strings.Repeat("a", int(need)-len(value))
+	if lower, ok := schema["minLength"].(json.Number); ok {
+		if need, err := lower.Int64(); err == nil && int64(len(value)) < need {
+			value += strings.Repeat("a", int(need)-len(value))
 		}
 	}
-	if max, ok := schema["maxLength"].(json.Number); ok {
-		if cap, err := max.Int64(); err == nil && int64(len(value)) > cap {
+	if upper, ok := schema["maxLength"].(json.Number); ok {
+		if limit, err := upper.Int64(); err == nil && int64(len(value)) > limit {
 			if _, hasPattern := schema["pattern"].(string); hasPattern {
-				t.Fatalf("patterned fixture value %q exceeds maxLength %s", value, max.String())
+				t.Fatalf("patterned fixture value %q exceeds maxLength %s", value, upper.String())
 			}
-			value = value[:cap]
+			value = value[:limit]
 		}
 	}
 	return value
@@ -562,13 +562,13 @@ func fixtureString(t *testing.T, schema map[string]any) string {
 func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 	t.Helper()
 	value := json.Number("1")
-	if min, ok := schema["minimum"].(json.Number); ok {
-		if min.String() == "-1" || min.String() == "0" || min.String() == "1" {
-			if min.String() != "1" {
+	if lower, ok := schema["minimum"].(json.Number); ok {
+		if lower.String() == "-1" || lower.String() == "0" || lower.String() == "1" {
+			if lower.String() != "1" {
 				value = json.Number("1")
 			}
 		} else {
-			value = min
+			value = lower
 		}
 	}
 	return value

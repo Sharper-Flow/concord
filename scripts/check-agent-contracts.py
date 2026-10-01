@@ -63,9 +63,11 @@ def validate_host_pin(pin: object, schema: dict, findings: list[str]) -> dict | 
         return None
 
     pinned = {package["name"] for package in pin["packages"]}
-    for name in pin["compiler_options"]["types"]:
-        if name not in pinned:
-            findings.append(f"adapter host pin: types entry '{name}' names no pinned package")
+    findings.extend(
+        f"adapter host pin: types entry '{name}' names no pinned package"
+        for name in pin["compiler_options"]["types"]
+        if name not in pinned
+    )
     for allowance in pin["allowances"]:
         outstanding = allowance["state"] == "outstanding"
         if outstanding and "issue" not in allowance:
@@ -176,9 +178,13 @@ def _check_closed_schema(path: Path, required: set[str]) -> list[str]:
                 findings.append(f"{path.relative_to(ROOT)}:{location}: array lacks explicit bounds")
             elif node["minItems"] < 0 or node["maxItems"] < node["minItems"]:
                 findings.append(f"{path.relative_to(ROOT)}:{location}: invalid array bounds")
-        if node.get("type") == "string" and "const" not in node and "enum" not in node:
-            if not isinstance(node.get("minLength"), int) or not isinstance(node.get("maxLength"), int):
-                findings.append(f"{path.relative_to(ROOT)}:{location}: string lacks explicit bounds")
+        if (
+            node.get("type") == "string"
+            and "const" not in node
+            and "enum" not in node
+            and (not isinstance(node.get("minLength"), int) or not isinstance(node.get("maxLength"), int))
+        ):
+            findings.append(f"{path.relative_to(ROOT)}:{location}: string lacks explicit bounds")
         for key, child in node.items():
             visit(child, f"{location}/{key}")
 
@@ -309,16 +315,22 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: dangling fixture reference evidence")
         if not set(refs.get("relations", [])) <= relation_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference relation")
-        for event in setup.get("event_history", []):
-            if event.get("actor_ref") not in actor_refs or event.get("work_id") not in work_ids:
-                findings.append(f"{item.get('id')}: dangling fixture reference event identity")
+        findings.extend(
+            f"{item.get('id')}: dangling fixture reference event identity"
+            for event in setup.get("event_history", [])
+            if event.get("actor_ref") not in actor_refs or event.get("work_id") not in work_ids
+        )
         fault_kinds = {"none", "commit_after_verdict_fails", "unreadable_authority", "removed_authority", "projection_corruption", "event_poison", "newer_event_version", "missing_registry", "stale_attempt", "mismatched_commit"}
-        for fault in setup.get("faults", []):
-            if fault.get("kind") not in fault_kinds:
-                findings.append(f"{item.get('id')}: unknown structured fault kind {fault.get('kind')}")
-        for observation in (item.get("observations") or {}).get("expected_reads", []):
-            if observation.get("op") not in {"eq", "not_eq", "contains", "absent", "nonempty"}:
-                findings.append(f"{item.get('id')}: unknown structured observation op {observation.get('op')}")
+        findings.extend(
+            f"{item.get('id')}: unknown structured fault kind {fault.get('kind')}"
+            for fault in setup.get("faults", [])
+            if fault.get("kind") not in fault_kinds
+        )
+        findings.extend(
+            f"{item.get('id')}: unknown structured observation op {observation.get('op')}"
+            for observation in (item.get("observations") or {}).get("expected_reads", [])
+            if observation.get("op") not in {"eq", "not_eq", "contains", "absent", "nonempty"}
+        )
         for case in item.get("cases", []):
             walk(case)
     for item in corpus["scenarios"]:

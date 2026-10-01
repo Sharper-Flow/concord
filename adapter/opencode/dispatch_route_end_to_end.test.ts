@@ -413,9 +413,11 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // the objective and version binding; the typed outcome predicates ride
     // inputs.outcome_predicates with each serialized payload decoded. The
     // context leads with the item's value line, carries the contract's
-    // resolved home Domain with the registry path the lane reads Domain
-    // structure from, and the recorded task ahead of the narrative.
-    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: .concord/docs/knowledge/domain-registry.json\n\nRecorded task:\nExercise the dispatch route.\n\n`)
+    // resolved home Domain with the knowledge home's absolute registry
+    // locator, and the recorded task ahead of the narrative.
+    const registryLocator = join(repo, ".concord/docs/knowledge/domain-registry.json")
+    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: ${registryLocator}\n\nRecorded task:\nExercise the dispatch route.\n\n`)
+    expect(await Bun.file(registryLocator).exists()).toBe(true)
     expect(packet.inputs.task).toContain("Approved objective:")
     expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
     expect(packet.inputs.task).toContain("(work v12, contract v1)")
@@ -454,7 +456,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(17)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(18)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })

@@ -124,7 +124,7 @@ func TestCheckpointEventShapeGovernsTheCheckpointBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(source, []byte("builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint {")) {
+	if !bytes.Contains(source, []byte("case builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint:")) {
 		t.Fatal("assembleWorkflowActionEventsTx does not key its checkpoint branch on the declared EventShape")
 	}
 	cases := semanticCaseActions(t)

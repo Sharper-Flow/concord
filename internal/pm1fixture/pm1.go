@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -110,10 +111,27 @@ const (
 )
 
 // SeedCurrentProductDomain adds the minimal current Domain projection needed
-// by Product-changing workflow fixtures. The projection is deliberately
-// reusable so agent fixtures exercise the same current registry lookup as the
-// authority without duplicating SQL in each test package.
-func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID string) error {
+// by Product-changing workflow fixtures. homeDir is the fixture knowledge
+// home's checkout: the seeder registers it as the canonical path and writes
+// the canonical-layout Domain registry shard into it, plus a manifest head
+// when the checkout carries none, so the workflow law context selects the
+// canonical layout and resolves its registry locator against a file that
+// opens.
+// The projection is deliberately reusable so agent fixtures exercise the same
+// current registry lookup as the authority without duplicating SQL in each
+// test package.
+func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, homeProjectID, homeDir string) error {
+	registry := fmt.Sprintf(`{"schema_version":"1.0","product_key":"fixture-%s","root_domain_id":%q,"domains":[]}`, productID, FixtureRootDomainID)
+	if err := writeKnowledgeFile(homeDir, knowledgeRegistryPath, registry+"\n"); err != nil {
+		return fmt.Errorf("pm1fixture: write fixture Domain registry shard: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, filepath.FromSlash(knowledgeHeadPath))); errors.Is(err, os.ErrNotExist) {
+		if err := writeKnowledgeFile(homeDir, knowledgeHeadPath, "{}\n"); err != nil {
+			return fmt.Errorf("pm1fixture: write fixture knowledge manifest head: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("pm1fixture: inspect fixture knowledge manifest head: %w", err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("pm1fixture: begin Domain fixture transaction: %w", err)
@@ -123,7 +141,7 @@ func SeedCurrentProductDomain(ctx context.Context, s *store.Store, productID, ho
 	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		return fmt.Errorf("pm1fixture: enable Domain fixture fold guard: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,'fixture','fixture')`, homeLocatorID, homeProjectID, "canonical_path", "/fixture/"+productID, "/fixture/"+productID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,?,?,?,'fixture','fixture')`, homeLocatorID, homeProjectID, "canonical_path", homeDir, homeDir); err != nil {
 		return fmt.Errorf("pm1fixture: seed Product law locator: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, productID, homeProjectID, homeLocatorID); err != nil {

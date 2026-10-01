@@ -207,8 +207,16 @@ type workflowActionCompletedPayload struct {
 	// next action that opens or accepts against this step epoch. CD-0067
 	// D2 additionally binds the canonical digest of the lane packet so
 	// the durable record names what the window was opened for.
-	WorkerLaneID       string `json:"worker_lane_id,omitempty"`
-	WorkerPacketDigest string `json:"worker_packet_digest,omitempty"`
+	WorkerLaneID string `json:"worker_lane_id,omitempty"`
+	// The dispatch_worker completion binds the authorized lane's registry
+	// identity next to the attempt and packet digest, so the fold can bind
+	// the attempt in flight from the durable record alone. The completion
+	// builder writes the quartet together; a completion without one is a
+	// pre-binding authorization the fold leaves unbound.
+	WorkerLaneVersion     int64  `json:"worker_lane_version,omitempty"`
+	WorkerLaneDigest      string `json:"worker_lane_digest,omitempty"`
+	WorkerCapabilityClass string `json:"worker_capability_class,omitempty"`
+	WorkerPacketDigest    string `json:"worker_packet_digest,omitempty"`
 	// WorkerPacketPredicateIDs carries the typed outcome predicate ids the
 	// dispatch_worker authorization extracted from the same packet bytes it
 	// digested. The worker completion fold reads them as the immutable
@@ -224,9 +232,16 @@ type workflowActionCompletedPayload struct {
 	CorrectionPredicateIDs   []string `json:"correction_predicate_ids,omitempty"`
 	DeliveryArtifact         string   `json:"delivery_artifact,omitempty"`
 	DeliveryState            string   `json:"delivery_state,omitempty"`
-	ResultEvidenceRefs       []string `json:"result_evidence_refs"`
-	ChangedRefs              []string `json:"changed_refs"`
-	ActorRef                 string   `json:"actor_ref"`
+	// VerdictEntryCount carries the number of entries one batched
+	// record_verdict operation judged, so the fold bounds the operation's
+	// result evidence at the schema-bounded batch union instead of the
+	// single-form per-operation bound. The single form and every other action
+	// leave it absent, and payloads stored before the batched form decode
+	// without it, so both keep the bound they have always carried.
+	VerdictEntryCount  int      `json:"verdict_entry_count,omitempty"`
+	ResultEvidenceRefs []string `json:"result_evidence_refs"`
+	ChangedRefs        []string `json:"changed_refs"`
+	ActorRef           string   `json:"actor_ref"`
 }
 
 type workflowActionFailedPayload struct {
@@ -548,7 +563,30 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 	return nil
 }
 
-func workflowString(value string, max int) bool { return len(value) >= 2 && len(value) <= max }
+func workflowString(value string, upper int) bool { return len(value) >= 2 && len(value) <= upper }
+
+// workflowOperationEvidenceRefBound is the per-operation evidence bound: the
+// number of distinct evidence references one workflow action operation may
+// resolve. The action_completed fold enforces it on result_evidence_refs. A
+// batched record_verdict operation carries its own schema-bounded union bound
+// derived from its declared entry count, so the bound below stays the
+// single-form and every-other-action bound the fold has always applied.
+const workflowOperationEvidenceRefBound = 32
+
+// workflowVerdictBatchMaxEntries is the declared verdicts array bound: one
+// batched record_verdict call judges at most eight approved predicates.
+const workflowVerdictBatchMaxEntries = 8
+
+// workflowVerdictBatchEvidenceUnionBound is the schema-bounded evidence union
+// one batched record_verdict operation may resolve: each of the declared
+// entries carries at most 32 evaluation references, the call envelope adds at
+// most 32, and the operation-minted reference and the required native-run
+// capture add one each. The fold bounds a batched operation's
+// result_evidence_refs at this union, so the durable operation names every
+// reference the batch resolved without an undeclared refusal.
+func workflowVerdictBatchEvidenceUnionBound(entries int) int {
+	return (entries+1)*workflowOperationEvidenceRefBound + 2
+}
 
 // workflowEvidenceRef bounds one evidence reference. An entry of this kind
 // carries a declared evidence locator or immutable subject ref, which the tool
@@ -562,9 +600,15 @@ func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(valu
 // field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
 // normalizes the merged refs before the event is written, so a duplicate here
 // is a projection fault rather than ordinary caller input.
-func workflowEvidenceRefsFault(values []string, max, min int) string {
-	if len(values) < min || len(values) > max {
-		return fmt.Sprintf("the list holds %d references and the bound is %d to %d", len(values), min, max)
+// workflowEvidenceRefsFault names the entry that fails the evidence reference
+// bound, and returns the empty string when the list holds. A caller correcting
+// the call learns which locator to change instead of learning only that some
+// field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
+// normalizes the merged refs before the event is written, so a duplicate here
+// is a projection fault rather than ordinary caller input.
+func workflowEvidenceRefsFault(values []string, upper int) string {
+	if len(values) > upper {
+		return fmt.Sprintf("the list holds %d references and the bound is 0 to %d", len(values), upper)
 	}
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -588,8 +632,8 @@ func workflowRefExcerpt(value string) string {
 	}
 	return strconv.Quote(value[:limit]) + "..."
 }
-func workflowList(values []string, max, min int) bool {
-	if len(values) < min || len(values) > max {
+func workflowList(values []string, upper, lower int) bool {
+	if len(values) < lower || len(values) > upper {
 		return false
 	}
 	seen := make(map[string]bool, len(values))
@@ -625,7 +669,7 @@ func advanceWorkflowVersion(ctx context.Context, tx *sql.Tx, event Event, fields
 		if !exists {
 			return absentSubject(SubjectWorkItem, event.SubjectID)
 		}
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, event.SubjectID, *fields.ExpectedVersion, current, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, event.SubjectID, *fields.ExpectedVersion, current)
 		if conflictErr != nil {
 			return conflictErr
 		}
@@ -699,8 +743,8 @@ func verifyConditionEvidence(ctx context.Context, tx *sql.Tx, authority, workID 
 	return nil
 }
 
-func workflowDigest(value string, prefix string) bool {
-	return len(value) == 71 && strings.HasPrefix(value, prefix)
+func workflowDigest(value string) bool {
+	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
 
 func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -711,7 +755,7 @@ func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest, "sha256:") || !workflowKinds[p.WorkKind] {
+	if !workflowString(p.Ref, 128) || p.Version <= 0 || !workflowDigest(p.Digest) || !workflowKinds[p.WorkKind] {
 		return newFailure(KindInvalidPayload, "fold_event", "definition_selected contains an invalid definition pin", false, "supply a closed definition reference, version, digest, and family")
 	}
 	registered, err := verifyWorkflowDefinitionPinForFold(ctx, BuiltinWorkflowRegistry(), WorkflowDefinitionPin{Ref: p.Ref, Version: p.Version, Digest: p.Digest})
@@ -915,17 +959,17 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	// The generic outcome union is only syntax.  Meaning is pinned by the
 	// selected definition and must be checked before the immutable contract is
 	// written.
-	if registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {
+	registered, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID)
+	if err != nil {
 		return err
-	} else {
-		for _, entry := range p.OutcomePredicates {
-			predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
-			if err != nil || string(predicate.Kind) != entry.OutcomeKind {
-				return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
-			}
-			if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
-				return err
-			}
+	}
+	for _, entry := range p.OutcomePredicates {
+		predicate, err := DecodeWorkflowPredicate(entry.OutcomePayload)
+		if err != nil || string(predicate.Kind) != entry.OutcomeKind {
+			return newFailure(KindInvalidPayload, "fold_event", "contract outcome predicate is malformed or mismatched", false, "supply the strict registered outcome predicate")
+		}
+		if err := ValidateWorkflowPredicateForDefinition(registered.Definition, predicate); err != nil {
+			return err
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -937,7 +981,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) 
 	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, event.SubjectID, event.Actor, p.SelfRepair); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest)
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,self_repair_json,definition_ref,definition_version,definition_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, workflowJSON(p.SelfRepair), registered.Definition.Ref, registered.Definition.Version, registered.Digest)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -1680,7 +1724,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
 		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
 		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
-		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -1769,7 +1813,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest, "sha256:") || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.WorkflowDefinitionVersion <= 0 || !workflowDigest(p.WorkflowDefinitionDigest) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -1848,7 +1892,14 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 // worker_attempt_id belongs to the worker result actions and to dispatch_worker
 // alone, and a rejected result carries its full correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, 32, 0); fault != "" {
+	bound := workflowOperationEvidenceRefBound
+	if p.VerdictEntryCount != 0 {
+		if p.ActionID != "record_verdict" || p.VerdictEntryCount < 0 || p.VerdictEntryCount > workflowVerdictBatchMaxEntries {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed verdict_entry_count is reserved for a batched record_verdict operation", false, "emit verdict_entry_count only for the batched record_verdict form")
+		}
+		bound = workflowVerdictBatchEvidenceUnionBound(p.VerdictEntryCount)
+	}
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, bound); fault != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
 	}
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || (p.WorkerAttemptID != "" && !workflowString(p.WorkerAttemptID, 128)) || !workflowList(p.ChangedRefs, 32, 0) {
@@ -1856,6 +1907,30 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	}
 	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
+	}
+	// The lane identity is the dispatch_worker completion's in-flight
+	// binding input, so it is reserved for that action and must arrive all
+	// together: a partial identity would bind an attempt the fold cannot
+	// read back.
+	laneFields := []bool{p.WorkerLaneID != "", p.WorkerLaneVersion != 0, p.WorkerLaneDigest != "", p.WorkerCapabilityClass != ""}
+	laneBound, laneUnbound := 0, 0
+	for _, set := range laneFields {
+		if set {
+			laneBound++
+		} else {
+			laneUnbound++
+		}
+	}
+	if laneBound > 0 && laneUnbound > 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is partially bound", false, "record the complete lane identity on the dispatch_worker completion")
+	}
+	if laneBound > 0 {
+		if p.ActionID != "dispatch_worker" {
+			return newFailure(KindInvalidPayload, "fold_event", "worker lane identity is reserved for dispatch_worker completions", false, "omit the lane identity for ordinary action completion")
+		}
+		if !workflowString(p.WorkerLaneID, 32) || p.WorkerLaneVersion < 1 || len(p.WorkerLaneDigest) != 71 || !strings.HasPrefix(p.WorkerLaneDigest, "sha256:") || !workflowString(p.WorkerCapabilityClass, 64) {
+			return newFailure(KindInvalidPayload, "fold_event", "dispatch_worker lane identity is out of bounds", false, "record the registry lane identity the packet resolved")
+		}
 	}
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
@@ -1938,12 +2013,13 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 			return nil
 		}
 		var recoveryErr error
-		correctionRecovery, recoveryErr = workflowCorrectionRequestAvailable(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
+		var missing string
+		correctionRecovery, missing, recoveryErr = workflowCorrectionRequestAdmissionState(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
 		if recoveryErr != nil {
 			return recoveryErr
 		}
 		if !correctionRecovery {
-			return newFailure(KindInvalidOperation, "fold_event", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
+			return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
 		}
 		return nil
 	}
@@ -2051,8 +2127,27 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 				return err
 			}
 		}
+		// The dispatch_worker completion binds its authorized attempt durably
+		// in flight: the attempt is visible in worker_attempts from the
+		// moment its authorization completes, before any worker evidence
+		// exists. A completion without the lane identity is a pre-binding
+		// authorization and stays unbound.
+		if p.ActionID == "dispatch_worker" && p.WorkerLaneID != "" {
+			if err := bindWorkerAttemptInFlightTx(ctx, tx, event, p); err != nil {
+				return err
+			}
+		}
 		if p.ActionID == "accept_worker_result" || p.ActionID == "accept_worker_evidence" {
 			if err := validateWorkerAttemptAction(ctx, tx, event, p, entry.Definition, currentStep, "completed"); err != nil {
+				return err
+			}
+		}
+		// accept_worker_result is the one advance that moves the shared step
+		// off a step holding live authorized work, so it waits while another
+		// attempt bound at this step is still in flight (see the hold's own
+		// comment).
+		if p.ActionID == "accept_worker_result" && advancesStep {
+			if err := rejectStepAdvancePastLiveAttemptTx(ctx, tx, event.SubjectID, currentStep, p.WorkerAttemptID, event.Seq); err != nil {
 				return err
 			}
 		}
@@ -2078,7 +2173,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			// which replay derives only as its folds reach it. The log stays
 			// the authority for the recorded request.
 			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
-			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event"); err != nil {
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event", event.Seq); err != nil {
 				return err
 			}
 		}
@@ -2236,6 +2331,61 @@ func rejectWorkerDispatchedStepAdvance(ctx context.Context, tx *sql.Tx, definiti
 		return nil
 	}
 	return newFailure(KindIllegalLifecycleTransition, "fold_event", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
+}
+
+// bindWorkerAttemptInFlightTx records the durable in-flight binding the
+// dispatch_worker completion owes: the authorized attempt becomes a
+// worker_attempts row the moment its authorization completes, before any
+// worker evidence exists. The binding is what keeps a live attempt visible
+// while its worker runs, so another coordinator can neither treat its window
+// as orphaned nor advance the shared step past it. The lane identity rides
+// the completion payload; the attempt_id primary key refuses a second
+// authorization for an attempt identity already in flight.
+func bindWorkerAttemptInFlightTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	_, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts
+		(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at)
+		VALUES (?,?,?,?,?,?, '', '1.0', '1.0', 'in_flight', ?)`,
+		event.SubjectID, p.WorkerAttemptID, p.WorkerLaneID, p.WorkerLaneVersion, p.WorkerLaneDigest, p.WorkerCapabilityClass, now)
+	if err != nil {
+		if isIdentityConflict(err) {
+			return newFailure(KindProjectionConflict, "fold_event", "worker attempt is already authorized in flight", false, "open a fresh dispatch_worker authorization with a new attempt identity")
+		}
+		return wrapFailure(KindUnavailable, "fold_event", "cannot create the in-flight worker attempt binding", true, "retry once the database is writable", err)
+	}
+	return nil
+}
+
+// rejectStepAdvancePastLiveAttemptTx is the accept-side half of the step
+// hold. accept_worker_result moves the shared workflow off the step, so it
+// must wait while another authorized attempt bound at that step is still in
+// flight: authorized, with no worker evidence recorded yet. Without the
+// hold, a second coordinator's accept advances the step away from the live
+// attempt and its late evidence refuses at a step where its authorization no
+// longer resolves. The accepted attempt itself is excluded: its report is
+// complete, which is the only lifecycle accept_worker_result admits.
+// beforeSeq bounds the binding search at the caller's own sequence position,
+// so a replay fold sees only the bindings that preceded its event.
+func rejectStepAdvancePastLiveAttemptTx(ctx context.Context, tx *sql.Tx, workID, stepID, acceptedAttemptID string, beforeSeq int64) error {
+	query := `SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.attempt_id<>? AND a.lifecycle_state='in_flight' AND EXISTS (
+	 SELECT 1 FROM domain_events c WHERE c.subject_type=? AND c.subject_id=a.work_id AND c.kind=?
+	   AND json_extract(c.payload,'$.action_id')='dispatch_worker'
+	   AND json_extract(c.payload,'$.worker_attempt_id')=a.attempt_id
+	   AND json_extract(c.payload,'$.step_id')=?`
+	args := []any{workID, acceptedAttemptID, string(SubjectWorkItem), WorkflowActionCompleted, stepID}
+	if beforeSeq > 0 {
+		query += ` AND c.seq<?`
+		args = append(args, beforeSeq)
+	}
+	query += `)`
+	var live int
+	if err := tx.QueryRowContext(ctx, query, args...).Scan(&live); err != nil {
+		return workflowProjectionError(err, "cannot inspect in-flight worker attempts for the current workflow attempt")
+	}
+	if live == 0 {
+		return nil
+	}
+	return newFailure(KindIllegalLifecycleTransition, "fold_event", "another live worker attempt holds the step", false, "wait for the live attempt's worker evidence to land, then accept again")
 }
 
 func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID string) (int64, int64, bool, error) {
@@ -3079,6 +3229,16 @@ func upcastWorkflowActionCompletedV1(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkflowActionCompletedV2 carries a v2 completion into the v3 payload
+// that may bind the dispatch window's lane identity. v2 completions never
+// carried one, so the upcast is the bytes unchanged at the new version: the
+// fold reads the absent identity as a pre-binding authorization and binds no
+// in-flight row for it.
+func upcastWorkflowActionCompletedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
+	return event, nil
+}
+
 func foldWorkflowImpactNoticeRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowImpactNoticeRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -3199,7 +3359,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest, "sha256:") || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	if _, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), event.SubjectID); err != nil {

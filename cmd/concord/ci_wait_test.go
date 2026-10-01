@@ -29,7 +29,7 @@ func ghStubPath(t *testing.T, dir string) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }
 
-func runCiWaitStdin(t *testing.T, body string) (int, ciWaitReport, string) {
+func runCiWaitStdin(t *testing.T, body string) (int, ciWaitReport) {
 	t.Helper()
 	var out, errOut bytes.Buffer
 	code := runCiWait([]byte(body), &out, &errOut)
@@ -37,7 +37,7 @@ func runCiWaitStdin(t *testing.T, body string) (int, ciWaitReport, string) {
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("report is not JSON: %v; stdout=%q stderr=%q", err, out.String(), errOut.String())
 	}
-	return code, report, errOut.String()
+	return code, report
 }
 
 func ciWaitBudget(seconds int) *int { return &seconds }
@@ -55,7 +55,7 @@ func ciWaitJSON(t *testing.T, v any) string {
 
 func TestCiWaitMissingSelectorRefuses(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
-	code, report, _ := runCiWaitStdin(t, `{"repo":"o/r"}`)
+	code, report := runCiWaitStdin(t, `{"repo":"o/r"}`)
 	if code != 1 || report.Status != "refused" || report.Reason == "" {
 		t.Fatalf("want refused with reason, got code=%d report=%+v", code, report)
 	}
@@ -63,7 +63,7 @@ func TestCiWaitMissingSelectorRefuses(t *testing.T) {
 
 func TestCiWaitUnknownSelectorKindRefuses(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
-	code, report, _ := runCiWaitStdin(t, `{"selector":{"kind":"blob","value":"x"},"repo":"o/r"}`)
+	code, report := runCiWaitStdin(t, `{"selector":{"kind":"blob","value":"x"},"repo":"o/r"}`)
 	if code != 1 || report.Status != "refused" {
 		t.Fatalf("want refused, got code=%d report=%+v", code, report)
 	}
@@ -71,7 +71,7 @@ func TestCiWaitUnknownSelectorKindRefuses(t *testing.T) {
 
 func TestCiWaitPRSelectorValueMustBeNumeric(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
-	code, report, _ := runCiWaitStdin(t, `{"selector":{"kind":"pr","value":"abc"},"repo":"o/r"}`)
+	code, report := runCiWaitStdin(t, `{"selector":{"kind":"pr","value":"abc"},"repo":"o/r"}`)
 	if code != 1 || report.Status != "refused" {
 		t.Fatalf("want refused, got code=%d report=%+v", code, report)
 	}
@@ -79,7 +79,7 @@ func TestCiWaitPRSelectorValueMustBeNumeric(t *testing.T) {
 
 func TestCiWaitSHASelectorValueMustBeHex40(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
-	code, report, _ := runCiWaitStdin(t, `{"selector":{"kind":"sha","value":"53718f"},"repo":"o/r"}`)
+	code, report := runCiWaitStdin(t, `{"selector":{"kind":"sha","value":"53718f"},"repo":"o/r"}`)
 	if code != 1 || report.Status != "refused" {
 		t.Fatalf("want refused, got code=%d report=%+v", code, report)
 	}
@@ -91,7 +91,7 @@ func TestCiWaitZeroBudgetTerminatesWithTimeout(t *testing.T) {
 	// A hung gh must not prevent termination: the deadline check runs before
 	// any gh invocation.
 	ghStubPath(t, ghStubDir(t, "sleep 500"))
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(0),
 	}))
 	if code != 1 || report.Status != "timeout" {
@@ -112,7 +112,7 @@ func TestCiWaitHungCommandCannotPreventDeadline(t *testing.T) {
 	ciWaitCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ciWaitCommandTimeout = saved })
 	start := time.Now()
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
@@ -131,7 +131,7 @@ func TestCiWaitHungCommandCannotPreventDeadline(t *testing.T) {
 
 func TestCiWaitDeadlineCarriedAcrossInvocations(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `case "$*" in *"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';; *"pr checks"*) echo '[{"name":"c","state":"PENDING","link":"l","bucket":"pending"}]';; esac`))
-	_, first, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, first := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if first.Status != "pending" || first.StateFile == "" {
@@ -151,7 +151,7 @@ func TestCiWaitDeadlineCarriedAcrossInvocations(t *testing.T) {
 	// Wait past the carried deadline, then resume: the deadline comes from the
 	// state file, not from a fresh budget.
 	time.Sleep(8100 * time.Millisecond)
-	_, second, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, second := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "1"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 		StateFile: first.StateFile,
 	}))
@@ -189,7 +189,7 @@ esac`
 		{"run", "42", "run view 42 --repo o/r"},
 	}
 	for _, tc := range cases {
-		_, _, _ = runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+		_, _ = runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 			Selector: &ciWaitSelector{Kind: tc.kind, Value: tc.value}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 		}))
 	}
@@ -263,7 +263,7 @@ case "$*" in
 	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}] }';;
 	*"pr checks"*) exit 97;;
 esac`))
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if code != 0 || report.Status != "success" {
@@ -293,7 +293,7 @@ case "$*" in
 	*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":`+string(encoded)+`}';;
 	*"pr checks"*) echo '[]';;
 esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "success" || report.Checks == nil || report.Checks.Total != ciWaitPRRollupPageSize {
@@ -335,7 +335,7 @@ func TestCiWaitTimedOutCommandRetriesOnceThenReportsPending(t *testing.T) {
 	saved := ciWaitCommandTimeout
 	ciWaitCommandTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ciWaitCommandTimeout = saved })
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if code != 0 || report.Status != "success" {
@@ -377,7 +377,7 @@ EOL
 				// A pending verdict ends the slice; keep the test short.
 				budget = 8
 			}
-			code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(budget),
 			}))
 			if report.Status != tc.wantStatus {
@@ -409,7 +409,7 @@ func TestCiWaitEmptyCheckSetIsNeverSuccess(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[]}';;
 		*"pr checks"*) echo '[]';;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" {
@@ -425,7 +425,7 @@ func TestCiWaitPRMergeModeUsesGitHubMergeState(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN"}';;
 		*"pr checks"*) exit 97;;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" || report.MergeState != "CLEAN" || !strings.Contains(report.Reason, "can merge") {
@@ -448,7 +448,7 @@ EOC
 ;;
 		*"pr checks"*) echo '[{"name":"verify-history","state":"SUCCESS","link":"history","bucket":"pass"},{"name":"title","state":"SUCCESS","link":"title","bucket":"pass"},{"name":"verify-go","state":"SUCCESS","link":"go","bucket":"pass"},{"name":"verify-tests","state":"SUCCESS","link":"tests","bucket":"pass"}]';;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" {
@@ -476,7 +476,7 @@ func TestCiWaitPRReportNamesRollupOnlyChecks(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"CLEAN","statusCheckRollup":[{"name":"rollup-only","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"rollup"}]}' ;;
 		*"pr checks"*) echo '[]';;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "success" || report.Checks == nil || len(report.Checks.Entries) != 1 {
@@ -511,7 +511,7 @@ func TestCiWaitPRChecksModeMergeStates(t *testing.T) {
 				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"`+tc.mergeState+`","statusCheckRollup":[{"name":"c","status":"COMPLETED","conclusion":"SUCCESS"}]}';;
 				*"pr checks"*) echo '[{"name":"c","state":"SUCCESS","link":"l","bucket":"pass"}]';;
 			esac`))
-			code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 			}))
 			if report.Status != tc.wantStatus {
@@ -535,7 +535,7 @@ func TestCiWaitPRMergeModeStaysPendingOnUnknown(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":null,"mergeStateStatus":"UNKNOWN"}';;
 		*"pr checks"*) exit 97;;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" || report.MergeState != "UNKNOWN" {
@@ -558,7 +558,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 				*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"`+tc.state+`","mergedAt":"`+tc.mergedAt+`","mergeStateStatus":"`+tc.name+`"}';;
 				*"pr checks"*) exit 97;;
 			esac`))
-			_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 			}))
 			if report.Status != tc.wantState {
@@ -570,7 +570,7 @@ func TestCiWaitPRMergedAndClosedAreTerminal(t *testing.T) {
 
 func TestCiWaitMergeModeRequiresPRSelector(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, "exit 97"))
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", Mode: "merge",
 	}))
 	if code != 1 || report.Status != "refused" {
@@ -583,7 +583,7 @@ func TestCiWaitPRMergeModeCleanCanMergeIsNotSuccess(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","state":"OPEN","mergedAt":"","mergeStateStatus":"CLEAN"}';;
 		*"pr checks"*) exit 97;;
 	esac`))
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", Mode: "merge", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" {
@@ -605,7 +605,7 @@ func TestCiWaitHeadSHAChangeSupersedes(t *testing.T) {
 	if err := os.WriteFile(statePath, []byte(ciWaitJSON(t, state)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r",
 		StateFile: statePath,
 	}))
@@ -631,7 +631,7 @@ func TestCiWaitRunSelectorConclusions(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.conclusion, func(t *testing.T) {
 			ghStubPath(t, ghStubDir(t, `echo '{"status":"completed","conclusion":"`+tc.conclusion+`","url":"u","headSha":"sha"}'`))
-			_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+			_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 				Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 			}))
 			if report.Status != tc.status {
@@ -643,7 +643,7 @@ func TestCiWaitRunSelectorConclusions(t *testing.T) {
 
 func TestCiWaitRunSelectorPendingStaysPending(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `echo '{"status":"in_progress","conclusion":null,"url":"u","headSha":"sha"}'`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "run", Value: "42"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" {
@@ -653,7 +653,7 @@ func TestCiWaitRunSelectorPendingStaysPending(t *testing.T) {
 
 func TestCiWaitSHASelectorNoRunsIsPendingNeverSuccess(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `echo '[]'`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" || report.Checks == nil || report.Checks.Total != 0 {
@@ -664,7 +664,7 @@ func TestCiWaitSHASelectorNoRunsIsPendingNeverSuccess(t *testing.T) {
 func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
 	runs := []ghRunSummary{{Name: "CI", Status: "completed", Conclusion: "cancelled", URL: "u"}}
 	ghStubPath(t, ghStubDir(t, `echo '[{"databaseId":1,"name":"CI","status":"completed","conclusion":"cancelled","url":"u"}]'`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "sha", Value: strings.Repeat("a", 40)}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
 	if report.Status != "failure" {
@@ -680,7 +680,7 @@ func TestCiWaitSHASelectorCancelledRunIsFailure(t *testing.T) {
 
 func TestCiWaitAuthFailureIsErrorNeverSuccess(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `echo "gh: To get started with GitHub CLI, please run: gh auth login" >&2; exit 1`))
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
 	if code != 1 || report.Status != "error" {
@@ -693,7 +693,7 @@ func TestCiWaitAuthFailureIsErrorNeverSuccess(t *testing.T) {
 
 func TestCiWaitMalformedJSONIsError(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `echo 'not json'`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
 	if report.Status != "error" || !strings.Contains(report.Reason, "unreadable") {
@@ -703,7 +703,7 @@ func TestCiWaitMalformedJSONIsError(t *testing.T) {
 
 func TestCiWaitMissingPRIsErrorWithVerbatimDetail(t *testing.T) {
 	ghStubPath(t, ghStubDir(t, `echo "GraphQL: Could not resolve to a PullRequest with the number of 999999." >&2; exit 1`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "999999"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(1800),
 	}))
 	if report.Status != "error" || !strings.Contains(report.Reason, "Could not resolve to a PullRequest") {
@@ -766,7 +766,7 @@ func TestCiWaitIterationsCounted(t *testing.T) {
 		*"pr view"*) echo '{"headRefOid":"aabb","url":"u","statusCheckRollup":[{"name":"c","status":"IN_PROGRESS"}] }';;
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
 	esac`))
-	_, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	_, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(8),
 	}))
 	if report.Status != "pending" {
@@ -789,7 +789,7 @@ func TestCiWaitSliceBoundedByShutdownSlack(t *testing.T) {
 		*"pr checks"*) echo '[{"name":"c","state":"IN_PROGRESS","link":"l","bucket":"pending"}]';;
 	esac`))
 	start := time.Now()
-	code, report, _ := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
+	code, report := runCiWaitStdin(t, ciWaitJSON(t, ciWaitRequest{
 		Selector: &ciWaitSelector{Kind: "pr", Value: "5"}, Repo: "o/r", TimeSecondsMax: ciWaitBudget(4),
 	}))
 	elapsed := time.Since(start)

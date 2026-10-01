@@ -11,7 +11,7 @@ import (
 // workflow_law_addition_reservations → workflow_contract_law_additions is the
 // store-side shape of "this contract reserved the id first", so the fixture
 // seeds the binding the fold writes before the reservation it owns.
-func seedReservedLawAddition(t *testing.T, s *Store, workID, lawID string) {
+func seedReservedLawAddition(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	db := s.DatabaseForTesting()
@@ -21,10 +21,10 @@ func seedReservedLawAddition(t *testing.T, s *Store, workID, lawID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,domain_registry_content_hash,home_domain_id,projection_hash) VALUES(?,1,'product',?,'root',?)`, workID, digest, digest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES('product',?,?,1,'root')`, lawID, workID); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES('product',?,?,1,'root')`, "CD-0189", workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,1,'product',?,'root',?,1)`, workID, lawID, workID); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,1,'product',?,'root',?,1)`, workID, "CD-0189", workID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
@@ -49,7 +49,7 @@ func seedPublishedLawSubject(t *testing.T, s *Store, lawID string) {
 	}
 }
 
-func seedMandateContract(t *testing.T, s *Store, workID, lawID string) {
+func seedMandateContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/mandate", "client/mandate", "agent/mandate", "session/"+workID)
 	db := s.DatabaseForTesting()
@@ -59,7 +59,7 @@ func seedMandateContract(t *testing.T, s *Store, workID, lawID string) {
 	if _, err := db.Exec(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','now')`, actorRef, "principal/mandate", "client/mandate", "agent/mandate", "session/"+workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'mandate recovery','internal_sqlite','[]','[]','now',?,'["`+lawID+`"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'mandate recovery','internal_sqlite','[]','[]','now',?,'["`+"CD-0189"+`"]','[]',1,'prototype_internal')`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
@@ -93,8 +93,8 @@ func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.
 	workID := "mandate-recovery-unseen"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
 	if !strings.Contains(failure.Detail, "one of the contract's own law additions") || strings.Contains(failure.Detail, "publishes") {
 		t.Fatalf("detail=%q, want the conditional added-law detail", failure.Detail)
@@ -118,8 +118,8 @@ func TestMandateRecoveryTreatsAPublishedAdditionLikeAnUnseenOne(t *testing.T) {
 	workID := "mandate-recovery-published"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	seedPublishedLawSubject(t, s, lawID)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
 	if !strings.Contains(failure.Detail, "one of the contract's own law additions") {
@@ -143,7 +143,7 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 	workID := "mandate-recovery-no-addition"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
 	seedPublishedLawSubject(t, s, lawID)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
 	if failure.Detail != `spec mandate law "CD-0189" is not bound` {
@@ -163,8 +163,8 @@ func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
 	const lawID = "CD-0189"
 	workID := "mandate-recovery-reject"
 	s, _, _, _ := seedCompletedWorkerAtExecution(t, workID)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	entry := workflowFixtureDefinition(t, 2)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result", "workflow_action"))
 	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") {
@@ -187,8 +187,8 @@ func TestMandateRecoveryNamesFailureRecordFirstWhenRejectionIsUnavailable(t *tes
 	workID := "mandate-recovery-failure"
 	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
 	failAbandonedWorkerAttempt(t, s, workID, attemptID)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	definition := entry.Definition
 	bindingStep := workflowEvidenceBindingStep(definition, "repair")
 	if bindingStep == "" {
@@ -206,8 +206,8 @@ func TestMandateRecoveryNamesDeclaredFailureRecordForAFailedAttempt(t *testing.T
 	workID := "mandate-recovery-declared-failure"
 	s, _, attemptID, entry := seedOldDefinitionWorker(t, workID)
 	failAbandonedWorkerAttempt(t, s, workID, attemptID)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	definition := entry.Definition
 	for index := range definition.StepGraph.Steps {
 		if definition.StepGraph.Steps[index].ID == "repair" {
@@ -231,8 +231,8 @@ func TestMandateRecoveryNamesNoCorrectionRouteWhileAWorkerIsLive(t *testing.T) {
 	const lawID = "CD-0189"
 	workID := "mandate-recovery-live"
 	s, _ := seedDispatchedWorkerAtExecution(t, workID)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	entry := workflowFixtureDefinition(t, 2)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result", "workflow_action"))
 	if !strings.Contains(failure.RecoveryAction, `only when the branch adds "CD-0189"`) {
@@ -254,8 +254,8 @@ func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 	workID := "mandate-recovery-complete"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "complete", "workflow_action"))
 	if failure.Kind != KindInvariantViolation {
 		t.Fatalf("kind=%q, want %q for a complete gate", failure.Kind, KindInvariantViolation)
@@ -275,8 +275,8 @@ func TestMandateRecoveryPropagatesQueryFailures(t *testing.T) {
 	workID := "mandate-recovery-query"
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID, lawID)
-	seedReservedLawAddition(t, s, workID, lawID)
+	seedMandateContract(t, s, workID)
+	seedReservedLawAddition(t, s, workID)
 	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE workflow_contract_law_additions`); err != nil {
 		t.Fatal(err)
 	}

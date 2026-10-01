@@ -253,7 +253,6 @@ func TestLauncherProductDepthThreeRepresentativeP99(t *testing.T) {
 		t,
 		"C17 S2 depth-3 representative",
 		p99,
-		100*time.Millisecond,
 		"100 work items, 99 structural edges",
 		samples,
 	) {

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -42,6 +43,11 @@ import (
 // selected_choice and decision_context_digest on the action payload, so the
 // work pin, the generated envelope, and the store validator read one
 // declaration.
+// CD-0198 D1 ships the record_verdict batch declaration: implementation 20,
+// break_fix 18, research 12, architecture_spike 13, ops_runbook 14,
+// static_analysis 11, and generic_one_off 12 make predicate_id optional
+// beside the new verdicts array on the action payload; builtinActionPolicies
+// stays byte-identical, so every released version above keeps its digest.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -140,6 +146,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "13"}:        "sha256:01546927bf054a86f869e2e597c33809c5e121d9d6e2e480032d52d83069ed28",
 	{"workflow.static_analysis", "10"}:    "sha256:68089d6961fe7060beab9b853f8d6b40d63dea5aff22cce49d61d776ab9592af",
 	{"workflow.generic_one_off", "11"}:    "sha256:9e70765c76ae2c95500de5ed712bb5997e074d17f17d3119e32618c970683840",
+	{"workflow.implementation", "20"}:     "sha256:eb99ac7107790b9572b827481133ddcea50bd14085b2719e7b4e670910ac928c",
+	{"workflow.break_fix", "18"}:          "sha256:9b355f4af052d0f48c71d0616177f8b0c2b0cd56bfdfda57a92ea8af46cfaad1",
+	{"workflow.research", "12"}:           "sha256:3fa73bef80b56532fbc3c71d738aef597547dd3d37864f34eee2af073a0a2de9",
+	{"workflow.architecture_spike", "13"}: "sha256:2546c5f66ca5f4b0997ee66c6d287403da58521b160a29f6051983f028879a9c",
+	{"workflow.ops_runbook", "14"}:        "sha256:7cca47542e21e08d7224d8a03808b5980c4a1c5d40c305b9bd08b04319cfce2a",
+	{"workflow.static_analysis", "11"}:    "sha256:a28a2eee538a025786a9d7b44943f5d6cafdb7ecfe252b0e0df2dd1cccb9dfe3",
+	{"workflow.generic_one_off", "12"}:    "sha256:3aeef45c72b7c9b73062cf65ebac6482cf2d42201bdb0ed947f7ce92a35b4783",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -192,6 +205,101 @@ func TestBuiltinDefinitionVersionsAreGapless(t *testing.T) {
 	}
 }
 
+// TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions holds the payload
+// boundary CD-0198 D1 promises: the released versions keep the single-form
+// record_verdict declaration they were pinned under and refuse the batched
+// field, while the batched versions keep every single-form field with
+// predicate_id optional beside the verdicts array.
+func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
+	t.Parallel()
+	pinned, ok := builtinWorkflowRegistry.Lookup("workflow.implementation", 19)
+	if !ok {
+		t.Fatal("workflow.implementation v19 is not registered")
+	}
+	var pinnedPredicate *WorkflowPayloadField
+	for index := range pinned.Definition.ActionDefinitions {
+		if pinned.Definition.ActionDefinitions[index].ID != "record_verdict" {
+			continue
+		}
+		for fieldIndex := range pinned.Definition.ActionDefinitions[index].Payload.Fields {
+			field := &pinned.Definition.ActionDefinitions[index].Payload.Fields[fieldIndex]
+			if field.Name == "predicate_id" {
+				pinnedPredicate = field
+			}
+			if field.Name == "verdicts" {
+				t.Fatal("pinned implementation v19 declares the batched verdicts field; a released version changed under its pin")
+			}
+		}
+	}
+	if pinnedPredicate == nil || !pinnedPredicate.Required {
+		t.Fatal("pinned implementation v19 does not require predicate_id on record_verdict")
+	}
+	singleForm := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdict_kind":"ok","evaluation_evidence":["evidence:one"]}`)
+	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", singleForm); err != nil {
+		t.Fatalf("single-form verdict against the pinned version refused: %v", err)
+	}
+	batchedForm := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}]}`)
+	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", batchedForm); err == nil {
+		t.Fatal("the pinned version admitted the batched verdicts field; pinned instances would change behavior")
+	}
+
+	current := implementationVerdictBatchV20()
+	var predicate *WorkflowPayloadField
+	var verdicts *WorkflowPayloadField
+	for index := range current.ActionDefinitions {
+		if current.ActionDefinitions[index].ID != "record_verdict" {
+			continue
+		}
+		for fieldIndex := range current.ActionDefinitions[index].Payload.Fields {
+			field := &current.ActionDefinitions[index].Payload.Fields[fieldIndex]
+			switch field.Name {
+			case "predicate_id":
+				predicate = field
+			case "verdicts":
+				verdicts = field
+			}
+		}
+	}
+	if predicate == nil || predicate.Required {
+		t.Fatal("the batched version must keep predicate_id declared and optional")
+	}
+	if verdicts == nil || verdicts.ValueType != PayloadArray || verdicts.ItemRef != "workflow_verdict_batch_entry" || *verdicts.MinItems != 1 || *verdicts.MaxItems != 8 {
+		t.Fatalf("the batched verdicts declaration = %+v, want a 1..8 array of workflow_verdict_batch_entry items", verdicts)
+	}
+	if err := validateWorkflowActionPayload(current, "record_verdict", singleForm); err != nil {
+		t.Fatalf("single-form verdict against the batched version refused: %v", err)
+	}
+	if err := validateWorkflowActionPayload(current, "record_verdict", batchedForm); err != nil {
+		t.Fatalf("batched verdict against the batched version refused: %v", err)
+	}
+	// The store refuses the cross-field shapes the declaration cannot state:
+	// a call with both forms, neither, or an entry-level field beside the
+	// batch refuses through the shared normalizer.
+	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(singleForm, batchedForm)); err == nil {
+		t.Fatal("normalize admitted predicate_id beside verdicts")
+	}
+	neither := []byte(`{"verdict_kind":"ok"}`)
+	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(neither, neither)); err == nil {
+		t.Fatal("normalize admitted a call with neither form")
+	}
+	bothAndEntry := []byte(`{"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
+	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(bothAndEntry, bothAndEntry)); err == nil {
+		t.Fatal("normalize admitted an entry-level field beside the batch")
+	}
+}
+
+// mustDecodeWorkflowFields decodes payload bytes into the field map shape the
+// verdict normalizer reads, failing the test on malformed test input.
+func mustDecodeWorkflowFields(payloads ...json.RawMessage) map[string]json.RawMessage {
+	fields := map[string]json.RawMessage{}
+	for _, payload := range payloads {
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			panic(err)
+		}
+	}
+	return fields
+}
+
 func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 	t.Parallel()
 	definitions := builtinWorkflowDefinitionsWithHistory()
@@ -210,13 +318,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          17,
-		"workflow.implementation":     19,
-		"workflow.generic_one_off":    11,
-		"workflow.research":           11,
-		"workflow.architecture_spike": 12,
-		"workflow.ops_runbook":        13,
-		"workflow.static_analysis":    10,
+		"workflow.break_fix":          18,
+		"workflow.implementation":     20,
+		"workflow.generic_one_off":    12,
+		"workflow.research":           12,
+		"workflow.architecture_spike": 13,
+		"workflow.ops_runbook":        14,
+		"workflow.static_analysis":    11,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

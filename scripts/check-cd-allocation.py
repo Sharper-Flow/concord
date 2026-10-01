@@ -446,11 +446,11 @@ def check(
             findings.append(
                 f"duplicate-new: tree manifest: new CD id {identifier} appears {count} times"
             )
-    for identifier in sorted(against_ids - set(tree_counts)):
-        findings.append(
-            f"removed-records: comparison manifest: CD id {identifier} was removed from tree; "
-            "CDs are durable and removal needs an explicit superseding record"
-        )
+    findings.extend(
+        f"removed-records: comparison manifest: CD id {identifier} was removed from tree; "
+        "CDs are durable and removal needs an explicit superseding record"
+        for identifier in sorted(against_ids - set(tree_counts))
+    )
     claims = peer_claims(root, against, peer_namespace)
     findings.extend(collision_findings(root, new_ids, claims, cd_record_paths(tree)))
     return findings

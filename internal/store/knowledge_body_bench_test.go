@@ -83,7 +83,7 @@ func TestKnowledgeBodySearchP99At10xDataset(t *testing.T) {
 	}
 	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
 	p99 := durations[(99*len(durations)+99)/100-1]
-	if !representativeP99WithinTarget(t, "PM1 Q9 law-body discovery", p99, 100*time.Millisecond, "10x synthetic law-body dataset (1000 rows)", len(durations)) {
+	if !representativeP99WithinTarget(t, "PM1 Q9 law-body discovery", p99, "10x synthetic law-body dataset (1000 rows)", len(durations)) {
 		t.Fatalf("PM1 Q9 law-body discovery P99=%s exceeds 100ms target", p99)
 	}
 }

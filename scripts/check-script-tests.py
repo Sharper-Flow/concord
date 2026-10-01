@@ -89,15 +89,15 @@ def check(*, root: Path = ROOT) -> list[str]:
             continue
         findings.extend(structure_findings(workflow, text))
 
-    for name in sorted(on_disk - in_workflows):
-        findings.append(
-            f"unrun-suite: {SCRIPTS / name} is never invoked by {WORKFLOWS}; "
-            "a suite no workflow runs cannot fail"
-        )
-    for name in sorted(in_workflows - on_disk):
-        findings.append(
-            f"stale-reference: {WORKFLOWS} invokes {SCRIPTS / name}, which does not exist"
-        )
+    findings.extend(
+        f"unrun-suite: {SCRIPTS / name} is never invoked by {WORKFLOWS}; "
+        "a suite no workflow runs cannot fail"
+        for name in sorted(on_disk - in_workflows)
+    )
+    findings.extend(
+        f"stale-reference: {WORKFLOWS} invokes {SCRIPTS / name}, which does not exist"
+        for name in sorted(in_workflows - on_disk)
+    )
     return findings
 
 

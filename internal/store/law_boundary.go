@@ -7,15 +7,6 @@ import (
 	"strings"
 )
 
-// LawBoundaryCheck is the bounded result of checking a workflow's declared
-// law population against the Git-derived projection. It contains no heuristic
-// suggestions and does not author state.
-type LawBoundaryCheck struct {
-	Mandated  []string
-	Modified  []string
-	Conflicts []LawConflict
-}
-
 type LawConflict struct {
 	SourceLawID string `json:"source_law_id"`
 	TargetLawID string `json:"target_law_id"`
@@ -65,8 +56,7 @@ func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, home
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before checking mandated laws")
 	}
-	_, err := checkMandatedLawsQuery(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
-	return err
+	return checkMandatedLawsQuery(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
 func checkMandatedLawsTx(ctx context.Context, tx *sql.Tx, workID string, mandated, modified []string, allowAmendment bool) error {
@@ -77,30 +67,28 @@ func checkMandatedLawsTx(ctx context.Context, tx *sql.Tx, workID string, mandate
 	if err != nil {
 		return err
 	}
-	_, err = checkMandatedLawsTxAtHome(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
-	return err
+	return checkMandatedLawsTxAtHome(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
-func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
+func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
 	if tx == nil {
-		return LawBoundaryCheck{}, newFailure(KindUnavailable, "check_mandated_laws", "transaction is not open", false, "open a mutation transaction")
+		return newFailure(KindUnavailable, "check_mandated_laws", "transaction is not open", false, "open a mutation transaction")
 	}
 	return checkMandatedLawsQuery(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
-func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) (LawBoundaryCheck, error) {
+func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
 	if homeProjectID == "" || homeLocatorID == "" {
-		return LawBoundaryCheck{}, newFailure(KindUnknownScope, "check_mandated_laws", "canonical law home is incomplete", false, "resolve one canonical Git knowledge home")
+		return newFailure(KindUnknownScope, "check_mandated_laws", "canonical law home is incomplete", false, "resolve one canonical Git knowledge home")
 	}
 	if len(mandated) > 32 || len(modified) > 32 {
-		return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "law mandate exceeds the bounded list size", false, "supply at most 32 law IDs")
+		return newFailure(KindInvalidPayload, "check_mandated_laws", "law mandate exceeds the bounded list size", false, "supply at most 32 law IDs")
 	}
 	if err := validateLawModificationSubset(mandated, modified); err != nil {
-		return LawBoundaryCheck{}, err
+		return err
 	}
-	result := LawBoundaryCheck{Mandated: append([]string(nil), mandated...), Modified: append([]string(nil), modified...)}
 	if len(mandated) == 0 {
-		return result, nil
+		return nil
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(mandated)), ",")
 	args := []any{homeProjectID, homeLocatorID}
@@ -109,19 +97,19 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	}
 	rows, err := q.QueryContext(ctx, `SELECT law_id,status,authority_tier FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id IN (`+placeholders+`) LIMIT 33`, args...)
 	if err != nil {
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
 	accepted := map[string]bool{}
 	authority := map[string]string{}
 	for rows.Next() {
 		if len(accepted) == 32 {
 			_ = rows.Close()
-			return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "derived law subject query exceeds the bounded result size", false, "reduce the law mandate before retrying")
+			return newFailure(KindInvalidPayload, "check_mandated_laws", "derived law subject query exceeds the bounded result size", false, "reduce the law mandate before retrying")
 		}
 		var id, status, tier string
 		if err := rows.Scan(&id, &status, &tier); err != nil {
 			rows.Close()
-			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law subject", true, "retry once the knowledge projection is readable", err)
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law subject", true, "retry once the knowledge projection is readable", err)
 		}
 		if status == "accepted" {
 			accepted[id] = true
@@ -130,10 +118,10 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
 	if err := rows.Close(); err != nil {
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law subjects", true, "retry once the knowledge projection is readable", err)
 	}
 	missing := make([]string, 0)
 	for _, id := range mandated {
@@ -144,27 +132,28 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	if len(missing) != 0 {
 		failure := newFailure(KindProjectionNotFound, "check_mandated_laws", "a mandated law is unknown or not currently accepted: "+strings.Join(missing, ","), false, "publish and rebuild the accepted Git law projection")
 		failure.CandidateIDs = missing
-		return LawBoundaryCheck{}, failure
+		return failure
 	}
 	conflictRows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind='conflicts_with' AND source_law_id IN (`+placeholders+`) AND target_law_id IN (`+placeholders+`) ORDER BY source_law_id,target_law_id LIMIT 33`, append(append([]any{homeProjectID, homeLocatorID}, stringArgs(mandated)...), stringArgs(mandated)...)...)
 	if err != nil {
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read derived law conflicts", true, "retry once the knowledge projection is readable", err)
 	}
 	modifiedSet := make(map[string]bool, len(modified))
 	for _, id := range modified {
 		modifiedSet[id] = true
 	}
+	conflicts := 0
 	for conflictRows.Next() {
-		if len(result.Conflicts) == 32 {
+		if conflicts == 32 {
 			_ = conflictRows.Close()
-			return LawBoundaryCheck{}, newFailure(KindInvalidPayload, "check_mandated_laws", "derived law conflict query exceeds the bounded result size", false, "reduce the law set or resolve conflicts before retrying")
+			return newFailure(KindInvalidPayload, "check_mandated_laws", "derived law conflict query exceeds the bounded result size", false, "reduce the law set or resolve conflicts before retrying")
 		}
 		var source, target string
 		if err := conflictRows.Scan(&source, &target); err != nil {
 			conflictRows.Close()
-			return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived law conflict", true, "retry once the knowledge projection is readable", err)
 		}
-		result.Conflicts = append(result.Conflicts, LawConflict{SourceLawID: source, TargetLawID: target})
+		conflicts++
 		// The tier gates the law the contract revises, not the law it leaves
 		// alone. A contract that brings a derived record into conformance with
 		// an untouched legislated commitment resolves the conflict without
@@ -175,17 +164,17 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			(modifiedSet[target] && authority[target] != "derived")
 		if !allowAmendment || (!modifiedSet[source] && !modifiedSet[target]) || revisesLegislated {
 			_ = conflictRows.Close()
-			return result, newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
+			return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved explicit conflict: %s and %s", source, target), false, "resolve the Git law conflict or declare and approve the amendment path")
 		}
 	}
 	if err := conflictRows.Err(); err != nil {
 		conflictRows.Close()
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
 	}
 	if err := conflictRows.Close(); err != nil {
-		return LawBoundaryCheck{}, wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
 	}
-	return result, nil
+	return nil
 }
 
 func stringArgs(values []string) []any {

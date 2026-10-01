@@ -22,14 +22,15 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	for i, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
-		fields := ""
-		if action == "record_proposal" {
+		var fields string
+		switch action {
+		case "record_proposal":
 			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
-		} else if action == "record_alignment" {
+		case "record_alignment":
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
-		} else if action == "record_design" {
+		case "record_design":
 			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
-		} else {
+		default:
 			fields = `,"fields":{}`
 		}
 		// Cumulative expected versions: proposal and design each consume two
@@ -41,7 +42,7 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	initialInput := workflowContractActionInput(t, "work-1", 11, "public-recovery-approve", "")
+	initialInput := workflowContractActionInput(t, "public-recovery-approve", "")
 	challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("initial approval challenge response=%+v err=%v", challenge, err)
@@ -50,7 +51,7 @@ func TestPublicDuplicateContractRecoveryConsumesApprovalAndKeepsWorkID(t *testin
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, initialInput), map[string]any{
 		"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion,
 	}, map[string]any{"work": 11}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "public-recovery-initial")
-	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "work-1", 11, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
+	if approved, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: workflowContractActionInput(t, "public-recovery-approve", challengeRef)}, env); err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("initial approval response=%+v err=%v", approved, err)
 	}
 

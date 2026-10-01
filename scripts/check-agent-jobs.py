@@ -78,13 +78,12 @@ def _check_closed_schema(path: Path, required: set[str]) -> list[str]:
             and "const" not in node
             and "enum" not in node
             and "$ref" not in node
-        ):
-            if not isinstance(node.get("minLength"), int) or not isinstance(
-                node.get("maxLength"), int
-            ):
-                findings.append(
-                    f"{path.relative_to(ROOT)}:{location}: string lacks explicit bounds"
-                )
+        ) and (not isinstance(node.get("minLength"), int) or not isinstance(
+            node.get("maxLength"), int
+        )):
+            findings.append(
+                f"{path.relative_to(ROOT)}:{location}: string lacks explicit bounds"
+            )
         for key, child in node.items():
             visit(child, f"{location}/{key}")
 
@@ -223,11 +222,11 @@ def _check_corpus(corpus: object) -> list[str]:
                 findings.append(
                     f"{CORPUS_PATH.relative_to(ROOT)}: closed assertion op violation in {scenario_id}"
                 )
-            for required_field in required_fields:
-                if required_field not in assertion:
-                    findings.append(
-                        f"{CORPUS_PATH.relative_to(ROOT)}: missing required assertion field {required_field} in {scenario_id}"
-                    )
+            findings.extend(
+                f"{CORPUS_PATH.relative_to(ROOT)}: missing required assertion field {required_field} in {scenario_id}"
+                for required_field in required_fields
+                if required_field not in assertion
+            )
             if _addresses_error_kind(assertion.get("path", "")):
                 value = assertion.get("value")
                 if not isinstance(value, str) or value not in live_error_kinds:

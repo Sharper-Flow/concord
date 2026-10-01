@@ -91,7 +91,7 @@ func registerTrustedClientTx(ctx context.Context, transaction *Transaction, clie
 
 func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string, policy TrustedClientRecord, now string) error {
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return updateTrustedClientPolicyTx(ctx, transaction, clientRef, policy, now)
+		return updateTrustedClientPolicyTx(ctx, transaction, clientRef, policy)
 	})
 	if err != nil {
 		return err
@@ -100,7 +100,7 @@ func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string,
 	return s.SyncDurable(ctx)
 }
 
-func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, policy TrustedClientRecord, now string) error {
+func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, policy TrustedClientRecord) error {
 	tx, err := transactionSQL(transaction, "agent_update_policy")
 	if err != nil {
 		return err

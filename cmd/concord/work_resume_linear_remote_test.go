@@ -21,7 +21,7 @@ import (
 // canonical worktree while the Product is still local_only (so capture
 // enqueues nothing), the lifecycle moved to in_progress, the Product
 // enabled, and a confirmed link recorded with the given remote freshness.
-func seedResumeLinearFixture(t *testing.T, dbPath string, recordedRemoteUpdatedAt string) (repo, workID, remoteUUID string) {
+func seedResumeLinearFixture(t *testing.T, dbPath string) (repo, workID, remoteUUID string) {
 	t.Helper()
 	repo = initLocatorRepo(t)
 	s := mustOpenStore(t, dbPath)
@@ -36,7 +36,7 @@ func seedResumeLinearFixture(t *testing.T, dbPath string, recordedRemoteUpdatedA
 	for _, state := range []string{store.LinearLinkUnpublished, store.LinearLinkPending, store.LinearLinkConfirmed} {
 		updated := ""
 		if state == store.LinearLinkConfirmed {
-			updated = recordedRemoteUpdatedAt
+			updated = "2026-09-25T19:28:00Z"
 		}
 		if err := s.RecordLinearLink(context.Background(), origin.WorkID, remoteUUID, "CON-77", "https://linear.app/example/issue/CON-77", updated, "", state); err != nil {
 			t.Fatal(err)
@@ -84,7 +84,7 @@ func serveLinearRemoteIssue(t *testing.T, issueJSON, commentsJSON string) *linea
 // envelope.
 func TestWorkResumeCommentsStayInsideTheEnvelopeBudget(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	nodes := make([]string, 0, linearResumeCommentPage)
 	for index := range linearResumeCommentPage {
 		nodes = append(nodes, `{"id":"comment-`+strconv.Itoa(index)+`","body":"`+strings.Repeat("\U0001F600", linearResumeCommentBodyLimit)+`","createdAt":"2026-09-27T00:0`+strconv.Itoa(index%10)+`:00Z","user":{"name":"Dana","displayName":"Dana D"}}`)
@@ -123,7 +123,7 @@ func TestWorkResumeCommentsStayInsideTheEnvelopeBudget(t *testing.T) {
 // keeps the comparison and states the typed reason on the comments alone.
 func TestWorkResumeCommentsFailureDegradesOnlyTheComments(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
@@ -161,8 +161,8 @@ func TestWorkResumeCommentsFailureDegradesOnlyTheComments(t *testing.T) {
 // untouched afterwards.
 func TestWorkResumeSurfacesCancelledRemoteWhileInProgress(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	recorded := "2026-09-25T19:28:00Z"
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, recorded)
+	const recorded = "2026-09-25T19:28:00Z"
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	helper := serveLinearRemoteIssue(t,
 		`{"id":"`+remoteUUID+`","identifier":"CON-77","url":"https://linear.app/example/issue/CON-77","title":"Renamed by the coordinator","description":"New remote body","updatedAt":"2026-09-28T12:00:00Z","state":{"id":"state-cancelled-remote","type":"canceled"},"team":{"id":"team-uuid-1"}}`,
 		`{"nodes":[{"id":"comment-1","body":"Heads up: this moved on","createdAt":"2026-09-27T00:00:00Z","user":{"name":"Dana","displayName":"Dana D"}}],"pageInfo":{"hasNextPage":false}}`)
@@ -227,8 +227,8 @@ func TestWorkResumeSurfacesCancelledRemoteWhileInProgress(t *testing.T) {
 // reports no drift, no mismatch, and no comments.
 func TestWorkResumeMatchesUnchangedRemote(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	recorded := "2026-09-25T19:28:00Z"
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, recorded)
+	const recorded = "2026-09-25T19:28:00Z"
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	helper := serveLinearRemoteIssue(t,
 		`{"id":"`+remoteUUID+`","identifier":"CON-77","url":"https://linear.app/example/issue/CON-77","title":"Bootstrap work","description":"Same body","updatedAt":"`+recorded+`","state":{"id":"state-in-progress","type":"started"},"team":{"id":"team-uuid-1"}}`,
 		`{"nodes":[],"pageInfo":{"hasNextPage":false}}`)
@@ -300,7 +300,7 @@ func TestWorkResumeRemoteDegradedStillSucceeds(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "concord.db")
-			repo, workID, _ := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+			repo, workID, _ := seedResumeLinearFixture(t, dbPath)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				testCase.handler(t, w)
 			}))
@@ -330,7 +330,7 @@ func TestWorkResumeRemoteDegradedStillSucceeds(t *testing.T) {
 // that a hung Linear endpoint cannot hang the worktree move.
 func TestWorkResumeRemoteTimeoutStillSucceeds(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	repo, workID, _ := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	repo, workID, _ := seedResumeLinearFixture(t, dbPath)
 	previousTimeout := linearResumeTimeout
 	linearResumeTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { linearResumeTimeout = previousTimeout })
@@ -410,7 +410,7 @@ func TestWorkResumeWithoutApplicableLinkMakesNoLinearCall(t *testing.T) {
 // its rune limit marks the page truncated even when every comment is kept.
 func TestWorkResumeCutCommentBodyReportsTruncated(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	helper := serveLinearRemoteIssue(t,
 		`{"id":"`+remoteUUID+`","identifier":"CON-77","url":"https://linear.app/example/issue/CON-77","title":"Bootstrap work","description":"","updatedAt":"2026-09-26T00:00:00Z","state":{"id":"state-in-progress","type":"started"},"team":{"id":"team-uuid-1"}}`,
 		`{"nodes":[{"id":"comment-long","body":"`+strings.Repeat("x", linearResumeCommentBodyLimit+1)+`","createdAt":"2026-09-27T00:00:00Z","user":{"name":"Dana","displayName":"Dana D"}}],"pageInfo":{"hasNextPage":false}}`)
@@ -435,7 +435,7 @@ func TestWorkResumeCutCommentBodyReportsTruncated(t *testing.T) {
 // comments, never a complete empty page.
 func TestWorkResumeVanishedIssueDegradesTheComments(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	repo, workID, remoteUUID := seedResumeLinearFixture(t, dbPath)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
@@ -463,7 +463,7 @@ func TestWorkResumeVanishedIssueDegradesTheComments(t *testing.T) {
 // reported as local_unavailable instead of silently omitting the section.
 func TestLinearRemoteLocalReadFailureDegrades(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	_, workID, _ := seedResumeLinearFixture(t, dbPath, "2026-09-25T19:28:00Z")
+	_, workID, _ := seedResumeLinearFixture(t, dbPath)
 	s := mustOpenStore(t, dbPath)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)

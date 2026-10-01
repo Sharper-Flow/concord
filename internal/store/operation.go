@@ -242,7 +242,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
 	WorkflowActionStarted:                     workflowRegistration[workflowActionStartedPayload](1, nil, foldWorkflowActionStarted),
 	WorkflowActionCheckpointed:                workflowRegistration[workflowActionCheckpointedPayload](1, nil, foldWorkflowActionCheckpointed),
-	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowActionCompletedV1}, foldWorkflowActionCompleted),
+	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](3, map[int]Upcaster{1: upcastWorkflowActionCompletedV1, 2: upcastWorkflowActionCompletedV2}, foldWorkflowActionCompleted),
 	WorkflowActionFailed:                      workflowRegistration[workflowActionFailedPayload](1, nil, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, nil, foldWorkflowEvidenceBound),
 	WorkflowStalenessObserved:                 registerEventKind[workflowStalenessObservedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkflowStalenessObserved, validateWorkflowStalenessObservedPayload),
@@ -857,12 +857,12 @@ func versionConflict(subjectType SubjectType, subjectID string, expected, got in
 	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, nil)
 }
 
-func versionConflictForQuery(ctx context.Context, q queryer, subjectType SubjectType, subjectID string, expected, got int64, exists bool) (*Failure, error) {
-	actions, err := interveningWorkflowActions(ctx, q, subjectType, subjectID, expected, got)
+func versionConflictForQuery(ctx context.Context, q queryer, subjectID string, expected, got int64) (*Failure, error) {
+	actions, err := interveningWorkflowActions(ctx, q, SubjectWorkItem, subjectID, expected, got)
 	if err != nil {
 		return nil, err
 	}
-	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, actions), nil
+	return versionConflictWithActions(SubjectWorkItem, subjectID, expected, got, true, actions), nil
 }
 
 func versionConflictWithActions(subjectType SubjectType, subjectID string, expected, got int64, exists bool, actions []InterveningAction) *Failure {

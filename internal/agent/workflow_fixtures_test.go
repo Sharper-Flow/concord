@@ -12,7 +12,7 @@ import (
 
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := pm1fixture.SeedCurrentProductDomain(context.Background(), s, "product-1", "project-1"); err != nil {
+	if err := pm1fixture.SeedCurrentProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCurrentProductDomain: %v", err)
 	}
 }
@@ -43,11 +43,11 @@ func workflowContractFieldsFixture() map[string]any {
 	}
 }
 
-func workflowContractActionInput(t *testing.T, workID string, expectedVersion int64, key, approvalRef string) json.RawMessage {
+func workflowContractActionInput(t *testing.T, key, approvalRef string) json.RawMessage {
 	t.Helper()
 	input := map[string]any{
-		"work_id":          workID,
-		"expected_version": expectedVersion,
+		"work_id":          "work-1",
+		"expected_version": 11,
 		"action_id":        "approve_contract",
 		"fields":           workflowContractFieldsFixture(),
 		"idempotency_key":  key,

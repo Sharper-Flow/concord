@@ -10349,17 +10349,19 @@ const GeneratedPayloadSchemaDocument = `{
                       "insufficient_evidence"
                     ],
                     "type": "string"
+                  },
+                  "verdicts": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_verdict_batch_entry"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
                   }
                 },
-                "required": [
-                  "predicate_id"
-                ],
                 "type": "object"
               }
-            },
-            "required": [
-              "fields"
-            ]
+            }
           }
         },
         {
@@ -13473,6 +13475,39 @@ const GeneratedPayloadSchemaDocument = `{
         "refusal_kind",
         "blocked_operation",
         "evidence_refs"
+      ],
+      "type": "object"
+    },
+    "workflow_verdict_batch_entry": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluation_evidence": {
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "incomparable_with_approved": {
+          "type": "boolean"
+        },
+        "predicate_id": {
+          "$ref": "#/$defs/id",
+          "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+        },
+        "verdict_kind": {
+          "enum": [
+            "ok",
+            "outcome_mismatch",
+            "insufficient_evidence"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate_id"
       ],
       "type": "object"
     },

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -31,12 +30,12 @@ func authorityInvoke(t *testing.T, s *store.Store, service *Service, grant Autho
 	return response
 }
 
-func completeWork(t *testing.T, s *store.Store, workID string, version int64) {
+func completeWork(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
-	payload := `{"from":"needed","to":"completed","reason":"fixture terminal","evidence_refs":["fixture"],"expected_version":` + strconv.FormatInt(version, 10) + `,"resulting_version":` + strconv.FormatInt(version+1, 10) + `}`
+	payload := `{"from":"needed","to":"completed","reason":"fixture terminal","evidence_refs":["fixture"],"expected_version":3,"resulting_version":4}`
 	err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
 		{EventID: workID + "-authority-complete", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(payload)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): version}})
+	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +45,7 @@ func TestWorktreeDestroyDispatchReclaimsMergedTerminalWork(t *testing.T) {
 	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")
-	completeWork(t, s, "work-2", 3)
+	completeWork(t, s, "work-2")
 	vacateLinkedWorktree(t, s, second, secondGrant, worktreePath, "destroy-2-vacate")
 
 	response := authorityInvoke(t, s, second, secondGrant, "concord_work_transition", "worktree_destroy", map[string]any{
@@ -112,7 +111,7 @@ func TestWorktreeDestroyDispatchDestructiveUnderApproval(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _, _, _ := tiersFixture(t)
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-1")
-	completeWork(t, s, "work-1", 3)
+	completeWork(t, s, "work-1")
 	vacateLinkedWorktree(t, s, service, grant, worktreePath, "destroy-dirty-vacate")
 	if err := os.WriteFile(filepath.Join(worktreePath, "README.md"), []byte("# dirty\n"), 0o644); err != nil {
 		t.Fatal(err)

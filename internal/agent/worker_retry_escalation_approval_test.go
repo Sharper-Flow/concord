@@ -33,7 +33,7 @@ func TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt(t *te
 	}
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-1", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", retryAttemptID, pin.Correction)},
+		"idempotency_key": "escalated-retry-1", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, retryAttemptID, pin.Correction)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval(t *testing.T) {
 	}
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-stale", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", retryAttemptID, pin.Correction)},
+		"idempotency_key": "escalated-retry-stale", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, retryAttemptID, pin.Correction)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval(t *testing.T) {
 	version = workVersion(t, s, "work-1")
 	reusedInput := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", nextAttemptID, nextPin.Correction)},
+		"idempotency_key": "escalated-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, nextAttemptID, nextPin.Correction)},
 	}
 	withSpentApproval := cloneWithApproval(t, reusedInput, challengeRef)
 	reusedRaw, _ := json.Marshal(withSpentApproval)
@@ -177,7 +177,7 @@ func TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval(t *testing.T) {
 	// new failed attempt, and its approval admits the next fenced attempt.
 	freshInput := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-fresh", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, "work-1", "execution", nextAttemptID, nextPin.Correction)},
+		"idempotency_key": "escalated-retry-fresh", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, nextAttemptID, nextPin.Correction)},
 	}
 	freshRaw, _ := json.Marshal(freshInput)
 	freshChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshRaw}, env)

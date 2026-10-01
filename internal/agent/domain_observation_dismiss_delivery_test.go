@@ -23,7 +23,7 @@ import (
 func TestUnapprovedObservationDismissalRefusalIsDeliverable(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "product_read"})
-	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1"); err != nil {
+	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")

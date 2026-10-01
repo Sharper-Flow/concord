@@ -221,14 +221,14 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 		}
-		available, correctionErr := workflowCorrectionRequestAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
+		available, missing, correctionErr := workflowCorrectionRequestAdmissionState(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0)
 		if correctionErr != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
 			return entry, workflowCorrectionRequestActionDefinition(), nil
 		}
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
@@ -289,7 +289,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
 	if request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, version)
 		if conflictErr != nil {
 			return result, conflictErr
 		}
@@ -312,7 +312,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	if request.ActionID == "request_correction" {
-		guards.correctionRequestRecovery, err = workflowCorrectionRequestAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+		guards.correctionRequestRecovery, guards.correctionRequestMissing, err = workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
 		if err != nil {
 			return result, err
 		}
@@ -342,7 +342,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action"); err != nil {
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action", 0); err != nil {
 			return result, err
 		}
 	}
@@ -423,6 +423,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
 		return result, err
 	}
+	// The envelope's own evidence references, before the verdict merge below
+	// extends them. The verdict constructor resolves each defaulted entry
+	// against this list, not against the merged set.
+	envelopeEvidenceRefs := dedupeWorkflowRefs(request.EvidenceRefs)
 	evidenceRefs, defaultVerdictEvidence, err := workflowActionEvidenceRefs(request, payload)
 	if err != nil {
 		return result, err
@@ -456,6 +460,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		actorRef: guards.actorRef, eventActor: guards.eventActor, operatorRef: guards.operatorRef,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
+		envelopeEvidenceRefs: envelopeEvidenceRefs,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {
@@ -470,7 +475,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		// a new session identity). Complete is the one action that does not
 		// consume the assembly's events, so they travel as a prefix here;
 		// dropping them left a restarted session unable to complete (#909).
-		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, currentStep, guards.eventActor, payload, assembly.events)
+		return applyCompleteWorkflowActionTx(ctx, tx, scope, registry, entry, request, guards.eventActor, payload, assembly.events)
 	}
 	var workerPacketDigest string
 	assembly.events, workerPacketDigest, err = appendGenericWorkflowCompletion(assemblyInput, assembly.attemptEpoch, assembly.events)
@@ -621,6 +626,29 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return nil, false, err
+	}
+	if _, batchPresent := fields["verdicts"]; batchPresent {
+		// The batched form's evidence authority is the union of every entry's
+		// evaluation references with the envelope's own. One operation-minted
+		// born-bound reference joins the set when a defaulted entry needs it,
+		// so the durable operation names every reference the call resolves.
+		entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
+		if entriesErr != nil {
+			return nil, false, entriesErr
+		}
+		refs := append([]string(nil), request.EvidenceRefs...)
+		for _, entry := range entries {
+			for _, ref := range entry.EvaluationEvidence {
+				if !contains(refs, ref) {
+					refs = append(refs, ref)
+				}
+			}
+		}
+		mint := workflowVerdictEntriesMint(entries, request.EvidenceRefs)
+		if mint && !contains(refs, "evidence:"+request.OperationID) {
+			refs = append(refs, "evidence:"+request.OperationID)
+		}
+		return refs, mint, nil
 	}
 	if raw, present := fields["evaluation_evidence"]; present {
 		refs := workflowFieldStrings(fields, "evaluation_evidence")
@@ -814,7 +842,7 @@ func workflowProposalRecordedEvents(definition WorkflowDefinition, request Workf
 	return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool) ([]Event, error) {
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64, defaultVerdictEvidence bool, envelopeEvidenceRefs []string) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err
@@ -844,7 +872,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
-		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence)
+		return workflowRecordVerdictEvents(ctx, tx, definition, request, actor, fields, eventID, expected, defaultVerdictEvidence, envelopeEvidenceRefs)
 	case "confirm_premise":
 		return workflowConfirmPremiseEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "link_successor":
@@ -895,7 +923,7 @@ func workflowNativeRunPhaseEvents(request WorkflowActionExecutionRequest, fields
 	return []Event{nativeEvent}, nil
 }
 
-func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, definition WorkflowDefinition, stepID, actor string, raw json.RawMessage) (Event, error) {
+func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return Event{}, err

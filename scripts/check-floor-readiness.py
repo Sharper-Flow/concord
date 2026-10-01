@@ -366,7 +366,7 @@ def validate_evidence(evidence: object, prefix: str, findings: list[str]) -> boo
 
 
 def validate_items(raw: object, declared: dict[str, int], findings: list[str], *, root: Path) -> dict[str, int]:
-    tally = {state: 0 for state in STATES}
+    tally = dict.fromkeys(STATES, 0)
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_ITEMS:
         findings.append("manifest.items: must be a bounded non-empty array")
         return tally
@@ -447,7 +447,7 @@ def validate_items(raw: object, declared: dict[str, int], findings: list[str], *
 
 def validate(data: object, *, root: Path = ROOT) -> tuple[list[str], dict[str, int]]:
     findings: list[str] = []
-    tally = {state: 0 for state in STATES}
+    tally = dict.fromkeys(STATES, 0)
     if not isinstance(data, dict):
         return ["manifest: top-level value must be an object"], tally
     unknown = set(data) - ALLOWED_ROOT
@@ -490,7 +490,7 @@ def main() -> int:
     if not SCHEMA.is_file():
         findings.append("contracts/floor-readiness.schema.json is missing")
     data = load(MANIFEST, findings)
-    tally = {state: 0 for state in STATES}
+    tally = dict.fromkeys(STATES, 0)
     if data is not None:
         more, tally = validate(data)
         findings.extend(more)

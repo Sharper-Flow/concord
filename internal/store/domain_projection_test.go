@@ -90,7 +90,7 @@ func TestDomainProjectionSeparatesGitProductKeyFromLocalProductID(t *testing.T) 
 	content := "domain law\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))
-	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "git-product-key", RootDomainID: "product-root:git-product-key", Domains: []KnowledgeDomain{{DomainID: "product-root:git-product-key", Name: "Root", Purpose: "Root", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}, {DomainID: "child", Name: "Child", Purpose: "Child", Status: "current", ParentDomainID: "product-root:git-product-key", ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:git-product-key", GoverningLawIDs: []string{"CD-0001"}}}}}}, Records: []KnowledgeRecord{{ID: "CD-0001", Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "derived"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, HomeDomainID: "child", AppliesToDomainIDs: []string{"product-root:git-product-key"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])}}}
+	manifest := domainLawManifest("git-product-key", path, sum)
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestRebuildKnowledgeIndexClearsGoverningLawsBeforeLawSubjects(t *testing.T)
 	content := "domain law\n"
 	writeKnowledgeFile(t, repo, path, content)
 	sum := sha256.Sum256([]byte(content))
-	manifest := KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord", Domains: []KnowledgeDomain{{DomainID: "product-root:concord", Name: "Root", Purpose: "Root", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}, {DomainID: "child", Name: "Child", Purpose: "Child", Status: "current", ParentDomainID: "product-root:concord", ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: "product-root:concord", GoverningLawIDs: []string{"CD-0001"}}}}}}, Records: []KnowledgeRecord{{ID: "CD-0001", Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "derived"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, HomeDomainID: "child", AppliesToDomainIDs: []string{"product-root:concord"}, SHA256: "sha256:" + hex.EncodeToString(sum[:])}}}
+	manifest := domainLawManifest("concord", path, sum)
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -180,4 +180,12 @@ func domainProjectionIdentitySnapshot(t *testing.T, s *Store) string {
 		values = append(values, value)
 	}
 	return strings.Join(values, "\n")
+}
+
+// domainLawManifest builds the one-decision manifest the Domain projection
+// tests seed: a root Domain, its child, and a decision record homed on the
+// child and applied to the root, keyed by the Product's registry key.
+func domainLawManifest(productKey, path string, sum [32]byte) KnowledgeManifest {
+	root := "product-root:" + productKey
+	return KnowledgeManifest{SchemaVersion: "1.2", SupportedKinds: []string{"decision"}, IndexedKinds: []string{"decision"}, DomainRegistry: KnowledgeDomainRegistry{SchemaVersion: "1.0", ProductKey: productKey, RootDomainID: root, Domains: []KnowledgeDomain{{DomainID: root, Name: "Root", Purpose: "Root", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}}, {DomainID: "child", Name: "Child", Purpose: "Child", Status: "current", ParentDomainID: root, ArchitectureRelations: []KnowledgeArchitectureRelation{{Kind: "depends_on", TargetDomainID: root, GoverningLawIDs: []string{"CD-0001"}}}}}}, Records: []KnowledgeRecord{{ID: "CD-0001", Kind: "decision", Path: path, Status: "accepted", Date: "2026-08-18T00:00:00Z", Title: "Domain law", Summary: "A domain law", Tags: []string{}, Authority: KnowledgeAuthority{Tier: "derived"}, Scopes: KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}}, HomeDomainID: "child", AppliesToDomainIDs: []string{root}, SHA256: "sha256:" + hex.EncodeToString(sum[:])}}}
 }

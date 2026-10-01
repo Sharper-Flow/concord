@@ -491,6 +491,35 @@ func hasEligibleNoteDir(notePath string) bool {
 	return false
 }
 
+// parseKnowledgeFrontMatter decodes the bounded front-matter block into its
+// key-value pairs: only the accepted canonical keys, each declared once,
+// with trimmed, bounded, closed scalar values.
+func parseKnowledgeFrontMatter(front string) (map[string]string, map[string]bool, error) {
+	values := map[string]string{}
+	seenKeys := map[string]bool{}
+	allowed := map[string]bool{"concord_work_id": true, "id": true, "work_type": true, "type": true, "title": true, "completed_at": true, "outcome_tag": true, "lesson_tags": true, "terminal_state": true, "priority": true, "summary": true, "successor_work_id": true, "product_ids": true, "project_ids": true, "domain_ids": true, "component_ids": true, "tag_ids": true}
+	for _, line := range strings.Split(front, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" || !allowed[key] || seenKeys[key] {
+			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter has an unknown, malformed, or duplicate key", false, "use only the accepted canonical metadata keys")
+		}
+		seenKeys[key] = true
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > maxKnowledgeValue {
+			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an empty or oversized value", false, "supply bounded metadata values")
+		}
+		if (strings.HasPrefix(value, "\"") && (len(value) < 2 || !strings.HasSuffix(value, "\""))) || (strings.HasPrefix(value, "'") && (len(value) < 2 || !strings.HasSuffix(value, "'"))) {
+			return nil, nil, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an unclosed quoted scalar", false, "use a closed scalar value")
+		}
+		values[key] = unquoteScalar(value)
+	}
+	return values, seenKeys, nil
+}
+
 func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 	if len(content) > maxKnowledgeNote || len(content) < 8 || !strings.HasPrefix(string(content), "---\n") {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "note lacks bounded front matter", false, "use the accepted canonical front-matter template")
@@ -505,27 +534,9 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 	if len(front) > maxKnowledgeFront {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter exceeds the bounded size", false, "keep canonical metadata bounded")
 	}
-	values := map[string]string{}
-	seenKeys := map[string]bool{}
-	allowed := map[string]bool{"concord_work_id": true, "id": true, "work_type": true, "type": true, "title": true, "completed_at": true, "outcome_tag": true, "lesson_tags": true, "terminal_state": true, "priority": true, "summary": true, "successor_work_id": true, "product_ids": true, "project_ids": true, "domain_ids": true, "component_ids": true, "tag_ids": true}
-	for _, line := range strings.Split(front, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		key, value, ok := strings.Cut(line, ":")
-		key = strings.TrimSpace(key)
-		if !ok || key == "" || !allowed[key] || seenKeys[key] {
-			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter has an unknown, malformed, or duplicate key", false, "use only the accepted canonical metadata keys")
-		}
-		seenKeys[key] = true
-		value = strings.TrimSpace(value)
-		if value == "" || len(value) > maxKnowledgeValue {
-			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an empty or oversized value", false, "supply bounded metadata values")
-		}
-		if (strings.HasPrefix(value, "\"") && (len(value) < 2 || !strings.HasSuffix(value, "\""))) || (strings.HasPrefix(value, "'") && (len(value) < 2 || !strings.HasSuffix(value, "'"))) {
-			return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter contains an unclosed quoted scalar", false, "use a closed scalar value")
-		}
-		values[key] = unquoteScalar(value)
+	values, seenKeys, err := parseKnowledgeFrontMatter(front)
+	if err != nil {
+		return VerifiedNote{}, err
 	}
 	if seenKeys["domain_ids"] && seenKeys["component_ids"] {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "front matter cannot declare both domain_ids and component_ids", false, "use domain_ids for new notes or retain component_ids only in a legacy note")
@@ -578,7 +589,6 @@ func parseKnowledgeNote(content []byte) (VerifiedNote, error) {
 	if _, err := strconv.ParseInt(priority, 10, 64); err != nil || note.Priority < 0 {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "priority is not a non-negative integer", false, "supply a bounded non-negative priority")
 	}
-	var err error
 	note.HasDomainIDs = seenKeys["domain_ids"]
 	note.HasComponentIDs = seenKeys["component_ids"]
 	for key, target := range map[string]*[]string{"lesson_tags": &note.LessonTags, "product_ids": &note.ProductIDs, "project_ids": &note.ProjectIDs, "domain_ids": &note.DomainIDs, "component_ids": &note.ComponentIDs, "tag_ids": &note.TagIDs} {

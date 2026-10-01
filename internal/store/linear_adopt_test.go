@@ -310,7 +310,7 @@ func TestLinearIssueAdoptionCompletionConvergesManagedState(t *testing.T) {
 			"task": "label-task", "project:adoptconv-product-project": "label-repo",
 		})
 		enableLinearPlanning(t, s, "adoptconv-product", 2)
-		seedLinearWorkOfKind(t, s, "adoptconv-initiative", "adoptconv-product-project", "initiative", "Adopt convergence initiative", "Adopt convergence value")
+		seedLinearWorkOfKind(t, s, "adoptconv-initiative", "adoptconv-product-project", "Adopt convergence initiative", "Adopt convergence value")
 		seedLinearWorkItem(t, s, "adoptconv-work", "adoptconv-product-project", "Adopt conv title", "Adopt conv value")
 		seedLinearInitiativeEntry(t, s, "adoptconv-initiative", "adoptconv-work", true)
 		seedLinearProjectLink(t, s, "adoptconv-initiative", "adopt-project-remote")
@@ -343,7 +343,7 @@ func TestLinearIssueAdoptionCompletionConvergesManagedState(t *testing.T) {
 			"task": "label-task", "optional": "label-optional", "project:optconv-product-project": "label-repo",
 		})
 		enableLinearPlanning(t, s, "optconv-product", 2)
-		seedLinearWorkOfKind(t, s, "optconv-initiative", "optconv-product-project", "initiative", "Optional convergence initiative", "Optional convergence value")
+		seedLinearWorkOfKind(t, s, "optconv-initiative", "optconv-product-project", "Optional convergence initiative", "Optional convergence value")
 		seedLinearWorkItem(t, s, "optconv-work", "optconv-product-project", "Optional conv title", "Optional conv value")
 		seedLinearInitiativeEntry(t, s, "optconv-initiative", "optconv-work", false)
 		seedLinearProjectLink(t, s, "optconv-initiative", "opt-project-remote")

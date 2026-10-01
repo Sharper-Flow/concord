@@ -90,7 +90,7 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 		t.Fatalf("add canonical path locator: %v", err)
 	}
 
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
 	worktreePath := filepath.Join(filepath.Dir(s.Path()), "worktrees", "proj-web", "work-done")
 
 	// History that must survive the reclamation: PM1 seeds work-done with its

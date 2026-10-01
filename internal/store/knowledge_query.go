@@ -346,36 +346,20 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		}
 	}
 	if err == sql.ErrNoRows {
-		if req.Work != "" {
-			var exists bool
-			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
-			}
-			if exists {
-				out.Status, out.Result = "not_compacted", &Q10Payload{Status: "not_compacted"}
-				return out, nil
-			}
+		status, classified, classifyErr := classifyQ10MissingNote(ctx, db, req, lookupID)
+		if classifyErr != nil {
+			return out, classifyErr
 		}
-		out.Status, out.Result = "missing", &Q10Payload{Status: "missing"}
-		return out, nil
+		if classified {
+			out.Status, out.Result = status, &Q10Payload{Status: status}
+			return out, nil
+		}
 	}
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot read the canonical note locator", true, "retry once the database is readable", err)
 	}
-	if req.Product != "" {
-		var inScope bool
-		if kind == "work_note" || scopeMode == "explicit" {
-			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=? AND home_project_id=? AND home_locator_id=?)`, lookupID, req.Product, homeProject, homeLocator).Scan(&inScope); err != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
-			}
-		} else if scopeMode == "home" {
-			if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
-				return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
-			}
-		}
-		if !inScope {
-			return out, unknownScope("PM1.Q10", "knowledge note is not in the requested Product scope")
-		}
+	if err := q10ProductScopeCheck(ctx, db, req, lookupID, kind, scopeMode, homeProject, homeLocator); err != nil {
+		return out, err
 	}
 	storedHome, locatorErr := knowledgeHomeForLocator(ctx, db, homeProject, homeLocator, "")
 	if locatorErr != nil {
@@ -395,53 +379,8 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
 			return out, nil
 		}
-	} else {
-		var tags []string
-		if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
-			return out, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
-		}
-		manifest, missing, manifestErr := readKnowledgeManifest(ctx, storedHome.RepoPath, commit)
-		if manifestErr != nil || missing {
-			if manifestErr == nil {
-				manifestErr = newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded manifest is missing at the historical commit", false, "restore the committed manifest")
-			}
-			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded manifest schema is unavailable", manifestErr)
-		}
-		if manifestSchemaVersion != "" && manifestSchemaVersion != manifest.SchemaVersion {
-			return out, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
-		}
-		manifestSchemaVersion = manifest.SchemaVersion
-		record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
-		for _, scope := range []struct {
-			table, column string
-			target        *[]string
-		}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
-			values, queryErr := archivedScopeIDs(ctx, db, scope.table, scope.column, lookupID, homeProject, homeLocator)
-			if queryErr != nil {
-				return out, queryErr
-			}
-			*scope.target = values
-		}
-		values, queryErr := archivedScopeIDs(ctx, db, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
-		if queryErr != nil {
-			return out, queryErr
-		}
-		record.Scopes.DomainIDs = values
-		if manifestLawBearingKinds[kind] {
-			if err := db.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
-				return out, q10LawDomainProjectionFailure(err)
-			}
-			record.homeDomainPresent = true
-			record.productWideRationalePresent = record.ProductWideRationale != ""
-			values, queryErr = archivedLawApplicability(ctx, db, homeProject, homeLocator, lookupID)
-			if queryErr != nil {
-				return out, queryErr
-			}
-			record.AppliesToDomainIDs, record.appliesToDomainsPresent = values, true
-		}
-		if err := verifyManifestRecord(ctx, storedHome.RepoPath, commit, record); err != nil {
-			return q10HistoricalFailure(&out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
-		}
+	} else if stop, err := verifyQ10ManifestRecord(ctx, db, req, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, storedHome.RepoPath, &out); stop || err != nil {
+		return out, err
 	}
 	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
 	if law := KnowledgeLawStatus(kind, status); law != "" {
@@ -449,6 +388,101 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	}
 	out.Status, out.Note, out.Result = "canonical", &note, payload
 	return out, nil
+}
+
+// verifyQ10ManifestRecord rebuilds one manifest-indexed record from its
+// archived projection rows, checks it against the historical manifest, and
+// verifies the committed declaration. A historical failure reports through
+// the out parameter's degraded allowance; stop says the caller must return
+// the out as it now stands instead of continuing to the canonical result.
+func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, repoPath string, out *Q10Result) (bool, error) {
+	var tags []string
+	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
+		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
+	}
+	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit)
+	if manifestErr != nil || missing {
+		if manifestErr == nil {
+			manifestErr = newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded manifest is missing at the historical commit", false, "restore the committed manifest")
+		}
+		_, err := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest schema is unavailable", manifestErr)
+		return true, err
+	}
+	if manifestSchemaVersion != "" && manifestSchemaVersion != manifest.SchemaVersion {
+		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
+	}
+	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
+	for _, scope := range []struct {
+		table, column string
+		target        *[]string
+	}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
+		values, queryErr := archivedScopeIDs(ctx, db, scope.table, scope.column, lookupID, homeProject, homeLocator)
+		if queryErr != nil {
+			return true, queryErr
+		}
+		*scope.target = values
+	}
+	values, queryErr := archivedScopeIDs(ctx, db, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
+	if queryErr != nil {
+		return true, queryErr
+	}
+	record.Scopes.DomainIDs = values
+	if manifestLawBearingKinds[kind] {
+		if err := db.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
+			return true, q10LawDomainProjectionFailure(err)
+		}
+		record.homeDomainPresent = true
+		record.productWideRationalePresent = record.ProductWideRationale != ""
+		applicability, applicabilityErr := archivedLawApplicability(ctx, db, homeProject, homeLocator, lookupID)
+		if applicabilityErr != nil {
+			return true, applicabilityErr
+		}
+		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
+	}
+	if err := verifyManifestRecord(ctx, repoPath, commit, record); err != nil {
+		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
+		return true, verifyErr
+	}
+	return false, nil
+}
+
+// classifyQ10MissingNote classifies an absent archived note: a live work
+// reference is not_compacted, everything else is missing. classified is
+// false only when the live-work probe itself failed.
+func classifyQ10MissingNote(ctx context.Context, db *sql.DB, req Q10Request, lookupID string) (string, bool, error) {
+	if req.Work != "" {
+		var exists bool
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_items WHERE id = ?)`, lookupID).Scan(&exists); err != nil {
+			return "", false, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect live work", true, "retry once the database is readable", err)
+		}
+		if exists {
+			return "not_compacted", true, nil
+		}
+	}
+	return "missing", true, nil
+}
+
+// q10ProductScopeCheck refuses a note outside the requested Product scope:
+// explicit-scoped and work notes carry archived Product membership rows,
+// home-scoped notes ride the home Project's membership.
+func q10ProductScopeCheck(ctx context.Context, db *sql.DB, req Q10Request, lookupID, kind, scopeMode, homeProject, homeLocator string) error {
+	if req.Product == "" {
+		return nil
+	}
+	var inScope bool
+	if kind == "work_note" || scopeMode == "explicit" {
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM archived_work_products WHERE work_id=? AND product_id=? AND home_project_id=? AND home_locator_id=?)`, lookupID, req.Product, homeProject, homeLocator).Scan(&inScope); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+		}
+	} else if scopeMode == "home" {
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM product_projects WHERE product_id=? AND project_id=?)`, req.Product, homeProject).Scan(&inScope); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q10", "cannot validate knowledge Product scope", true, "retry once the database is readable", err)
+		}
+	}
+	if !inScope {
+		return unknownScope("PM1.Q10", "knowledge note is not in the requested Product scope")
+	}
+	return nil
 }
 
 func archivedScopeIDs(ctx context.Context, q queryer, table, column, workID, homeProject, homeLocator string) ([]string, error) {
@@ -523,22 +557,22 @@ func q10HistoricalFailure(out *Q10Result, allowDegraded bool, detail string, err
 func classifyQ10HistoricalFailure(detail string, err error) error {
 	var failure *Failure
 	if errors.As(err, &failure) {
-		copy := *failure
-		copy.Op = "PM1.Q10"
-		switch copy.Kind {
+		classified := *failure
+		classified.Op = "PM1.Q10"
+		switch classified.Kind {
 		case KindUnknownScope:
-			copy.Kind = KindKnowledgeUnavailable
+			classified.Kind = KindKnowledgeUnavailable
 		case KindGitUnreachable, KindUnreachable:
-			copy.Kind = KindUnreachable
+			classified.Kind = KindUnreachable
 		case KindInvalidNoteProof:
-			if copy.Err != nil {
-				copy.Kind = KindUnreachable
+			if classified.Err != nil {
+				classified.Kind = KindUnreachable
 			} else {
-				copy.Kind = KindKnowledgeMissing
+				classified.Kind = KindKnowledgeMissing
 			}
 		}
-		copy.Detail = detail + ": " + copy.Detail
-		return &copy
+		classified.Detail = detail + ": " + classified.Detail
+		return &classified
 	}
 	return wrapFailure(KindKnowledgeUnavailable, "PM1.Q10", detail, true, "restore the recorded locator or git proof and retry", err)
 }

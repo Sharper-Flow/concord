@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"reflect"
-	"strconv"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -195,10 +194,10 @@ func productProjectLinkFixturePolicy(t *testing.T, capabilities []Capability, pr
 	return s, service, grant, privateKey
 }
 
-func productProjectLinkRequest(approvalRef string, expectedVersion int64, projectID string) json.RawMessage {
-	input := `{"product_id":"product-1","project_id":"` + projectID + `","role":"secondary","reason":"register sibling project","expected_version":` + strconv.FormatInt(expectedVersion, 10) + `,"idempotency_key":"link-project"}`
+func productProjectLinkRequest(approvalRef string, projectID string) json.RawMessage {
+	input := `{"product_id":"product-1","project_id":"` + projectID + `","role":"secondary","reason":"register sibling project","expected_version":2,"idempotency_key":"link-project"}`
 	if approvalRef != "" {
-		input = `{"product_id":"product-1","project_id":"` + projectID + `","role":"secondary","reason":"register sibling project","expected_version":` + strconv.FormatInt(expectedVersion, 10) + `,"idempotency_key":"link-project","approval":{"approval_ref":"` + approvalRef + `"}}`
+		input = `{"product_id":"product-1","project_id":"` + projectID + `","role":"secondary","reason":"register sibling project","expected_version":2,"idempotency_key":"link-project","approval":{"approval_ref":"` + approvalRef + `"}}`
 	}
 	return json.RawMessage(input)
 }
@@ -215,7 +214,7 @@ func productProjectLinkChallengeFor(t *testing.T, s *store.Store, service *Servi
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", 2, projectID)}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", projectID)}
 	challenge, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("link challenge = %+v, err = %v", challenge, err)
@@ -225,7 +224,7 @@ func productProjectLinkChallengeFor(t *testing.T, s *store.Store, service *Servi
 		t.Fatalf("link challenge approval_ref = %q", ref)
 	}
 	scope := map[string]any{"product_id": "product-1", "product_ids": productIDs, "project_id": projectID, "role": "secondary", "scope_version": scopeVersion}
-	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest(request.Tool, request.Operation, env, productProjectLinkRequest(ref, 2, projectID)), scope, map[string]any{"product": int64(2)}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "link-approval")
+	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest(request.Tool, request.Operation, env, productProjectLinkRequest(ref, projectID)), scope, map[string]any{"product": int64(2)}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "link-approval")
 	return ref, env, scope
 }
 
@@ -233,7 +232,7 @@ func TestProductProjectAddRequiresExactOperatorApproval(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), 2, "project-2")}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved link = %+v, err = %v", approved, err)
@@ -276,7 +275,7 @@ func TestProductProjectAddReportsAffectedWorkScope(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := productProjectLinkFixture(t, []Capability{"work_relate", "cross_scope"})
 	_, env, _ := productProjectLinkChallenge(t, s, service, grant, privateKey)
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), 2, "project-2")}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved link = %+v, err = %v", approved, err)
@@ -311,7 +310,7 @@ func TestProductProjectAddLinksDisjointProjectNamedByPolicy(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, privateKey := productProjectLinkFixturePolicy(t, []Capability{"work_relate", "cross_scope"}, []string{"product-1", "product-2", "product-3"}, []string{"project-1", "project-2", "project-3"})
 	_, env, _ := productProjectLinkChallengeFor(t, s, service, grant, privateKey, "project-3", []string{"product-1", "product-3"})
-	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), 2, "project-3")}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-3")}
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		t.Fatalf("approved disjoint link = %+v, err = %v", approved, err)
@@ -339,7 +338,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", 2, "project-2")}, mutationEnvelope(grant, scopeVersion))
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}, mutationEnvelope(grant, scopeVersion))
 		if err != nil || response.Error == nil || response.Error.Kind != "unauthorized" {
 			t.Fatalf("no-cross-scope response = %+v, err = %v", response, err)
 		}
@@ -353,7 +352,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", 2, "project-3")}, mutationEnvelope(grant, scopeVersion))
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-3")}, mutationEnvelope(grant, scopeVersion))
 		if err != nil || response.Error == nil || response.Error.Kind != "unauthorized" {
 			t.Fatalf("untrusted project response = %+v, err = %v", response, err)
 		}
@@ -367,7 +366,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", 2, "project-none")}, mutationEnvelope(grant, scopeVersion))
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-none")}, mutationEnvelope(grant, scopeVersion))
 		if err != nil || response.Error == nil || response.Error.Kind != "unknown_scope" {
 			t.Fatalf("unknown project response = %+v, err = %v", response, err)
 		}
@@ -394,14 +393,14 @@ func TestProductProjectAddRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 		env := mutationEnvelope(grant, scopeVersion)
-		challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", 2, "project-2")}, env)
+		challenge, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest("", "project-2")}, env)
 		if err != nil || challenge.Error == nil {
 			t.Fatalf("challenge = %+v, err = %v", challenge, err)
 		}
 		ref := challenge.Error.Details["approval_ref"].(string)
 		scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1", "product-2"}, "project_id": "project-2", "role": "primary", "scope_version": scopeVersion}
-		env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_relate", "product_project_add", env, productProjectLinkRequest(ref, 2, "project-2")), scope, map[string]any{"product": int64(2)}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "wrong-role")
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(ref, 2, "project-2")}, env)
+		env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_relate", "product_project_add", env, productProjectLinkRequest(ref, "project-2")), scope, map[string]any{"product": int64(2)}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "wrong-role")
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(ref, "project-2")}, env)
 		if err != nil || response.Error == nil || response.Error.Kind != "approval_invalid" {
 			t.Fatalf("wrong role response = %+v, err = %v", response, err)
 		}
@@ -415,7 +414,7 @@ func TestProductProjectAddRefusals(t *testing.T) {
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "link-stage-bump", Kind: "product.stage_changed", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"stage_maturity":"prototype","stage_audience_commitment":"operator_only","reason":"stage bump","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 2}}); err != nil {
 			t.Fatal(err)
 		}
-		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), 2, "project-2")}, env)
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "product_project_add", Input: productProjectLinkRequest(challengeRef(env), "project-2")}, env)
 		if err != nil || response.Error == nil || response.Error.Kind != "version_conflict" {
 			t.Fatalf("stale version response = %+v, err = %v", response, err)
 		}

@@ -126,15 +126,15 @@ func workerFailJSON(t *testing.T, key ed25519.PrivateKey, eventID, workID, attem
 // workerEvidenceRequest builds one verb's CLI request together with the
 // assertion identity that request establishes, so a caller can perturb a single
 // bound field before signing.
-func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition, workID, attemptID, readback, nonce string) (map[string]any, agent.WorkerEvidenceAssertion) {
+func workerEvidenceRequest(t *testing.T, verb string, lane store.LaneDefinition, readback, nonce string) (map[string]any, agent.WorkerEvidenceAssertion) {
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
-		Verb: verb, WorkID: workID, AttemptID: attemptID,
+		Verb: verb, WorkID: "work-1", AttemptID: "attempt-1",
 		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
 		ReadbackModel: readback, Nonce: nonce,
 	}
 	request := map[string]any{
-		"event_id": "event-" + nonce, "work_id": workID, "attempt_id": attemptID,
+		"event_id": "event-" + nonce, "work_id": "work-1", "attempt_id": "attempt-1",
 		"readback_model": readback,
 	}
 	switch verb {
@@ -258,10 +258,10 @@ func mutateWorkerEvidenceField(t *testing.T, assertion agent.WorkerEvidenceAsser
 // seedWorkerEvidenceAttempt records a dispatch attempt through the CLI. A
 // worker attempt only exists behind an authorized dispatch window, so the
 // fixture opens that window before claiming the attempt.
-func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.LaneDefinition, dbPath, workID, attemptID, readback string) {
+func seedWorkerEvidenceAttempt(t *testing.T, key ed25519.PrivateKey, lane store.LaneDefinition, dbPath, readback string) {
 	t.Helper()
-	seedAuthorizedDispatchWindow(t, dbPath, workID, attemptID)
-	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbDispatch, lane, workID, attemptID, readback, "nonce-seed-dispatch000001")
+	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbDispatch, lane, readback, "nonce-seed-dispatch000001")
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
@@ -287,9 +287,9 @@ func TestWorkerEvidenceBindsExactlyTheDeclaredFieldSet(t *testing.T) {
 			if verb == agent.WorkerEvidenceVerbDispatch {
 				seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 			} else {
-				seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
+				seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 			}
-			request, assertion := workerEvidenceRequest(t, verb, lane, "work-1", "attempt-1", readback, "nonce-bound-fieldset00001")
+			request, assertion := workerEvidenceRequest(t, verb, lane, readback, "nonce-bound-fieldset00001")
 			request["assertion"] = signWorkerEvidence(t, key, mutate(restrictWorkerEvidenceAssertion(t, assertion, vectorCase.BoundFields)))
 			var out, errOut bytes.Buffer
 			code := runWithInput([]string{verb}, strings.NewReader(mustJSON(t, request)), &out, &errOut)
@@ -324,9 +324,9 @@ func TestWorkerFailRefusesAnAssertionWithoutLaneIdentity(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
-	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 
-	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", readback, "nonce-fail-nolaneidentity")
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-nolaneidentity")
 	unbound := assertion
 	unbound.LaneID = ""
 	unbound.LaneVersion = 0
@@ -369,9 +369,9 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
-	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", readback)
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
 
-	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-emptyobs01")
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "", "nonce-abandon-emptyobs01")
 	request["event_id"] = "abandon-empty-observation"
 	request["detail"] = "the host observed that the lane never reported"
 	delete(request, "readback_model")
@@ -422,9 +422,9 @@ func TestWorkerAbandonRefusesAnObservedLiveSession(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", preferredLaneModel(lane))
+	seedWorkerEvidenceAttempt(t, key, lane, dbPath, preferredLaneModel(lane))
 
-	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-livesess01")
+	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "", "nonce-abandon-livesess01")
 	request["event_id"] = "abandon-live-session"
 	request["detail"] = "the host observed that the lane never reported"
 	delete(request, "readback_model")
@@ -479,9 +479,9 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 			dbPath := freshMigratedCLIDatabase(t)
 			key := seedWorkerEvidenceClient(t)
 			lane := store.BuiltinLaneDefinitions()[0]
-			seedWorkerEvidenceAttempt(t, key, lane, dbPath, "work-1", "attempt-1", preferredLaneModel(lane))
+			seedWorkerEvidenceAttempt(t, key, lane, dbPath, preferredLaneModel(lane))
 
-			request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "work-1", "attempt-1", "", "nonce-abandon-legacyrow1")
+			request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, "", "nonce-abandon-legacyrow1")
 			request["event_id"] = "abandon-legacy-row"
 			request["detail"] = "the host observed that the lane never reported"
 			delete(request, "readback_model")
@@ -582,7 +582,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 			name: "dispatch without an assertion", command: "worker-dispatch",
 			build: func(t *testing.T, key ed25519.PrivateKey) string {
 				value := map[string]any{}
-				if err := json.Unmarshal([]byte(workerDispatchJSON(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-unsigned01")), &value); err != nil {
+				if err := json.Unmarshal([]byte(workerDispatchJSON(t, key, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-unsigned01")), &value); err != nil {
 					t.Fatal(err)
 				}
 				delete(value, "assertion")
@@ -601,7 +601,7 @@ func TestWorkerEvidenceRefusesUnauthenticatedAndForgedCallers(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				return workerDispatchJSON(t, forged, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-forgedkey1")
+				return workerDispatchJSON(t, forged, "event-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-forgedkey1")
 			},
 			want: "signature invalid",
 		},
@@ -689,7 +689,7 @@ func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
-	dispatch1 := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
+	dispatch1 := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-replay0001")
 
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch1), &out, &errOut); code != 0 {
@@ -700,7 +700,7 @@ func TestWorkerEvidenceAssertionCannotBeReplayed(t *testing.T) {
 	// without a fresh window, the dispatch_window gate (CD-0059 D5) would
 	// refuse on consumed-window and the nonce check would never run.
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-2")
-	dispatch2 := workerDispatchJSON(t, key, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-replay0001")
+	dispatch2 := workerDispatchJSON(t, key, "dispatch-2", "work-1", "attempt-2", lane, preferredLaneModel(lane), "nonce-dispatch-replay0001")
 	out.Reset()
 	errOut.Reset()
 	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(dispatch2), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "replayed") {
@@ -719,7 +719,7 @@ func TestWorkerCompleteCLIRefusesAnOmittedEvidenceOriginAndUndischargedObligatio
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-origin", "work-origin", "attempt-origin", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-origin001")), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-origin", "work-origin", "attempt-origin", lane, preferredLaneModel(lane), "nonce-dispatch-origin001")), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
 
@@ -767,7 +767,7 @@ func TestWorkerEvidenceCannotChangeATerminalResult(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-terminal01")), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-terminal01")), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
 	complete := workerCompleteJSON(t, key, "complete-1", "work-1", "attempt-1", preferredLaneModel(lane), "nonce-complete-terminal01", &lane)
@@ -820,7 +820,7 @@ func TestWorkerEvidenceRequiresTheWorkerEvidenceCapability(t *testing.T) {
 	})
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, privateKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-nocapabil1")), &out, &errOut)
+	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, privateKey, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-nocapabil1")), &out, &errOut)
 	if code == 0 || !strings.Contains(errOut.String(), "worker_evidence capability") {
 		t.Fatalf("exit=%d stderr=%q, want capability refusal", code, errOut.String())
 	}
@@ -837,7 +837,7 @@ func TestWorkerEvidenceRefusesARevokedClient(t *testing.T) {
 	runCLIJSON(t, []string{"client", "revoke"}, map[string]any{"client_ref": workerEvidenceClientRef})
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-revoked001")), &out, &errOut)
+	code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-revoked001")), &out, &errOut)
 	if code == 0 {
 		t.Fatalf("revoked client recorded worker evidence; stderr=%q", errOut.String())
 	}
@@ -857,7 +857,7 @@ func TestWorkerDispatchRefusesMissingPacketDigest(t *testing.T) {
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-missingdigest")
+	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-missingdigest")
 	cases := []struct {
 		name    string
 		mutate  func(map[string]any)
@@ -902,7 +902,7 @@ func TestWorkerDispatchRefusesMismatchedPacketDigest(t *testing.T) {
 	seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
-	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-mismatch001")
+	raw := workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-mismatch001")
 	value := map[string]any{}
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {
 		t.Fatal(err)
@@ -947,7 +947,7 @@ func TestWorkerEvidenceRecordsTheVerifiedClientAsActor(t *testing.T) {
 	key := seedWorkerEvidenceClient(t)
 	lane := store.BuiltinLaneDefinitions()[0]
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), store.WorkerPacketSchemaVersion, "nonce-dispatch-actorcheck")), &out, &errOut); code != 0 {
+	if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(workerDispatchJSON(t, key, "dispatch-1", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-dispatch-actorcheck")), &out, &errOut); code != 0 {
 		t.Fatalf("worker-dispatch exit=%d stderr=%q", code, errOut.String())
 	}
 	s, err := store.Open(context.Background(), dbPath)

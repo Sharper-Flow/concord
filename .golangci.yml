@@ -14,6 +14,11 @@ linters:
     - rowserrcheck
     - staticcheck
     - unconvert
+    - unparam
+    - wastedassign
+    - gocritic
+    - dupl
+    - revive
   settings:
     errcheck:
       # Query iteration errors are checked by rowserrcheck. Close and rollback
@@ -32,6 +37,12 @@ linters:
         - all
         - -U1000
         - -QF*
+    revive:
+      enable-default-rules: false
+      rules:
+        - name: redefines-builtin-id
+        - name: indent-error-flow
+        - name: superfluous-else
   exclusions:
     warn-unused: true
     rules:

@@ -195,7 +195,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
             fail("workflow action contract projection contains an open record")
         for payload_key in ("payload", "public_payload"):
             if set(action[payload_key]) - {"closed", "fields"}:
-                fail(f"workflow action contract projection contains an open payload")
+                fail("workflow action contract projection contains an open payload")
             if action[payload_key].get("closed") is not True:
                 fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
         if not isinstance(action["legacy_payloads"], list):
@@ -321,8 +321,8 @@ def install_workflow_outcome_schema(defs: dict) -> dict:
         defs[names[name]] = rewrite(schema)
     # The payload oneOf stays inline at each use site. Moonshot's flavored
     # tool-schema validator rejects a $ref whose target is rooted at a bare
-    # combinator ("detected infinite recursion without termination condition"),
-    # and this def would be exactly that shape.
+    # combinator, reporting "detected infinite recursion without termination
+    # condition"; this def would be exactly that shape.
     return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
 
 
@@ -398,6 +398,22 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "ordinal": {"type": "integer", "minimum": 0, "maximum": 7},
             "outcome_kind": {"type": "string", "enum": ["exists", "absent", "outcome", "check"]}, "outcome_payload": copy.deepcopy(outcome_payload),
         }},
+    }
+    # CD-0198 D1: one record_verdict call may carry a verdict per judged
+    # predicate through the fields.verdicts array. Each item names one
+    # approved predicate of the call's contract version and carries its own
+    # verdict kind, evaluation evidence, and incomparable flag. The store
+    # refuses a call that carries fields.predicate_id beside the array, or
+    # neither form, and refuses an entry-level field beside the batch.
+    defs["workflow_verdict_batch_entry"] = {
+        "type": "object", "additionalProperties": False,
+        "required": ["predicate_id"],
+        "properties": {
+            "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
+            "verdict_kind": {"type": "string", "enum": ["ok", "outcome_mismatch", "insufficient_evidence"]},
+            "evaluation_evidence": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}},
+            "incomparable_with_approved": {"type": "boolean"},
+        },
     }
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):

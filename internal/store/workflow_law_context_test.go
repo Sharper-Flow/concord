@@ -2,11 +2,24 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+// workflowLawFixtureRepo returns the normalized repository path the law
+// fixture registered as the Product knowledge home locator.
+func workflowLawFixtureRepo(t *testing.T, s *Store) string {
+	t.Helper()
+	var repo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT normalized_value FROM project_locators WHERE locator_id='workflow-law-locator'`).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
 
 // seedLawContextFixture initializes one implementation workflow whose approved
 // contract binds spec:one (mandated and modified), law:new (added), and the
@@ -72,6 +85,7 @@ func approveLawContextContract(t *testing.T, s *Store, workID string, mandate, m
 	pins := map[string]string{
 		"spec:one":  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"const:one": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		"spec:pre":  "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 	}
 	revisions := []WorkflowLawRevision{}
 	for _, lawID := range mandate {
@@ -103,9 +117,12 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	if snapshot.LawContext == nil {
 		t.Fatal("continuity resolved no law context for a contract that binds law")
 	}
+	homeRepo := workflowLawFixtureRepo(t, s)
+	// The lane reads each law from the knowledge home's checkout, so the
+	// projected path is home-qualified and openable.
 	wantLaws := []WorkflowLawContextLaw{
 		{Roles: []string{"added", "mandated"}, LawID: "law:new"},
-		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: ".concord/docs/spec.md", ObligationIDs: []string{"verification"}},
+		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Synthetic test law", Path: filepath.Join(homeRepo, ".concord/docs/spec.md"), ObligationIDs: []string{"verification"}},
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
 		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)
@@ -117,10 +134,18 @@ func TestContinuityResolvesContractLawAndDomainContext(t *testing.T) {
 	if !reflect.DeepEqual(snapshot.LawContext.Domains, wantDomains) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
 	}
-	// The lane reads Domain structure from the repository file, so a contract
-	// that binds Domains carries the registry path in the packet's law block.
-	if snapshot.LawContext.RegistryPath != knowledgeRegistryPath {
-		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, knowledgeRegistryPath)
+	// The lane reads Domain structure from the knowledge home's repository
+	// file, so a contract that binds Domains carries an absolute registry
+	// locator inside the home checkout, and the file it names opens.
+	wantRegistry := filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")
+	if snapshot.LawContext.RegistryPath != wantRegistry {
+		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, wantRegistry)
+	}
+	if !filepath.IsAbs(snapshot.LawContext.RegistryPath) {
+		t.Fatalf("law context registry path = %q, want an absolute home-qualified locator", snapshot.LawContext.RegistryPath)
+	}
+	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
+		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
 	}
 }
 
@@ -136,6 +161,9 @@ func TestContinuityLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-law-only"
 	seedLawContextFixture(t, s, workID)
+	// Read the fixture home path before the transaction opens: the store
+	// pools one connection, so no s.db read may run while a tx is open.
+	wantPath := filepath.Join(workflowLawFixtureRepo(t, s), ".concord/docs/spec.md")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +185,10 @@ func TestContinuityLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
 	if len(lawContext.Domains) != 0 {
 		t.Fatalf("law-only context Domains = %+v, want empty", lawContext.Domains)
 	}
+	// The law entries carry home-qualified locators even without a binding.
+	if lawContext.Laws[0].Path != wantPath {
+		t.Fatalf("law-only context law path = %q, want %q", lawContext.Laws[0].Path, wantPath)
+	}
 }
 
 // Constitution records are law-bearing under the accepted knowledge taxonomy
@@ -173,6 +205,9 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','constitution','accepted','.concord/docs/constitution.md','Synthetic constitution',?,'test'); INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','const:one','product','root',?,'test'); DELETE FROM fold_guard`, constitutionHash, constitutionHash); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(workflowLawFixtureRepo(t, s), ".concord", "docs", "constitution.md"), []byte("# Synthetic constitution\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	binding := WorkflowArchitectureBinding{DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"const:one"}, []string{}, binding)
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
@@ -183,7 +218,7 @@ func TestContinuityResolvesMandatedConstitutionLaw(t *testing.T) {
 		t.Fatal("continuity resolved no law context for a contract that mandates a constitution")
 	}
 	wantLaws := []WorkflowLawContextLaw{
-		{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: ".concord/docs/constitution.md"},
+		{Roles: []string{"mandated"}, LawID: "const:one", Kind: "constitution", Status: "accepted", Title: "Synthetic constitution", Path: filepath.Join(workflowLawFixtureRepo(t, s), ".concord/docs/constitution.md")},
 	}
 	if !reflect.DeepEqual(snapshot.LawContext.Laws, wantLaws) {
 		t.Fatalf("law context laws = %+v, want %+v", snapshot.LawContext.Laws, wantLaws)
@@ -231,10 +266,7 @@ func TestContinuityRefusesModifiedLawMissingFromProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" || failure.RecoveryAction != "rebuild the accepted Git law projection" {
-		t.Fatalf("missing modified law diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
-	}
+	assertLawContextDrift(t, err, "spec:one", "rebuild the accepted Git law projection")
 }
 
 // A verification obligation binds a pinned law by ID, so a law carrying the
@@ -306,8 +338,15 @@ func TestContinuityRefusesDomainMissingFromRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	assertLawContextDrift(t, err, "child", "rebuild the Domain registry projection")
+}
+
+// assertLawContextDrift proves the continuity read refuses fail-closed on a
+// drifted projection with the typed diagnosis the law context owns.
+func assertLawContextDrift(t *testing.T, err error, wantCandidate, wantRecovery string) {
+	t.Helper()
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "child" || failure.RecoveryAction != "rebuild the Domain registry projection" {
-		t.Fatalf("missing Domain diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != wantCandidate || failure.RecoveryAction != wantRecovery {
+		t.Fatalf("drift diagnosis = %v, want typed projection_not_found from the law context with candidate %s and recovery %s", err, wantCandidate, wantRecovery)
 	}
 }

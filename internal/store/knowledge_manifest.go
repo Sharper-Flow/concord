@@ -642,82 +642,121 @@ func validateKnowledgeManifestForPaths(manifest KnowledgeManifest, pathPrefix st
 	return nil
 }
 
+// knowledgeDomainGraphs collects the parent, dependency, and replacement
+// edges a registry validation walk builds.
+type knowledgeDomainGraphs struct {
+	byID     map[string]KnowledgeDomain
+	parent   map[string][]string
+	depends  map[string][]string
+	replaces map[string][]string
+	relKeys  map[string]bool
+	rootSeen bool
+}
+
 func validateKnowledgeDomainRegistry(registry KnowledgeDomainRegistry) error {
 	if registry.SchemaVersion != "1.0" || !validProductKey(registry.ProductKey) || registry.RootDomainID != "product-root:"+registry.ProductKey || registry.Domains == nil || len(registry.Domains) > maxManifestDomains {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root is invalid", false, "publish schema 1.0 registry metadata and a bounded domain array")
 	}
-	byID := make(map[string]KnowledgeDomain, len(registry.Domains))
-	parentGraph := map[string][]string{}
-	dependsGraph := map[string][]string{}
-	replacesGraph := map[string][]string{}
-	relationKeys := map[string]bool{}
-	rootFound := false
+	graphs := knowledgeDomainGraphs{
+		byID:     make(map[string]KnowledgeDomain, len(registry.Domains)),
+		parent:   map[string][]string{},
+		depends:  map[string][]string{},
+		replaces: map[string][]string{},
+		relKeys:  map[string]bool{},
+	}
 	for _, domain := range registry.Domains {
-		if !validManifestID(domain.DomainID) || domain.Name == "" || utf8.RuneCountInString(domain.Name) > maxManifestTitle || strings.TrimSpace(domain.Name) != domain.Name || domain.Purpose == "" || utf8.RuneCountInString(domain.Purpose) > maxManifestSummary || strings.TrimSpace(domain.Purpose) != domain.Purpose || (domain.Status != "current" && domain.Status != "deprecated") || domain.ArchitectureRelations == nil || len(domain.ArchitectureRelations) > maxManifestRelations {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain record is invalid", false, "publish bounded domain metadata and architecture relations")
-		}
-		if _, exists := byID[domain.DomainID]; exists {
-			return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "domain registry contains duplicate domain IDs", false, "declare each domain once")
-		}
-		byID[domain.DomainID] = domain
-		if domain.DomainID == registry.RootDomainID {
-			rootFound = true
-			if domain.Status != "current" || domain.parentDomainPresent || domain.ParentDomainID != "" {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root must be current and parentless", false, "make the product root a current parentless domain")
-			}
-		}
-		if domain.ParentDomainID != "" || domain.parentDomainPresent {
-			if !validManifestID(domain.ParentDomainID) || domain.ParentDomainID == domain.DomainID {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain parent is invalid or self-referential", false, "reference a distinct domain in the same registry")
-			}
-			parentGraph[domain.DomainID] = append(parentGraph[domain.DomainID], domain.ParentDomainID)
-		}
-		for _, relation := range domain.ArchitectureRelations {
-			if !validManifestID(relation.TargetDomainID) || relation.TargetDomainID == domain.DomainID {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation target is invalid or self-referential", false, "reference a distinct domain in the same registry")
-			}
-			if relation.Kind != "depends_on" && relation.Kind != "shares_contract_with" && relation.Kind != "replaces" {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation kind is not closed", false, "use depends_on, shares_contract_with, or replaces")
-			}
-			if relation.Kind != "replaces" && (relation.State != "" || relation.statePresent) {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation state is only valid for replaces", false, "omit state except on replacement relations")
-			}
-			key := relation.Kind + "\x00" + domain.DomainID + "\x00" + relation.TargetDomainID
-			switch relation.Kind {
-			case "depends_on":
-				if len(relation.GoverningLawIDs) == 0 {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "depends_on requires non-empty governing law IDs", false, "name current accepted laws governing the dependency")
-				}
-				dependsGraph[domain.DomainID] = append(dependsGraph[domain.DomainID], relation.TargetDomainID)
-			case "shares_contract_with":
-				if relation.TargetDomainID < domain.DomainID {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with must use its canonical ordered pair", false, "author the lower domain ID as the relation source")
-				}
-				if len(relation.GoverningLawIDs) == 0 {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with requires non-empty governing law IDs", false, "name current accepted laws governing the shared contract")
-				}
-				key = relation.Kind + "\x00" + domain.DomainID + "\x00" + relation.TargetDomainID
-			case "replaces":
-				if relation.governingLawsPresent || relation.GoverningLawIDs != nil {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces cannot carry governing law IDs", false, "omit governing_law_ids from replacement relations")
-				}
-				if !relation.statePresent && relation.State == "" || relation.State != "declared" && relation.State != "building" && relation.State != "coexisting" && relation.State != "cutover" && relation.State != "retired" {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces requires a closed state", false, "declare the replacement lifecycle state")
-				}
-				replacesGraph[domain.DomainID] = append(replacesGraph[domain.DomainID], relation.TargetDomainID)
-			}
-			if relationKeys[key] {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation is duplicated, including reverse shares_contract_with", false, "declare each architecture relation once")
-			}
-			relationKeys[key] = true
-			if err := validateOptionalManifestIDs(relation.GoverningLawIDs, "governing_law_ids"); err != nil {
-				return err
-			}
+		if err := validateKnowledgeDomainRecord(domain, registry.RootDomainID, &graphs); err != nil {
+			return err
 		}
 	}
-	if !rootFound {
+	if !graphs.rootSeen {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root domain is not declared", false, "declare the current parentless root domain")
 	}
+	if err := validateKnowledgeDomainReferences(registry, graphs.byID); err != nil {
+		return err
+	}
+	if relationGraphHasCycle(graphs.parent) || relationGraphHasCycle(graphs.depends) || relationGraphHasCycle(graphs.replaces) {
+		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "domain architecture graph contains a cycle", false, "remove cycles from hierarchy, dependency, or replacement relations")
+	}
+	return nil
+}
+
+// validateKnowledgeDomainRecord validates one domain record and records its
+// parent edge and architecture relations into the walk's graphs.
+func validateKnowledgeDomainRecord(domain KnowledgeDomain, rootDomainID string, graphs *knowledgeDomainGraphs) error {
+	if !validManifestID(domain.DomainID) || domain.Name == "" || utf8.RuneCountInString(domain.Name) > maxManifestTitle || strings.TrimSpace(domain.Name) != domain.Name || domain.Purpose == "" || utf8.RuneCountInString(domain.Purpose) > maxManifestSummary || strings.TrimSpace(domain.Purpose) != domain.Purpose || (domain.Status != "current" && domain.Status != "deprecated") || domain.ArchitectureRelations == nil || len(domain.ArchitectureRelations) > maxManifestRelations {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain record is invalid", false, "publish bounded domain metadata and architecture relations")
+	}
+	if _, exists := graphs.byID[domain.DomainID]; exists {
+		return newFailure(KindKnowledgeAmbiguous, "parse_knowledge_manifest", "domain registry contains duplicate domain IDs", false, "declare each domain once")
+	}
+	graphs.byID[domain.DomainID] = domain
+	if domain.DomainID == rootDomainID {
+		graphs.rootSeen = true
+		if domain.Status != "current" || domain.parentDomainPresent || domain.ParentDomainID != "" {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain registry root must be current and parentless", false, "make the product root a current parentless domain")
+		}
+	}
+	if domain.ParentDomainID != "" || domain.parentDomainPresent {
+		if !validManifestID(domain.ParentDomainID) || domain.ParentDomainID == domain.DomainID {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "domain parent is invalid or self-referential", false, "reference a distinct domain in the same registry")
+		}
+		graphs.parent[domain.DomainID] = append(graphs.parent[domain.DomainID], domain.ParentDomainID)
+	}
+	for _, relation := range domain.ArchitectureRelations {
+		if err := validateKnowledgeDomainRelation(domain.DomainID, relation, graphs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateKnowledgeDomainRelation validates one architecture relation and
+// records its edge into the walk's graphs.
+func validateKnowledgeDomainRelation(domainID string, relation KnowledgeArchitectureRelation, graphs *knowledgeDomainGraphs) error {
+	if !validManifestID(relation.TargetDomainID) || relation.TargetDomainID == domainID {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation target is invalid or self-referential", false, "reference a distinct domain in the same registry")
+	}
+	if relation.Kind != "depends_on" && relation.Kind != "shares_contract_with" && relation.Kind != "replaces" {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation kind is not closed", false, "use depends_on, shares_contract_with, or replaces")
+	}
+	if relation.Kind != "replaces" && (relation.State != "" || relation.statePresent) {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation state is only valid for replaces", false, "omit state except on replacement relations")
+	}
+	key := relation.Kind + "\x00" + domainID + "\x00" + relation.TargetDomainID
+	switch relation.Kind {
+	case "depends_on":
+		if len(relation.GoverningLawIDs) == 0 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "depends_on requires non-empty governing law IDs", false, "name current accepted laws governing the dependency")
+		}
+		graphs.depends[domainID] = append(graphs.depends[domainID], relation.TargetDomainID)
+	case "shares_contract_with":
+		if relation.TargetDomainID < domainID {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with must use its canonical ordered pair", false, "author the lower domain ID as the relation source")
+		}
+		if len(relation.GoverningLawIDs) == 0 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "shares_contract_with requires non-empty governing law IDs", false, "name current accepted laws governing the shared contract")
+		}
+		key = relation.Kind + "\x00" + domainID + "\x00" + relation.TargetDomainID
+	case "replaces":
+		if relation.governingLawsPresent || relation.GoverningLawIDs != nil {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces cannot carry governing law IDs", false, "omit governing_law_ids from replacement relations")
+		}
+		if !relation.statePresent && relation.State == "" || relation.State != "declared" && relation.State != "building" && relation.State != "coexisting" && relation.State != "cutover" && relation.State != "retired" {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "replaces requires a closed state", false, "declare the replacement lifecycle state")
+		}
+		graphs.replaces[domainID] = append(graphs.replaces[domainID], relation.TargetDomainID)
+	}
+	if graphs.relKeys[key] {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "architecture relation is duplicated, including reverse shares_contract_with", false, "declare each architecture relation once")
+	}
+	graphs.relKeys[key] = true
+	return validateOptionalManifestIDs(relation.GoverningLawIDs, "governing_law_ids")
+}
+
+// validateKnowledgeDomainReferences refuses dangling parent and relation
+// targets, and dependency relations that point at a deprecated domain.
+func validateKnowledgeDomainReferences(registry KnowledgeDomainRegistry, byID map[string]KnowledgeDomain) error {
 	for _, domain := range registry.Domains {
 		if domain.ParentDomainID != "" || domain.parentDomainPresent {
 			if _, ok := byID[domain.ParentDomainID]; !ok {
@@ -733,9 +772,6 @@ func validateKnowledgeDomainRegistry(registry KnowledgeDomainRegistry) error {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "depends_on target must be current", false, "reference a current domain in dependency relations")
 			}
 		}
-	}
-	if relationGraphHasCycle(parentGraph) || relationGraphHasCycle(dependsGraph) || relationGraphHasCycle(replacesGraph) {
-		return newFailure(KindCycleDetected, "parse_knowledge_manifest", "domain architecture graph contains a cycle", false, "remove cycles from hierarchy, dependency, or replacement relations")
 	}
 	return nil
 }
@@ -1051,6 +1087,44 @@ func validateManifestKindList(values []string, field string) (map[string]bool, e
 }
 
 func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed map[string]bool, schemaVersion string, pathPrefix string, covered func(string) bool) error {
+	if err := validateKnowledgeCriterionBindings(record); err != nil {
+		return err
+	}
+	if err := validateKnowledgeEvidencePaths(record); err != nil {
+		return err
+	}
+	if err := validateKnowledgeRecordIdentity(record, supported, indexed, pathPrefix, covered); err != nil {
+		return err
+	}
+	if err := validateKnowledgeRecordAuthority(record); err != nil {
+		return err
+	}
+	if err := validateKnowledgeRecordSuccession(record); err != nil {
+		return err
+	}
+	if record.Title == "" || utf8.RuneCountInString(record.Title) > maxManifestTitle || strings.TrimSpace(record.Title) != record.Title || record.Summary == "" || utf8.RuneCountInString(record.Summary) > maxManifestSummary || strings.TrimSpace(record.Summary) != record.Summary {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record title or summary is empty, oversized, or not clean", false, "supply bounded authored metadata")
+	}
+	if record.Tags == nil {
+		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record tags field is missing or null", false, "supply an explicit tags array")
+	}
+	if err := validateManifestStringArray(record.Tags, "tags"); err != nil {
+		return err
+	}
+	if err := validateManifestScopesForSchema(record.Scopes, schemaVersion); err != nil {
+		return err
+	}
+	if err := validateContentHash(record.SHA256); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateKnowledgeCriterionBindings validates one spec record's criterion
+// bindings: each criterion index is positive and unique, and each binding
+// carries exactly one form — a scenario, an exemption reason, or a work-item
+// predicate.
+func validateKnowledgeCriterionBindings(record KnowledgeRecord) error {
 	if len(record.CriterionBindings) > maxCriterionBindings {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many criterion bindings", false, "supply at most one thousand criterion bindings")
 	}
@@ -1090,6 +1164,12 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "criterion binding predicate id is not a predicate- prefixed id", false, "reference one outcome predicate with the predicate: prefix")
 		}
 	}
+	return nil
+}
+
+// validateKnowledgeEvidencePaths validates the record's bounded set of
+// repository-relative evidence paths.
+func validateKnowledgeEvidencePaths(record KnowledgeRecord) error {
 	if len(record.Evidence) > 32 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record carries too many evidence paths", false, "supply at most thirty-two evidence paths")
 	}
@@ -1098,6 +1178,12 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "evidence must be bounded repository-relative paths", false, "supply relative evidence paths")
 		}
 	}
+	return nil
+}
+
+// validateKnowledgeRecordIdentity validates the record's ID, kind, path,
+// status, and the status each kind admits.
+func validateKnowledgeRecordIdentity(record KnowledgeRecord, supported, indexed map[string]bool, pathPrefix string, covered func(string) bool) error {
 	if record.ID == "" || utf8.RuneCountInString(record.ID) > maxManifestID || strings.TrimSpace(record.ID) != record.ID {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record ID is empty, oversized, or not clean", false, "use a bounded stable ID")
 	}
@@ -1119,6 +1205,12 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	if lawBearing := manifestLawBearingKinds[record.Kind]; lawBearing && record.Status == "published" || !lawBearing && record.Status == "accepted" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "status is invalid for record kind", false, "law-bearing records are accepted; every other kind is published")
 	}
+	return nil
+}
+
+// validateKnowledgeRecordAuthority validates the record's authority tier and
+// the fields each tier admits.
+func validateKnowledgeRecordAuthority(record KnowledgeRecord) error {
 	if record.Authority.Tier != "legislated" && record.Authority.Tier != "derived" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record authority tier is not closed", false, "use legislated or derived")
 	}
@@ -1129,6 +1221,12 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	} else if record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "derived record authority carries legislative fields", false, "remove legislated_by and contract_version")
 	}
+	return nil
+}
+
+// validateKnowledgeRecordSuccession validates the record's successor chain
+// and date.
+func validateKnowledgeRecordSuccession(record KnowledgeRecord) error {
 	if record.Status == "superseded" && record.Successor == "" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record lacks successor", false, "declare the stable successor ID")
 	}
@@ -1140,21 +1238,6 @@ func validateKnowledgeRecordForSchema(record KnowledgeRecord, supported, indexed
 	}
 	if _, err := time.Parse(time.RFC3339Nano, record.Date); err != nil {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record date is not RFC3339", false, "use an RFC3339 date")
-	}
-	if record.Title == "" || utf8.RuneCountInString(record.Title) > maxManifestTitle || strings.TrimSpace(record.Title) != record.Title || record.Summary == "" || utf8.RuneCountInString(record.Summary) > maxManifestSummary || strings.TrimSpace(record.Summary) != record.Summary {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record title or summary is empty, oversized, or not clean", false, "supply bounded authored metadata")
-	}
-	if record.Tags == nil {
-		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record tags field is missing or null", false, "supply an explicit tags array")
-	}
-	if err := validateManifestStringArray(record.Tags, "tags"); err != nil {
-		return err
-	}
-	if err := validateManifestScopesForSchema(record.Scopes, schemaVersion); err != nil {
-		return err
-	}
-	if err := validateContentHash(record.SHA256); err != nil {
-		return err
 	}
 	return nil
 }

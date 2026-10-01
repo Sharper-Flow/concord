@@ -172,8 +172,10 @@ def _discover(source: str) -> tuple[dict[str, Column], list[Trigger]]:
             (r"\bALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s+RENAME\s+TO\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;", "rename"),
             (r"\bALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s+ADD\s+COLUMN\s+(.+?);", "add"),
         ):
-            for match in re.finditer(pattern, masked, re.IGNORECASE | re.DOTALL):
-                events.append((match.start(), kind, match))
+            events.extend(
+                (match.start(), kind, match)
+                for match in re.finditer(pattern, masked, re.IGNORECASE | re.DOTALL)
+            )
         events.sort(key=lambda event: event[0])
         for position, kind, raw_match in events:
             match = raw_match
@@ -212,12 +214,14 @@ def _discover(source: str) -> tuple[dict[str, Column], list[Trigger]]:
             trigger_events.append((match.start(), "create", match))
             name = _unquote(match.group(1))
             trigger_end[name] = end
-        for match in re.finditer(
-            r"\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;",
-            masked,
-            re.IGNORECASE,
-        ):
-            trigger_events.append((match.start(), "drop", match))
+        trigger_events.extend(
+            (match.start(), "drop", match)
+            for match in re.finditer(
+                r"\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;",
+                masked,
+                re.IGNORECASE,
+            )
+        )
         for position, kind, match in sorted(trigger_events, key=lambda event: event[0]):
             name = _unquote(match.group(1))
             if kind == "drop":
@@ -339,8 +343,7 @@ def check(root: Path, schema_path: Path | None = None, manifest_path: Path | Non
     manifest = _load_json(manifest_path or root / MANIFEST, findings)
     entries = _entry_map(manifest, findings)
     live = {(column.table, column.name): column for column in columns}
-    for key in sorted(set(live) - set(entries)):
-        findings.append(f"undeclared: {key[0]}.{key[1]}")
+    findings.extend(f"undeclared: {key[0]}.{key[1]}" for key in sorted(set(live) - set(entries)))
     for key, entry in sorted(entries.items()):
         if key not in live:
             findings.append(f"stale: {key[0]}.{key[1]} is not a live vocabulary column")

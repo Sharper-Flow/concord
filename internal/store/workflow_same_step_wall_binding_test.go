@@ -29,7 +29,7 @@ func TestSameStepWallBindingAfterACompletedAttempt(t *testing.T) {
 		if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, nil); err != nil {
 			t.Fatalf("same-step dispatch %d: %v", n, err)
 		}
-		failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+		failWorkerAttemptWithKind(t, s, workID, attemptID, "the lane failed before a judgeable result existed")
 	}
 
 	// The operator-approved fourth attempt completes without acceptance: its

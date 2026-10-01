@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func designateFixture(t *testing.T, s *Store) (string, string) {
+func designateFixture(t *testing.T, s *Store) string {
 	t.Helper()
 	if _, err := s.CreateProductWithProject(context.Background(), ProductCreation{
 		ProductID: "home-product", DisplayName: "Home Product", StageMaturity: "prototype", StageAudienceCommitment: "operator_only",
@@ -20,7 +20,7 @@ func designateFixture(t *testing.T, s *Store) (string, string) {
 		t.Fatal(err)
 	}
 	secondPath := t.TempDir()
-	return homePath, secondPath
+	return secondPath
 }
 
 func countKnowledgeHomes(t *testing.T, s *Store) int {
@@ -70,7 +70,7 @@ func TestProductKnowledgeHomeDesignationReplacesThePriorRow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
-	_, secondPath := designateFixture(t, s)
+	secondPath := designateFixture(t, s)
 	if err := s.AddProjectLocator(ctx, "home-project", ProjectLocator{
 		ID: "second-locator", ProjectID: "home-project", Kind: LocatorCanonicalPath, Value: secondPath, NormalizedValue: secondPath,
 	}, 2); err != nil {
@@ -105,7 +105,7 @@ func TestProductKnowledgeHomeDesignationEnforcesEligibility(t *testing.T) {
 
 	t.Run("non-member Project", func(t *testing.T) {
 		s := openTemp(t)
-		_, siblingPath := designateFixture(t, s)
+		siblingPath := designateFixture(t, s)
 		// A sibling Project with its own locator: the locator matches its
 		// Project, so the refusal must come from the missing membership.
 		if _, err := s.CreateProductWithProject(ctx, ProductCreation{

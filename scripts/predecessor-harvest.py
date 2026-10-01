@@ -211,19 +211,17 @@ def read_wisdom(reader: McpReader, project_id: str) -> list[dict]:
         raise HarvestError(
             f"{project_id}: wisdom listing truncated, {len(entries)} of {reported} entries"
         )
-    harvested = []
-    for entry in entries:
-        harvested.append(
-            {
-                "id": entry["id"],
-                "type": entry.get("type") or "unknown",
-                "content": entry["content"],
-                "change_id": entry.get("source_change") or "",
-                "promoted": entry.get("scope") == "project",
-                "recorded_at": entry["promoted_at"],
-            }
-        )
-    return harvested
+    return [
+        {
+            "id": entry["id"],
+            "type": entry.get("type") or "unknown",
+            "content": entry["content"],
+            "change_id": entry.get("source_change") or "",
+            "promoted": entry.get("scope") == "project",
+            "recorded_at": entry["promoted_at"],
+        }
+        for entry in entries
+    ]
 
 
 def harvest_project(project_id: str, project_dir: Path, mcp_command: str) -> tuple[dict, list[str]]:

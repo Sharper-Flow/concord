@@ -560,7 +560,7 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 		return BootstrapResult{}, err
 	}
 	if existingState == "rolling_back" {
-		if err := s.rollbackBootstrap(ctx, operationID, workID, location, ExecGitRunner{}, true, errors.New("resume interrupted bootstrap rollback")); err != nil {
+		if err := s.rollbackBootstrap(ctx, operationID, workID, location, ExecGitRunner{}, errors.New("resume interrupted bootstrap rollback")); err != nil {
 			return BootstrapResult{}, err
 		}
 		return BootstrapResult{}, newFailure(KindInvalidOperation, "work_bootstrap", "bootstrap operation was rolled back", false, "use a new idempotency key")
@@ -618,7 +618,7 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 
 // rollbackBootstrap removes only native state that still matches the pinned
 // intent, then closes the durable claim and operation in one transaction.
-func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID string, location WorktreeLocation, runner GitRunner, removeNative bool, cause error) error {
+func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID string, location WorktreeLocation, runner GitRunner, cause error) error {
 	now := s.now()
 	done := false
 	err := s.Transact(ctx, func(transaction *Transaction) error {
@@ -630,24 +630,22 @@ func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID strin
 	if err := s.SyncDurable(ctx); err != nil {
 		return err
 	}
-	if removeNative {
-		if err := removeBootstrapWorktree(ctx, runner, location); err != nil {
-			return err
+	if err := removeBootstrapWorktree(ctx, runner, location); err != nil {
+		return err
+	}
+	if branchSHA, exists, err := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch); err != nil {
+		return err
+	} else if exists {
+		if branchSHA != location.BaseSHA {
+			return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch contains changes and cannot be removed", false, "preserve the branch and contact_operator")
 		}
-		if branchSHA, exists, err := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch); err != nil {
+		if attached, err := branchAttachedElsewhere(ctx, runner, location.Repo, location.Branch); err != nil {
 			return err
-		} else if exists {
-			if branchSHA != location.BaseSHA {
-				return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch contains changes and cannot be removed", false, "preserve the branch and contact_operator")
-			}
-			if attached, err := branchAttachedElsewhere(ctx, runner, location.Repo, location.Branch); err != nil {
-				return err
-			} else if attached {
-				return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch is attached to another worktree", false, "detach the exact pinned branch before retrying")
-			}
-			if err := deleteBootstrapBranch(ctx, runner, location.Repo, location.Branch, location.BaseSHA); err != nil {
-				return wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot remove the failed bootstrap branch", false, "remove the exact pinned branch before retrying", err)
-			}
+		} else if attached {
+			return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch is attached to another worktree", false, "detach the exact pinned branch before retrying")
+		}
+		if err := deleteBootstrapBranch(ctx, runner, location.Repo, location.Branch, location.BaseSHA); err != nil {
+			return wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot remove the failed bootstrap branch", false, "remove the exact pinned branch before retrying", err)
 		}
 	}
 	err = s.Transact(ctx, func(transaction *Transaction) error {
@@ -1091,7 +1089,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	var storedDigest, state string
 	replayed := false
 	restarted := false
-	journalMissing := false
+	var journalMissing bool
 	expectedVersion := int64(0)
 	err = tx.QueryRowContext(ctx, `SELECT request_digest,state FROM bootstrap_operations WHERE idempotency_key=?`, req.IdempotencyKey).Scan(&storedDigest, &state)
 	switch {
@@ -1219,7 +1217,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
 				return out, err
 			}
-			if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, location, expectedVersion, now); err != nil {
+			if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, location, now); err != nil {
 				return out, err
 			}
 		}
@@ -1489,7 +1487,7 @@ func branchAttachedElsewhere(ctx context.Context, runner GitRunner, repo, branch
 	return false, nil
 }
 
-func pinBootstrapClaimTx(ctx context.Context, tx *sql.Tx, operationID, workID, projectID string, location WorktreeLocation, expectedVersion int64, now time.Time) error {
+func pinBootstrapClaimTx(ctx context.Context, tx *sql.Tx, operationID, workID, projectID string, location WorktreeLocation, now time.Time) error {
 	if err := ValidateWorktreeClaimIntent(location.Branch, location.BaseSHA, location.Path); err != nil {
 		return err
 	}

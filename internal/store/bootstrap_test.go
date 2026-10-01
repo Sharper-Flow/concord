@@ -350,7 +350,7 @@ func TestRollbackBootstrapDoesNotDeleteConcurrentlyMovedBranch(t *testing.T) {
 	runBootstrapGit(t, repo, "commit", "-q", "-m", "concurrent target")
 	newSHA := runBootstrapGit(t, repo, "rev-parse", "HEAD")
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
-	err = s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, branchMoveBeforeDeleteRunner{branch: result.Entry.Branch, sha: newSHA}, true, errors.New("session preparation failed"))
+	err = s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, branchMoveBeforeDeleteRunner{branch: result.Entry.Branch, sha: newSHA}, errors.New("session preparation failed"))
 	if err == nil {
 		t.Fatal("concurrently moved branch was deleted")
 	}
@@ -383,7 +383,7 @@ func TestRollbackBootstrapLocksWorktreeHeadBeforeRemoval(t *testing.T) {
 	newSHA := runBootstrapGit(t, repo, "commit-tree", baseTree, "-p", result.Entry.BaseSHA, "-m", "concurrent target")
 	runner := &branchMoveBeforeWorktreeRemovalRunner{branch: result.Entry.Branch, sha: newSHA}
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
-	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, runner, true, errors.New("session preparation failed")); err != nil {
+	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, runner, errors.New("session preparation failed")); err != nil {
 		t.Fatal(err)
 	}
 	if !runner.attempted || !runner.blocked {
@@ -433,7 +433,7 @@ func TestRollbackBootstrapRecoversItsStaleGitLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
-	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, ExecGitRunner{}, true, errors.New("bootstrap interrupted")); err != nil {
+	if err := s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, ExecGitRunner{}, errors.New("bootstrap interrupted")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {

@@ -59,7 +59,7 @@ func TestWorktreeAuditReclaimRefusesPushedUnpublishedLesson(t *testing.T) {
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
 	donePath := auditWork(t, s, git, "work-done", true)
-	completeAuditWork(t, s, "work-done", 3)
+	completeAuditWork(t, s, "work-done")
 	// Fully pushed: the durability gate passes on remote reachability alone.
 	git.unpushed["work/work-done"] = 0
 	git.addBranchRecordShard("work/work-done", "docs/knowledge/records/lesson-stranded.json", "lesson")
@@ -119,7 +119,7 @@ func testReclaimWorktreeRefusesUnpublishedLessonDirectly(t *testing.T, defaultRe
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-direct", true)
-	completeAuditWork(t, s, "work-direct", 3)
+	completeAuditWork(t, s, "work-direct")
 	git.addBranchRecordShard("work/work-direct", "docs/knowledge/records/lesson-direct.json", "lesson")
 
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{WorkID: "work-direct", ProjectID: "project-w", DefaultRef: defaultRef, PrincipalRef: "principal-1", RequestID: "lesson-direct-1", ExpectedVersion: 4, Now: time.Unix(30, 0).UTC(), Runner: git, RequireTerminal: true})

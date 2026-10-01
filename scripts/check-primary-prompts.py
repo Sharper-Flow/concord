@@ -22,7 +22,6 @@ not package or install them. This check proves the example contract in CD-0154:
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,9 +164,11 @@ def check_primary_prompts(root: Path) -> list[str]:
         try:
             flat = flatten(text)
             frontmatter = split_frontmatter(text)
-            for fragment in HOST_TOOL_FRAGMENTS:
-                if fragment in frontmatter:
-                    findings.append(f"{name} frontmatter names host tool fragment {fragment!r}")
+            findings.extend(
+                f"{name} frontmatter names host tool fragment {fragment!r}"
+                for fragment in HOST_TOOL_FRAGMENTS
+                if fragment in frontmatter
+            )
             if name in {"concord-1.md", "concord-2.md"} and "morph_edit" in frontmatter:
                 findings.append(f"{name} frontmatter names host tool fragment 'morph_edit'")
             if "mode: primary" not in frontmatter:
@@ -175,19 +176,23 @@ def check_primary_prompts(root: Path) -> list[str]:
             if any(marker in flat for marker in LOOKUP_OBLIGATION_MARKERS):
                 findings.append(f"{name} duplicates the technical-unknown conduct obligation")
             if name in ADVISORY_HANDOFF_MARKERS:
-                for marker in ADVISORY_HANDOFF_MARKERS[name]:
-                    if marker not in flat:
-                        findings.append(f"{name} is missing its advisory handoff marker {marker!r}")
+                findings.extend(
+                    f"{name} is missing its advisory handoff marker {marker!r}"
+                    for marker in ADVISORY_HANDOFF_MARKERS[name]
+                    if marker not in flat
+                )
             if name in {"concord-1.md", "concord-2.md"}:
-                for marker in DELEGATION_ANCHOR_MARKERS:
-                    if marker not in flat:
-                        findings.append(f"{name} lost the delegation anchor marker {marker!r}")
+                findings.extend(
+                    f"{name} lost the delegation anchor marker {marker!r}"
+                    for marker in DELEGATION_ANCHOR_MARKERS
+                    if marker not in flat
+                )
             if name in BOUNDARY_SCOPE_FILES:
-                for phrase in REQUIRED_BOUNDARY_PHRASES:
-                    if phrase not in flat:
-                        findings.append(
-                            f"{name} lost the cross-repository boundary phrase {phrase!r}"
-                        )
+                findings.extend(
+                    f"{name} lost the cross-repository boundary phrase {phrase!r}"
+                    for phrase in REQUIRED_BOUNDARY_PHRASES
+                    if phrase not in flat
+                )
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 
@@ -202,21 +207,25 @@ def check_primary_prompts(root: Path) -> list[str]:
         findings.append("concord-1.md and concord-2.md have different permission frontmatter")
 
     evidence = (root / ".concord/instructions" / "evidence.md").read_text(encoding="utf-8")
-    for marker in LOOKUP_OBLIGATION_MARKERS:
-        if marker not in evidence:
-            findings.append(f".concord/instructions/evidence.md is missing the lookup obligation marker {marker!r}")
+    findings.extend(
+        f".concord/instructions/evidence.md is missing the lookup obligation marker {marker!r}"
+        for marker in LOOKUP_OBLIGATION_MARKERS
+        if marker not in evidence
+    )
 
     intake_frontmatter = split_frontmatter(texts["concord-0.md"])
-    for boundary in (
-        "edit: deny",
-        "write: deny",
-        "patch: deny",
-        "morph_edit: deny",
-        "concord_work_transition: deny",
-        "concord_work_compact: deny",
-    ):
-        if boundary not in intake_frontmatter:
-            findings.append(f"concord-0.md frontmatter lost its intake boundary {boundary!r}")
+    findings.extend(
+        f"concord-0.md frontmatter lost its intake boundary {boundary!r}"
+        for boundary in (
+            "edit: deny",
+            "write: deny",
+            "patch: deny",
+            "morph_edit: deny",
+            "concord_work_transition: deny",
+            "concord_work_compact: deny",
+        )
+        if boundary not in intake_frontmatter
+    )
     intake_permission = intake_frontmatter.split("task:", 1)[0]
     if '"*": deny' not in intake_permission:
         findings.append("concord-0.md frontmatter does not deny bash by default")

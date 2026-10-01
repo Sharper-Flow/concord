@@ -74,7 +74,7 @@ func archivedWorkCount(t *testing.T, s *store.Store, workID string) int {
 // is the approved dispatch.
 func publishCancelledNote(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, home store.KnowledgeHome) Envelope {
 	t.Helper()
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-api", "prod-alpha")
+	env := agentJobsMutationEnvelope(t, s, grant, "proj-api")
 	env.HostAssertionDigest = "sha256:host-compaction-resolution"
 	_, version := readWorkFromStore(t, s, "work-cancelled")
 	content := pm1fixture.CanonicalWorkNote("work-cancelled", "2026-08-02T12:00:00Z", "cancelled", "proj-api")

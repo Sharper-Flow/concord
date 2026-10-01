@@ -304,12 +304,12 @@ func TestLateBindEvidenceAtCompleteStepUnblocksClauseFour(t *testing.T) {
 func TestRecordVerdictDefaultEvidenceBindsVerifiedNativeRunCapture(t *testing.T) {
 	const workID = "verdict-native-run-mint"
 	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"native_run"})
-	seedVerifiedNativeRunCapture(t, s, workID, "xobs:0123456789abcdef")
+	capture := seedVerifiedNativeRunCapture(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer); err != nil {
 		t.Fatalf("a defaulted verdict under a native_run contract refused: %v", err)
 	}
 	var bound int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='native_run' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, "xobs:0123456789abcdef").Scan(&bound); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='native_run' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, capture).Scan(&bound); err != nil {
 		t.Fatal(err)
 	}
 	if bound == 0 {
@@ -318,7 +318,35 @@ func TestRecordVerdictDefaultEvidenceBindsVerifiedNativeRunCapture(t *testing.T)
 	// The verdict must name the capture, so completion's bound-evidence
 	// clause holds for a contract whose only required kind is native_run.
 	var named int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, workID, WorkflowVerdictRecorded, "xobs:0123456789abcdef").Scan(&named); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, workID, WorkflowVerdictRecorded, capture).Scan(&named); err != nil {
+		t.Fatal(err)
+	}
+	if named == 0 {
+		t.Fatal("the verdict's evaluation_evidence does not name the bound capture")
+	}
+}
+
+// A contract requiring verification and native_run mints every non-native
+// required kind onto the captured record itself: the defaulted call's mint
+// set is the operation-minted reference plus the contract's required verified
+// capture, so the capture carries its verification binding and the defaulted
+// verdict names both references. No other reference joins that set.
+func TestRecordVerdictDefaultEvidenceBindsCaptureUnderEveryMintedKind(t *testing.T) {
+	const workID = "verdict-native-run-kinds"
+	s, _, reviewer := seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification", "native_run"})
+	capture := seedVerifiedNativeRunCapture(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary"}`), verdictItemVersion(t, s, workID), reviewer); err != nil {
+		t.Fatalf("a defaulted verdict under a verification and native_run contract refused: %v", err)
+	}
+	var bound int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.evidence_kind')='verification' AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, capture).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if bound == 0 {
+		t.Fatal("the verified capture carries no verification binding; the mint skipped the enriched defaulted evidence")
+	}
+	var named int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND EXISTS (SELECT 1 FROM json_each(json_extract(payload,'$.evaluation_evidence')) WHERE value=?)`, workID, WorkflowVerdictRecorded, capture).Scan(&named); err != nil {
 		t.Fatal(err)
 	}
 	if named == 0 {
@@ -344,34 +372,46 @@ func TestRecordVerdictDefaultEvidenceRefusesNativeRunWithoutCapture(t *testing.T
 	}
 }
 
-// seedVerifiedNativeRunCapture records one captured native-run observation on
-// the work and marks it verified, so the consumption gate would admit it.
-func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID, observationID string) {
+// seedVerifiedNativeRunCapture records one native-run report on the work
+// through the real report and verification events, so the capture and its
+// verified state rebuild from the event log, and returns the observation
+// identity the consumption gate and the verdict mint resolve.
+func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	ctx := context.Background()
-	var seq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT max(seq) FROM domain_events WHERE subject_id=?`, workID).Scan(&seq); err != nil {
-		t.Fatalf("read the work's latest event seq: %v", err)
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	report, err := buildNativeRunEvent("native-run-"+workID, workID, actor, time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), version, "start", "run-"+workID, "go test ./internal/store/", "started", "https://evidence.invalid/runs/"+workID, "sha256:"+strings.Repeat("c", 64), "2026-09-14T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
-		t.Fatal(err)
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{report}}, newFoldScope(tx)); err != nil {
+		t.Fatalf("record native-run report: %v", err)
 	}
-	_, insertErr := tx.Exec(`INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,created_event_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		observationID, workID, "native_run", "go test ./internal/store/", "trusted_client_report", "2026-09-14T00:00:00Z", "authority/test", `{}`, "freshness/test", "divergence/test", string(VerificationVerified), seq)
-	if err := leaveFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if insertErr != nil {
-		t.Fatalf("seed native-run capture: %v", insertErr)
+	var observationID string
+	if err := tx.QueryRow(`SELECT observation_id FROM workflow_native_runs WHERE work_id=? AND run_id=? AND phase='start'`, workID, "run-"+workID).Scan(&observationID); err != nil {
+		t.Fatalf("read the reported run's observation identity: %v", err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return AppendExternalObservationVerificationTx(ctx, tx, workID, "principal/operator", time.Date(2026, 9, 14, 0, 1, 0, 0, time.UTC), ExternalObservationVerification{
+			ObservationID: observationID, VerificationMethod: VerifyTrustedClientReport,
+			VerifiedAt: "2026-09-14T00:01:00Z", VerifyingAuthorityRef: "client/concord-1", Result: VerificationMatched,
+		})
+	}); err != nil {
+		t.Fatalf("verify the native-run capture: %v", err)
+	}
+	return observationID
 }
 
 // Explicit evaluation_evidence keeps the pre-fix contract: the refs must

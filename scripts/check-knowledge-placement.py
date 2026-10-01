@@ -130,11 +130,11 @@ def parse_override_instructions(text: str) -> tuple[list[dict], list[str]]:
             continue
         if stripped == OVERRIDE_BLOCK_CLOSE:
             inside = False
-            for required in INSTRUCTION_FIELDS:
-                if required not in seen:
-                    malformations.append(
-                        f"line {start_line}: instruction block is missing the {required} field"
-                    )
+            malformations.extend(
+                f"line {start_line}: instruction block is missing the {required} field"
+                for required in INSTRUCTION_FIELDS
+                if required not in seen
+            )
             if fields.get("decision") not in (None, APPROVE_DECISION, DENY_DECISION):
                 malformations.append(
                     f"line {start_line}: decision must be '{APPROVE_DECISION}' or "
@@ -222,8 +222,10 @@ def anchor_instruction_findings(
         )
         return
     instructions, malformations = parse_override_instructions(text)
-    for malformation in malformations:
-        findings.append(f"{prefix}: anchor document instruction is malformed: {malformation}")
+    findings.extend(
+        f"{prefix}: anchor document instruction is malformed: {malformation}"
+        for malformation in malformations
+    )
     path = override.get("path")
     product_id = override.get("product_id")
     if not isinstance(path, str) or not isinstance(product_id, str):

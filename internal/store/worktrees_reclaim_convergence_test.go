@@ -12,11 +12,11 @@ import (
 // targets: a reclaim event row that entered the log without its fold, so the
 // worktree projection never saw it. The row itself is valid log history; the
 // insert bypasses only the fold, exactly as a raw backfill does.
-func insertRawReclaimEvent(t *testing.T, s *Store, workID, eventID, kind, actor, payload string, at time.Time) {
+func insertRawReclaimEvent(t *testing.T, s *Store, workID, eventID, kind, payload string, at time.Time) {
 	t.Helper()
 	_, err := s.DatabaseForTesting().Exec(
 		`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,1,?)`,
-		eventID, kind, string(SubjectWorkItem), workID, actor,
+		eventID, kind, string(SubjectWorkItem), workID, "principal:operator",
 		at.UTC().Format(time.RFC3339Nano), payload)
 	if err != nil {
 		t.Fatal(err)
@@ -27,9 +27,9 @@ func reclaimedFixtureEventID(workID, claimOpID string) string {
 	return fmt.Sprintf("%s:%s:%s:worktree-reclaimed", workID, "project-w", claimOpID)
 }
 
-func reclaimedFixturePayload(workID string, expected, resulting int64, claimOpID, facts string) string {
-	return fmt.Sprintf(`{"expected_version":%d,"resulting_version":%d,"set_id":%q,"project_id":"project-w","claim_op_id":%q,"git_facts":%s}`,
-		expected, resulting, WorktreeSetID(workID), claimOpID, facts)
+func reclaimedFixturePayload(workID string, claimOpID string) string {
+	return fmt.Sprintf(`{"expected_version":3,"resulting_version":4,"set_id":%q,"project_id":"project-w","claim_op_id":%q,"git_facts":{"already_absent":true}}`,
+		WorktreeSetID(workID), claimOpID)
 }
 
 func convergeWorkVersion(t *testing.T, s *Store, workID string) int64 {
@@ -69,11 +69,11 @@ func TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-unfolded", true)
-	completeAuditWork(t, s, "work-unfolded", 3)
+	completeAuditWork(t, s, "work-unfolded")
 	insertRawReclaimEvent(t, s, "work-unfolded",
 		reclaimedFixtureEventID("work-unfolded", "wt-work-unfolded"),
-		"work.worktree_reclaimed", "principal:operator",
-		reclaimedFixturePayload("work-unfolded", 3, 4, "wt-work-unfolded", `{"already_absent":true}`),
+		"work.worktree_reclaimed",
+		reclaimedFixturePayload("work-unfolded", "wt-work-unfolded"),
 		time.Unix(35, 0).UTC())
 
 	req := WorktreeReclaimRequest{
@@ -149,8 +149,8 @@ func TestReclaimWorktreeConvergenceAdvancesPendingStoredVersion(t *testing.T) {
 	path := auditWork(t, s, git, "work-pending", true)
 	insertRawReclaimEvent(t, s, "work-pending",
 		reclaimedFixtureEventID("work-pending", "wt-work-pending"),
-		"work.worktree_reclaimed", "principal:operator",
-		reclaimedFixturePayload("work-pending", 3, 4, "wt-work-pending", `{"already_absent":true}`),
+		"work.worktree_reclaimed",
+		reclaimedFixturePayload("work-pending", "wt-work-pending"),
 		time.Unix(35, 0).UTC())
 
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
@@ -186,11 +186,11 @@ func TestReclaimWorktreeKeepsRefusingDifferentClaimGeneration(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-othergen", true)
-	completeAuditWork(t, s, "work-othergen", 3)
+	completeAuditWork(t, s, "work-othergen")
 	insertRawReclaimEvent(t, s, "work-othergen",
 		reclaimedFixtureEventID("work-othergen", "wt-work-othergen"),
-		"work.worktree_reclaimed", "principal:operator",
-		reclaimedFixturePayload("work-othergen", 3, 4, "wt-a-different-generation", `{"already_absent":true}`),
+		"work.worktree_reclaimed",
+		reclaimedFixturePayload("work-othergen", "wt-a-different-generation"),
 		time.Unix(35, 0).UTC())
 
 	_, err := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
@@ -214,10 +214,10 @@ func TestReclaimWorktreeKeepsRefusingDifferentKind(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-otherkind", true)
-	completeAuditWork(t, s, "work-otherkind", 3)
+	completeAuditWork(t, s, "work-otherkind")
 	insertRawReclaimEvent(t, s, "work-otherkind",
 		reclaimedFixtureEventID("work-otherkind", "wt-work-otherkind"),
-		"work.worktree_occupancy_released", "principal:operator",
+		"work.worktree_occupancy_released",
 		`{"set_id":"wts:work-otherkind","project_id":"project-w","claim_op_id":"wt-work-otherkind","session_ref":"ses-1"}`,
 		time.Unix(35, 0).UTC())
 
@@ -242,11 +242,11 @@ func TestWorktreeAuditReclaimConvergesUnfoldedReclaimEvent(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-audit-unfolded", true)
-	completeAuditWork(t, s, "work-audit-unfolded", 3)
+	completeAuditWork(t, s, "work-audit-unfolded")
 	insertRawReclaimEvent(t, s, "work-audit-unfolded",
 		reclaimedFixtureEventID("work-audit-unfolded", "wt-work-audit-unfolded"),
-		"work.worktree_reclaimed", "principal:operator",
-		reclaimedFixturePayload("work-audit-unfolded", 3, 4, "wt-work-audit-unfolded", `{"already_absent":true}`),
+		"work.worktree_reclaimed",
+		reclaimedFixturePayload("work-audit-unfolded", "wt-work-audit-unfolded"),
 		time.Unix(35, 0).UTC())
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{

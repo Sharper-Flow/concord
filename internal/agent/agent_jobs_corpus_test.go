@@ -1276,7 +1276,7 @@ func envelopeToObservation(resp Envelope) jobObservation {
 func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 	t.Helper()
 	// 1. Schema check: verify no 'ready' column in work_items.
-	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting())
 	for _, c := range cols {
 		if c == "ready" {
 			return true // a stored column was found
@@ -1317,7 +1317,7 @@ func probeNoStoredReadyFlag(t *testing.T, s *store.Store) bool {
 func probeNoStoredBlockedFlag(t *testing.T, s *store.Store) bool {
 	t.Helper()
 	// 1. Schema check.
-	cols := tableColumns(t, s.DatabaseForTesting(), "work_items")
+	cols := tableColumns(t, s.DatabaseForTesting())
 	for _, c := range cols {
 		if c == "blocked" {
 			return true
@@ -1345,11 +1345,11 @@ func probeNoStoredBlockedFlag(t *testing.T, s *store.Store) bool {
 	return false
 }
 
-func tableColumns(t *testing.T, db *sql.DB, table string) []string {
+func tableColumns(t *testing.T, db *sql.DB) []string {
 	t.Helper()
-	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	rows, err := db.Query("PRAGMA table_info(work_items)")
 	if err != nil {
-		t.Fatalf("PRAGMA table_info(%s): %v", table, err)
+		t.Fatalf("PRAGMA table_info(work_items): %v", err)
 	}
 	defer rows.Close()
 	var cols []string

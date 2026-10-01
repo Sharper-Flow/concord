@@ -1413,10 +1413,10 @@ func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
 		t.Fatal(err)
 	}
 	actorRef := seedRigorClassPrerequisites(t, db)
-	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
+	if err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
 		t.Fatalf("invalid rigor class error=%v", err)
 	}
-	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype_internal"); err != nil {
+	if err := insertRigorClassContract(ctx, db, actorRef, "prototype_internal"); err != nil {
 		t.Fatalf("valid rigor class rejected: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE workflow_contracts SET rigor_class='prototype/internal' WHERE work_id='rigor-class-work'`); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
@@ -1432,7 +1432,7 @@ func TestMigration54UpgradesValidRigorClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	actorRef := seedRigorClassPrerequisites(t, db)
-	if _, err := insertRigorClassContract(ctx, db, actorRef, "production_public"); err != nil {
+	if err := insertRigorClassContract(ctx, db, actorRef, "production_public"); err != nil {
 		t.Fatalf("seed valid rigor class: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -1451,7 +1451,7 @@ func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	actorRef := seedRigorClassPrerequisites(t, db)
-	if _, err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err != nil {
+	if err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err != nil {
 		t.Fatalf("seed invalid rigor class: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
@@ -1606,26 +1606,7 @@ func TestMigration56RejectsUndeclaredArchivedWorkKind(t *testing.T) {
 }
 
 func openV55(t *testing.T, name string) *sql.DB {
-	t.Helper()
-	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range migrations[:55] {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return db
+	return openMigratedTo(t, filepath.Join(t.TempDir(), name), 55)
 }
 
 func seedArchivedWorkKindHome(t *testing.T, db *sql.DB) {
@@ -1656,26 +1637,7 @@ func insertArchivedWorkKind(ctx context.Context, db *sql.DB, id, kind string) er
 }
 
 func openV54(t *testing.T, name string) *sql.DB {
-	t.Helper()
-	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range migrations[:54] {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return db
+	return openMigratedTo(t, filepath.Join(t.TempDir(), name), 54)
 }
 
 func seedApprovalChallengeGrant(t *testing.T, db *sql.DB, suffix string) string {
@@ -1715,26 +1677,7 @@ func insertApprovalChallenge(ctx context.Context, db *sql.DB, grantRef, conseque
 }
 
 func openV53(t *testing.T, name string) *sql.DB {
-	t.Helper()
-	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), name)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range migrations[:53] {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return db
+	return openMigratedTo(t, filepath.Join(t.TempDir(), name), 53)
 }
 
 func seedRigorClassPrerequisites(t *testing.T, db *sql.DB) string {
@@ -1750,27 +1693,27 @@ func seedRigorClassPrerequisites(t *testing.T, db *sql.DB) string {
 	return actorRef
 }
 
-func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorClass string) (sql.Result, error) {
+func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorClass string) error {
 	var legacyOutcomeColumns int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='outcome_kind'`).Scan(&legacyOutcomeColumns); err != nil {
-		return nil, err
+		return err
 	}
 	if legacyOutcomeColumns == 1 {
-		return db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+		_, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
+		return err
 	}
-	result, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
-	if err != nil {
-		return result, err
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass); err != nil {
+		return err
 	}
 	var predicatesTable int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='workflow_contract_predicates'`).Scan(&predicatesTable); err != nil {
-		return result, err
+		return err
 	}
 	if predicatesTable == 0 {
-		return result, nil
+		return nil
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('rigor-class-work',1,'predicate:primary',0,'check','{"kind":"check"}')`)
-	return result, err
+	_, err := db.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('rigor-class-work',1,'predicate:primary',0,'check','{"kind":"check"}')`)
+	return err
 }
 
 func seedV49NativeRun(t *testing.T, db *sql.DB, verificationState string) {

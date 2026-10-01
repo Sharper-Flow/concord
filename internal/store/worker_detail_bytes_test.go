@@ -19,8 +19,8 @@ func TestWorkerDetailRefusalNamesUTF8Bytes(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("evidence-utf8", attemptID, lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	// 257 code points: one UTF-16 unit each, so the adapter's code-unit count
-	// is under maxLength 512, while the store's byte count is 514, over 512.
+	// 257 code points: one UTF-16 unit each, so a code-unit count is under
+	// maxLength 512, while the store's byte count is 514, over 512.
 	heavyDetail := strings.Repeat("\u00e9", 257)
 	evidence := []WorkerReportEvidence{{Obligation: lane.EvidenceObligations[0], Detail: heavyDetail}}
 	complete := workerCompleteEventV2("evidence-utf8", "evidence-utf8-complete", attemptID, preferredModelForLane(lane), WorkerEvidenceReported, evidence)

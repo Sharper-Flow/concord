@@ -112,11 +112,14 @@ func ProjectToolingDeclaredText(tooling *ProjectToolingManifest) string {
 	return "declared checks: " + strings.Join(parts, ", ")
 }
 
-// RefineProofManifestRequired reports whether a record_delivery action on the
-// work item's pinned definition runs the refine-exit proof guard, so the
-// caller must resolve the Project tooling manifest before the action's
-// transaction opens. Every other action and definition resolves nothing.
-func RefineProofManifestRequired(ctx context.Context, s *Store, workID string) (bool, error) {
+// RefineProofManifestRequired reports whether the named action on the work
+// item's pinned definition runs the refine-exit proof guard, so the caller
+// must resolve the Project tooling manifest before the action's transaction
+// opens (CD-0192). record_delivery runs the guard wherever it is gated, and
+// accept_worker_result runs the same admission at the delivery-admitting
+// refinement step of workflow.implementation v21+ and workflow.break_fix
+// v19+ (CD-0198 D4). Every other action resolves nothing.
+func RefineProofManifestRequired(ctx context.Context, s *Store, workID, actionID string) (bool, error) {
 	if s == nil || s.db == nil {
 		return false, newFailure(KindUnavailable, "project_tooling", "store is not open", false, "open the authority database")
 	}
@@ -128,7 +131,14 @@ func RefineProofManifestRequired(ctx context.Context, s *Store, workID string) (
 	if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		return false, wrapFailure(KindUnavailable, "project_tooling", "cannot read the workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	return workflowRefineProofGateActive(entry.Definition, currentStep), nil
+	switch actionID {
+	case "record_delivery":
+		return workflowRefineProofGateActive(entry.Definition, currentStep), nil
+	case "accept_worker_result":
+		return workflowAcceptDeliveryAdmissionActive(entry.Definition, currentStep), nil
+	default:
+		return false, nil
+	}
 }
 
 // ResolveWorkProjectTooling resolves the tooling manifest the work item's

@@ -48,6 +48,13 @@ import (
 // static_analysis 11, and generic_one_off 12 make predicate_id optional
 // beside the new verdicts array on the action payload; builtinActionPolicies
 // stays byte-identical, so every released version above keeps its digest.
+// CD-0198 D4 ships the accept_worker_result delivery declaration:
+// implementation 21 and break_fix 19 add optional delivery_artifact and
+// delivery_state beside the attempt identity, and the five families without
+// a refinement step publish the same overlay at their next versions so the
+// one action carries one contract; the guard that requires the fields at
+// the delivery-admitting refinement step lives in the dispatcher, and every
+// released version above keeps its digest.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -153,6 +160,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "14"}:        "sha256:7cca47542e21e08d7224d8a03808b5980c4a1c5d40c305b9bd08b04319cfce2a",
 	{"workflow.static_analysis", "11"}:    "sha256:a28a2eee538a025786a9d7b44943f5d6cafdb7ecfe252b0e0df2dd1cccb9dfe3",
 	{"workflow.generic_one_off", "12"}:    "sha256:3aeef45c72b7c9b73062cf65ebac6482cf2d42201bdb0ed947f7ce92a35b4783",
+	{"workflow.implementation", "21"}:     "sha256:0a6ed9d4f03954f8d8802b4c953cbec7338860f3552aa83bac4b97fcf469c901",
+	{"workflow.break_fix", "19"}:          "sha256:df5d441762daf131a1ae62c1abc9897f0269ebd3890322fff6c9a480ca769cc7",
+	{"workflow.research", "13"}:           "sha256:ec79e80293f12dd40fc11eac4f0413a4acd45cf76c0289436e7477b882cc3d9f",
+	{"workflow.architecture_spike", "14"}: "sha256:4cafbb1659213f0d80faf45483be186d29fcc9577090d0382989a42aa437726b",
+	{"workflow.ops_runbook", "15"}:        "sha256:547286502ff9c69fad47f5c880508a25803592f9a3befaa7700ca1541843255d",
+	{"workflow.static_analysis", "12"}:    "sha256:a4764e6a87be89a141b7cb1fe16b1e90c25ece9c6ca4e53eb18e8aca47721748",
+	{"workflow.generic_one_off", "13"}:    "sha256:964098ba2681f7fab8e1f67f90478af30ad7fb7442e6af14e9ac232d07825d0f",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -318,13 +332,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          18,
-		"workflow.implementation":     20,
-		"workflow.generic_one_off":    12,
-		"workflow.research":           12,
-		"workflow.architecture_spike": 13,
-		"workflow.ops_runbook":        14,
-		"workflow.static_analysis":    11,
+		"workflow.break_fix":          19,
+		"workflow.implementation":     21,
+		"workflow.generic_one_off":    13,
+		"workflow.research":           13,
+		"workflow.architecture_spike": 14,
+		"workflow.ops_runbook":        15,
+		"workflow.static_analysis":    12,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

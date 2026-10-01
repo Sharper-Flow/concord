@@ -9687,6 +9687,17 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 2147483647
+                  },
+                  "delivery_artifact": {
+                    "$ref": "#/$defs/reference",
+                    "minLength": 2,
+                    "maxLength": 128
+                  },
+                  "delivery_state": {
+                    "type": "string",
+                    "enum": [
+                      "asserted"
+                    ]
                   }
                 },
                 "required": [

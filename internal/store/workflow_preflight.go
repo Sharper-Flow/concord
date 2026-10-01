@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -701,7 +703,9 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	for _, field := range definitionFields {
 		allowed[field.Name] = field
 	}
-	for name := range fields {
+	// Walk the supplied names in sorted order so a payload carrying more
+	// than one undeclared or invalid field reports the same field each run.
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		field, ok := allowed[name]
 		if !ok {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is not declared for action %q", name, actionID), false, "use only fields declared by the pinned definition")

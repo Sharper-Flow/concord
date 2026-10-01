@@ -130,79 +130,83 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
-// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the CON-421 shape on
-// the current break-fix definition: a rejected review, then the accepted
-// implement repair the gate holds at refine until a fresh accepted review
-// covers it.
+// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the CON-421 shape
+// on the current break-fix definition over both delivery entry routes: a
+// rejected review, then the accepted implement repair the gate holds at
+// refine until a fresh accepted review covers it. The record_delivery route
+// exits refine through the standalone delivery call; the combined-accept
+// route exits through an accept that carries its delivery fields (CD-0198
+// D4). Both refuse on the same gate, and both settle only through the fresh
+// review's combined accept, which is itself the fresh review.
 func TestPostRejectionReviewGateHoldsBreakFixDelivery(t *testing.T) {
-	const workID = "review-gate-break-fix"
-	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	implement := reviewGateLane(t, "implementation")
-	review := reviewGateLane(t, "review")
-	at := int64(100)
+	for _, route := range deliveryEntryRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			const workID = "review-gate-break-fix"
+			ctx := context.Background()
+			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+			s := fixture.store
+			ownerRef, err := WorkflowActorRef(fixture.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			acceptor := reviewGateAcceptor(workID)
+			implement := reviewGateLane(t, "implementation")
+			review := reviewGateLane(t, "review")
+			at := int64(100)
 
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+			refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
 
-	// The accepted implement repair is the advance into the gate, and it
-	// refuses while no fresh accepted review covers the repaired result.
-	repairedAttempt := "attempt:" + workID + ":repair-1"
-	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, implement, ownerRef, at)
-	at += 2
-	err = reviewGateAcceptResult(t, s, workID, repairedAttempt, refineEpoch, acceptor)
-	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
-		t.Fatalf("accept of the repaired result = %v, want a fresh-review refusal", err)
-	}
-	reviewGateRequireStep(t, s, workID, "refine")
+			// The repaired implement result's exit refuses while no fresh
+			// accepted review covers it, on either route.
+			repairedAttempt := "attempt:" + workID + ":repair-1"
+			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, implement, ownerRef, at)
+			at += 2
+			err = route.exit(t, s, workID, repairedAttempt, refineEpoch, acceptor, nil, true)
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
+				t.Fatalf("%s exit of the repaired result = %v, want a fresh-review refusal", route.name, err)
+			}
+			reviewGateRequireStep(t, s, workID, "refine")
 
-	// The no-worker refinement route refuses on the same gate.
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err == nil {
-		t.Fatal("record_delivery at refine behind an unreviewed repair was admitted")
-	}
+			pin, pinErr := ReadWorkPin(ctx, s, workID)
+			if pinErr != nil {
+				t.Fatal(pinErr)
+			}
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
+				t.Fatalf("pin offered an advance behind an unreviewed repair: %#v", pin.NextValidIntents)
+			}
 
-	pin, pinErr := ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pin offered an advance behind an unreviewed repair: %#v", pin.NextValidIntents)
-	}
+			// The correction request stays a verdict-shaped route: without a
+			// recorded non-ok verdict the refinement step offers none.
+			correction := json.RawMessage(`{"diagnosis":"the repaired result has no fresh accepted review","strategy":"dispatch a fresh review at the refinement step","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+			if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err == nil {
+				t.Fatal("request_correction at refine was admitted without a non-ok verdict")
+			}
 
-	// The correction request stays a verdict-shaped route: without a recorded
-	// non-ok verdict the refinement step offers none.
-	correction := json.RawMessage(`{"diagnosis":"the repaired result has no fresh accepted review","strategy":"dispatch a fresh review at the refinement step","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err == nil {
-		t.Fatal("request_correction at refine was admitted without a non-ok verdict")
-	}
+			// A fresh accepted review of the repaired result clears the gate.
+			// Its acceptance is itself the fresh review, so it rides the
+			// combined accept on both routes and advances into the gate.
+			freshReview := "attempt:" + workID + ":review-2"
+			reviewGateRunAttempt(t, s, workID, freshReview, "refine", refineEpoch, review, ownerRef, at)
+			at += 2
+			if err := acceptRefineResult(t, s, workID, freshReview, refineEpoch, acceptor); err != nil {
+				t.Fatalf("accept after fresh review refused: %v", err)
+			}
+			reviewGateRequireStep(t, s, workID, "delivery")
 
-	// A fresh accepted review of the repaired result clears the gate, and the
-	// accept then advances into the gate.
-	freshReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttempt(t, s, workID, freshReview, "refine", refineEpoch, review, ownerRef, at)
-	at += 2
-	if err := reviewGateAcceptResult(t, s, workID, freshReview, refineEpoch, acceptor); err != nil {
-		t.Fatalf("accept after fresh review refused: %v", err)
+			pin, pinErr = ReadWorkPin(ctx, s, workID)
+			if pinErr != nil {
+				t.Fatal(pinErr)
+			}
+			if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+				t.Fatalf("fresh accepted review did not restore record_delivery: %#v", pin.NextValidIntents)
+			}
+			if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
+				t.Fatalf("gate crossing after fresh review refused: %v", err)
+			}
+			reviewGateRequireStep(t, s, workID, "verify")
+		})
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
-
-	pin, pinErr = ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("fresh accepted review did not restore record_delivery: %#v", pin.NextValidIntents)
-	}
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
-		t.Fatalf("gate crossing after fresh review refused: %v", err)
-	}
-	reviewGateRequireStep(t, s, workID, "verify")
 }
 
 // TestDeliveryGateDeclaresCorrectiveReturn pins the amended CD-0166 gate
@@ -234,124 +238,136 @@ func TestDeliveryGateDeclaresCorrectiveReturn(t *testing.T) {
 }
 
 // TestPostRejectionReviewGateRefusesPreRejectionReviewAccept pins the
-// dispatch-order rule on the accept guard: a review attempt dispatched before
-// the rejection settles nothing, so accepting it after the rejection refuses
-// and the item stays parked at refine.
+// dispatch-order rule on both delivery entry routes: a review attempt
+// dispatched before the rejection settles nothing, so the refine exit that
+// would carry it — the combined accept, or the standalone delivery call —
+// refuses and the item stays parked at refine.
 func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
-	const workID = "review-gate-stale-review"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	implement := reviewGateLane(t, "implementation")
-	review := reviewGateLane(t, "review")
-	at := int64(100)
+	for _, route := range deliveryEntryRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			const workID = "review-gate-stale-review"
+			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+			s := fixture.store
+			ownerRef, err := WorkflowActorRef(fixture.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			acceptor := reviewGateAcceptor(workID)
+			implement := reviewGateLane(t, "implementation")
+			review := reviewGateLane(t, "review")
+			at := int64(100)
 
-	repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	repairAttempt := "attempt:" + workID + ":repair"
-	reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, implement, ownerRef, at)
-	at += 2
-	if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
-		t.Fatalf("accept repair: %v", err)
-	}
+			repairEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+			repairAttempt := "attempt:" + workID + ":repair"
+			reviewGateRunAttempt(t, s, workID, repairAttempt, "repair", repairEpoch, implement, ownerRef, at)
+			at += 2
+			if err := reviewGateAcceptResult(t, s, workID, repairAttempt, repairEpoch, acceptor); err != nil {
+				t.Fatalf("accept repair: %v", err)
+			}
 
-	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	// Two review attempts dispatch before the rejection.
-	earlyReview := "attempt:" + workID + ":review-early"
-	reviewGateRunAttempt(t, s, workID, earlyReview, "refine", refineEpoch, review, ownerRef, at)
-	at += 2
-	rejectedReview := "attempt:" + workID + ":review-rejected"
-	reviewGateRunAttempt(t, s, workID, rejectedReview, "refine", refineEpoch, review, ownerRef, at)
-	reviewGateRejectResult(t, s, workID, rejectedReview, refineEpoch, acceptor)
+			refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			// Two review attempts dispatch before the rejection.
+			earlyReview := "attempt:" + workID + ":review-early"
+			reviewGateRunAttempt(t, s, workID, earlyReview, "refine", refineEpoch, review, ownerRef, at)
+			at += 2
+			rejectedReview := "attempt:" + workID + ":review-rejected"
+			reviewGateRunAttempt(t, s, workID, rejectedReview, "refine", refineEpoch, review, ownerRef, at)
+			reviewGateRejectResult(t, s, workID, rejectedReview, refineEpoch, acceptor)
 
-	// Accepting the pre-rejection review after the rejection refuses: a
-	// review settles the debt only when its dispatch postdates the rejection.
-	err = reviewGateAcceptResult(t, s, workID, earlyReview, refineEpoch, acceptor)
-	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
-		t.Fatalf("accept of the pre-rejection review = %v, want a fresh-review refusal", err)
+			// The refine exit behind the pre-rejection review refuses: a
+			// review settles the debt only when its dispatch postdates the
+			// rejection, and the pre-rejection attempt's acceptance is not
+			// that review.
+			err = route.exit(t, s, workID, earlyReview, refineEpoch, acceptor, nil, true)
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
+				t.Fatalf("%s exit behind the pre-rejection review = %v, want a fresh-review refusal", route.name, err)
+			}
+			reviewGateRequireStep(t, s, workID, "refine")
+		})
 	}
-	reviewGateRequireStep(t, s, workID, "refine")
 }
 
 // TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair pins the
-// repair-tied fresh-review rule on the CON-421 defect shape: a review
-// dispatched and completed after the rejection but before the repaired
-// implement result settles nothing, so accepting it refuses; a review
-// dispatched after the repaired result is the fresh one, the pin advertises
-// its acceptance, and that accept carries the gate.
+// repair-tied fresh-review rule on the CON-421 defect shape over both entry
+// routes: a review dispatched and completed after the rejection but before
+// the repaired implement result settles nothing, so the refine exit behind
+// it refuses; a review dispatched after the repaired result is the fresh
+// one, and its combined acceptance is the exit that asserts the delivery and
+// carries the gate.
 func TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair(t *testing.T) {
-	const workID = "review-gate-review-before-repair"
-	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	ownerRef, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	acceptor := reviewGateAcceptor(workID)
-	at := int64(100)
+	for _, route := range deliveryEntryRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			const workID = "review-gate-review-before-repair"
+			ctx := context.Background()
+			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+			s := fixture.store
+			ownerRef, err := WorkflowActorRef(fixture.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			acceptor := reviewGateAcceptor(workID)
+			at := int64(100)
 
-	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+			refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
 
-	// Review B dispatches and completes after the rejection; the implement
-	// repair C dispatches and completes after B.
-	earlyFreshReview := "attempt:" + workID + ":review-2"
-	reviewGateRunAttempt(t, s, workID, earlyFreshReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
-	at += 2
-	repairedAttempt := "attempt:" + workID + ":repair-1"
-	reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
-	at += 2
+			// Review B dispatches and completes after the rejection; the
+			// implement repair C dispatches and completes after B.
+			earlyFreshReview := "attempt:" + workID + ":review-2"
+			reviewGateRunAttempt(t, s, workID, earlyFreshReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
+			at += 2
+			repairedAttempt := "attempt:" + workID + ":repair-1"
+			reviewGateRunAttempt(t, s, workID, repairedAttempt, "refine", refineEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
+			at += 2
 
-	// Accepting the review that predates the repaired result refuses: it
-	// covers nothing the repair produced after it.
-	err = reviewGateAcceptResult(t, s, workID, earlyFreshReview, refineEpoch, acceptor)
-	var failure *Failure
-	if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
-		t.Fatalf("accept of the review dispatched before the repair = %v, want a fresh-review refusal", err)
-	}
-	reviewGateRequireStep(t, s, workID, "refine")
+			// The refine exit behind the review that predates the repaired
+			// result refuses: it covers nothing the repair produced after it.
+			err = route.exit(t, s, workID, earlyFreshReview, refineEpoch, acceptor, nil, true)
+			var failure *Failure
+			if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
+				t.Fatalf("%s exit behind the review dispatched before the repair = %v, want a fresh-review refusal", route.name, err)
+			}
+			reviewGateRequireStep(t, s, workID, "refine")
 
-	// With the debt outstanding and no completed settling review, the pin
-	// offers no advance.
-	pin, pinErr := ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pin offered an advance behind an unreviewed repair: %#v", pin.NextValidIntents)
-	}
+			// With the debt outstanding and no completed settling review, the
+			// pin offers no advance.
+			pin, pinErr := ReadWorkPin(ctx, s, workID)
+			if pinErr != nil {
+				t.Fatal(pinErr)
+			}
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
+				t.Fatalf("pin offered an advance behind an unreviewed repair: %#v", pin.NextValidIntents)
+			}
 
-	// A review dispatched and completed after the repaired result is the
-	// fresh review. Before its acceptance the pin advertises exactly that
-	// acceptance and still withholds the delivery exit.
-	settlingReview := "attempt:" + workID + ":review-3"
-	reviewGateRunAttempt(t, s, workID, settlingReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
-	at += 2
-	pin, pinErr = ReadWorkPin(ctx, s, workID)
-	if pinErr != nil {
-		t.Fatal(pinErr)
-	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("pin offered record_delivery behind an unaccepted review: %#v", pin.NextValidIntents)
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
-		t.Fatalf("pin hid the completed fresh review's acceptance: %#v", pin.NextValidIntents)
-	}
+			// A review dispatched and completed after the repaired result is
+			// the fresh review. Before its acceptance the pin advertises
+			// exactly that acceptance and still withholds the delivery exit.
+			settlingReview := "attempt:" + workID + ":review-3"
+			reviewGateRunAttempt(t, s, workID, settlingReview, "refine", refineEpoch, reviewGateLane(t, "review"), ownerRef, at)
+			at += 2
+			pin, pinErr = ReadWorkPin(ctx, s, workID)
+			if pinErr != nil {
+				t.Fatal(pinErr)
+			}
+			if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+				t.Fatalf("pin offered record_delivery behind an unaccepted review: %#v", pin.NextValidIntents)
+			}
+			if !workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
+				t.Fatalf("pin hid the completed fresh review's acceptance: %#v", pin.NextValidIntents)
+			}
 
-	// The settling accept advances into the gate, and the gate crossing
-	// admits the reviewed change.
-	if err := reviewGateAcceptResult(t, s, workID, settlingReview, refineEpoch, acceptor); err != nil {
-		t.Fatalf("accept after the repair-postdating review refused: %v", err)
+			// The settling accept advances into the gate, and the gate
+			// crossing admits the reviewed change.
+			if err := acceptRefineResult(t, s, workID, settlingReview, refineEpoch, acceptor); err != nil {
+				t.Fatalf("accept after the repair-postdating review refused: %v", err)
+			}
+			reviewGateRequireStep(t, s, workID, "delivery")
+			if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
+				t.Fatalf("gate crossing after the settling review refused: %v", err)
+			}
+			reviewGateRequireStep(t, s, workID, "verify")
+		})
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
-	if err := reviewGateRecordDelivery(t, s, workID, acceptor); err != nil {
-		t.Fatalf("gate crossing after the settling review refused: %v", err)
-	}
-	reviewGateRequireStep(t, s, workID, "verify")
 }
 
 // TestCurrentDeliveryGateAdmitsEvidenceBearingReturn exercises an admitted

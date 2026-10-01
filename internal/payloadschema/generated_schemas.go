@@ -7957,6 +7957,17 @@ const GeneratedPayloadSchemaDocument = `{
                     "$ref": "#/$defs/reference",
                     "maxLength": 128,
                     "minLength": 2
+                  },
+                  "delivery_artifact": {
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
+                  },
+                  "delivery_state": {
+                    "enum": [
+                      "asserted"
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [

@@ -9,11 +9,13 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -696,6 +698,41 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 	if bindErr != nil {
 		return bindErr
 	}
+	// CD-0198 D4: the combined accept carries its delivery fields only at the
+	// delivery-admitting refinement step, and its admission reads a green
+	// verify run. The explorer injects the fields there, strips them
+	// everywhere else, and seeds the run inside the action's transaction, so
+	// a refused probe leaves no run behind and a committed replay lands the
+	// proof the real coordinator binds. record_delivery keeps its existing
+	// witness-side seeding, so its probes at refine refuse as they always
+	// have and the combined accept stays the step's explored exit.
+	seedGreenRun := false
+	if move.action == "accept_worker_result" {
+		entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+		if entryErr != nil {
+			return entryErr
+		}
+		stepID, stepErr := livenessStep(ctx, s, workID)
+		if stepErr != nil {
+			return stepErr
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			return err
+		}
+		if workflowAcceptDeliveryAdmissionActive(entry.Definition, stepID) {
+			fields["delivery_artifact"], _ = json.Marshal("artifact:liveness-delivery")
+			fields["delivery_state"], _ = json.Marshal("asserted")
+			seedGreenRun = true
+		} else {
+			delete(fields, "delivery_artifact")
+			delete(fields, "delivery_state")
+		}
+		payload, bindErr = json.Marshal(fields)
+		if bindErr != nil {
+			return bindErr
+		}
+	}
 	evidenceRefs := []string{livenessSubjectRef}
 	switch move.action {
 	case "start_run", "record_health", "rollback_run", "cleanup_run":
@@ -735,6 +772,17 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		Payload: request.Payload, Actor: request.Actor,
 	}
 	err = AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), preflight, nil, time.Time{}, nil, func(tx *Transaction) error {
+		if seedGreenRun {
+			sqlTx, sqlErr := transactionSQL(tx, "liveness")
+			if sqlErr != nil {
+				return sqlErr
+			}
+			version, sqlErr = livenessSeedGreenVerifyTx(ctx, sqlTx, workID, livenessGreenRunDigest(workID, move.action, sequence))
+			if sqlErr != nil {
+				return sqlErr
+			}
+			request.ExpectedVersion = version
+		}
 		if _, inner := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request); inner != nil {
 			return inner
 		}
@@ -747,6 +795,74 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		return nil
 	}
 	return err
+}
+
+// livenessGreenRunDigest derives the deterministic verify-run digest one
+// explored refine exit seeds, so replays of the same path seed the same run.
+func livenessGreenRunDigest(workID, action string, sequence int) string {
+	sum := sha256.Sum256([]byte(workID + ":" + action + ":" + strconv.Itoa(sequence)))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+// livenessSeedGreenVerifyTx seeds, inside the action's own transaction, one
+// green worktree_verify run acquired just after the current refine start and
+// binds it as verification evidence, the proof the CD-0192 refine exit and
+// the CD-0198 D4 combined accept consume. It returns the work version after
+// the binding, which the caller's action request must carry.
+func livenessSeedGreenVerifyTx(ctx context.Context, sqlTx *sql.Tx, workID, digest string) (int64, error) {
+	var occurred string
+	if err := sqlTx.QueryRowContext(ctx, `SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' AND json_extract(payload,'$.action_id')='start_refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
+		return 0, fmt.Errorf("read the refine start: %w", err)
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, occurred)
+	if err != nil {
+		return 0, err
+	}
+	leaseID := digest + ":worktree-verify:" + workID
+	command := []string{"go", "vet", "./..."}
+	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-s", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
+	if err != nil {
+		return 0, err
+	}
+	commandJSON, err := json.Marshal(command)
+	if err != nil {
+		return 0, err
+	}
+	acquiredText := startedAt.Add(time.Second).UTC().Format(time.RFC3339Nano)
+	if _, err := sqlTx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		leaseID, workID, "project-s", "/tmp/worktrees/"+workID, "released", "client/liveness", "agent/owner", "session/liveness", "principal/operator",
+		string(commandJSON), acquiredText, startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano), 0, "completed", string(resultJSON)); err != nil {
+		return 0, err
+	}
+	opRef := worktreeVerifyOperationRef(leaseID)
+	if _, err := sqlTx.ExecContext(ctx, `INSERT INTO durable_operations
+			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
+			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
+			VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
+		opRef, workID, string(resultJSON), workflowJSON([]string{opRef}), startedAt.Add(2*time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
+		return 0, err
+	}
+	var version int64
+	if err := sqlTx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		return 0, err
+	}
+	binding := workflowTypedEvent(opRef+":bound", WorkflowEvidenceBound, workID, "principal/operator", startedAt.Add(time.Second), version, map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": opRef, "producer_id": "principal/operator",
+		"producer_run_ref": opRef, "producer_watermark": "request/verify",
+		"observed_at": acquiredText,
+	})
+	if _, err := appendEvent(ctx, sqlTx, binding, true); err != nil {
+		return 0, err
+	}
+	if err := foldRegisteredEvent(ctx, sqlTx, binding); err != nil {
+		return 0, err
+	}
+	if err := sqlTx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		return 0, err
+	}
+	return version, nil
 }
 
 // livenessProducer reads the completed durable operation that already carries

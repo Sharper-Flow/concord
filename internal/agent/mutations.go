@@ -1330,8 +1330,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// tooling from its default ref, so the manifest resolves here, outside
 	// the action's transaction, and rides the request into the guard. Git
 	// never runs inside the store transaction (store connection invariant).
-	if in.ActionID == "record_delivery" {
-		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID)
+	// CD-0198 D4: the combined accept_worker_result at the delivery-admitting
+	// refinement step runs the same admission, so it resolves the same
+	// default-ref manifest for that accept exactly as record_delivery does.
+	if in.ActionID == "record_delivery" || in.ActionID == "accept_worker_result" {
+		tooling, toolingErr := r.refineProofToolingForAction(ctx, in.WorkID, in.ActionID)
 		if toolingErr != nil {
 			return failureEnvelope(base, toolingErr), nil
 		}
@@ -1413,12 +1416,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 }
 
 // refineProofToolingForAction resolves the Project tooling manifest the
-// record_delivery refine-exit proof consumes (CD-0192). The resolution reads
-// git outside the store transaction, so the caller runs it before the
-// action's transaction opens; nil reports that the Project declares no
-// manifest on its default ref.
-func (r runtime) refineProofToolingForAction(ctx context.Context, workID string) (*store.ProjectToolingManifest, error) {
-	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID)
+// refine-exit proof consumes (CD-0192): record_delivery wherever the guard is
+// gated, and the CD-0198 D4 combined accept at its admitting refinement step.
+// The resolution reads git outside the store transaction, so the caller runs
+// it before the action's transaction opens; nil reports that the Project
+// declares no manifest on its default ref.
+func (r runtime) refineProofToolingForAction(ctx context.Context, workID, actionID string) (*store.ProjectToolingManifest, error) {
+	required, requiredErr := store.RefineProofManifestRequired(ctx, r.Store, workID, actionID)
 	if requiredErr != nil {
 		return nil, requiredErr
 	}

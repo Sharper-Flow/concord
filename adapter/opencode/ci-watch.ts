@@ -556,10 +556,13 @@ async function waitForIdle(sessionID: string): Promise<void> {
     const result = await client.get({ url: SESSION_STATUS_ROUTE, signal: AbortSignal.timeout(10_000) })
     if (!result.response.ok) throw new Error(`the host session status route answered ${result.response.status}`)
     const statuses = (result.data ?? {}) as Record<string, { type?: string }>
-    const status = statuses[sessionID]?.type
+    // The status map tracks sessions the host is running; an absent entry is
+    // a session with no active run, which is idle by the host's own runtime
+    // default (`data.get(sessionID) ?? { type: "idle" }`).
+    const status = statuses[sessionID]?.type ?? "idle"
     if (status === "idle") return
     if (Date.now() + config.idlePollMs > deadline) {
-      throw new Error(`session ${sessionID} stayed ${status ?? "unknown"} for ${Math.round(config.idleTimeoutMs / 1000)}s`)
+      throw new Error(`session ${sessionID} stayed ${status} for ${Math.round(config.idleTimeoutMs / 1000)}s`)
     }
     await sleep(config.idlePollMs)
   }
@@ -629,13 +632,15 @@ function queueReport(sessionID: string, watchID: string, text: string): void {
 
 // drainQueuedCiReports injects every queued terminal report into the message
 // the host is about to create, so a wake the confirmation protocol could not
-// prove still reaches the model on the next turn. It never throws: a drained
-// queue can only append parts.
-export function drainQueuedCiReports(sessionID: string, output: { parts: unknown[] }): void {
+// prove still reaches the model on the next turn. The host validates every
+// part against the stored part schema before save, so each drained part is
+// complete: a fresh `prt_` id, the session and message it belongs to, and the
+// synthetic flag. It never throws: a drained queue can only append parts.
+export function drainQueuedCiReports(sessionID: string, messageID: string, output: { parts: unknown[] }): void {
   const queue = queuedReports.get(sessionID)
   if (queue === undefined || queue.length === 0) return
   queuedReports.delete(sessionID)
   for (const { text } of queue) {
-    output.parts.push({ type: "text", text, synthetic: true })
+    output.parts.push({ id: `prt_ciwatch-${randomUUID()}`, sessionID, messageID, type: "text", text, synthetic: true })
   }
 }

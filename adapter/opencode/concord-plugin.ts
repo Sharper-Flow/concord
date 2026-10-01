@@ -104,12 +104,16 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       concord_work_start: work_start,
       concord_ci_watch,
     },
-    "chat.message": async (input: { sessionID: string }, output?: { parts?: unknown[] }) => {
+    "chat.message": async (input: { sessionID: string; messageID?: string }, output?: { parts?: unknown[] }) => {
       clearTurnMoveBoundary(input.sessionID)
       await agentSwitch.chatMessage(input)
       // The CI watcher queues a terminal report it could not confirm and
       // injects it here, so a lost wake reaches the model on the next turn.
-      if (output !== undefined && Array.isArray(output.parts)) drainQueuedCiReports(input.sessionID, output as { parts: unknown[] })
+      // The host validates drained parts against the stored part schema, so
+      // the drain needs the message the parts will belong to.
+      if (output !== undefined && Array.isArray(output.parts) && typeof input.messageID === "string") {
+        drainQueuedCiReports(input.sessionID, input.messageID, output as { parts: unknown[] })
+      }
     },
     "tool.definition": publishWorkStartDefinition,
     event: async ({ event }: { event: unknown }) => {

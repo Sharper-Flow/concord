@@ -16,14 +16,19 @@ type RouteRecord = { url: string; path?: Record<string, unknown>; query?: Record
 // hostFixture is the fake route client every test binds: the control plane
 // reads /session/{id}, the watcher reads /session/status, /session/{id}, and
 // /session/{id}/message, and everything that logs or delivers posts.
-function hostFixture(options: { status?: string; session?: Record<string, unknown>; messages?: Array<{ info: { id: string; role: string } }>; promptStatus?: number } = {}) {
+function hostFixture(
+  options: { status?: string; absentStatus?: boolean; session?: Record<string, unknown>; messages?: Array<{ info: { id: string; role: string } }>; promptStatus?: number } = {},
+) {
   const gets: RouteRecord[] = []
   const posts: RouteRecord[] = []
   const client = {
     get: async (request: { url: string; path?: Record<string, unknown>; query?: Record<string, unknown> }) => {
       gets.push({ url: request.url, path: request.path, query: request.query })
       if (request.url === "/session/status") {
-        return { data: { [SESSION]: { type: options.status ?? "idle" } }, response: new Response(null, { status: 200 }) }
+        return {
+          data: options.absentStatus ? {} : { [SESSION]: { type: options.status ?? "idle" } },
+          response: new Response(null, { status: 200 }),
+        }
       }
       if (request.url === "/session/{id}") {
         return {
@@ -232,13 +237,17 @@ test("an unconfirmed wake queues the report and the next chat.message injects it
   expect(String((logged[0].body as { message: string }).message)).toContain("queued for the next message")
 
   const output = { parts: [] as unknown[] }
-  drainQueuedCiReports(SESSION, output)
+  drainQueuedCiReports(SESSION, "msg_drain_1", output)
   expect(output.parts).toHaveLength(1)
-  expect((output.parts[0] as { type: string; synthetic: boolean }).synthetic).toBe(true)
-  expect((output.parts[0] as { text: string }).text).toContain('"status": "failure"')
+  const drained = output.parts[0] as { id: string; sessionID: string; messageID: string; type: string; synthetic: boolean; text: string }
+  expect(drained.synthetic).toBe(true)
+  expect(drained.id.startsWith("prt_ciwatch-")).toBe(true)
+  expect(drained.sessionID).toBe(SESSION)
+  expect(drained.messageID).toBe("msg_drain_1")
+  expect(drained.text).toContain('"status": "failure"')
   // The queue is drained exactly once.
   const again = { parts: [] as unknown[] }
-  drainQueuedCiReports(SESSION, again)
+  drainQueuedCiReports(SESSION, "msg_drain_2", again)
   expect(again.parts).toEqual([])
   expect(calls).toHaveLength(1)
 })
@@ -255,7 +264,7 @@ test("a session that stays busy past the idle window queues the report without p
   await ciWatchSettled(String(started.watch_id))
   expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(false)
   const output = { parts: [] as unknown[] }
-  drainQueuedCiReports(SESSION, output)
+  drainQueuedCiReports(SESSION, "msg_drain_3", output)
   expect(output.parts).toHaveLength(1)
   expect((output.parts[0] as { text: string }).text).toContain('"status": "success"')
 })
@@ -274,7 +283,7 @@ test("a prompt the host refuses is logged and queued, never swallowed", async ()
   expect(errors.length).toBeGreaterThanOrEqual(1)
   expect(String((errors[0].body as { message: string }).message)).toContain("prompt_async route answered 400")
   const output = { parts: [] as unknown[] }
-  drainQueuedCiReports(SESSION, output)
+  drainQueuedCiReports(SESSION, "msg_drain_4", output)
   expect(output.parts).toHaveLength(1)
 })
 
@@ -374,9 +383,13 @@ test("the plugin registers the watcher tool and drains a queued report on the ne
   expect(started.status).toBe("started")
   await ciWatchSettled(String(started.watch_id))
   const output = { parts: [] as unknown[] }
-  await plugin["chat.message"]({ sessionID: SESSION }, output)
+  await plugin["chat.message"]({ sessionID: SESSION, messageID: "msg_plugin_drain" }, output)
   expect(output.parts).toHaveLength(1)
-  expect((output.parts[0] as { synthetic: boolean }).synthetic).toBe(true)
+  const part = output.parts[0] as { id: string; sessionID: string; messageID: string; synthetic: boolean }
+  expect(part.synthetic).toBe(true)
+  expect(part.id.startsWith("prt_ciwatch-")).toBe(true)
+  expect(part.sessionID).toBe(SESSION)
+  expect(part.messageID).toBe("msg_plugin_drain")
   expect(calls).toHaveLength(1)
 })
 
@@ -419,4 +432,19 @@ test("a serialized selector string and a flattened kind/value pair both start th
   const flattened = result(await concord_ci_watch.execute({ repo: "owner/name", kind: "sha", value: sha }, context))
   expect(flattened.status).toBe("started")
   await ciWatchSettled(String(flattened.watch_id))
+})
+
+test("an entry absent from the session status map is idle, so delivery proceeds", async () => {
+  const fixture = hostFixture({ absentStatus: true, messages: [] })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCiWatch({ stateDir: STATE_DIR, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2, idleTimeoutMs: 60 })
+  configureCoreBinary("/synthetic/concord")
+  const { spawner } = verbFixture([{ stdout: JSON.stringify({ status: "success" }) }])
+  configureCiWatch({ spawner })
+  const started = result(await concord_ci_watch.execute(watchArgs, context))
+  expect(started.status).toBe("started")
+  await ciWatchSettled(String(started.watch_id))
+  const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+  expect(prompts).toHaveLength(1)
 })

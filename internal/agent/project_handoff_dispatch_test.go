@@ -58,10 +58,12 @@ func cleanHandoffRepo(t *testing.T) string {
 	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "base").Run(); err != nil {
 		t.Fatal(err)
 	}
+	_ = exec.Command("git", "-C", repo, "update-ref", "refs/remotes/origin/main", "HEAD").Run()
+	_ = exec.Command("git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main").Run()
 	return repo
 }
 
-func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, CallEnvelope, CallEnvelope, string) {
+func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, CallEnvelope, CallEnvelope, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -80,9 +82,25 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectProject, "project-2"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	repo := cleanHandoffRepo(t)
-	sourceService, _, sourceGrant := authorizedHandoffService(t, s, "client-source", []string{"project-1"}, repo)
-	receiveService, _, receiveGrant := authorizedHandoffService(t, s, "client-receive", []string{"project-2"}, repo)
+	// Two repositories, one per Project: the source session records from its
+	// own checkout, and the receiving session claims its own worktree.
+	repoSource := cleanHandoffRepo(t)
+	repoReceive := cleanHandoffRepo(t)
+	normalizedReceive, err := store.NormalizeProjectLocator(store.LocatorCanonicalPath, repoReceive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locatorPayload, err := json.Marshal(map[string]any{"project_id": "project-2", "locator_id": "path-receive", "kind": string(store.LocatorCanonicalPath), "value": repoReceive, "normalized_value": normalizedReceive, "expected_version": 1, "resulting_version": 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
+		{EventID: "handoff-locator-e", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: locatorPayload},
+	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-2"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+	sourceService, _, sourceGrant := authorizedHandoffService(t, s, "client-source", []string{"project-1"}, repoSource)
+	receiveService, _, receiveGrant := authorizedHandoffService(t, s, "client-receive", []string{"project-2"}, repoReceive)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +142,26 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract failed: %+v", approved.Error)
 	}
-	return s, sourceService, receiveService, sourceEnv, receiveEnv, repo
+	// The receiving Project's claimed worktree: the real claim the boot
+	// route enters, ready for the verified landing that records the
+	// receiving session's placement.
+	receiveVersion, err := workVersionForWorkflow(t, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiveBase, err := exec.Command("git", "-C", repoReceive, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimReceive, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{
+		OpID: "handoff-claim-e", WorkID: "work-1", ProjectID: "project-2",
+		BaseSHA: strings.TrimSpace(string(receiveBase)), PrincipalRef: "human-1", RequestID: "handoff-req-e",
+		ExpectedVersion: receiveVersion, Now: fixedTime(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource, claimReceive.Entry.Path
 }
 
 // authorizedHandoffService mirrors newAuthorizedService with a linked
@@ -184,7 +221,7 @@ func retirementInvoke(t *testing.T, s *store.Store, service *Service, env CallEn
 
 func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) {
 	t.Parallel()
-	s, sourceService, receiveService, sourceEnv, receiveEnv, repo := handoffDispatchFixture(t)
+	s, sourceService, receiveService, sourceEnv, receiveEnv, repo, receiveWorktree := handoffDispatchFixture(t)
 	// The source records the addressed handoff from its authenticated
 	// identities: no input names the source Project or session.
 	record := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
@@ -239,6 +276,22 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	})
 	if wrongTarget.Outcome == OutcomeOK || wrongTarget.Error == nil || !strings.Contains(wrongTarget.Error.Message, "addresses Project") {
 		t.Fatalf("wrong-target consume=%+v, want the addressed-Project refusal", wrongTarget.Error)
+	}
+	// The receiving session's consume requires the verified placement the
+	// real claim landing records: without the occupancy row the core
+	// refuses inside its own transaction and records nothing.
+	unplaced := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{
+		"idempotency_key": "consume-unplaced", "work_id": "work-1", "handoff_id": handoffID,
+	})
+	if unplaced.Outcome == OutcomeOK || unplaced.Error == nil || !strings.Contains(unplaced.Error.Message, "no verified placement") {
+		t.Fatalf("unplaced consume=%+v, want the unplaced-receiver refusal", unplaced.Error)
+	}
+	// The verified claim landing records the receiving session's occupancy
+	// on its claimed worktree: the real placement evidence (CD-0178 D3).
+	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{
+		WorkID: "work-1", SessionRef: receiveEnv.SessionRef, LandedDirectory: receiveWorktree, HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
 	}
 	// The receiving session consumes before managed execution.
 	consumed := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", map[string]any{

@@ -540,6 +540,23 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	if handoff.TargetProjectID != req.ConsumerProjectID {
 		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the handoff addresses Project %s, not %s", handoff.TargetProjectID, req.ConsumerProjectID), false, "consume the handoff addressed to the session's Project")
 	}
+	// The bind requires the verified receiver placement: the consuming
+	// session must hold the occupancy row a verified claim landing recorded
+	// on this work for the addressed Project (CD-0178 D3). A fresh bind
+	// without that placement refuses inside this transaction, so
+	// consumption can never precede the verified landing.
+	var placed int
+	if placeErr := tx.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM worktree_occupancy o
+		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		WHERE o.session_ref=? AND c.work_id=? AND c.project_id=?)`,
+		req.ConsumerSessionRef, req.WorkID, req.ConsumerProjectID).Scan(&placed); placeErr != nil {
+		return out, wrapFailure(KindUnavailable, "project_handoff", "cannot read the receiving session's verified placement", true, "retry once the database is readable", placeErr)
+	}
+	if placed == 0 {
+		return out, newFailure(KindInvalidOperation, "project_handoff", "the receiving session holds no verified placement on this work for the addressed Project; the consume binds only after a verified claim landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement, then consume")
+	}
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, req.WorkID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
 		return out, newFailure(KindProjectionNotFound, "project_handoff", "the work holds no active workflow contract", false, "start the workflow before consuming a handoff")
@@ -640,9 +657,10 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	var frontierID, frontierSource string
 	var frontierVersion int64
 	var frontierState string
-	frontierErr := tx.QueryRowContext(ctx, `SELECT handoff_id,source_session_ref,contract_version,state FROM project_handoffs
+	var frontierConsumer string
+	frontierErr := tx.QueryRowContext(ctx, `SELECT handoff_id,source_session_ref,contract_version,state,COALESCE(consumed_by_session_ref,'') FROM project_handoffs
 		WHERE work_id=? AND target_project_id=? AND source_session_ref<>?
-		ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, sessionRef).Scan(&frontierID, &frontierSource, &frontierVersion, &frontierState)
+		ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, sessionRef).Scan(&frontierID, &frontierSource, &frontierVersion, &frontierState, &frontierConsumer)
 	if frontierErr == sql.ErrNoRows {
 		// No handoff from another session addresses this Project: the
 		// session is not the addressed receiver of anything.
@@ -652,9 +670,17 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's addressed handoff frontier", true, "retry once the database is readable", frontierErr)
 	}
 	if frontierState != ProjectHandoffRecorded {
-		// The current frontier was consumed: its bind already admitted the
-		// receiving session once.
-		return nil
+		if frontierConsumer == sessionRef {
+			// The frontier carries this session's own bind: it admitted
+			// this session once, so neither contract replacement nor a
+			// superseded historical row resurrects a past admission
+			// requirement.
+			return nil
+		}
+		// The frontier was consumed by a different receiving session of
+		// the same Project: this session never consumed it, so admission
+		// fails closed on the recorded bind.
+		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s was consumed by receiving session %s, not this session; managed execution refuses until this session consumes a handoff addressed to it", frontierID, frontierSource, frontierConsumer), false, "have the source session record a fresh addressed handoff, then consume it")
 	}
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
 	if contractErr != nil && contractErr != sql.ErrNoRows {

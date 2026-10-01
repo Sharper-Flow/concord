@@ -22,8 +22,8 @@ derivable fact drifts from its source and no check catches it.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
   `concord_work_start` captures the item, claims its canonical worktree, and moves
-  the session; the shell reports the pre-move directory until the next turn.
-  A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
+  the session; the move result states what the move changed for the agent's next
+  actions. A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
 - Concord coordinates explicitly managed development. Other project work and
   defect repair may proceed outside the workflow under host permissions and repository rules; they receive no Concord workflow authority or evidence.
 - Advance is public predecessor evidence only. Do not create or dual-write

@@ -11,6 +11,7 @@ import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unla
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
+import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -57,6 +58,7 @@ beforeEach(() => {
   // The text-part queue is adapter module state; drain it so one test's
   // notices never leak into the next test's assertions.
   adapter.takeWorkNotices("session-1")
+  resetMoveNotices()
   delete process.env.ZELLIJ_PANE_ID
 })
 afterEach(() => {
@@ -1699,6 +1701,35 @@ test("work start moves the calling session into the claimed worktree", async () 
   expect(calls.some(({ argv }) => argv[1] === "session-exec" || argv[0] === "opencode")).toBe(false)
 })
 
+// The move notice replaces the bare runs-in line: the envelope output names
+// the new path, points reads, edits, and the shell working directory under
+// it, and marks the stale surfaces, so the agent retargets its next actions.
+test("work start replaces the bare move line with the move notice", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls) })
+  const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.output).toContain(`Concord moved this session to ${WORKTREE}`)
+  expect(result.output).toContain(`Use paths under ${WORKTREE} for reads, edits, and the shell working directory`)
+  expect(result.output).toContain("The <env> working directory and the pre-move checkout are stale until the next turn")
+  expect(result.output).not.toContain("This session now runs in")
+})
+
+// A refused move records no notice: the notice states a confirmed move, and
+// the refusal already names its own effect and recovery.
+test("a refused work start records no move notice", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: retargetRunner(calls, {
+    "work-bootstrap": () => ({ exitCode: 1, stdout: "", stderr: "concord work-bootstrap: invalid_operation: cannot chain work_start from live work item work-origin" }),
+  }) })
+  const refused: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, landedContextFor()))
+  expect(refused.outcome).toBe("error")
+  expect(JSON.stringify(refused)).not.toContain("Concord moved this session")
+  expect(takeMoveNotice("session-1")).toBeNull()
+})
+
 // The confirmed landing arms the session's active claimed worktree, so a later
 // dispatch compares the host's answer against a record the host does not own.
 test("work start arms the claimed worktree after the confirmed landing", async () => {
@@ -3140,7 +3171,8 @@ test("an own-row recovery records a refused re-land on the successful abandon re
   })
   const context = { ...landedContextFor(), sessionID }
   const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-own-row-1" }
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
+  const toolResult = (await adapter.work_transition.execute(hostCall("worker_abandon", input), context)) as { output: string }
+  const result: any = envelopeLine(toolResult.output)
   expect(result.outcome).toBe("ok")
   expect(result.operation).toBe("worker_abandon")
   // A refused re-land does not erase the abandon receipt or its recovery notice.
@@ -3152,6 +3184,11 @@ test("an own-row recovery records a refused re-land on the successful abandon re
     expect.stringContaining("work_start re-land refused: work resume refused; replay work_start once the session's tool context runs in the claimed worktree"),
   ])
   expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  // The re-land refused, so the session's final confirmed position is the
+  // registered main checkout: the composed answer carries that notice, and
+  // no worktree notice can ride it.
+  expect(toolResult.output).toContain(`Concord moved this session to ${MAIN_CHECKOUT}`)
+  expect(toolResult.output).not.toContain(`Concord moved this session to ${WORKTREE}`)
   // The session moved out for the vacate. The failed re-land names its replay remedy.
   expect(moves).toEqual([MAIN_CHECKOUT])
   // One refused CLI abandon, then the retry carrying the same event identity
@@ -3319,9 +3356,10 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
       throw new Error(`unexpected command ${argv.join(" ")}`)
     } },
   })
-  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", {
+  const toolResult = (await adapter.work_transition.execute(hostCall("worker_abandon", {
     work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-retry-refuses-1",
-  }), { ...landedContextFor(), sessionID }))
+  }), { ...landedContextFor(), sessionID })) as { output: string }
+  const result: any = envelopeLine(toolResult.output)
   expect(result.outcome).toBe("error")
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.details.recovery_stopped_at).toBe("worker_abandon_retry")
@@ -3329,6 +3367,11 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(steps[0]).toContain("session_vacate:")
   expect(steps.some((step) => step.startsWith("work_start: the session re-landed in "))).toBe(true)
   expect(steps[steps.length - 1]).toMatch(/^work_start:/)
+  // The confirmed re-land supersedes the vacate's intermediate move notice:
+  // the composed answer points the agent at the claimed worktree the session
+  // finally occupies, never at the main checkout the vacate passed through.
+  expect(toolResult.output).toContain(`Concord moved this session to ${WORKTREE}`)
+  expect(toolResult.output).not.toContain(`Concord moved this session to ${MAIN_CHECKOUT}`)
   expect(moves).toEqual([MAIN_CHECKOUT, WORKTREE])
   expect(abandonCalls).toBe(2)
   expect(calls).toEqual([

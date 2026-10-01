@@ -110,6 +110,7 @@ ADAPTER_FILES = (
     "lane_completion.ts",
     "lane_dispatch.ts",
     "manifest-pin.ts",
+    "move-notice.ts",
     "move-session.ts",
     "packet.ts",
     "project-link.ts",

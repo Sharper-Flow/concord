@@ -230,6 +230,31 @@ test("a correction projects recorded failure fields into the packet", async () =
   expect(built.packet!.inputs.context).toBe(NARRATIVE)
 })
 
+// The checkpoint failed-review return (amended CD-0143 D1) projects the same
+// bounded context: the failure disposition stands beside the affected
+// predicates and bound evidence the operator approved, and the narrative
+// context stays separate from it.
+test("a checkpoint failed-review correction projects its bounded verdict evidence into the packet", async () => {
+  const correction: AgentLanePacketCorrection = {
+    disposition: "failed",
+    attempt_count: 1,
+    attempt_limit: 3,
+    escalated: false,
+    diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy",
+    strategy: "return to the repair step and dispatch a fresh attempt",
+    predicate_ids: ["predicate:return-route"],
+    evidence_refs: ["evidence:return-route-verification"],
+  }
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { correction }),
+  })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.correction).toEqual(correction)
+  expect(built.packet!.inputs.correction!.disposition).toBe("failed")
+  expect(built.packet!.inputs.context).toBe(NARRATIVE)
+})
+
 // A correction counts every operator-authorized retry, so its count passes
 // attempt_limit once the operator allows work past the limit. Dropping such a
 // correction left the packet unable to consume it, and the core refuses a

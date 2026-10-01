@@ -20,11 +20,19 @@ workflow to the external effect that produced the result.
 
 ### D1. Admit one typed verdict-correction action
 
-The engine exposes `request_correction` only when a completed and accepted worker
+The engine exposes `request_correction` when a completed and accepted worker
 result and a current unhealthy verdict exist. The payload requires a diagnosis,
 strategy, affected predicate IDs, bound evidence references, and an exact
 operator approval.
 The action holds the checkpoint and records its disposition in the event log.
+
+The engine additionally exposes `request_correction` at the pinned
+`human_checkpoint` step when the latest attempt a worker actually dispatched
+there failed and a hold-mode `record_worker_failure` dispositions that exact
+attempt (CD-0193 D1), with a current unhealthy verdict under the active
+contract and the same payload. The failure disposition is not an accepted
+success. It opens only this typed return, and the counting and escalation
+boundaries of CD-0164 stay unchanged.
 
 ### D2. Return to the declared external effect
 
@@ -50,9 +58,13 @@ verdict and does not weaken evidence or predicate validation.
 
 ## Verification
 
-- `request_correction` is unavailable without a completed and accepted worker delivery and a current unhealthy verdict.
+- `request_correction` is unavailable without a current unhealthy verdict and one authorized admission ground.
+- The ground is a completed and accepted worker delivery behind that verdict, or a failure record that dispositions the checkpoint's latest failed attempt.
+- A verdict that predates a completed correction request cannot reopen the failed-review return, and the refusal names the stale verdict.
 - Missing fields, unrelated predicates, unbound evidence, and missing operator approval are refused.
 - Implementation correction returns to `execution`; break-fix correction returns to `repair`.
 - The correction context exposes the affected predicates, evidence, attempt bound, and escalation state.
 - The fourth correction request is refused, and completion remains fail-closed until healthy verdicts exist.
 - Historical workflow pins retain their released definition and event history.
+- A failed checkpoint review refuses `request_correction` until a failure record dispositions it, and the refusal names the missing prerequisite: absent verdict, missing accepted delivery, or missing failure disposition.
+- After that record, `request_correction` returns the pinned break-fix instance to `repair` and the pinned implementation instance to `execution`, and the failure record never reads as an accepted delivery.

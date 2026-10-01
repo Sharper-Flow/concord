@@ -56,9 +56,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dd55ffe0cbf352ba74573d07b4384f4f7aeb70f66c28b96bcfc2106595dfa378",
+  "sha256": "sha256:b9a3e9b08847a209659dc22dfeb8f083ec0d52b24d0c353743bee6a1132eb7ab",
   "status": "accepted",
-  "summary": "Adds an engine-owned verdict correction route after completed and accepted worker delivery, returns pinned workflows to their declared external effect, requires comparable healthy predicate sets to reset bounds, and keeps completion fail-closed.",
+  "summary": "Adds an engine-owned verdict correction route after completed and accepted worker delivery, and after a dispositioned failed review at a pinned human_checkpoint with a current unhealthy verdict, returns pinned workflows to their declared external effect, requires comparable healthy predicate sets to reset bounds, and keeps completion fail-closed.",
   "tags": [
     "workflow",
     "correction",

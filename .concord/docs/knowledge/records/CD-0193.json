@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:38f871b9c667a1c9ab4c25325943ddf5261ae6b948996dc39b9901dbbe311462",
+  "sha256": "sha256:296b79222f38486601714455cd53ec26233e73212e48b0b7549225e9f66c6729",
   "status": "accepted",
-  "summary": "A failed worker attempt at a human_checkpoint step has a declared recovery: the engine admits record_worker_failure there as a hold-mode recovery that keeps the pinned definition digest, and the recorded failure dispositions the attempt, so the operator's own gate opens. The checkpoint hold keys on attempts a worker actually dispatched and releases on the accept, the record, or a later actual dispatch, so a dispatch window no worker used dispositions nothing, while every other step keeps the CD-0133 timing. Amends CD-0187 D2 and D3.",
+  "summary": "A failed worker attempt at a human_checkpoint step has a declared recovery: the engine admits record_worker_failure there as a hold-mode recovery that keeps the pinned definition digest, and the recorded failure dispositions the attempt, so the operator's own gate opens, and the record then admits the CD-0143 D1 corrective return at the checkpoint. The checkpoint hold keys on attempts a worker actually dispatched and releases on the accept, the record, or a later actual dispatch, so a dispatch window no worker used dispositions nothing, while every other step keeps the CD-0133 timing. Amends CD-0187 D2 and D3.",
   "tags": [
     "workflow",
     "worker-attempts",

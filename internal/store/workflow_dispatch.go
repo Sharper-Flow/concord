@@ -221,14 +221,14 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		if err := s.db.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 		}
-		available, correctionErr := workflowCorrectionRequestAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
+		available, missing, correctionErr := workflowCorrectionRequestAdmissionState(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action", 0)
 		if correctionErr != nil {
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
 			return entry, workflowCorrectionRequestActionDefinition(), nil
 		}
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 	}
 	for _, action := range entry.Definition.ActionDefinitions {
 		if action.ID == actionID {
@@ -312,7 +312,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	if request.ActionID == "request_correction" {
-		guards.correctionRequestRecovery, err = workflowCorrectionRequestAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+		guards.correctionRequestRecovery, guards.correctionRequestMissing, err = workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
 		if err != nil {
 			return result, err
 		}
@@ -342,7 +342,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 	}
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action"); err != nil {
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action", 0); err != nil {
 			return result, err
 		}
 	}

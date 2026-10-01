@@ -40,6 +40,7 @@ type workflowActionGuardContext struct {
 	workerFailureRecovery     bool
 	correctionRecovery        bool
 	correctionRequestRecovery bool
+	correctionRequestMissing  string
 	actorRef                  string
 	eventActor                string
 	operatorRef               string
@@ -79,9 +80,9 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 
 func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRequestRecovery {
-		return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict or an outstanding post-rejection review", false, "reread the current work pin")
+		return workflowCorrectionRequestUnavailableFailure("workflow_action", g.correctionRequestMissing)
 	}
-	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action")
+	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action", 0)
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -808,12 +809,12 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 			return nil
 		}
 		if g.request.ActionID == "request_correction" {
-			available, correctionErr := workflowCorrectionRequestAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+			available, missing, correctionErr := workflowCorrectionRequestAdmissionState(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", 0)
 			if correctionErr != nil {
 				return correctionErr
 			}
 			if !available {
-				return newFailure(KindInvalidOperation, "workflow_action", "correction request is unavailable without a current non-ok verification verdict", false, "reread the current work pin")
+				return workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 			}
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}

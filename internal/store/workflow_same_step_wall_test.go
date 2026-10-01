@@ -57,7 +57,7 @@ func TestSameStepFailuresRefuseTheFourthDispatch(t *testing.T) {
 		if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, nil); err != nil {
 			t.Fatalf("same-step dispatch %d: %v", n, err)
 		}
-		failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+		failWorkerAttemptWithKind(t, s, workID, attemptID, "the lane failed before a judgeable result existed")
 	}
 	err := dispatchSameStepAttempt(t, s, workID, "repair", fmt.Sprintf("attempt:%s:same:4", workID), worker, false, nil)
 	var failure *Failure
@@ -82,7 +82,7 @@ func TestEscalatedApprovalAdmitsTheSameStepDispatch(t *testing.T) {
 		if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, nil); err != nil {
 			t.Fatalf("same-step dispatch %d: %v", n, err)
 		}
-		failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+		failWorkerAttemptWithKind(t, s, workID, attemptID, "the lane failed before a judgeable result existed")
 	}
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":same:4", worker, false, nil); err == nil {
 		t.Fatal("fourth same-step dispatch admitted without approval")
@@ -119,7 +119,7 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", failed, worker, false, nil); err != nil {
 		t.Fatalf("pre-accept dispatch: %v", err)
 	}
-	failWorkerAttemptWithKind(t, s, workID, failed, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+	failWorkerAttemptWithKind(t, s, workID, failed, "the lane failed before a judgeable result existed")
 
 	accepted := "attempt:" + workID + ":d1"
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", accepted, worker, false, nil); err != nil {
@@ -165,13 +165,13 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	if err := dispatchSameStepAttempt(t, s, workID, "repair", returned, worker, false, pin.Correction); err != nil {
 		t.Fatalf("post-return dispatch: %v", err)
 	}
-	failWorkerAttemptWithKind(t, s, workID, returned, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+	failWorkerAttemptWithKind(t, s, workID, returned, "the lane failed before a judgeable result existed")
 	for n := 3; n <= 4; n++ {
 		attemptID := fmt.Sprintf("attempt:%s:d%d", workID, n)
 		if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, nil); err != nil {
 			t.Fatalf("post-return dispatch d%d admitted the wall early: %v", n, err)
 		}
-		failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "the lane failed before a judgeable result existed")
+		failWorkerAttemptWithKind(t, s, workID, attemptID, "the lane failed before a judgeable result existed")
 	}
 	err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":d5", worker, false, nil)
 	var failure *Failure

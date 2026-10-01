@@ -48,9 +48,9 @@ func openLauncherStore(t *testing.T) *store.Store {
 
 // readDomainSection performs the S2 Domain read the launcher issues on Product
 // entry and requires it to answer without erroring the screen.
-func readDomainSection(t *testing.T, s *store.Store, product string) launcher.Snapshot {
+func readDomainSection(t *testing.T, s *store.Store) launcher.Snapshot {
 	t.Helper()
-	snapshot, err := New(s).Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: product, Limit: 20})
+	snapshot, err := New(s).Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadDomains, Product: "product-1", Limit: 20})
 	if err != nil {
 		t.Fatalf("S2 Domain read errored the screen: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestDomainQueryFailureKeepsTheProductWorkList(t *testing.T) {
 	if _, err := s.QueryLauncherDomains(context.Background(), store.LauncherProductRequest{Product: "product-1", Limit: 20, Depth: 3}); err == nil {
 		t.Fatal("non-vacuity: the Domain query must fail for this test to measure anything")
 	}
-	snapshot := readDomainSection(t, s, "product-1")
+	snapshot := readDomainSection(t, s)
 	if len(snapshot.Ranked) != 2 {
 		t.Fatalf("a failed Domain query withheld the Product work list: %#v", snapshot.Ranked)
 	}
@@ -91,7 +91,7 @@ func TestDomainQueryFailureKeepsTheProductWorkList(t *testing.T) {
 // rather than a fabricated snapshot: current law, architecture relations,
 // active Domain-bound work, and unresolved architecture overlap.
 func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T) {
-	snapshot := readDomainSection(t, domainEvidenceStore(t), "product-1")
+	snapshot := readDomainSection(t, domainEvidenceStore(t))
 
 	if snapshot.Domains.State != "authoritative" || snapshot.Coverage != "authoritative" {
 		t.Fatalf("projected registry did not render authoritatively: state=%q coverage=%q", snapshot.Domains.State, snapshot.Coverage)
@@ -179,14 +179,14 @@ func absentRegistryStore(t *testing.T) *store.Store {
 // all. Screen coverage follows the work read in both cases; only the Domain
 // section separates the two.
 func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
-	empty := readDomainSection(t, domainEvidenceStore(t), "product-1")
+	empty := readDomainSection(t, domainEvidenceStore(t))
 	// Non-vacuity: the same section carries projected law and Domain-bound
 	// work, so its empty relation set is a read of populated state.
 	if len(empty.Domains.Domains) != 1 || empty.Domains.Domains[0].CurrentLawCount != 1 || empty.Domains.Domains[0].ActiveWorkCount != 2 {
 		t.Fatalf("relation emptiness was read from an unpopulated registry: %#v", empty.Domains.Domains)
 	}
 
-	absent := readDomainSection(t, absentRegistryStore(t), "product-1")
+	absent := readDomainSection(t, absentRegistryStore(t))
 
 	if len(empty.Domains.Relations) != 0 || len(absent.Domains.Relations) != 0 {
 		t.Fatalf("relation counts differ, so this test would not measure the discriminator: empty=%d absent=%d", len(empty.Domains.Relations), len(absent.Domains.Relations))
@@ -285,7 +285,7 @@ func boundedOverlapStore(t *testing.T) *store.Store {
 // names the bounded part, and never answers "no unresolved overlaps" from an
 // incomplete enumeration.
 func TestS2DomainSectionBoundedOverlapKeepsRegistryRows(t *testing.T) {
-	snapshot := readDomainSection(t, boundedOverlapStore(t), "product-1")
+	snapshot := readDomainSection(t, boundedOverlapStore(t))
 
 	if snapshot.Domains.State != "authoritative" {
 		t.Fatalf("bounded overlaps marked the whole section unavailable: %#v", snapshot.Domains)

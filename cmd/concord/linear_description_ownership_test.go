@@ -19,15 +19,15 @@ import (
 // carries a confirmed link with the given content hash and a queued
 // issue_update operation. The composed payload title is the seeded work title
 // and the description is composeLinearIssueBody of the seeded value statement.
-func seedDescriptionOwnershipCase(t *testing.T, dbPath, productID, projectID, workID, title, confirmedHash string) {
+func seedDescriptionOwnershipCase(t *testing.T, dbPath, workID, confirmedHash string) {
 	t.Helper()
-	seedCLIProduct(t, dbPath, productID, projectID)
-	enableLinearProduct(t, dbPath, productID)
+	seedCLIProduct(t, dbPath, "ownership-product", "ownership-project")
+	enableLinearProduct(t, dbPath, "ownership-product")
 	runOperatorJSON(t, dbPath, []string{"linear-connection-update"}, map[string]any{
-		"event_id": "ownership-label-update", "resource_id": "drain-conn-" + productID, "product_id": productID,
-		"label_ids": map[string]string{"task": "label-task", "project:" + projectID: "label-" + projectID + "-repo"}, "expected_resource_version": 1,
+		"event_id": "ownership-label-update", "resource_id": "drain-conn-ownership-product", "product_id": "ownership-product",
+		"label_ids": map[string]string{"task": "label-task", "project:ownership-project": "label-ownership-project-repo"}, "expected_resource_version": 1,
 	})
-	seedLinearCLIWork(t, dbPath, workID, projectID, title)
+	seedLinearCLIWork(t, dbPath, workID, "ownership-project", "Ownership title")
 	ctx := context.Background()
 	s, err := store.Open(ctx, dbPath)
 	if err != nil {
@@ -273,7 +273,7 @@ func TestLinearIssueUpdateDrainPublishesRevisionCommentWithoutOverwriting(t *tes
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	rec := &drainOwnershipRecorder{humanBody: "A human rewrote this body.", t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, rec.handler())
@@ -317,7 +317,7 @@ func TestLinearIssueUpdateDrainPublishesEachRevisionOnce(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-repeat-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 	digest := linearContentHash("Ownership title", ownedTestBody(workID))
 
 	rec := &drainOwnershipRecorder{humanBody: "content Concord wrote at creation", t: t}
@@ -471,7 +471,7 @@ func TestLinearIssueUpdateDrainConvergesAfterPersistedCommentLostResponse(t *tes
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-lost-response-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	remote := &lostResponseLinear{humanBody: "A human rewrote this body.", responseLost: true, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, remote.handler())
@@ -512,7 +512,7 @@ func TestLinearIssueUpdateDrainReportsUnresolvedRevisionOnRemoteFailure(t *testi
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-failure-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	rec := &drainOwnershipRecorder{humanBody: "A human rewrote this body.", commentStatus: http.StatusTooManyRequests, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, rec.handler())
@@ -556,7 +556,7 @@ func TestLinearIssueUpdateDrainReportsUnresolvedRevisionOnRemoteFailure(t *testi
 func TestLinearIssueUpdateDrainReportsNoRevisionWithoutDivergence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-same-work"
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", linearContentHash("Ownership title", ownedTestBody(workID)))
+	seedDescriptionOwnershipCase(t, dbPath, workID, linearContentHash("Ownership title", ownedTestBody(workID)))
 
 	rec := &drainOwnershipRecorder{humanBody: ownedTestBody(workID), t: t}
 	runOwnershipDrain(t, dbPath, "lin_api_same_test", rec.handler())
@@ -583,7 +583,7 @@ func TestLinearIssueUpdateDrainKeepsRetryableWhenCommentLookupFails(t *testing.T
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-lookup-failure-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	remote := &lostResponseLinear{humanBody: "A human rewrote this body.", responseLost: true, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, remote.handler())
@@ -625,7 +625,7 @@ func TestLinearIssueUpdateDrainRefusesAnAlteredStoredCommentBody(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-altered-body-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	remote := &lostResponseLinear{humanBody: "A human rewrote this body.", responseLost: true, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, remote.handler())
@@ -657,7 +657,7 @@ func TestLinearIssueUpdateDrainRefusesAMismatchedCommentLookupID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	workID := "ownership-wrong-id-work"
 	createdHash := linearContentHash("Ownership title", "content Concord wrote at creation")
-	seedDescriptionOwnershipCase(t, dbPath, "ownership-product", "ownership-project", workID, "Ownership title", createdHash)
+	seedDescriptionOwnershipCase(t, dbPath, workID, createdHash)
 
 	remote := &lostResponseLinear{humanBody: "A human rewrote this body.", responseLost: true, t: t}
 	operations := drainDescriptionOwnershipProduct(t, dbPath, remote.handler())

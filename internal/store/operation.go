@@ -857,12 +857,12 @@ func versionConflict(subjectType SubjectType, subjectID string, expected, got in
 	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, nil)
 }
 
-func versionConflictForQuery(ctx context.Context, q queryer, subjectType SubjectType, subjectID string, expected, got int64, exists bool) (*Failure, error) {
-	actions, err := interveningWorkflowActions(ctx, q, subjectType, subjectID, expected, got)
+func versionConflictForQuery(ctx context.Context, q queryer, subjectID string, expected, got int64) (*Failure, error) {
+	actions, err := interveningWorkflowActions(ctx, q, SubjectWorkItem, subjectID, expected, got)
 	if err != nil {
 		return nil, err
 	}
-	return versionConflictWithActions(subjectType, subjectID, expected, got, exists, actions), nil
+	return versionConflictWithActions(SubjectWorkItem, subjectID, expected, got, true, actions), nil
 }
 
 func versionConflictWithActions(subjectType SubjectType, subjectID string, expected, got int64, exists bool, actions []InterveningAction) *Failure {

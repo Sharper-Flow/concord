@@ -230,9 +230,11 @@ def plan(
     document = find_document(root, old, findings)
     record = RECORDS / f"{old}.json"
     coverage = COVERAGE / f"{old}.json"
-    for path in (record, coverage):
-        if not (root / path).is_file():
-            findings.append(f"{path}: shard is missing; {old} is not a complete record")
+    findings.extend(
+        f"{path}: shard is missing; {old} is not a complete record"
+        for path in (record, coverage)
+        if not (root / path).is_file()
+    )
 
     # The target must be entirely free. A partially occupied number produces a
     # manifest that still validates, which is the failure mode in #392.

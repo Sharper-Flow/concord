@@ -749,9 +749,12 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if key in relation_keys:
                 fail(findings, f"{prefix}: duplicate law relation, including reverse conflict")
             relation_keys.add(key)
-            if kind == "supersedes":
-                if record.get("status") != "accepted" or target.get("status") != "superseded" or target.get("successor") != record.get("id"):
-                    fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
+            if kind == "supersedes" and (
+                record.get("status") != "accepted"
+                or target.get("status") != "superseded"
+                or target.get("successor") != record.get("id")
+            ):
+                fail(findings, f"{prefix}: supersedes relation disagrees with target successor")
             if kind in {"supersedes", "refines", "subordinate_to"}:
                 graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
     for record in records:

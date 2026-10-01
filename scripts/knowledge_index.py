@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -68,7 +69,7 @@ def _coverage_generator() -> ModuleType:
     return sys.modules.get("generate_law_coverage") or _load_module("generate_law_coverage", "generate-law-coverage.py")
 
 
-def compose_manifest_bytes(root: Path = ROOT, record_path_re: "re.Pattern[str] | None" = None) -> bytes:
+def compose_manifest_bytes(root: Path = ROOT, record_path_re: re.Pattern[str] | None = None) -> bytes:
     """The manifest the shards under root compose, as canonical bytes.
 
     record_path_re selects the record path rule of a layout tier; None keeps
@@ -140,7 +141,7 @@ def _extract_ref_knowledge_tree(root: Path, ref: str, knowledge_root: str) -> tu
     return held, scratch
 
 
-def _compose_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str, record_path_re: "re.Pattern[str] | None") -> dict:
+def _compose_manifest_from_ref_tree(root: Path, ref: str, knowledge_root: str, record_path_re: re.Pattern[str] | None) -> dict:
     held, scratch = _extract_ref_knowledge_tree(root, ref, knowledge_root)
     with scratch:
         return json.loads(compose_manifest_bytes(held, record_path_re))
@@ -198,9 +199,7 @@ def raw_manifest(root: Path = ROOT) -> dict:
     registry_path = root / DOMAIN_REGISTRY_PATH
     if registry_path.is_file():
         manifest["domain_registry"] = _read_json(registry_path, findings)
-    records: list[object] = []
-    for shard in sorted((root / RECORD_DIR).glob("*.json")):
-        records.append(_read_json(shard, findings))
+    records = [_read_json(shard, findings) for shard in sorted((root / RECORD_DIR).glob("*.json"))]
     if findings:
         raise ComposeError(findings)
     manifest["records"] = records

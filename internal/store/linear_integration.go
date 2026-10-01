@@ -240,6 +240,105 @@ func (s *Store) ReadLinearConnection(ctx context.Context, productID string) (Lin
 	return readLinearConnectionCore(ctx, s.db, productID)
 }
 
+// scanLinearConnectionCandidate decodes one managed-resource row into a
+// Linear connection candidate. A row whose metadata is unreadable or carries
+// no linear object is not a candidate and returns nil.
+func scanLinearConnectionCandidate(rows *sql.Rows) (*LinearConnection, error) {
+	var resourceID, metadataJSON string
+	var version int64
+	if err := rows.Scan(&resourceID, &version, &metadataJSON); err != nil {
+		return nil, wrapFailure(KindUnavailable, "linear_connection_read", "cannot scan Linear connection resource", true, "retry once the database is readable", err)
+	}
+	var metadata map[string]any
+	if json.Unmarshal([]byte(metadataJSON), &metadata) != nil {
+		return nil, nil
+	}
+	linear, ok := metadata["linear"].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	candidate := LinearConnection{ResourceID: resourceID, Version: version}
+	if v, ok := linear["workspace_url"].(string); ok {
+		candidate.WorkspaceURL = v
+	}
+	if v, ok := linear["team_id"].(string); ok {
+		candidate.TeamID = v
+	}
+	if v, ok := linear["auth_mode"].(string); ok {
+		candidate.AuthMode = v
+	}
+	if encoded, exists := linear["status_ids"]; exists {
+		statusIDs, err := decodeLinearStatusIDs(encoded)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateLinearStatusMappingRead(statusIDs, "linear_connection_read"); err != nil {
+			return nil, err
+		}
+		candidate.StatusIDs = statusIDs
+	}
+	if encoded, exists := linear["label_ids"]; exists {
+		labelIDs, err := decodeLinearLabelIDs(encoded)
+		if err != nil {
+			return nil, err
+		}
+		candidate.LabelIDs = labelIDs
+	}
+	return &candidate, nil
+}
+
+// decodeLinearStatusIDs decodes the linear metadata status_ids object into a
+// lifecycle-to-status-id mapping, refusing unrecognized lifecycles and
+// non-string or invalid status ids.
+func decodeLinearStatusIDs(encoded any) (map[string]string, error) {
+	raw, marshalErr := json.Marshal(encoded)
+	var statusIDs map[string]json.RawMessage
+	if marshalErr != nil || json.Unmarshal(raw, &statusIDs) != nil || statusIDs == nil {
+		return nil, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status_ids must be an object", false, "supply persistable lifecycle to status id mappings")
+	}
+	decoded := make(map[string]string, len(statusIDs))
+	for lifecycle, value := range statusIDs {
+		if !lifecycleStates[lifecycle] {
+			return nil, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status mapping lifecycle is not persistable", false, "map needed, in_progress, completed, cancelled, or superseded")
+		}
+		var statusID string
+		if err := json.Unmarshal(value, &statusID); err != nil {
+			return nil, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status id must be a string", false, "supply persistable lifecycle to status id mappings")
+		}
+		if err := validateLinearConnectionID(statusID, "status id"); err != nil {
+			return nil, err
+		}
+		decoded[lifecycle] = statusID
+	}
+	return decoded, nil
+}
+
+// decodeLinearLabelIDs decodes the linear metadata label_ids object into a
+// mapping-key-to-label-id mapping, refusing unrecognized keys and non-string
+// or invalid label ids.
+func decodeLinearLabelIDs(encoded any) (map[string]string, error) {
+	raw, marshalErr := json.Marshal(encoded)
+	var labelIDs map[string]json.RawMessage
+	if marshalErr != nil || json.Unmarshal(raw, &labelIDs) != nil || labelIDs == nil {
+		return nil, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label_ids must be an object", false, "supply work kind and urgency to Linear label id mappings")
+	}
+	decoded := make(map[string]string, len(labelIDs))
+	for key, value := range labelIDs {
+		if !linearLabelMappingKeyRecognized(key) {
+			return nil, newFailure(KindInvalidPayload, "linear_connection_read", fmt.Sprintf("Linear label mapping key %q is not recognized", key), false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
+		}
+		var labelID string
+		if err := json.Unmarshal(value, &labelID); err != nil {
+			return nil, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label id must be a string", false, "supply work kind and urgency to Linear label id mappings")
+		}
+		if err := validateLinearConnectionID(labelID, "label id"); err != nil {
+			return nil, err
+		}
+		decoded[key] = labelID
+	}
+	return decoded, nil
+}
+
 func readLinearConnectionCore(ctx context.Context, q queryer, productID string) (LinearConnection, error) {
 	rows, err := q.QueryContext(ctx, `
 SELECT r.resource_id, r.version, r.metadata
@@ -253,75 +352,13 @@ ORDER BY r.resource_id`, productID)
 	defer rows.Close()
 	var candidates []LinearConnection
 	for rows.Next() {
-		var resourceID, metadataJSON string
-		var version int64
-		if err := rows.Scan(&resourceID, &version, &metadataJSON); err != nil {
-			return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot scan Linear connection resource", true, "retry once the database is readable", err)
+		candidate, err := scanLinearConnectionCandidate(rows)
+		if err != nil {
+			return LinearConnection{}, err
 		}
-		var metadata map[string]any
-		if json.Unmarshal([]byte(metadataJSON), &metadata) != nil {
-			continue
+		if candidate != nil {
+			candidates = append(candidates, *candidate)
 		}
-		linear, ok := metadata["linear"].(map[string]any)
-		if !ok {
-			continue
-		}
-		candidate := LinearConnection{ResourceID: resourceID, Version: version}
-		if v, ok := linear["workspace_url"].(string); ok {
-			candidate.WorkspaceURL = v
-		}
-		if v, ok := linear["team_id"].(string); ok {
-			candidate.TeamID = v
-		}
-		if v, ok := linear["auth_mode"].(string); ok {
-			candidate.AuthMode = v
-		}
-		if encoded, exists := linear["status_ids"]; exists {
-			rawStatus, marshalErr := json.Marshal(encoded)
-			var statusIDs map[string]json.RawMessage
-			if marshalErr != nil || json.Unmarshal(rawStatus, &statusIDs) != nil || statusIDs == nil {
-				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status_ids must be an object", false, "supply persistable lifecycle to status id mappings")
-			}
-			candidate.StatusIDs = make(map[string]string, len(statusIDs))
-			for lifecycle, value := range statusIDs {
-				if !lifecycleStates[lifecycle] {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status mapping lifecycle is not persistable", false, "map needed, in_progress, completed, cancelled, or superseded")
-				}
-				var statusID string
-				if err := json.Unmarshal(value, &statusID); err != nil {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear status id must be a string", false, "supply persistable lifecycle to status id mappings")
-				}
-				if err := validateLinearConnectionID(statusID, "status id"); err != nil {
-					return LinearConnection{}, err
-				}
-				candidate.StatusIDs[lifecycle] = statusID
-			}
-			if err := validateLinearStatusMappingRead(candidate.StatusIDs, "linear_connection_read"); err != nil {
-				return LinearConnection{}, err
-			}
-		}
-		if encoded, exists := linear["label_ids"]; exists {
-			rawLabels, marshalErr := json.Marshal(encoded)
-			var labelIDs map[string]json.RawMessage
-			if marshalErr != nil || json.Unmarshal(rawLabels, &labelIDs) != nil || labelIDs == nil {
-				return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label_ids must be an object", false, "supply work kind and urgency to Linear label id mappings")
-			}
-			candidate.LabelIDs = make(map[string]string, len(labelIDs))
-			for key, value := range labelIDs {
-				if !linearLabelMappingKeyRecognized(key) {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", fmt.Sprintf("Linear label mapping key %q is not recognized", key), false, "map task, bug, decision, research, other, expedite, optional, or project:<concord project id>")
-				}
-				var labelID string
-				if err := json.Unmarshal(value, &labelID); err != nil {
-					return LinearConnection{}, newFailure(KindInvalidPayload, "linear_connection_read", "Linear label id must be a string", false, "supply work kind and urgency to Linear label id mappings")
-				}
-				if err := validateLinearConnectionID(labelID, "label id"); err != nil {
-					return LinearConnection{}, err
-				}
-				candidate.LabelIDs[key] = labelID
-			}
-		}
-		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		return LinearConnection{}, wrapFailure(KindUnavailable, "linear_connection_read", "cannot finish Linear connection read", true, "retry once the database is readable", err)
@@ -1502,20 +1539,20 @@ func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, wor
 	return s.enqueueLinearIssueForWork(ctx, productID, workID, opKind)
 }
 
-func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
+// runLinearEnqueueTx runs one Linear outbox enqueue inside a fold
+// transaction: begin, enter the fold, run the verb's core and persist steps,
+// leave the fold, commit. The op string and the two messages name the verb in
+// every failure this wrapper writes.
+func (s *Store) runLinearEnqueueTx(ctx context.Context, op, openMsg, commitMsg string, core func(context.Context, *sql.Tx) (ClaimedLinearOperation, error)) (ClaimedLinearOperation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot open enqueue transaction", true, "retry once the database is writable", err)
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, openMsg, true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
 	if err := enterFold(ctx, tx); err != nil {
 		return ClaimedLinearOperation{}, err
 	}
-	plan, err := enqueueLinearIssueForWorkCore(ctx, tx, expectedProductID, workID, opKind)
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err := persistLinearIssueEnqueueTx(ctx, tx, plan, s.now().UTC().Format(time.RFC3339Nano))
+	entry, err := core(ctx, tx)
 	if err != nil {
 		return ClaimedLinearOperation{}, err
 	}
@@ -1523,9 +1560,19 @@ func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID
 		return ClaimedLinearOperation{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot commit queued issue", true, "retry once the database is writable", err)
+		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, commitMsg, true, "retry once the database is writable", err)
 	}
 	return entry, nil
+}
+
+func (s *Store) enqueueLinearIssueForWork(ctx context.Context, expectedProductID, workID, opKind string) (ClaimedLinearOperation, error) {
+	return s.runLinearEnqueueTx(ctx, "linear_issue_enqueue", "cannot open enqueue transaction", "cannot commit queued issue", func(ctx context.Context, tx *sql.Tx) (ClaimedLinearOperation, error) {
+		plan, err := enqueueLinearIssueForWorkCore(ctx, tx, expectedProductID, workID, opKind)
+		if err != nil {
+			return ClaimedLinearOperation{}, err
+		}
+		return persistLinearIssueEnqueueTx(ctx, tx, plan, s.now().UTC().Format(time.RFC3339Nano))
+	})
 }
 
 type linearIssueEnqueuePlan struct {
@@ -1945,11 +1992,12 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 	reviveFailed := false
 	if opKind == LinearOpIssueCreate {
 		var linkState string
-		if err := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); err == sql.ErrNoRows {
+		switch scanErr := q.QueryRowContext(ctx, `SELECT link_state FROM linear_issue_links WHERE work_id=?`, workID).Scan(&linkState); {
+		case scanErr == sql.ErrNoRows:
 			createLink = true
-		} else if err != nil {
-			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", err)
-		} else if linkState == LinearLinkUnpublished {
+		case scanErr != nil:
+			return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot read link", true, "retry once the database is readable", scanErr)
+		case linkState == LinearLinkUnpublished:
 			var pending bool
 			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM linear_outbox WHERE work_id=? AND op_kind=? AND state IN (?,?))`, workID, LinearOpIssueCreate, LinearOutboxQueued, LinearOutboxInFlight).Scan(&pending); err != nil {
 				return linearIssueEnqueuePlan{}, wrapFailure(KindUnavailable, "linear_issue_enqueue", "cannot inspect pending issue create", true, "retry once the database is readable", err)
@@ -1966,7 +2014,7 @@ func enqueueLinearIssueForWorkCore(ctx context.Context, q queryer, expectedProdu
 			}
 			clientUUID = idempotencyKey
 			reviveFailed = true
-		} else {
+		default:
 			// One issue per work item is enforced where the create is
 			// requested, not where the drain meets Linear's insert conflict.
 			// Every link state means a create was already queued or already
@@ -2185,29 +2233,13 @@ const linearAuditCommentMaxLength = 20000
 // goes through explicit adoption or a confirmed create, and the audit
 // comment follows the confirmed identity.
 func (s *Store) EnqueueLinearIssueAuditComment(ctx context.Context, productID, workID, auditBody string) (ClaimedLinearOperation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot open audit comment transaction", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	if err := enterFold(ctx, tx); err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err := enqueueLinearIssueAuditCommentCore(ctx, tx, productID, workID, auditBody)
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	entry, err = persistLinearAuditCommentEnqueueTx(ctx, tx, entry, s.now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		return ClaimedLinearOperation{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_audit_enqueue", "cannot commit queued audit comment", true, "retry once the database is writable", err)
-	}
-	return entry, nil
+	return s.runLinearEnqueueTx(ctx, "linear_issue_audit_enqueue", "cannot open audit comment transaction", "cannot commit queued audit comment", func(ctx context.Context, tx *sql.Tx) (ClaimedLinearOperation, error) {
+		entry, err := enqueueLinearIssueAuditCommentCore(ctx, tx, productID, workID, auditBody)
+		if err != nil {
+			return ClaimedLinearOperation{}, err
+		}
+		return persistLinearAuditCommentEnqueueTx(ctx, tx, entry, s.now().UTC().Format(time.RFC3339Nano))
+	})
 }
 
 // enqueueLinearProjectForInitiativeCore builds one project_create or

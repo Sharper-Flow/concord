@@ -220,10 +220,12 @@ func validSHA256Prefixed(value string) bool {
 	return true
 }
 
-func boundedString(value string, min, max int) bool { return len(value) >= min && len(value) <= max }
+func boundedString(value string, lower, upper int) bool {
+	return len(value) >= lower && len(value) <= upper
+}
 
-func boundedStringList(values []string, max int, itemMin, itemMax int) bool {
-	if len(values) > max {
+func boundedStringList(values []string, upper int, itemMin, itemMax int) bool {
+	if len(values) > upper {
 		return false
 	}
 	for _, value := range values {

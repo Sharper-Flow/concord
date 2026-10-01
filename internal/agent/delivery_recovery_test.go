@@ -182,7 +182,7 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	// history carries the post-rejection review debt.
 	dispatch("refine", "attempt:work-1:gate-review", "review")
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/gate-reviewer", SessionRef: "session/work-1-gate-reviewer", ActorClass: store.ActorAgent}
-	runVerificationStoreAction(t, s, "work-1", "reject_worker_result", map[string]any{
+	runVerificationStoreAction(t, s, "reject_worker_result", map[string]any{
 		"attempt_id": "attempt:work-1:gate-review", "attempt_epoch": refineEpoch,
 		"diagnosis": "the review rejects the refined result", "strategy": "implement the review findings and resubmit",
 		"predicate_ids": []string{"predicate:primary"}, "evidence_refs": []string{"evidence:gate-review"},

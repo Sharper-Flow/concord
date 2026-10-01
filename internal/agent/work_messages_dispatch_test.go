@@ -22,13 +22,7 @@ func messagesFixture(t *testing.T) (*store.Store, *Service, Authority) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "msg-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Messages","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "msg-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Messages Project"}`)},
-		{EventID: "msg-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"messages fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
-		t.Fatal(err)
-	}
+	applyAgentFixtureProduct(ctx, t, s, "msg", "product-1", "project-1", "Messages", "Messages Project", "messages fixture")
 	// Three works: sender, target, and an active third; plus a terminal one.
 	for _, w := range []struct{ id, lifecycle string }{{"work-sender", "needed"}, {"work-target", "in_progress"}, {"work-third", "in_progress"}, {"work-done", "completed"}} {
 		events := []store.Event{

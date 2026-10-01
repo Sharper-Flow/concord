@@ -1310,9 +1310,9 @@ func TestRejectWorkerResultRefusesSchemaBreakingCorrectionRefs(t *testing.T) {
 // failWorkerAttemptWithKind records a worker.failed event with an explicit
 // failure kind. The counting journeys use it to prove the attempt bound
 // consumes every dispatch whatever the attempt returned.
-func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, failureKind, detail string) {
+func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, detail string) {
 	t.Helper()
-	fail := Event{EventID: "failed-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: failureKind, Detail: detail})}
+	fail := Event{EventID: "failed-" + workID + "-" + attemptID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(BuiltinLaneDefinitions()[0]), FailureKind: WorkerFailureFallbackBlocked, Detail: detail})}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{fail}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1326,7 +1326,7 @@ func failWorkerAttemptWithKind(t *testing.T, s *Store, workID, attemptID, failur
 func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, worker WorkflowActor, attemptID, nextAttemptID string, attemptEpoch int64, operationID string) WorkPin {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
-	failWorkerAttemptWithKind(t, s, workID, attemptID, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	failWorkerAttemptWithKind(t, s, workID, attemptID, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attemptID, attemptEpoch, version, operationID)
 	pin := issue1013Pin(t, s, workID)
 	issue1013StartRepair(t, s, workID, worker, pin.Version, attemptEpoch+1)
@@ -1415,26 +1415,26 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 // dispatchCountingAttempt dispatches one worker attempt on the named step and
 // records the worker.dispatched event, with the correction context when one
 // is open and a bare packet when none is.
-func dispatchCountingAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, expectedVersion int64, key string) {
+func dispatchCountingAttempt(t *testing.T, s *Store, stepID, attemptID string, correction *WorkflowCorrectionContext, actor WorkflowActor, expectedVersion int64, key string) {
 	t.Helper()
 	var payload json.RawMessage
 	if correction == nil {
-		packetPayload, err := json.Marshal(dispatchWorkerPacket(workID, stepID, attemptID))
+		packetPayload, err := json.Marshal(dispatchWorkerPacket("correction-count-accept-reset", stepID, attemptID))
 		if err != nil {
 			t.Fatal(err)
 		}
 		payload = mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
 	} else {
-		payload = issue1013CorrectionDispatchPayload(t, workID, stepID, attemptID, correction)
+		payload = issue1013CorrectionDispatchPayload(t, "correction-count-accept-reset", stepID, attemptID, correction)
 	}
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		WorkID: "correction-count-accept-reset", ExpectedVersion: expectedVersion, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, "correction-count-accept-reset"),
 		Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),
 	}); err != nil {
 		t.Fatalf("dispatch attempt %s: %v", attemptID, err)
 	}
-	issue1013RecordWorkerDispatch(t, s, workID, attemptID)
+	issue1013RecordWorkerDispatch(t, s, "correction-count-accept-reset", attemptID)
 }
 
 // accept_worker_result is the reset condition (CD-0164): the counting window
@@ -1464,8 +1464,8 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/correction-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 
 	attempt1 := "attempt:" + workID + ":1"
-	dispatchCountingAttempt(t, s, workID, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "reset-dispatch-1")
-	failWorkerAttemptWithKind(t, s, workID, attempt1, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	dispatchCountingAttempt(t, s, "repair", attempt1, nil, worker, issue1013Pin(t, s, workID).Version, "reset-dispatch-1")
+	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-1")
 	pin := issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.FailureKind != WorkerFailureFallbackBlocked {
@@ -1475,8 +1475,8 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchCountingAttempt(t, s, workID, "repair", attempt2, pin.Correction, worker, pin.Version, "reset-dispatch-2")
-	failWorkerAttemptWithKind(t, s, workID, attempt2, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	dispatchCountingAttempt(t, s, "repair", attempt2, pin.Correction, worker, pin.Version, "reset-dispatch-2")
+	failWorkerAttemptWithKind(t, s, workID, attempt2, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt2, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "reset-count-2")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 2 || pin.Correction.Escalated {
@@ -1486,7 +1486,7 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	attempt3 := "attempt:" + workID + ":3"
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
-	dispatchCountingAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
+	dispatchCountingAttempt(t, s, "repair", attempt3, pin.Correction, worker, pin.Version, "reset-dispatch-3")
 	completed := Event{EventID: "worker-completed-" + attempt3, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attempt3, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{completed}}); err != nil {
 		t.Fatalf("complete corrective worker attempt: %v", err)
@@ -1500,8 +1500,8 @@ func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	}
 
 	attempt4 := "attempt:" + workID + ":4"
-	dispatchCountingAttempt(t, s, workID, "refine", attempt4, nil, worker, pin.Version, "reset-dispatch-4")
-	failWorkerAttemptWithKind(t, s, workID, attempt4, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	dispatchCountingAttempt(t, s, "refine", attempt4, nil, worker, pin.Version, "reset-dispatch-4")
+	failWorkerAttemptWithKind(t, s, workID, attempt4, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, attempt4, latestStepStartEpoch(t, s, workID, "refine"), readWorkVersion(t, s, workID), "reset-count-4")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated {
@@ -1559,7 +1559,7 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 	}
 	issue1013RecordWorkerDispatch(t, s, workID, correctiveAttempt)
 	version := readWorkVersion(t, s, workID)
-	failWorkerAttemptWithKind(t, s, workID, correctiveAttempt, WorkerFailureFallbackBlocked, "lane fallback blocked before the model ran")
+	failWorkerAttemptWithKind(t, s, workID, correctiveAttempt, "lane fallback blocked before the model ran")
 	applyRecordWorkerFailureForTest(t, s, workID, owner, correctiveAttempt, 5, version, "supersede-count-3-record")
 	pin = issue1013Pin(t, s, workID)
 	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated {

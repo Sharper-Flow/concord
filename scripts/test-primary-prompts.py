@@ -13,7 +13,6 @@ from __future__ import annotations
 import importlib.util
 import re
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path

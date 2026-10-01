@@ -467,15 +467,16 @@ func ciWaitPollPR(ctx context.Context, state *ciWaitState) (ciWaitReport, bool, 
 		return report, false, nil
 	}
 	if counts.Pending == 0 {
-		if counts.Failing > 0 {
+		switch {
+		case counts.Failing > 0:
 			report.Status = "failure"
 			report.Failures = failures
 			report.RunURL = ciWaitFirstRunURLForPopulation(state.Repo, population)
 			ciWaitCollectFailureExcerpts(ctx, state, report.Failures)
-		} else if ciWaitMergeConflict(head.MergeStateStatus) {
+		case ciWaitMergeConflict(head.MergeStateStatus):
 			report.Reason = "the pull request checks passed but GitHub reports a merge conflict"
 			return report, false, nil
-		} else {
+		default:
 			report.Status = "success"
 		}
 		return report, true, nil

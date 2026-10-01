@@ -395,58 +395,20 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		return out, nil
 	}
 	if req.Project != "" {
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id = ?`, req.Project).Scan(&exists); err == sql.ErrNoRows {
-			return out, unknownScope("PM1.Q1", "Project does not exist")
-		} else if err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q1", "cannot resolve Project", true, "retry once the database is readable", err)
-		}
-		rows, err := tx.QueryContext(ctx, `SELECT products.id FROM products JOIN product_projects ON product_projects.product_id = products.id WHERE product_projects.project_id = ? ORDER BY products.id`, req.Project)
+		productID, candidates, err := resolveQ1ProjectProduct(ctx, tx, req.Product, req.Project)
 		if err != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q1", "cannot resolve Project ownership", true, "retry once the database is readable", err)
-		}
-		var ids []string
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				rows.Close()
-				return out, err
-			}
-			ids = append(ids, id)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
+			out.CandidateIDs = candidates
 			return out, err
 		}
-		if len(ids) == 0 {
-			return out, unknownScope("PM1.Q1", "Project has no Product membership")
-		}
-		if req.Product != "" {
-			found := false
-			for _, id := range ids {
-				if id == req.Product {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return out, unknownScope("PM1.Q1", "explicit Product does not own Project")
-			}
-			ids = []string{req.Product}
-		}
-		if len(ids) > 1 {
-			out.CandidateIDs = ids
-			return out, newAmbiguousScopeFailure("PM1.Q1", "Project belongs to multiple Products", "supply an explicit Product scope", ids)
-		}
-		p, err := readProduct(ctx, tx, ids[0])
+		p, err := readProduct(ctx, tx, productID)
 		if err != nil {
 			return out, err
 		}
-		projects, err := readProjectMemberships(ctx, tx, ids[0])
+		projects, err := readProjectMemberships(ctx, tx, productID)
 		if err != nil {
 			return out, err
 		}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{ProductID: ids[0], ProjectID: req.Project}, []string{"project_role", "project_display_name", "project_id"})
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{ProductID: productID, ProjectID: req.Project}, []string{"project_role", "project_display_name", "project_id"})
 		if err != nil {
 			return out, err
 		}
@@ -455,16 +417,78 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		out.Result = &Q1ResultPayload{Product: out.Product, Projects: out.Projects}
 		return out, nil
 	}
+	if err := readQ1ProductPage(ctx, tx, req.Cursor, limit, &out); err != nil {
+		return out, err
+	}
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{}, []string{"display_name", "id"})
+	if err != nil {
+		return out, err
+	}
+	out.Result = &Q1ResultPayload{Products: out.Products}
+	return out, nil
+}
+
+// resolveQ1ProjectProduct resolves the one Product a Project query names: an
+// existing Project with Product memberships, narrowed by an explicit Product
+// scope, refusing ambiguity with the owning Product ids as candidates.
+func resolveQ1ProjectProduct(ctx context.Context, tx *sql.Tx, explicitProduct, project string) (string, []string, error) {
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE id = ?`, project).Scan(&exists); err == sql.ErrNoRows {
+		return "", nil, unknownScope("PM1.Q1", "Project does not exist")
+	} else if err != nil {
+		return "", nil, wrapFailure(KindUnavailable, "PM1.Q1", "cannot resolve Project", true, "retry once the database is readable", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT products.id FROM products JOIN product_projects ON product_projects.product_id = products.id WHERE product_projects.project_id = ? ORDER BY products.id`, project)
+	if err != nil {
+		return "", nil, wrapFailure(KindUnavailable, "PM1.Q1", "cannot resolve Project ownership", true, "retry once the database is readable", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return "", nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	if len(ids) == 0 {
+		return "", nil, unknownScope("PM1.Q1", "Project has no Product membership")
+	}
+	if explicitProduct != "" {
+		found := false
+		for _, id := range ids {
+			if id == explicitProduct {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return "", nil, unknownScope("PM1.Q1", "explicit Product does not own Project")
+		}
+		ids = []string{explicitProduct}
+	}
+	if len(ids) > 1 {
+		return "", ids, newAmbiguousScopeFailure("PM1.Q1", "Project belongs to multiple Products", "supply an explicit Product scope", ids)
+	}
+	return ids[0], nil, nil
+}
+
+// readQ1ProductPage reads one bounded, cursor-paged page of every Product.
+func readQ1ProductPage(ctx context.Context, tx *sql.Tx, cursorToken string, limit int, out *Q1Result) error {
 	where := ""
 	args := []any{}
-	if req.Cursor != "" {
+	if cursorToken != "" {
 		var cursor struct {
 			Version           int `json:"version"`
 			QueryID, Name, ID string
 		}
-		decoded, decodeErr := base64.RawURLEncoding.DecodeString(req.Cursor)
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(cursorToken)
 		if decodeErr != nil || json.Unmarshal(decoded, &cursor) != nil || cursor.Version != 1 || cursor.QueryID != "PM1.Q1" || cursor.Name == "" || cursor.ID == "" {
-			return out, newFailure(KindInvalidCursor, "PM1.Q1", "cursor is not valid for the Product listing", false, "restart the bounded Product listing")
+			return newFailure(KindInvalidCursor, "PM1.Q1", "cursor is not valid for the Product listing", false, "restart the bounded Product listing")
 		}
 		where = " WHERE display_name > ? OR (display_name = ? AND id > ?)"
 		args = []any{cursor.Name, cursor.Name, cursor.ID}
@@ -473,17 +497,19 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 	args = append(args, limit+1)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "PM1.Q1", "cannot list Products", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "PM1.Q1", "cannot list Products", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var p Product
 		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return out, err
+			return err
 		}
 		out.Products = append(out.Products, p)
 	}
-	var nextCursor *string
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	if len(out.Products) > limit {
 		last := out.Products[limit-1]
 		cursor := struct {
@@ -492,22 +518,16 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		}{1, "PM1.Q1", last.DisplayName, last.ID}
 		encoded, encodeErr := json.Marshal(cursor)
 		if encodeErr != nil {
-			return out, encodeErr
+			return encodeErr
 		}
 		value := base64.RawURLEncoding.EncodeToString(encoded)
-		nextCursor = &value
+		out.NextCursor = &value
 		out.Products = out.Products[:limit]
 	}
 	if out.Products == nil {
 		out.Products = []Product{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{}, []string{"display_name", "id"})
-	if err != nil {
-		return out, err
-	}
-	out.NextCursor = nextCursor
-	out.Result = &Q1ResultPayload{Products: out.Products}
-	return out, rows.Err()
+	return nil
 }
 
 func productWorkScopeSQL(projectIDs []string) (string, []any) {
@@ -1618,50 +1638,70 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 		return out, err
 	}
 	if depth > 1 || direction == "both" {
-		allEdges := []RelationEdge{}
-		for _, dir := range []string{direction} {
-			if dir == "both" {
-				for _, one := range []string{"outgoing", "incoming"} {
-					edges, e := readRelationDepth(ctx, tx, req.Work, specs, one, depth)
-					if e != nil {
-						return out, e
-					}
-					allEdges = append(allEdges, edges...)
-				}
-			} else {
-				edges, e := readRelationDepth(ctx, tx, req.Work, specs, dir, depth)
-				if e != nil {
-					return out, e
-				}
-				allEdges = append(allEdges, edges...)
-			}
-		}
-		sort.Slice(allEdges, func(i, j int) bool {
-			if allEdges[i].Kind != allEdges[j].Kind {
-				return allEdges[i].Kind < allEdges[j].Kind
-			}
-			if allEdges[i].Source != allEdges[j].Source {
-				return allEdges[i].Source < allEdges[j].Source
-			}
-			if allEdges[i].Target != allEdges[j].Target {
-				return allEdges[i].Target < allEdges[j].Target
-			}
-			return allEdges[i].Depth < allEdges[j].Depth
-		})
-		seen := map[string]bool{}
-		out.Edges = out.Edges[:0]
-		for _, edge := range allEdges {
-			key := edge.Kind + "|" + edge.Source + "|" + edge.Target
-			if !seen[key] {
-				seen[key] = true
-				// Sorting places the shallowest path first, so first-wins keeps its depth.
-				out.Edges = append(out.Edges, edge)
-			}
+		if err := readQ8DepthEdges(ctx, tx, req.Work, direction, depth, specs, &out); err != nil {
+			return out, err
 		}
 		out.Result = &Q8ResultPayload{Edges: out.Edges}
 		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
 		return out, err
 	}
+	if err := readQ8DirectEdges(ctx, tx, req.Work, direction, specs, &out); err != nil {
+		return out, err
+	}
+	out.Result = &Q8ResultPayload{Edges: out.Edges}
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
+	return out, err
+}
+
+// readQ8DepthEdges reads a depth-or-both query through the transitive walk,
+// sorted with the shallowest path per edge winning.
+func readQ8DepthEdges(ctx context.Context, tx *sql.Tx, work, direction string, depth int, specs []relationSpec, out *Q8Result) error {
+	allEdges := []RelationEdge{}
+	for _, dir := range []string{direction} {
+		if dir == "both" {
+			for _, one := range []string{"outgoing", "incoming"} {
+				edges, e := readRelationDepth(ctx, tx, work, specs, one, depth)
+				if e != nil {
+					return e
+				}
+				allEdges = append(allEdges, edges...)
+			}
+		} else {
+			edges, e := readRelationDepth(ctx, tx, work, specs, dir, depth)
+			if e != nil {
+				return e
+			}
+			allEdges = append(allEdges, edges...)
+		}
+	}
+	sort.Slice(allEdges, func(i, j int) bool {
+		if allEdges[i].Kind != allEdges[j].Kind {
+			return allEdges[i].Kind < allEdges[j].Kind
+		}
+		if allEdges[i].Source != allEdges[j].Source {
+			return allEdges[i].Source < allEdges[j].Source
+		}
+		if allEdges[i].Target != allEdges[j].Target {
+			return allEdges[i].Target < allEdges[j].Target
+		}
+		return allEdges[i].Depth < allEdges[j].Depth
+	})
+	seen := map[string]bool{}
+	out.Edges = out.Edges[:0]
+	for _, edge := range allEdges {
+		key := edge.Kind + "|" + edge.Source + "|" + edge.Target
+		if !seen[key] {
+			seen[key] = true
+			// Sorting places the shallowest path first, so first-wins keeps its depth.
+			out.Edges = append(out.Edges, edge)
+		}
+	}
+	return nil
+}
+
+// readQ8DirectEdges reads a depth-1, one-direction query through one UNION
+// ALL statement over the requested relation kinds.
+func readQ8DirectEdges(ctx context.Context, tx *sql.Tx, work, direction string, specs []relationSpec, out *Q8Result) error {
 	parts := make([]string, 0, len(specs))
 	args := []any{}
 	for _, spec := range specs {
@@ -1671,30 +1711,28 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 			}
 			return "r.work_id_from=?"
 		}())
-		args = append(args, spec.label, spec.invert, spec.invert, spec.stored, req.Work)
+		args = append(args, spec.label, spec.invert, spec.invert, spec.stored, work)
 	}
 	q := strings.Join(parts, " UNION ALL ") + ` ORDER BY kind,source,target` //nolint:gosec // parts use one fixed SQL template and closed direction branches while every relation value stays parameter-bound.
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "PM1.Q8", "cannot read relations", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "PM1.Q8", "cannot read relations", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var e RelationEdge
 		var relationID int64
 		if err := rows.Scan(&e.Kind, &e.Source, &e.Target, &e.Depth, &relationID); err != nil {
-			return out, err
+			return err
 		}
 		e.RelationID = strconv.FormatInt(relationID, 10)
 		out.Edges = append(out.Edges, e)
 	}
 	if err := rows.Err(); err != nil {
-		return out, err
+		return err
 	}
 	if out.Edges == nil {
 		out.Edges = []RelationEdge{}
 	}
-	out.Result = &Q8ResultPayload{Edges: out.Edges}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
-	return out, err
+	return nil
 }

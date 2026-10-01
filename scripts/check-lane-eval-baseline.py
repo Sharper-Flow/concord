@@ -89,9 +89,11 @@ def main() -> int:
             findings.append("baseline lane_registry entry is malformed")
             continue
         seen.add(identity)
-    for identity in sorted(registered):
-        if identity not in seen:
-            findings.append(f"baseline does not bind registered lane {identity[0]} v{identity[1]} digest {identity[2]}")
+    findings.extend(
+        f"baseline does not bind registered lane {identity[0]} v{identity[1]} digest {identity[2]}"
+        for identity in sorted(registered)
+        if identity not in seen
+    )
 
     packet_files = sorted(path.name for path in packets_dir.glob("*.json")) if packets_dir.is_dir() else []
     runs = baseline.get("runs")
@@ -113,12 +115,16 @@ def main() -> int:
         model = run.get("readback_model")
         if not isinstance(model, str) or not READBACK_MODEL.match(model):
             findings.append(f"baseline run for {name} must record a readback_model matching agent-lane-report.v1")
-    for name in packet_files:
-        if name not in by_packet:
-            findings.append(f"baseline does not record a run for packet {name}")
-    for name in by_packet:
-        if name not in packet_files:
-            findings.append(f"baseline records packet {name}, which no longer exists")
+    findings.extend(
+        f"baseline does not record a run for packet {name}"
+        for name in packet_files
+        if name not in by_packet
+    )
+    findings.extend(
+        f"baseline records packet {name}, which no longer exists"
+        for name in by_packet
+        if name not in packet_files
+    )
 
     seeded = [name for name in packet_files if name.startswith("review-seeded-")]
     if len(seeded) < MIN_SEEDED:

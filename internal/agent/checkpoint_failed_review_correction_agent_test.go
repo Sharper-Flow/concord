@@ -185,7 +185,7 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 		t.Fatalf("seed the failed review lane report: %v", err)
 	}
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/work-1-reviewer", ActorClass: store.ActorAgent}
-	runVerificationStoreAction(t, s, "work-1", "record_verdict", map[string]any{
+	runVerificationStoreAction(t, s, "record_verdict", map[string]any{
 		"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
 		"evaluation_evidence": []string{"evidence:checkpoint-review"}, "incomparable_with_approved": true,
 	}, reviewer, nil, "checkpoint-mismatch")

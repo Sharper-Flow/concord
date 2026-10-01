@@ -211,107 +211,176 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
 	}
-	var contract WorkflowReadContract
-	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, req.Work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return out, newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
-		}
-		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-		contract.LawModifies = nonNilStrings(contract.LawModifies)
-		contract.OutcomePredicates, err = readWorkflowContractPredicates(ctx, tx, req.Work, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.ChangesProductTruth = out.ChangesProductTruth
-		contract.ArchitectureBinding, err = readWorkflowArchitectureBinding(ctx, tx, req.Work, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		contract.SelfRepair, err = readWorkflowSelfRepair(ctx, tx, req.Work, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		out.ArchitectureBinding = contract.ArchitectureBinding
-		out.Contract = &contract
-		contract.LawRevisions, err = readWorkflowLawRevisions(ctx, tx, req.Work, contract.Version)
-		if err != nil {
-			return out, err
-		}
-		// Resolve the contract's binding law and Domains inside the same
-		// read transaction, so the pinned projection carries readable law
-		// references rather than bare IDs. A contract with no bound law
-		// leaves the field absent.
-		out.LawContext, err = readWorkflowLawContext(ctx, tx, req.Work, &contract)
-		if err != nil {
-			return out, err
-		}
-		if len(contract.SpecMandate) != 0 {
-			homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, tx, req.Work)
-			if homeErr != nil {
-				return out, homeErr
-			}
-			currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
-			if mandateErr != nil {
-				return out, mandateErr
-			}
-			out.StaleLawRevision, err = findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, req.Work, contract.Version, currentMandate)
-			if err != nil {
-				return out, err
-			}
-			if out.StaleLawRevision == nil {
-				out.CompatibleLawAmendments, err = findCompatibleWorkflowLawAmendments(ctx, tx, homeProjectID, homeLocatorID, req.Work, contract.Version, currentMandate)
-				if err != nil {
-					return out, err
-				}
-			}
-		}
-		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
-		out.PendingOperatorDecision, out.WithheldOperatorDecision, err = workflowOperatorQuestionTx(ctx, tx, req.Work, currentStep, workVersion, definition, contract)
-		if err != nil {
-			return out, err
-		}
-	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
+	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition); err != nil {
+		return out, err
 	}
 	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
 	}
-	var checkpoint ContextCheckpoint
-	var touched, evidence, questions, decisions string
-	if err := tx.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, req.Work).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
-		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
-			return out, newFailure(KindInvariantViolation, "C19.Continuity", "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
-		}
-		out.LatestCheckpoint = &checkpoint
-	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+	if err := continuityReadCheckpointTx(ctx, tx, req.Work, &out); err != nil {
+		return out, err
 	}
 	out.DesignRecord, _, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
 	}
+	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
+		return out, err
+	}
+	if err := continuityReadFailureTx(ctx, tx, req.Work, &out, instancePresent); err != nil {
+		return out, err
+	}
+	if err := continuityReadBoundariesTx(ctx, tx, req.Work, &out, req.Limit, offset); err != nil {
+		return out, err
+	}
+	if err := continuityReadTrailingTx(ctx, tx, req.Work, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// continuityReadContractTx reads the one active contract and every enrichment
+// that hangs off it — predicates, architecture binding, self-repair, law
+// revisions and context, stale-law and compatible-amendment scans, and the
+// open operator question. A work item with no contract row leaves the
+// snapshot without one.
+func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition) error {
+	var contract WorkflowReadContract
+	var required, routes, mandates, modifies string
+	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
+		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
+			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "rebuild projections from the event log")
+		}
+		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
+		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
+		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
+		contract.LawModifies = nonNilStrings(contract.LawModifies)
+		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, work, contract.Version)
+		if predicateErr != nil {
+			return predicateErr
+		}
+		contract.OutcomePredicates = predicates
+		contract.ChangesProductTruth = out.ChangesProductTruth
+		binding, bindingErr := readWorkflowArchitectureBinding(ctx, tx, work, contract.Version)
+		if bindingErr != nil {
+			return bindingErr
+		}
+		contract.ArchitectureBinding = binding
+		selfRepair, repairErr := readWorkflowSelfRepair(ctx, tx, work, contract.Version)
+		if repairErr != nil {
+			return repairErr
+		}
+		contract.SelfRepair = selfRepair
+		out.ArchitectureBinding = contract.ArchitectureBinding
+		out.Contract = &contract
+		revisions, revisionErr := readWorkflowLawRevisions(ctx, tx, work, contract.Version)
+		if revisionErr != nil {
+			return revisionErr
+		}
+		contract.LawRevisions = revisions
+		// Resolve the contract's binding law and Domains inside the same
+		// read transaction, so the pinned projection carries readable law
+		// references rather than bare IDs. A contract with no bound law
+		// leaves the field absent.
+		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+		if lawErr != nil {
+			return lawErr
+		}
+		out.LawContext = lawContext
+		if err := continuityResolveLawMandateTx(ctx, tx, work, out, &contract); err != nil {
+			return err
+		}
+		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
+		pending, withheld, questionErr := workflowOperatorQuestionTx(ctx, tx, work, currentStep, workVersion, definition, contract)
+		if questionErr != nil {
+			return questionErr
+		}
+		out.PendingOperatorDecision, out.WithheldOperatorDecision = pending, withheld
+	} else if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
+	}
+	return nil
+}
+
+// continuityResolveLawMandateTx scans the contract's spec mandate for stale
+// law revisions and, when none is stale, for compatible amendments.
+func continuityResolveLawMandateTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, contract *WorkflowReadContract) error {
+	if len(contract.SpecMandate) == 0 {
+		return nil
+	}
+	homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, tx, work)
+	if homeErr != nil {
+		return homeErr
+	}
+	currentMandate, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
+	if mandateErr != nil {
+		return mandateErr
+	}
+	stale, staleErr := findStaleWorkflowLawRevision(ctx, tx, homeProjectID, homeLocatorID, work, contract.Version, currentMandate)
+	if staleErr != nil {
+		return staleErr
+	}
+	out.StaleLawRevision = stale
+	if out.StaleLawRevision != nil {
+		return nil
+	}
+	amendments, amendErr := findCompatibleWorkflowLawAmendments(ctx, tx, homeProjectID, homeLocatorID, work, contract.Version, currentMandate)
+	if amendErr != nil {
+		return amendErr
+	}
+	out.CompatibleLawAmendments = amendments
+	return nil
+}
+
+// continuityReadCheckpointTx reads the latest context checkpoint. A
+// checkpoint row with malformed arrays is an invariant violation.
+func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+	var checkpoint ContextCheckpoint
+	var touched, evidence, questions, decisions string
+	if err := tx.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, work).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
+		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
+			return newFailure(KindInvariantViolation, "C19.Continuity", "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
+		}
+		out.LatestCheckpoint = &checkpoint
+	} else if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+	}
+	return nil
+}
+
+// continuityReadProposalTx reads the latest proposal record. A record with
+// malformed arrays is an invariant violation.
+func continuityReadProposalTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
 	var proposal WorkflowProposalRecord
 	var proposalAffected, proposalOutcomes, proposalConstraints, proposalQuestions string
-	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, req.Work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, work).Scan(&proposal.WorkVersion, &proposal.Problem, &proposalAffected, &proposal.Stakes, &proposalOutcomes, &proposalConstraints, &proposalQuestions, &proposal.RecordedAt); err == nil {
 		if json.Unmarshal([]byte(proposalAffected), &proposal.Affected) != nil || json.Unmarshal([]byte(proposalOutcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(proposalConstraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(proposalQuestions), &proposal.OpenQuestions) != nil {
-			return out, newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
+			return newFailure(KindInvariantViolation, "C19.Continuity", "proposal record projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
 		out.ProposalRecord = &proposal
 	} else if err != sql.ErrNoRows {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
 	}
-	if instancePresent {
-		var state string
-		if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&state); err != nil {
-			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
-		}
-		if state == "blocked" {
-			var failure ContextFailure
-			if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
+	return nil
+}
+
+// continuityReadFailureTx reads the unresolved workflow failure of a blocked
+// instance: the latest failed action for its step and epoch with no later
+// completed action behind it.
+func continuityReadFailureTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, instancePresent bool) error {
+	if !instancePresent {
+		return nil
+	}
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, work).Scan(&state); err != nil {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow failure state", true, "retry once the database is readable", err)
+	}
+	if state != "blocked" {
+		return nil
+	}
+	var failure ContextFailure
+	if err := tx.QueryRowContext(ctx, `SELECT json_extract(f.payload,'$.failure_kind'),json_extract(f.payload,'$.recoverable'),json_extract(f.payload,'$.step_id'),json_extract(f.payload,'$.attempt_epoch')
 FROM domain_events f
 WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
   AND NOT EXISTS (
@@ -320,70 +389,81 @@ WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=?
       AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
       AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
   )
-ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
-				out.UnresolvedFailure = &failure
-			} else if err != sql.ErrNoRows {
-				return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
-			}
-		}
+ORDER BY f.seq DESC LIMIT 1`, work, WorkflowActionFailed, WorkflowActionCompleted).Scan(&failure.Kind, &failure.Recoverable, &failure.StepID, &failure.AttemptEpoch); err == nil {
+		out.UnresolvedFailure = &failure
+	} else if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest workflow failure", true, "retry once the database is readable", err)
 	}
+	return nil
+}
+
+// continuityReadBoundariesTx reads one history page of context boundaries and
+// derives the next cursor from the page's last retained boundary.
+func continuityReadBoundariesTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, limit, offset int) error {
 	var total int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_context_boundaries WHERE work_id=?`, req.Work).Scan(&total); err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot count context boundaries", true, "retry once the database is readable", err)
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_context_boundaries WHERE work_id=?`, work).Scan(&total); err != nil {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot count context boundaries", true, "retry once the database is readable", err)
 	}
 	out.BoundaryCount = total
-	rows, err = tx.QueryContext(ctx, `SELECT boundary_id,boundary_sequence,boundary_kind,checkpoint_id,checkpoint_sequence,summary,recorded_at FROM workflow_context_boundaries WHERE work_id=? ORDER BY boundary_sequence DESC LIMIT ? OFFSET ?`, req.Work, req.Limit+1, offset)
+	rows, err := tx.QueryContext(ctx, `SELECT boundary_id,boundary_sequence,boundary_kind,checkpoint_id,checkpoint_sequence,summary,recorded_at FROM workflow_context_boundaries WHERE work_id=? ORDER BY boundary_sequence DESC LIMIT ? OFFSET ?`, work, limit+1, offset)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read context boundary history", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read context boundary history", true, "retry once the database is readable", err)
 	}
 	for rows.Next() {
 		var item ContextBoundary
 		if err := rows.Scan(&item.BoundaryID, &item.Sequence, &item.Kind, &item.CheckpointID, &item.CheckpointSequence, &item.Summary, &item.RecordedAt); err != nil {
 			rows.Close()
-			return out, err
+			return err
 		}
 		out.Boundaries = append(out.Boundaries, item)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot finish reading context boundary history", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot finish reading context boundary history", true, "retry once the database is readable", err)
 	}
 	rows.Close()
-	if len(out.Boundaries) > req.Limit {
-		last := out.Boundaries[req.Limit-1]
-		out.Boundaries = out.Boundaries[:req.Limit]
-		raw, _ := json.Marshal(map[string]any{"v": 1, "work": req.Work, "offset": offset + req.Limit, "last": last.Sequence})
+	if len(out.Boundaries) > limit {
+		last := out.Boundaries[limit-1]
+		out.Boundaries = out.Boundaries[:limit]
+		raw, _ := json.Marshal(map[string]any{"v": 1, "work": work, "offset": offset + limit, "last": last.Sequence})
 		next := base64.RawURLEncoding.EncodeToString(raw)
 		out.NextCursor = &next
 	}
+	return nil
+}
+
+// continuityReadTrailingTx fills the snapshot's trailing scalar and list
+// fields: watermark, restart availability, pending messages, observations,
+// and native runs.
+func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
 	var watermark int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, req.Work).Scan(&watermark); err != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read continuity watermark", true, "retry once the database is readable", err)
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, work).Scan(&watermark); err != nil {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read continuity watermark", true, "retry once the database is readable", err)
 	}
 	out.Watermark = "seq:" + strconv.FormatInt(watermark, 10)
 	out.RestartAvailable = false
 	out.RestartUnavailableReason = "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call"
 	// Tx-scoped: this function holds a read transaction, and a second
 	// connection would deadlock on SQLite's single writer.
-	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, req.Work).Scan(&out.PendingMessages); countErr != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
+	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, work).Scan(&out.PendingMessages); countErr != nil {
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
 	}
-	obsRows, obsErr := tx.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT 16`, req.Work)
+	obsRows, obsErr := tx.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT 16`, work)
 	if obsErr != nil {
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
 	}
 	out.Observations = []WorkObservation{}
-	if nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, req.Work); nativeErr != nil {
-		return out, nativeErr
-	} else {
-		out.NativeRuns = nativeRuns
+	nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, work)
+	if nativeErr != nil {
+		return nativeErr
 	}
+	out.NativeRuns = nativeRuns
 	for obsRows.Next() {
 		var o WorkObservation
 		var obsRefs, obsTags string
 		if err := obsRows.Scan(&o.ObservationID, &o.WorkID, &o.Statement, &obsRefs, &obsTags, &o.RecordedAt); err != nil {
 			obsRows.Close()
-			return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot decode observation", true, "retry once the database is readable", err)
+			return wrapFailure(KindUnavailable, "C19.Continuity", "cannot decode observation", true, "retry once the database is readable", err)
 		}
 		_ = json.Unmarshal([]byte(obsRefs), &o.Refs)
 		_ = json.Unmarshal([]byte(obsTags), &o.Tags)
@@ -391,10 +471,10 @@ ORDER BY f.seq DESC LIMIT 1`, req.Work, WorkflowActionFailed, WorkflowActionComp
 	}
 	if err := obsRows.Err(); err != nil {
 		obsRows.Close()
-		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot enumerate observations", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot enumerate observations", true, "retry once the database is readable", err)
 	}
 	obsRows.Close()
-	return out, nil
+	return nil
 }
 
 // ContinuityWorkResolution names the active work item a session directory

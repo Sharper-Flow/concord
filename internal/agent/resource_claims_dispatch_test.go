@@ -22,13 +22,7 @@ func claimsFixture(t *testing.T) (*store.Store, *Service, Authority) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "claims-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Claims","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "claims-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Claims Project"}`)},
-		{EventID: "claims-membership", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"claims fixture","expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
-		t.Fatal(err)
-	}
+	applyAgentFixtureProduct(ctx, t, s, "claims", "product-1", "project-1", "Claims", "Claims Project", "claims fixture")
 	// Two works: the holder and the contender.
 	for _, w := range []struct{ id, title string }{{"work-holder", "Holder"}, {"work-contender", "Contender"}} {
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{

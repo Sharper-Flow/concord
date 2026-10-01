@@ -125,7 +125,7 @@ func TestLegacyRowReleasesOnEndedRecordingProcess(t *testing.T) {
 	hostLeaseWallStart = func(int) (time.Time, error) { return time.Now().Add(time.Hour), nil }
 	t.Cleanup(func() { hostLeaseWallStart = previous })
 
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	if _, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-legacy-release", ExpectedVersion: 4,
@@ -156,7 +156,7 @@ func TestLegacyRowStaysOnUnreadableLeaseSet(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(filepath.Dir(s.Path()), "hosts", "stray"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	_, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		PrincipalRef: "principal-1", RequestID: "req-legacy-unreadable", ExpectedVersion: 4,

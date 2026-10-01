@@ -44,8 +44,8 @@ func domainObservationEvent(id, domain, statement string, at time.Time) Event {
 	}
 }
 
-func domainDismissEvent(id, domain string, at time.Time) Event {
-	payload := fmt.Sprintf(`{"observation_id":%q,"product_id":"obs-product","domain_id":%q}`, id, domain)
+func domainDismissEvent(id string, at time.Time) Event {
+	payload := fmt.Sprintf(`{"observation_id":%q,"product_id":"obs-product","domain_id":"obs-domain"}`, id)
 	return Event{
 		EventID: fmt.Sprintf("dis-%s-%d", id, at.UnixNano()), Kind: "domain.observation_dismissed",
 		SubjectType: SubjectProduct, SubjectID: "obs-product", Actor: "operator",
@@ -159,7 +159,7 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 			t.Fatalf("record %d error = %v", i, err)
 		}
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(1), "obs-domain", base.Add(time.Hour))); err != nil {
+	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(1), base.Add(time.Hour))); err != nil {
 		t.Fatalf("dismiss error = %v", err)
 	}
 	var state, dismissedAt string
@@ -181,11 +181,11 @@ func TestDomainObservationDismissalFlipsStateAndFreesWindow(t *testing.T) {
 		t.Fatalf("record after dismissal error = %v", err)
 	}
 	// A second dismissal of the same row refuses rather than rewriting audit.
-	err = foldDomainEvent(t, s, domainDismissEvent(observationID(1), "obs-domain", base.Add(3*time.Hour)))
+	err = foldDomainEvent(t, s, domainDismissEvent(observationID(1), base.Add(3*time.Hour)))
 	if err == nil || !strings.Contains(err.Error(), "no open observation") {
 		t.Fatalf("repeat dismissal error = %v", err)
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(997), "obs-domain", base.Add(4*time.Hour))); err == nil {
+	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(997), base.Add(4*time.Hour))); err == nil {
 		t.Fatal("dismissing an unrecorded observation must refuse")
 	}
 }
@@ -203,7 +203,7 @@ func TestDomainDetailCarriesOpenObservations(t *testing.T) {
 	if err := foldDomainEvent(t, s, domainObservationEvent(observationID(12), "obs-domain", "dismissed later", base.Add(time.Second))); err != nil {
 		t.Fatal(err)
 	}
-	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(12), "obs-domain", base.Add(time.Minute))); err != nil {
+	if err := foldDomainEvent(t, s, domainDismissEvent(observationID(12), base.Add(time.Minute))); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := s.QueryDomainDetail(ctx, DomainDetailRequest{Product: "obs-product", Domain: "obs-domain"})

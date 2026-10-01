@@ -16,7 +16,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 		make func() Envelope
 	}{
 		{"ok read", func() Envelope {
-			return newOKReadForTest(NewBase("req-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+			return newOKReadForTest(NewBase("req-1", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 		}},
 		{"ok mutation", func() Envelope {
 			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
@@ -95,7 +95,7 @@ func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 
 func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	t.Parallel()
-	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 	readEncoded, err := read.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	if err := base.Validate(); err == nil {
 		t.Fatal("unknown outcome accepted")
 	}
-	valid := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false)
+	valid := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 	raw, _ := valid.Encode()
 	raw = append(raw[:len(raw)-1], []byte(`,"unknown":true}`)...)
 	if _, err := decodeEnvelopeForTest(raw); err == nil {
@@ -266,7 +266,7 @@ func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	t.Parallel()
 	envelopes := []Envelope{
-		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"p-1","projects":[]}`), false),
+		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`)),
 		NewPending(NewBase("pending", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPending, CurrentStep: "git", UpdatedAt: fixedTime()}, RecoveryAction{Kind: "reconcile_operation"}),
 		NewPartial(NewBase("partial", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "1", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}),
 		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
@@ -306,7 +306,7 @@ func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 		t.Fatalf("serialized envelope limit=%d, want 51200", MaxResultEnvelopeBytes)
 	}
 	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxResultEnvelopeBytes)))
-	e := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), "PM1.Q1", payload, false)
+	e := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), payload)
 	if _, err := e.Encode(); err == nil {
 		t.Fatal("oversize envelope accepted")
 	}
@@ -478,7 +478,7 @@ func TestStrictOperationUnions(t *testing.T) {
 
 func TestDecodeEnvelopeRejectsInvalidTrailingJSON(t *testing.T) {
 	t.Parallel()
-	valid := newOKReadForTest(NewBase("request-1", "concord_product_view", "resolve"), "PM1.Q1", json.RawMessage(`{"product_id":"product-1","projects":[]}`), false)
+	valid := newOKReadForTest(NewBase("request-1", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"product-1","projects":[]}`))
 	raw, err := valid.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -511,16 +511,9 @@ func decodeEnvelopeForTest(data []byte) (Envelope, error) {
 	return e, json.Unmarshal(data, &e)
 }
 
-func newOKReadForTest(base Envelope, queryID string, payload json.RawMessage, collection bool) Envelope {
+func newOKReadForTest(base Envelope, payload json.RawMessage) Envelope {
 	base.Outcome = OutcomeOK
-	base.QueryID = queryID
-	if collection {
-		base.Items = []json.RawMessage{}
-		if len(payload) != 0 {
-			base.Items = append(base.Items, payload)
-		}
-	} else {
-		base.Result = payload
-	}
+	base.QueryID = "PM1.Q1"
+	base.Result = payload
 	return base
 }

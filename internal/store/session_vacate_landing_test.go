@@ -16,11 +16,11 @@ import (
 // TestSessionVacateReleasesEveryWorkItemRow in
 // worktree_occupancy_release_test.go carries the prior-version replay.
 
-func vacateRequestEvent(eventID, source, destination string) Event {
+func vacateRequestEvent(eventID, source string) Event {
 	return Event{
 		EventID: eventID, Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: "work-w",
 		Actor: "ses-x", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 2,
-		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-x","source_directory":"` + source + `","destination_directory":"` + destination + `"}`),
+		Payload: jsonRaw(`{"work_id":"work-w","project_id":"project-w","session_ref":"ses-x","source_directory":"` + source + `","destination_directory":"/data/repo-main"}`),
 	}
 }
 
@@ -36,7 +36,7 @@ func TestSessionVacateRequestLeavesOccupancyStanding(t *testing.T) {
 	setWorktreeOccupant(t, s, "work-b", "ses-x")
 
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		vacateRequestEvent("vacate-request-stands", claimPath(s), "/data/repo-main"),
+		vacateRequestEvent("vacate-request-stands", claimPath(s)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestSessionVacateReplayTargetResolvesTheCommittedRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		vacateRequestEvent("vacate-replay", claimPath(s), "/data/repo-main"),
+		vacateRequestEvent("vacate-replay", claimPath(s)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestSessionVacateReplayResolvesAndHoldsACompletedRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		vacateRequestEvent("vacate-completes", claimPath(s), "/data/repo-main"),
+		vacateRequestEvent("vacate-completes", claimPath(s)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestSessionVacateLandingRefusesACompletedRequestWithLaterClaimRows(t *testi
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		vacateRequestEvent("vacate-completes-then-claim", claimPath(s), "/data/repo-main"),
+		vacateRequestEvent("vacate-completes-then-claim", claimPath(s)),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestSessionVacateLandingReleasesRowsInOneTransaction(t *testing.T) {
 	setWorktreeOccupant(t, s, "work-b", "ses-x")
 	setWorktreeOccupant(t, s, "work-w", "ses-other")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		vacateRequestEvent("vacate-request-landing", claimPath(s), "/data/repo-main"),
+		vacateRequestEvent("vacate-request-landing", claimPath(s)),
 	}}); err != nil {
 		t.Fatal(err)
 	}

@@ -39,7 +39,7 @@ func (r runtime) readProductResolve(ctx context.Context, base Envelope, input []
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -121,23 +121,42 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
+	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil }),
+		func(inner string) store.Q3Request {
+			return store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
+		},
+		r.Store.QueryQ3, r.q3)
+}
+
+// pagedQuery runs the shape every paged read handler shares: resolve the
+// inner cursor from the caller's page token against the cursor-free binding
+// of the same input, query, build the response, and wrap a fresh cursor
+// around it bound to that same input. request receives the resolved inner
+// cursor; query and respond are the handler's store call and response
+// builder.
+func pagedQuery[Req any, Resp any](r runtime, ctx context.Context, base Envelope, page pageInput, binding string, request func(inner string) Req, query func(context.Context, Req) (Resp, error), respond func(Envelope, Resp) (Envelope, error)) (Envelope, error) {
+	inner, err := r.unwrapCursor(ctx, cursorValue(page), binding, "summary")
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	req := store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
-	q, err := r.Store.QueryQ3(ctx, req)
+	q, err := query(ctx, request(inner))
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	response, err := r.q3(base, q)
+	response, err := respond(base, q)
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, binding, "summary")
+}
+
+// pageBinding returns the JSON binding of a paged read input with its cursor
+// cleared, so a rebound page cannot smuggle a foreign cursor. The page
+// itself keeps the caller's cursor for resolution.
+func pageBinding[T any](in T, clearCursor func(*T)) string {
+	clearCursor(&in)
+	binding, _ := json.Marshal(in)
+	return string(binding)
 }
 
 func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -145,22 +164,11 @@ func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte)
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	q, err := r.Store.QueryQ5(ctx, store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	response, err := r.q5(base, q)
-	if err != nil {
-		return response, err
-	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workReadyInput) { p.Page.Cursor = nil }),
+		func(inner string) store.Q5Request {
+			return store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner}
+		},
+		r.Store.QueryQ5, r.q5)
 }
 
 func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -168,22 +176,11 @@ func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byt
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	q, err := r.Store.QueryQ4(ctx, store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	response, err := r.q4(base, q)
-	if err != nil {
-		return response, err
-	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workBlockedInput) { p.Page.Cursor = nil }),
+		func(inner string) store.Q4Request {
+			return store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner}
+		},
+		r.Store.QueryQ4, r.q4)
 }
 
 func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -191,22 +188,11 @@ func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte)
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "summary")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	q, err := r.Store.QueryQ6(ctx, store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	response, err := r.q6(base, q)
-	if err != nil {
-		return response, err
-	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workScopeInput) { p.Page.Cursor = nil }),
+		func(inner string) store.Q6Request {
+			return store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner}
+		},
+		r.Store.QueryQ6, r.q6)
 }
 
 func (r runtime) readResourceClaims(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -270,7 +256,7 @@ func (r runtime) readWorktreeAudit(ctx context.Context, base Envelope, input []b
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -313,7 +299,7 @@ func (r runtime) readTraceHistory(ctx context.Context, base Envelope, input []by
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -371,7 +357,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "continuity")
+	return r.wrapCursor(ctx, response, string(binding), "continuity")
 }
 
 func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -484,7 +470,7 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
-	return r.wrapCursor(ctx, response, inner, string(binding), "summary")
+	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
 func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -571,7 +557,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product, "domains")
+		return r.wrapCursor(ctx, response, queryID+":"+product, "domains")
 	case "detail":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain detail requires domain_id", "reread_entities", false), nil
@@ -593,7 +579,7 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 		if err != nil {
 			return response, err
 		}
-		return r.wrapCursor(ctx, response, deref(in.Page.Cursor), queryID+":"+product+":"+in.DomainID, "work")
+		return r.wrapCursor(ctx, response, queryID+":"+product+":"+in.DomainID, "work")
 	case "attachments":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil

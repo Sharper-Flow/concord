@@ -17,7 +17,7 @@ func seedConfirmPremiseQuestion(t *testing.T, s *Store, workID, otherWorkID stri
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID, "verify")
+	seedWithheldQuestionWorkflow(t, s, workID)
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherWorkID})
 }
 
@@ -119,7 +119,7 @@ func TestWithheldReasonNamesObservationRefFormat(t *testing.T) {
 	seedWork(t, s, otherWorkID)
 	seedWorkflowLaw(t, s)
 	seedIssue31DomainRegistry(t, s)
-	seedWithheldQuestionWorkflow(t, s, workID, "verify")
+	seedWithheldQuestionWorkflow(t, s, workID)
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)

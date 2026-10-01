@@ -91,7 +91,7 @@ func TestAuditReclaimBeyondChangedRefBoundReportsCommittedEffect(t *testing.T) {
 		}); response.Outcome != OutcomeOK {
 			t.Fatalf("claim %s response=%+v err=%+v", workID, response, response.Error)
 		}
-		completeWork(t, s, workID, 3)
+		completeWork(t, s, workID)
 		vacateLinkedWorktree(t, s, service, grant, filepath.Join(root, workID), "audit-bound-vacate-"+workID)
 	}
 

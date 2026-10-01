@@ -111,16 +111,7 @@ func validateSchemaValue(value any, schema map[string]any, root map[string]any, 
 func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map[string]any, path string) (map[string]bool, error) {
 	evaluated := map[string]bool{}
 	if ref, ok := schema["$ref"].(string); ok {
-		if !strings.HasPrefix(ref, "#/$defs/") {
-			return nil, fmt.Errorf("unsupported schema ref %s", ref)
-		}
-		name := strings.TrimPrefix(ref, "#/$defs/")
-		defs, _ := root["$defs"].(map[string]any)
-		target, ok := defs[name].(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("missing schema ref %s", ref)
-		}
-		referenced, err := validateSchemaValueWithEvaluated(value, target, root, path)
+		referenced, err := validateSchemaRef(value, ref, root, path)
 		if err != nil {
 			return nil, err
 		}
@@ -131,29 +122,8 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 	if err := validateValueKeywords(value, schema, path); err != nil {
 		return nil, err
 	}
-	if object, ok := value.(map[string]any); ok {
-		properties, err := validateObjectKeywords(object, schema, root, path)
-		if err != nil {
-			return nil, err
-		}
-		for key := range properties {
-			evaluated[key] = true
-		}
-	}
-	if array, ok := value.([]any); ok {
-		if err := validateArrayKeywords(array, schema, root, path); err != nil {
-			return nil, err
-		}
-	}
-	if text, ok := value.(string); ok {
-		if err := validateStringKeywords(text, schema, path); err != nil {
-			return nil, err
-		}
-	}
-	if number, ok := value.(json.Number); ok {
-		if err := validateNumberKeywords(number, schema, path); err != nil {
-			return nil, err
-		}
+	if err := validateTypeKeywords(value, schema, root, path, evaluated); err != nil {
+		return nil, err
 	}
 	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
 		branches, ok := schema[keyword].([]any)
@@ -165,45 +135,115 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 		}
 	}
 	if condition, ok := schema["if"].(map[string]any); ok {
-		branch, _ := schema["else"].(map[string]any)
-		if validateSchemaValue(value, condition, root, path) == nil {
-			branch, _ = schema["then"].(map[string]any)
-		}
-		if branch != nil {
-			branchEvaluated, err := validateSchemaValueWithEvaluated(value, branch, root, path)
-			if err != nil {
-				return nil, err
-			}
-			for key := range branchEvaluated {
-				evaluated[key] = true
-			}
+		if err := validateConditionalBranch(value, schema, condition, root, path, evaluated); err != nil {
+			return nil, err
 		}
 	}
 	if branch, ok := schema["not"].(map[string]any); ok && validateSchemaValue(value, branch, root, path) == nil {
 		return nil, fmt.Errorf("not mismatch at %s", path)
 	}
-	if object, ok := value.(map[string]any); ok {
-		if unevaluated, exists := schema["unevaluatedProperties"]; exists {
-			remaining := make([]string, 0)
-			for key := range object {
-				if !evaluated[key] {
-					remaining = append(remaining, key)
-				}
-			}
-			if additionalPropertiesFalse, ok := unevaluated.(bool); ok && !additionalPropertiesFalse && len(remaining) > 0 {
-				return nil, fmt.Errorf("unevaluated property %s.%s", path, remaining[0])
-			}
-			if child, ok := unevaluated.(map[string]any); ok {
-				for _, key := range remaining {
-					if err := validateSchemaValue(object[key], child, root, path+"."+key); err != nil {
-						return nil, err
-					}
-					evaluated[key] = true
-				}
-			}
-		}
+	if err := validateUnevaluatedProperties(value, schema, root, path, evaluated); err != nil {
+		return nil, err
 	}
 	return evaluated, nil
+}
+
+// validateUnevaluatedProperties enforces the unevaluatedProperties keyword
+// over the keys no property, pattern, combinator, or branch evaluated, and
+// folds the keys it validates into the caller's set.
+func validateUnevaluatedProperties(value any, schema map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	unevaluated, exists := schema["unevaluatedProperties"]
+	if !exists {
+		return nil
+	}
+	remaining := make([]string, 0)
+	for key := range object {
+		if !evaluated[key] {
+			remaining = append(remaining, key)
+		}
+	}
+	if additionalPropertiesFalse, ok := unevaluated.(bool); ok && !additionalPropertiesFalse && len(remaining) > 0 {
+		return fmt.Errorf("unevaluated property %s.%s", path, remaining[0])
+	}
+	if child, ok := unevaluated.(map[string]any); ok {
+		for _, key := range remaining {
+			if err := validateSchemaValue(object[key], child, root, path+"."+key); err != nil {
+				return err
+			}
+			evaluated[key] = true
+		}
+	}
+	return nil
+}
+
+// validateSchemaRef resolves one #/$defs/ reference and validates the value
+// against the referenced definition, returning its evaluated properties.
+func validateSchemaRef(value any, ref string, root map[string]any, path string) (map[string]bool, error) {
+	if !strings.HasPrefix(ref, "#/$defs/") {
+		return nil, fmt.Errorf("unsupported schema ref %s", ref)
+	}
+	name := strings.TrimPrefix(ref, "#/$defs/")
+	defs, _ := root["$defs"].(map[string]any)
+	target, ok := defs[name].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("missing schema ref %s", ref)
+	}
+	return validateSchemaValueWithEvaluated(value, target, root, path)
+}
+
+// validateTypeKeywords dispatches the value's Go type to its keyword
+// validator and folds the properties an object schema evaluated into the
+// caller's set.
+func validateTypeKeywords(value any, schema map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
+	if object, ok := value.(map[string]any); ok {
+		properties, err := validateObjectKeywords(object, schema, root, path)
+		if err != nil {
+			return err
+		}
+		for key := range properties {
+			evaluated[key] = true
+		}
+	}
+	if array, ok := value.([]any); ok {
+		if err := validateArrayKeywords(array, schema, root, path); err != nil {
+			return err
+		}
+	}
+	if text, ok := value.(string); ok {
+		if err := validateStringKeywords(text, schema, path); err != nil {
+			return err
+		}
+	}
+	if number, ok := value.(json.Number); ok {
+		if err := validateNumberKeywords(number, schema, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateConditionalBranch applies the if/then/else branch the value
+// selects and folds its evaluated properties into the caller's set.
+func validateConditionalBranch(value any, schema, condition map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
+	branch, _ := schema["else"].(map[string]any)
+	if validateSchemaValue(value, condition, root, path) == nil {
+		branch, _ = schema["then"].(map[string]any)
+	}
+	if branch == nil {
+		return nil
+	}
+	branchEvaluated, err := validateSchemaValueWithEvaluated(value, branch, root, path)
+	if err != nil {
+		return err
+	}
+	for key := range branchEvaluated {
+		evaluated[key] = true
+	}
+	return nil
 }
 
 // validateCombinatorBranches enforces one allOf, anyOf, or oneOf keyword and
@@ -298,33 +338,8 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 		}
 	}
 	patterns, _ := schema["patternProperties"].(map[string]any)
-	if additional, exists := schema["additionalProperties"]; exists {
-		if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
-			for key := range object {
-				if _, exists := properties[key]; exists {
-					continue
-				}
-				matched := false
-				for pattern := range patterns {
-					if regexp.MustCompile(pattern).MatchString(key) {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					return nil, fmt.Errorf("unknown property %s.%s", path, key)
-				}
-			}
-		} else if child, ok := additional.(map[string]any); ok {
-			for key, entry := range object {
-				if _, exists := properties[key]; !exists && !matchesPattern(patterns, key) {
-					if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
-						return nil, err
-					}
-					evaluated[key] = true
-				}
-			}
-		}
+	if err := validateAdditionalProperties(object, schema, properties, patterns, root, path, evaluated); err != nil {
+		return nil, err
 	}
 	for key, raw := range properties {
 		if entry, exists := object[key]; exists {
@@ -338,19 +353,8 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 			evaluated[key] = true
 		}
 	}
-	for pattern, raw := range patterns {
-		child, ok := raw.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("invalid schema pattern property %s", pattern)
-		}
-		for key, entry := range object {
-			if regexp.MustCompile(pattern).MatchString(key) {
-				if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
-					return nil, err
-				}
-				evaluated[key] = true
-			}
-		}
+	if err := validatePatternProperties(patterns, object, root, path, evaluated); err != nil {
+		return nil, err
 	}
 	if n, ok := schema["minProperties"].(json.Number); ok && len(object) < numberInt(n) {
 		return nil, fmt.Errorf("minProperties at %s", path)
@@ -359,6 +363,67 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 		return nil, fmt.Errorf("maxProperties at %s", path)
 	}
 	return evaluated, nil
+}
+
+// validateAdditionalProperties enforces the additionalProperties keyword in
+// both forms: false refuses every key no property or pattern owns, and a
+// schema validates each such key and folds it into the evaluated set.
+func validateAdditionalProperties(object, schema, properties, patterns map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
+	additional, exists := schema["additionalProperties"]
+	if !exists {
+		return nil
+	}
+	if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
+		for key := range object {
+			if _, exists := properties[key]; exists {
+				continue
+			}
+			matched := false
+			for pattern := range patterns {
+				if regexp.MustCompile(pattern).MatchString(key) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return fmt.Errorf("unknown property %s.%s", path, key)
+			}
+		}
+		return nil
+	}
+	child, ok := additional.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for key, entry := range object {
+		if _, exists := properties[key]; !exists && !matchesPattern(patterns, key) {
+			if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+				return err
+			}
+			evaluated[key] = true
+		}
+	}
+	return nil
+}
+
+// validatePatternProperties validates each object key its declared pattern
+// matches and folds it into the evaluated set.
+func validatePatternProperties(patterns map[string]any, object map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
+	for pattern, raw := range patterns {
+		child, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid schema pattern property %s", pattern)
+		}
+		for key, entry := range object {
+			if regexp.MustCompile(pattern).MatchString(key) {
+				if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+					return err
+				}
+				evaluated[key] = true
+			}
+		}
+	}
+	return nil
 }
 
 func matchesPattern(patterns map[string]any, key string) bool {
@@ -423,14 +488,14 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 
 func validateNumberKeywords(number json.Number, schema map[string]any, path string) error {
 	n, _ := strconv.ParseFloat(string(number), 64)
-	if min, ok := schema["minimum"].(json.Number); ok {
-		m, _ := strconv.ParseFloat(string(min), 64)
+	if lower, ok := schema["minimum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(lower), 64)
 		if n < m {
 			return fmt.Errorf("minimum at %s", path)
 		}
 	}
-	if max, ok := schema["maximum"].(json.Number); ok {
-		m, _ := strconv.ParseFloat(string(max), 64)
+	if upper, ok := schema["maximum"].(json.Number); ok {
+		m, _ := strconv.ParseFloat(string(upper), 64)
 		if n > m {
 			return fmt.Errorf("maximum at %s", path)
 		}

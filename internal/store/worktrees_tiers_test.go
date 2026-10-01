@@ -338,13 +338,12 @@ func realGitTiersFixture(t *testing.T) (*Store, string) {
 	return s, result.Entry.Path
 }
 
-func gitRunStore(t *testing.T, dir string, args ...string) string {
+func gitRunStore(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	out, err := ExecGitRunner{}.Run(context.Background(), dir, args...)
+	_, err := ExecGitRunner{}.Run(context.Background(), dir, args...)
 	if err != nil {
 		t.Fatalf("git %v: %v", args, err)
 	}
-	return string(out)
 }
 
 func TestTiersAgainstRealGitInspectFileAndVerifyCommand(t *testing.T) {

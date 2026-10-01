@@ -880,7 +880,7 @@ func TestReclaimWorktreeKeepsLiveOccupantRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 
 	cases := []string{"recorded legacy occupant"}
 	for _, name := range cases {
@@ -917,7 +917,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	_, err = s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
@@ -946,7 +946,7 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-stale-occupancy",

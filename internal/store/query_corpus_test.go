@@ -302,7 +302,8 @@ func pathValue(root any, path string) any {
 	path = strings.TrimPrefix(path, "$")
 	var current = []any{root}
 	for len(path) > 0 {
-		if path[0] == '.' {
+		switch {
+		case path[0] == '.':
 			path = path[1:]
 			i := strings.IndexAny(path, ".[")
 			if i < 0 {
@@ -319,7 +320,7 @@ func pathValue(root any, path string) any {
 			}
 			current = next
 			path = path[i:]
-		} else if strings.HasPrefix(path, "[*]") {
+		case strings.HasPrefix(path, "[*]"):
 			path = path[3:]
 			next := []any{}
 			for _, v := range current {
@@ -328,7 +329,7 @@ func pathValue(root any, path string) any {
 				}
 			}
 			current = next
-		} else if path[0] == '[' {
+		case path[0] == '[':
 			end := strings.Index(path, "]")
 			if end < 0 {
 				return nil
@@ -342,7 +343,7 @@ func pathValue(root any, path string) any {
 				}
 			}
 			current = next
-		} else {
+		default:
 			return nil
 		}
 	}

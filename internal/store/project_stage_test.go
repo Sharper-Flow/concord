@@ -65,7 +65,7 @@ func TestProjectStageChangeEventValidatesReplaysAndClearsInheritance(t *testing.
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "stage-product"): 0, VersionRef(SubjectProject, "stage-project"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{projectStageChangedEvent("stage-project", "stage-set", "beta", "public")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "stage-project"): 1}}); err != nil {
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{projectStageChangedEvent("stage-project", "stage-set", "beta")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "stage-project"): 1}}); err != nil {
 		t.Fatal(err)
 	}
 	assertProjectStage(t, s, "stage-project", "beta", "public", 2)

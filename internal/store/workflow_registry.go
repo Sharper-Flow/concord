@@ -257,8 +257,8 @@ func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (Re
 	if err != nil {
 		return RegisteredDefinition{}, err
 	}
-	copy := cloneWorkflowDefinition(definition)
-	registered := RegisteredDefinition{Definition: copy, Digest: digest}
+	frozen := cloneWorkflowDefinition(definition)
+	registered := RegisteredDefinition{Definition: frozen, Digest: digest}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := registryKey(definition.Ref, definition.Version)
@@ -308,9 +308,9 @@ func definitionFailure(kind FailureKind, detail string) error {
 
 func cloneWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
 	raw, _ := json.Marshal(definition)
-	var copy WorkflowDefinition
-	_ = json.Unmarshal(raw, &copy)
-	return copy
+	var cloned WorkflowDefinition
+	_ = json.Unmarshal(raw, &cloned)
+	return cloned
 }
 
 func cloneRegisteredDefinition(registered RegisteredDefinition) RegisteredDefinition {
@@ -1314,39 +1314,41 @@ func publicActionPolicy(policy builtinActionPolicy, fields ...WorkflowPayloadFie
 	return policy
 }
 
-func actionStringField(name string, required bool, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, NonBlank: true, MinLength: workflowInt(1), MaxLength: workflowInt(max)}
+func actionStringField(name string, required bool, upper int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, NonBlank: true, MinLength: workflowInt(1), MaxLength: workflowInt(upper)}
 }
 
 func actionRefField(name string, required bool) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadRef, Required: required, MinLength: workflowInt(2), MaxLength: workflowInt(128)}
 }
 
-func actionListField(name string, required bool, min, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "reference"}
+func actionListField(name string, required bool, lower, upper int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: "reference"}
 }
 
 // actionIDListField declares a string list whose entries answer to the
 // generated id schema, which forbids the slashes a repository path reference
 // allows.
-func actionIDListField(name string, required bool, min, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "id"}
+func actionIDListField(name string, required bool, lower, upper int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: "id"}
 }
 
-func actionEnumListField(name string, required bool, min, max int64, values ...string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), Enum: values}
+func actionEnumListField(name string, required bool, lower, upper int64, values ...string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), Enum: values}
 }
 
-func actionProseListField(name string, required bool, min, max int64, itemRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: itemRef}
+func actionProseListField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
 
-func actionLawListField(name string, required bool, min, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: "law_id"}
+// actionLawListField declares a law-id list: the mandate may be empty and
+// holds at most 32 ids.
+func actionLawListField(name string, required bool) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(32), ItemRef: "law_id"}
 }
 
-func actionIntegerField(name string, required bool, min, max int64) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(min), Maximum: workflowInt(max)}
+func actionIntegerField(name string, required bool, upper int64) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(1), Maximum: workflowInt(upper)}
 }
 
 func actionEnumField(name string, required bool, values ...string) WorkflowPayloadField {
@@ -1357,14 +1359,14 @@ func actionObjectField(name string, required bool, schemaRef string) WorkflowPay
 	return WorkflowPayloadField{Name: name, ValueType: PayloadObject, Required: required, SchemaRef: schemaRef}
 }
 
-func actionArrayField(name string, required bool, min, max int64, schemaRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), SchemaRef: schemaRef}
+func actionArrayField(name string, required bool, upper int64, schemaRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(1), MaxItems: workflowInt(upper), SchemaRef: schemaRef}
 }
 
 // actionItemArrayField declares an array whose elements answer to one generated
 // schema. It states the per-element reading that schema_ref left to inference.
-func actionItemArrayField(name string, required bool, min, max int64, itemRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(min), MaxItems: workflowInt(max), ItemRef: itemRef}
+func actionItemArrayField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
 
 func evidenceBindingActionFields() []WorkflowPayloadField {
@@ -1407,7 +1409,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"record_design": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionArrayField("decisions", true, 1, 16, "workflow_design_decision"),
+		actionArrayField("decisions", true, 16, "workflow_design_decision"),
 		actionListField("touched_refs", true, 1, 64),
 	),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
@@ -1415,12 +1417,12 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("route_conventions", false, 0, 16),
 		actionListField("proposed_route_conventions", false, 0, 16),
 		actionListField("required_route_conventions", false, 0, 16),
-		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionIntegerField("contract_version", false, 2147483647),
 		actionPremiseField(),
-		actionArrayField("outcome_predicates", true, 1, 8, "workflow_action_outcome_predicates"),
+		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
 		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
-		actionLawListField("spec_mandate", false, 0, 32),
-		actionLawListField("law_modifies", false, 0, 32),
+		actionLawListField("spec_mandate", false),
+		actionLawListField("law_modifies", false),
 		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
 	),
@@ -1437,13 +1439,13 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
 	),
 	"record_verdict": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionIntegerField("contract_version", false, 1, 2147483647), actionRefField("predicate_id", true),
+		actionIntegerField("contract_version", false, 2147483647), actionRefField("predicate_id", true),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
 		actionStringField("verdict_actor_ref", false, 70), actionListField("evaluation_evidence", false, 1, 32),
 		WorkflowPayloadField{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
 	),
 	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionIntegerField("contract_version", false, 2147483647),
 	),
 	"complete": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
@@ -1473,7 +1475,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"frame_research":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
 	"record_finding":    actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionIntegerField("contract_version", false, 2147483647),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
 		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
 	),
@@ -1500,7 +1502,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_run":    actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"add_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionRefField("condition_id", false), actionEnumField("await_type", false, "pr_merge", "ci_result", "timer", "human_approval", "remote_work_state"),
-		actionRefField("await_ref", false), actionRefField("resolution_authority", false), actionIntegerField("expected_within_seconds", false, 1, 31536000),
+		actionRefField("await_ref", false), actionRefField("resolution_authority", false), actionIntegerField("expected_within_seconds", false, 31536000),
 	),
 	"resolve_condition": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionRefField("condition_id", false), actionListField("resolution_evidence", false, 1, 32), actionRefField("resolved_by_event", false),
@@ -1518,31 +1520,31 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_action":        actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false, 1, 2147483647),
+		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false, 2147483647),
 		actionStringField("active_unit", true, 256), actionStringField("hypothesis", true, 4096), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096),
 		actionListField("touched_refs", true, 1, 64), actionListField("evidence_refs", true, 1, 64), actionListField("pending_questions", true, 0, 16), actionListField("pending_decisions", true, 0, 16),
 	),
 	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
 		actionEnumField("boundary_kind", true, "summary", "restart"), actionEnumField("mode", true, "summary", "restart"), actionRefField("checkpoint_id", true),
-		actionIntegerField("boundary_sequence", false, 1, 2147483647), actionIntegerField("checkpoint_sequence", false, 1, 2147483647), actionStringField("summary", true, 16384),
+		actionIntegerField("boundary_sequence", false, 2147483647), actionIntegerField("checkpoint_sequence", false, 2147483647), actionStringField("summary", true, 16384),
 		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
 	),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
 	"accept_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
 	),
 	// CD-0187: the confirmation-step accept binds a completed worker
 	// attempt's report as evidence and holds the step, so the operator's
 	// own gate stays the step's only advancing exit.
 	"accept_worker_evidence": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
 	),
 	"record_worker_failure": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647),
 	),
 	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
-		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 1, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
+		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),

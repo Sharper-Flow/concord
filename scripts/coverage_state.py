@@ -137,15 +137,16 @@ def check_state_obligations(record: dict, prefix: str, findings: list[str]) -> b
     required = STATE_OBLIGATION[state]
     if required not in record:
         findings.append(f"{prefix}: state {state!r} requires {required!r}")
-    for field in OBLIGATION_FIELDS - {required}:
-        if field in record:
-            findings.append(f"{prefix}: state {state!r} forbids {field!r}")
+    findings.extend(
+        f"{prefix}: state {state!r} forbids {field!r}"
+        for field in OBLIGATION_FIELDS - {required}
+        if field in record
+    )
 
-    if required == "reason" and "reason" in record:
-        if not bounded_text(record["reason"], 12, MAX_REASON):
-            findings.append(
-                f"{prefix}: reason must be trimmed text of 12-{MAX_REASON} characters"
-            )
+    if required == "reason" and "reason" in record and not bounded_text(record["reason"], 12, MAX_REASON):
+        findings.append(
+            f"{prefix}: reason must be trimmed text of 12-{MAX_REASON} characters"
+        )
     if required == "issue" and "issue" in record:
         issue = record["issue"]
         if not valid_issue_pointer(issue):
@@ -268,10 +269,10 @@ def check_subject_set(
     if len(declared_set) != len(declared):
         duplicates = sorted({item for item in declared if declared.count(item) > 1})
         findings.append(f"duplicate {noun} declarations: {duplicates}")
-    for missing in sorted(discovered_set - declared_set):
-        findings.append(f"undeclared {noun}: {missing}")
-    for stale in sorted(declared_set - discovered_set):
-        findings.append(f"declared {noun} no longer exists: {stale}")
+    findings.extend(f"undeclared {noun}: {missing}" for missing in sorted(discovered_set - declared_set))
+    findings.extend(
+        f"declared {noun} no longer exists: {stale}" for stale in sorted(declared_set - discovered_set)
+    )
 
 
 def report(findings: list[str], noun: str, limit: int = 200) -> int:

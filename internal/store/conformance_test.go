@@ -1209,7 +1209,7 @@ func maxEventSeqAtPath(ctx context.Context, path string) (int64, error) {
 	return seq, err
 }
 
-func sqlOpenReadOnly(ctx context.Context, path string) (*sql.DB, error) {
+func sqlOpenReadOnly(_ context.Context, path string) (*sql.DB, error) {
 	// Keep verification on the same driver settings as VerifyBackup without
 	// opening a Store that could run migrations on an untrusted candidate.
 	return sql.Open(driverName, readOnlyDataSource(path))

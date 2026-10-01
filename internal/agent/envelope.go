@@ -452,7 +452,7 @@ func (e Envelope) validateOK() error {
 			if err := validateOperation(intent.Tool, intent.Operation, intent.QueryID); err != nil {
 				return fmt.Errorf("invalid next intent: %w", err)
 			}
-			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 1, 64) {
+			if intent.ReasonCode == "" || len(intent.ReasonCode) > 64 || len(intent.RequiredFields) > 16 || !unique(intent.RequiredFields) || !boundedStrings(intent.RequiredFields, 64) {
 				return errors.New("invalid next intent bounds")
 			}
 		}
@@ -494,7 +494,7 @@ func (e Envelope) validatePending() error {
 	return validateRecoveryAction(*e.NextAction)
 }
 func (e Envelope) validatePartial() error {
-	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 1, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
+	if (e.Tool != "concord_work_compact" && e.Tool != "concord_work_transition") || e.OperationRef == nil || (e.OperationRef.State != OperationPartial && e.OperationRef.State != OperationFailed) || len(e.CompletedSteps) == 0 || len(e.CompletedSteps) > 32 || !boundedStrings(e.CompletedSteps, 64) || (e.FailedStep != "" && !bounded(e.FailedStep, 1, 64)) || e.Error == nil || e.Error.EffectState != EffectPartial || e.Error.AdapterReason != "" {
 		return errors.New("invalid partial envelope")
 	}
 	if err := validateOperationRef(*e.OperationRef); err != nil {
@@ -560,7 +560,7 @@ func validateEnvelopeCollections(e Envelope) error {
 	}
 	return nil
 }
-func bounded(value string, min, max int) bool { return len(value) >= min && len(value) <= max }
+func bounded(value string, lower, upper int) bool { return len(value) >= lower && len(value) <= upper }
 func oneOf(value string, allowed ...string) bool {
 	for _, candidate := range allowed {
 		if value == candidate {
@@ -762,7 +762,7 @@ func validateError(err TypedError) error {
 	if x := validateRecoveryAction(err.RecoveryAction); x != nil {
 		return x
 	}
-	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 1, 128) || !boundedStrings(err.Violations, 1, 128) {
+	if len(err.Message) > 1000 || len(err.Candidates) > 20 || len(err.Violations) > 20 || !boundedStrings(err.Candidates, 128) || !boundedStrings(err.Violations, 128) {
 		return errors.New("error scalar/list bound exceeded")
 	}
 	if len(err.CurrentVersions) > 20 || len(err.Candidates) > 20 || len(err.Violations) > 20 {
@@ -783,27 +783,13 @@ func validateError(err TypedError) error {
 		return errors.New("invalid error details")
 	}
 	if err.Kind == "stale_law_revision" {
-		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 1, 128) {
-			return errors.New("stale law revision coupling violated")
+		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {
+			return x
 		}
 	}
 	if err.Kind == "domain_overlap" {
-		if err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
-			return errors.New("domain overlap coupling violated")
-		}
-		for _, overlap := range err.DomainOverlap.Overlaps {
-			if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || len(overlap.SharedAffectedDomainIDs) == 0 || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
-				return errors.New("domain overlap detail bounds violated")
-			}
-			if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
-				return errors.New("sequenced overlap must preserve its directed resolution kind")
-			}
-			allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
-			for _, action := range overlap.RecoveryActions {
-				if !allowedRecovery[action] {
-					return errors.New("unknown domain overlap recovery action")
-				}
-			}
+		if x := validateDomainOverlapCoupling(err.DomainOverlap); x != nil {
+			return x
 		}
 	}
 	if err.ExternalRefConflict != nil {
@@ -849,17 +835,8 @@ func validateError(err TypedError) error {
 	// D2 coupling — present exactly when a challenge was minted — belongs to
 	// the mint sites; this validates the object's shape wherever it appears.
 	if summary := err.ConsequenceSummary; summary != nil {
-		if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
-			return errors.New("consequence summary identity fields are invalid")
-		}
-		if summary.ExpiresAt == "" {
-			return errors.New("consequence summary lacks expiry")
-		}
-		if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
-			return errors.New("consequence summary expiry is not RFC3339")
-		}
-		if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
-			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
+		if x := validateConsequenceSummaryShape(summary); x != nil {
+			return x
 		}
 	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && err.EffectState != EffectNone {
@@ -867,6 +844,66 @@ func validateError(err TypedError) error {
 	}
 	if x := validateOptions(err); x != nil {
 		return x
+	}
+	return nil
+}
+
+// validateStaleLawRevisionCoupling validates the stale-law-revision payload
+// the kind requires: two bounded law IDs with proof hashes and one to four
+// bounded recovery actions.
+func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
+	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || !bounded(revision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(revision.AcceptedSuccessorContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
+		return errors.New("stale law revision coupling violated")
+	}
+	return nil
+}
+
+// validateDomainOverlapCoupling validates the domain-overlap payload the kind
+// requires: a consistent overlap envelope and bounded, closed overlap rows.
+func validateDomainOverlapCoupling(overlap *DomainOverlap) error {
+	if overlap == nil || len(overlap.Overlaps) == 0 || len(overlap.Overlaps) > 20 || overlap.TotalOverlaps < len(overlap.Overlaps) || overlap.ReturnedOverlaps != len(overlap.Overlaps) || overlap.TotalOverlaps < 1 || (!overlap.Truncated && overlap.TotalOverlaps != overlap.ReturnedOverlaps) {
+		return errors.New("domain overlap coupling violated")
+	}
+	for _, row := range overlap.Overlaps {
+		if x := validateDomainOverlapRow(row); x != nil {
+			return x
+		}
+	}
+	return nil
+}
+
+// validateDomainOverlapRow validates one overlap row's bounds, counts,
+// resolution state, and recovery actions.
+func validateDomainOverlapRow(overlap DomainOverlapDetail) error {
+	if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || len(overlap.SharedAffectedDomainIDs) == 0 || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
+		return errors.New("domain overlap detail bounds violated")
+	}
+	if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
+		return errors.New("sequenced overlap must preserve its directed resolution kind")
+	}
+	allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
+	for _, action := range overlap.RecoveryActions {
+		if !allowedRecovery[action] {
+			return errors.New("unknown domain overlap recovery action")
+		}
+	}
+	return nil
+}
+
+// validateConsequenceSummaryShape validates the closed object of
+// challenge-bound facts a consequence summary carries.
+func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
+	if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
+		return errors.New("consequence summary identity fields are invalid")
+	}
+	if summary.ExpiresAt == "" {
+		return errors.New("consequence summary lacks expiry")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
+		return errors.New("consequence summary expiry is not RFC3339")
+	}
+	if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
+		return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 	}
 	return nil
 }
@@ -882,9 +919,9 @@ func validSHA256Proof(value string) bool {
 	}
 	return true
 }
-func boundedStrings(values []string, min, max int) bool {
+func boundedStrings(values []string, upper int) bool {
 	for _, value := range values {
-		if !bounded(value, min, max) {
+		if !bounded(value, 1, upper) {
 			return false
 		}
 	}

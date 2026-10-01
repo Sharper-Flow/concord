@@ -603,11 +603,11 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		var copy workflowScenario
-		if err := json.Unmarshal(raw, &copy); err != nil {
+		var cloned workflowScenario
+		if err := json.Unmarshal(raw, &cloned); err != nil {
 			t.Fatal(err)
 		}
-		return copy
+		return cloned
 	}
 	mutations := []struct {
 		name    string
@@ -802,7 +802,7 @@ func workflowObservationAssertionError(observation workflowObservation, assertio
 	if !present {
 		return fmt.Errorf("path %s is absent", assertion.Path)
 	}
-	pass := false
+	var pass bool
 	switch assertion.Op {
 	case "eq":
 		pass = jsonValueEqual(got, assertion.Value)
@@ -2049,7 +2049,7 @@ func workflowEventSequence(ctx context.Context, s *Store, workID string) (int64,
 	return sequence, err
 }
 
-func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, actorRef string, initializeMissing bool) error {
+func replayWorkflowCorpusSetup(ctx context.Context, s *Store, setup workflowCorpusSetup, registered RegisteredDefinition, _ string, initializeMissing bool) error {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 		productCreatedEvent("product", "workflow-corpus-product"),
 		projectCreatedEvent("project", "workflow-corpus-project"),

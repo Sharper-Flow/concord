@@ -230,22 +230,22 @@ func workflowDefinitionObligations(definition WorkflowDefinition) map[string]str
 }
 
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {
-	copy := binding
-	copy.AffectedDomainIDs = append([]string(nil), binding.AffectedDomainIDs...)
-	copy.DomainModifies = append([]string(nil), binding.DomainModifies...)
-	copy.DomainRelationModifies = append([]WorkflowDomainRelationModification(nil), binding.DomainRelationModifies...)
-	copy.LawAdditions = append([]WorkflowLawAddition(nil), binding.LawAdditions...)
-	copy.VerificationObligations = append([]WorkflowVerificationObligation(nil), binding.VerificationObligations...)
-	sort.Strings(copy.AffectedDomainIDs)
-	sort.Strings(copy.DomainModifies)
-	sort.Slice(copy.DomainRelationModifies, func(i, j int) bool {
-		return relationBindingKey(copy.DomainRelationModifies[i]) < relationBindingKey(copy.DomainRelationModifies[j])
+	canonical := binding
+	canonical.AffectedDomainIDs = append([]string(nil), binding.AffectedDomainIDs...)
+	canonical.DomainModifies = append([]string(nil), binding.DomainModifies...)
+	canonical.DomainRelationModifies = append([]WorkflowDomainRelationModification(nil), binding.DomainRelationModifies...)
+	canonical.LawAdditions = append([]WorkflowLawAddition(nil), binding.LawAdditions...)
+	canonical.VerificationObligations = append([]WorkflowVerificationObligation(nil), binding.VerificationObligations...)
+	sort.Strings(canonical.AffectedDomainIDs)
+	sort.Strings(canonical.DomainModifies)
+	sort.Slice(canonical.DomainRelationModifies, func(i, j int) bool {
+		return relationBindingKey(canonical.DomainRelationModifies[i]) < relationBindingKey(canonical.DomainRelationModifies[j])
 	})
-	sort.Slice(copy.LawAdditions, func(i, j int) bool { return copy.LawAdditions[i].LawID < copy.LawAdditions[j].LawID })
-	sort.Slice(copy.VerificationObligations, func(i, j int) bool {
-		return copy.VerificationObligations[i].LawID+"\x00"+copy.VerificationObligations[i].ObligationID < copy.VerificationObligations[j].LawID+"\x00"+copy.VerificationObligations[j].ObligationID
+	sort.Slice(canonical.LawAdditions, func(i, j int) bool { return canonical.LawAdditions[i].LawID < canonical.LawAdditions[j].LawID })
+	sort.Slice(canonical.VerificationObligations, func(i, j int) bool {
+		return canonical.VerificationObligations[i].LawID+"\x00"+canonical.VerificationObligations[i].ObligationID < canonical.VerificationObligations[j].LawID+"\x00"+canonical.VerificationObligations[j].ObligationID
 	})
-	raw, _ := json.Marshal(copy)
+	raw, _ := json.Marshal(canonical)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
@@ -279,53 +279,16 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 			return newFailure(KindUnknownScope, "workflow_architecture_binding", "domain_modifies contains a Domain outside affected_domain_ids", false, "modify only affected Domains")
 		}
 	}
-	var productIDs []string
-	// The primary Project's Product owns the contract; a secondary membership
-	// in another Product widens visibility only and must not widen this scope.
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
+	productID, err := architectureBindingProductIDTx(ctx, tx, workID)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot resolve workflow Product scope", true, "retry once the workflow scope is readable", err)
-	}
-	for rows.Next() {
-		var productID string
-		if err := rows.Scan(&productID); err != nil {
-			rows.Close()
-			return err
-		}
-		productIDs = append(productIDs, productID)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
 		return err
 	}
-	if err := rows.Close(); err != nil {
+	registryHash, err := architectureBindingRegistryHashTx(ctx, tx, productID, binding)
+	if err != nil {
 		return err
 	}
-	if len(productIDs) != 1 {
-		return newFailure(KindUnknownScope, "workflow_architecture_binding", "workflow must resolve to exactly one Product", false, "assign the work to Projects in one Product")
-	}
-	productID := productIDs[0]
-	var registryHash string
-	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&registryHash); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "Product has no current Domain registry", false, "publish and rebuild the Product Domain registry")
-		}
-		return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read Product Domain registry", true, "retry once the registry projection is readable", err)
-	}
-	if registryHash != binding.DomainRegistryContentHash {
-		return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding Domain registry hash is stale", false, "reread and pin the Product's current Domain registry")
-	}
-	for domainID := range affected {
-		var status, hash string
-		if err := tx.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status, &hash); err != nil {
-			if err == sql.ErrNoRows {
-				return newFailure(KindUnknownScope, "workflow_architecture_binding", "architecture binding names an unknown Domain: "+domainID, false, "name a current Domain in the Product registry")
-			}
-			return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read named Domain", true, "retry once the Domain projection is readable", err)
-		}
-		if status != "current" || hash != registryHash {
-			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding names a non-current or stale Domain: "+domainID, false, "rebuild the current Product Domain registry")
-		}
+	if err := validateArchitectureBindingDomainsTx(ctx, tx, productID, affected, registryHash); err != nil {
+		return err
 	}
 	for _, relation := range binding.DomainRelationModifies {
 		if _, ok := affected[relation.SourceDomainID]; !ok {
@@ -339,6 +302,94 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return err
 	}
+	if err := validateArchitectureBindingLawModifiesTx(ctx, tx, productID, homeProjectID, homeLocatorID, affected, lawModifies); err != nil {
+		return err
+	}
+	if err := validateArchitectureBindingLawAdditionsTx(ctx, tx, homeProjectID, homeLocatorID, affected, binding.LawAdditions, specMandate, lawModifies, lawRevisions); err != nil {
+		return err
+	}
+	remaining, err := architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
+	if err != nil {
+		return err
+	}
+	if err := validateWorkflowLawRevisions(remaining, lawRevisions); err != nil {
+		return err
+	}
+	if err := validateArchitectureBindingRevisionsTx(ctx, tx, productID, homeProjectID, homeLocatorID, lawRevisions); err != nil {
+		return err
+	}
+	return validateArchitectureBindingObligationsTx(ctx, tx, productID, homeProjectID, homeLocatorID, definition, binding.VerificationObligations, lawRevisions)
+}
+
+// architectureBindingProductIDTx resolves the one Product whose primary
+// Project owns the work's contract.
+func architectureBindingProductIDTx(ctx context.Context, tx *sql.Tx, workID string) (string, error) {
+	var productIDs []string
+	// The primary Project's Product owns the contract; a secondary membership
+	// in another Product widens visibility only and must not widen this scope.
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot resolve workflow Product scope", true, "retry once the workflow scope is readable", err)
+	}
+	for rows.Next() {
+		var productID string
+		if err := rows.Scan(&productID); err != nil {
+			rows.Close()
+			return "", err
+		}
+		productIDs = append(productIDs, productID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return "", err
+	}
+	if err := rows.Close(); err != nil {
+		return "", err
+	}
+	if len(productIDs) != 1 {
+		return "", newFailure(KindUnknownScope, "workflow_architecture_binding", "workflow must resolve to exactly one Product", false, "assign the work to Projects in one Product")
+	}
+	return productIDs[0], nil
+}
+
+// architectureBindingRegistryHashTx reads the Product's current Domain
+// registry hash and refuses a binding pinned to any other.
+func architectureBindingRegistryHashTx(ctx context.Context, tx *sql.Tx, productID string, binding *WorkflowArchitectureBinding) (string, error) {
+	var registryHash string
+	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&registryHash); err != nil {
+		if err == sql.ErrNoRows {
+			return "", newFailure(KindUnknownScope, "workflow_architecture_binding", "Product has no current Domain registry", false, "publish and rebuild the Product Domain registry")
+		}
+		return "", wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read Product Domain registry", true, "retry once the registry projection is readable", err)
+	}
+	if registryHash != binding.DomainRegistryContentHash {
+		return "", newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding Domain registry hash is stale", false, "reread and pin the Product's current Domain registry")
+	}
+	return registryHash, nil
+}
+
+// validateArchitectureBindingDomainsTx refuses affected Domains the Product
+// registry does not declare current at the pinned hash.
+func validateArchitectureBindingDomainsTx(ctx context.Context, tx *sql.Tx, productID string, affected map[string]struct{}, registryHash string) error {
+	for domainID := range affected {
+		var status, hash string
+		if err := tx.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, productID, domainID).Scan(&status, &hash); err != nil {
+			if err == sql.ErrNoRows {
+				return newFailure(KindUnknownScope, "workflow_architecture_binding", "architecture binding names an unknown Domain: "+domainID, false, "name a current Domain in the Product registry")
+			}
+			return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read named Domain", true, "retry once the Domain projection is readable", err)
+		}
+		if status != "current" || hash != registryHash {
+			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding names a non-current or stale Domain: "+domainID, false, "rebuild the current Product Domain registry")
+		}
+	}
+	return nil
+}
+
+// validateArchitectureBindingLawModifiesTx refuses modified laws that are
+// not current accepted law of the Product mandate, or whose home Domain the
+// binding does not affect.
+func validateArchitectureBindingLawModifiesTx(ctx context.Context, tx *sql.Tx, productID, homeProjectID, homeLocatorID string, affected map[string]struct{}, lawModifies []string) error {
 	for _, lawID := range lawModifies {
 		var homeDomain, status string
 		if err := tx.QueryRowContext(ctx, `SELECT h.domain_id,s.status FROM law_domain_homes h JOIN law_subjects s ON s.home_project_id=h.home_project_id AND s.home_locator_id=h.home_locator_id AND s.law_id=h.law_id WHERE h.product_id=? AND h.home_project_id=? AND h.home_locator_id=? AND h.law_id=?`, productID, homeProjectID, homeLocatorID, lawID).Scan(&homeDomain, &status); err != nil {
@@ -351,7 +402,15 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 			return newFailure(KindUnknownScope, "workflow_architecture_binding", "modified law home Domain is outside affected Domains", false, "include each modified law home Domain")
 		}
 	}
-	for _, addition := range binding.LawAdditions {
+	return nil
+}
+
+// validateArchitectureBindingLawAdditionsTx refuses law additions that the
+// spec mandate does not authorize, that overlap law_modifies or governing
+// revisions, whose home Domain the binding does not affect, or that reuse an
+// existing Product law ID.
+func validateArchitectureBindingLawAdditionsTx(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string, lawRevisions []WorkflowLawRevision) error {
+	for _, addition := range additions {
 		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
 		}
@@ -374,13 +433,12 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 			return newFailure(KindProjectionConflict, "workflow_architecture_binding", "law addition reuses an existing Product law ID", false, "use a new law ID or modify the existing law")
 		}
 	}
-	remaining, err := architectureBindingRevisionMandate(specMandate, binding.LawAdditions)
-	if err != nil {
-		return err
-	}
-	if err := validateWorkflowLawRevisions(remaining, lawRevisions); err != nil {
-		return err
-	}
+	return nil
+}
+
+// validateArchitectureBindingRevisionsTx refuses governing law revisions
+// whose accepted hash differs from the pinned hash outside a replay.
+func validateArchitectureBindingRevisionsTx(ctx context.Context, tx *sql.Tx, productID, homeProjectID, homeLocatorID string, lawRevisions []WorkflowLawRevision) error {
 	for _, revision := range lawRevisions {
 		var currentHash string
 		if err := tx.QueryRowContext(ctx, `SELECT s.content_hash FROM law_subjects s JOIN law_domain_homes h ON h.home_project_id=s.home_project_id AND h.home_locator_id=s.home_locator_id AND h.law_id=s.law_id WHERE h.product_id=? AND h.home_project_id=? AND h.home_locator_id=? AND s.law_id=? AND s.status='accepted'`, productID, homeProjectID, homeLocatorID, revision.LawID).Scan(&currentHash); err != nil {
@@ -390,9 +448,16 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "governing law revision pin is stale", false, "reread and pin the current accepted Git law hash")
 		}
 	}
-	obligations := workflowDefinitionObligations(definition)
-	for _, obligation := range binding.VerificationObligations {
-		if _, ok := obligations[obligation.ObligationID]; !ok {
+	return nil
+}
+
+// validateArchitectureBindingObligationsTx refuses verification obligations
+// the pinned workflow definition does not declare, that name non-current
+// law, or whose law no revision pins.
+func validateArchitectureBindingObligationsTx(ctx context.Context, tx *sql.Tx, productID, homeProjectID, homeLocatorID string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, lawRevisions []WorkflowLawRevision) error {
+	declared := workflowDefinitionObligations(definition)
+	for _, obligation := range obligations {
+		if _, ok := declared[obligation.ObligationID]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation is not declared by the pinned workflow definition", false, "reference a root, step, or rigor evidence obligation ID")
 		}
 		var currentHash string

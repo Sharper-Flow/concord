@@ -41,7 +41,6 @@ ANCHOR_KINDS = {"go_test", "scenario", "validator", "generated", "adapter_test"}
 sys.path.insert(0, str(ROOT / "scripts"))
 from coverage_state import (  # noqa: E402
     MAX_EVIDENCE,
-    STATES,
     bounded_text,
     check_state_obligations,
     load_json,

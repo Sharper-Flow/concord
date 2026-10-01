@@ -31,7 +31,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	env := mutationEnvelope(grant, scopeVersion)
 
 	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
-		invokeWorkflowIssue31Action(t, s, service, env, "work-1", actionID, version, "supersede-"+actionID)
+		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
 		version = workflowIssue31Version(t, s)
 	}
 	binding := workflowArchitectureBindingFixture()
@@ -45,17 +45,17 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
 	if stage != "before-start" {
-		invokeWorkflowIssue31Action(t, s, service, env, "work-1", "start_execution", version, "supersede-start-execution")
+		invokeWorkflowIssue31Action(t, s, service, env, "start_execution", version, "supersede-start-execution")
 		version = workflowIssue31Version(t, s)
 	}
 	if stage == "acceptance" {
-		invokeWorkflowIssue31Action(t, s, service, env, "work-1", "bind_evidence", version, "supersede-bind-evidence")
+		invokeWorkflowIssue31Action(t, s, service, env, "bind_evidence", version, "supersede-bind-evidence")
 		version = workflowIssue31Version(t, s)
 		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM fold_guard WHERE active=1`); err != nil {
 			t.Fatal(err)
 		}
 		evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-		invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "work-1", "record_verdict", version, "supersede-record-verdict")
+		invokeWorkflowIssue31Action(t, s, service, evaluatorEnv, "record_verdict", version, "supersede-record-verdict")
 		version = workflowIssue31Version(t, s)
 	}
 	before, err := store.VerifyWorkflowInstanceDefinition(context.Background(), s, store.BuiltinWorkflowRegistry(), "work-1")

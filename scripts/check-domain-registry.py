@@ -35,7 +35,6 @@ agreement separately.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -71,7 +70,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     records = [record for record in manifest.get("records", []) if isinstance(record, dict)]
     current = {record.get("id") for record in records if record.get("status") == "accepted"}
 
-    homes: dict[str, int] = {domain_id: 0 for domain_id in declared}
+    homes: dict[str, int] = dict.fromkeys(declared, 0)
     rationales: dict[str, str] = {}
     for record in records:
         record_id = record.get("id")
@@ -131,20 +130,20 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
                 findings.append(f"{anchor}: target {target!r} is not a declared Domain")
             if target == domain_id:
                 findings.append(f"{anchor}: a Domain cannot declare a relation to itself")
-            for law_id in relation.get("governing_law_ids", []):
-                if law_id not in current:
-                    findings.append(
-                        f"{anchor}: governing_law_ids names {law_id!r}, which is not a current law record"
-                    )
+            findings.extend(
+                f"{anchor}: governing_law_ids names {law_id!r}, which is not a current law record"
+                for law_id in relation.get("governing_law_ids", [])
+                if law_id not in current
+            )
 
     participation_findings: list[str] = []
     if len(declared) > 1:
-        for domain_id in sorted(declared):
-            if domain_id not in participating:
-                participation_findings.append(
-                    f"domain {domain_id}: declared but participates in no architecture relation; "
-                    "a registry with multiple Domains must name each Domain as a relation source or target (CD-0158 D2)"
-                )
+        participation_findings.extend(
+            f"domain {domain_id}: declared but participates in no architecture relation; "
+            "a registry with multiple Domains must name each Domain as a relation source or target (CD-0158 D2)"
+            for domain_id in sorted(declared)
+            if domain_id not in participating
+        )
 
     return findings, participation_findings
 

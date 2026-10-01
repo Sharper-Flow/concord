@@ -171,8 +171,10 @@ def compare(manifest: dict, records: list[dict], findings: list[str]) -> None:
                 f"{MANIFEST.name} so the change is reviewed"
             )
 
-    for name in sorted(set(allowed) - set(actual)):
-        findings.append(f"{name} is allowed but the analysis no longer reports it; delete the allowance")
+    findings.extend(
+        f"{name} is allowed but the analysis no longer reports it; delete the allowance"
+        for name in sorted(set(allowed) - set(actual))
+    )
 
 
 def report(findings: list[str]) -> int:

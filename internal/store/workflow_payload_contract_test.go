@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-func currentWorkflowDefinition(t *testing.T, ref string) WorkflowDefinition {
+func currentWorkflowDefinition(t *testing.T) WorkflowDefinition {
 	t.Helper()
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Ref == ref {
+		if definition.Ref == "workflow.implementation" {
 			return definition
 		}
 	}
-	t.Fatalf("current workflow definition %q is absent", ref)
+	t.Fatalf("current workflow definition %q is absent", "workflow.implementation")
 	return WorkflowDefinition{}
 }
 
@@ -65,7 +65,7 @@ func requirePayloadFailure(t *testing.T, err error, field, rule string) *Failure
 
 func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testing.T) {
 	t.Parallel()
-	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	definition := currentWorkflowDefinition(t)
 	tests := []struct {
 		name    string
 		action  string
@@ -114,7 +114,7 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 
 func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	t.Parallel()
-	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	definition := currentWorkflowDefinition(t)
 	valid := `{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}]}`
 	for _, premise := range []string{"", "   ", "workflow premise"} {
 		payload := strings.Replace(valid, "The operator stated this premise.", premise, 1)
@@ -180,7 +180,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	defer s.Close()
 	const workID = "work-required-payload"
 	seedStepWork(t, s, workID)
-	initializeStepWorkflow(t, s, workID, currentWorkflowDefinition(t, "workflow.implementation"))
+	initializeStepWorkflow(t, s, workID, currentWorkflowDefinition(t))
 
 	var beforeVersion, beforeEvents int64
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&beforeVersion); err != nil {
@@ -218,7 +218,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 
 func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 	t.Parallel()
-	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	definition := currentWorkflowDefinition(t)
 	intents := workPinIntents(definition, "execution", 11, false)
 	for _, intent := range intents {
 		if intent.ActionID != "dispatch_worker" {
@@ -234,7 +234,7 @@ func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
-	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	definition := currentWorkflowDefinition(t)
 	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:one","evaluation_evidence":["artifact:path/with/slash"]}`)); err != nil {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestRecordProposalPersistsAndReadsAfterReplay(t *testing.T) {
 	defer s.Close()
 	const workID = "work-proposal-read"
 	seedStepWork(t, s, workID)
-	initializeStepWorkflow(t, s, workID, currentWorkflowDefinition(t, "workflow.implementation"))
+	initializeStepWorkflow(t, s, workID, currentWorkflowDefinition(t))
 	var version int64
 	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func historicalWorkflowDefinition(t *testing.T, ref string, version int64) Workf
 }
 
 func TestRecordProposalRefusesAnInvalidDocument(t *testing.T) {
-	definition := currentWorkflowDefinition(t, "workflow.implementation")
+	definition := currentWorkflowDefinition(t)
 	valid := `{"problem":"The recorded problem.","affected":["The affected party."],"stakes":"The recorded stakes.","user_outcomes":["The expected outcome."]}`
 	if err := validateWorkflowActionPayload(definition, "record_proposal", json.RawMessage(valid)); err != nil {
 		t.Fatalf("the bounded proposal document was refused: %v", err)

@@ -105,16 +105,16 @@ func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 
 func workflowContractRecoveryPayloadFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", true, 1, 2147483647),
-		actionArrayField("predecessor_contract_versions", false, 1, 32, "workflow_contract_version"),
+		actionIntegerField("contract_version", true, 2147483647),
+		actionArrayField("predecessor_contract_versions", false, 32, "workflow_contract_version"),
 		actionPremiseField(),
-		actionArrayField("outcome_predicates", false, 1, 8, "workflow_action_outcome_predicates"),
+		actionArrayField("outcome_predicates", false, 8, "workflow_action_outcome_predicates"),
 		actionEnumField("outcome_kind", false, "exists", "absent", "outcome", "check"),
 		actionObjectField("outcome_payload", false, "workflow_action_outcome"),
 		actionEnumListField("required_evidence", true, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionListField("route_conventions", true, 0, 16),
-		actionLawListField("spec_mandate", true, 0, 32),
-		actionLawListField("law_modifies", true, 0, 32),
+		actionLawListField("spec_mandate", true),
+		actionLawListField("law_modifies", true),
 		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionStringField("supersede_reason", true, 4096),
 		actionListField("audit_evidence", true, 1, 32),
@@ -171,7 +171,7 @@ func deriveWorkflowLawRevisionsTx(ctx context.Context, tx *sql.Tx, workID string
 	if err != nil {
 		return nil, err
 	}
-	if _, err := checkMandatedLawsTxAtHome(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, true); err != nil {
+	if err := checkMandatedLawsTxAtHome(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, true); err != nil {
 		return nil, err
 	}
 	revisions := make([]WorkflowLawRevision, 0, len(mandated))

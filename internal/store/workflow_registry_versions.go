@@ -895,7 +895,7 @@ func confirmPremiseOperatorFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		{Name: "selected_choice", ValueType: PayloadString, Required: true, Envelope: true, Enum: []string{"confirm", "revise", "stop"}},
 		{Name: "decision_context_digest", ValueType: PayloadDigest, Required: true, Envelope: true},
-		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionIntegerField("contract_version", false, 2147483647),
 	}
 }
 
@@ -965,7 +965,7 @@ func genericOneOffConfirmPremiseV11() WorkflowDefinition {
 // both shapes or neither, and refuses an entry-level field beside the batch.
 func verdictBatchActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false, 1, 2147483647),
+		actionIntegerField("contract_version", false, 2147483647),
 		actionRefField("predicate_id", false),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
 		actionStringField("verdict_actor_ref", false, 70),

@@ -74,11 +74,15 @@ def check_link(source: Path, line_number: int, destination: str, findings: list[
     if not target_path.exists():
         findings.append(f"{source.relative_to(ROOT)}:{line_number}: missing link target: {destination}")
         return
-    if fragment and target_path.is_file() and target_path.suffix.lower() == ".md":
-        if fragment.lower() not in {item.lower() for item in anchors(target_path)}:
-            findings.append(
-                f"{source.relative_to(ROOT)}:{line_number}: missing heading anchor: {destination}"
-            )
+    if (
+        fragment
+        and target_path.is_file()
+        and target_path.suffix.lower() == ".md"
+        and fragment.lower() not in {item.lower() for item in anchors(target_path)}
+    ):
+        findings.append(
+            f"{source.relative_to(ROOT)}:{line_number}: missing heading anchor: {destination}"
+        )
 
 
 def main() -> int:

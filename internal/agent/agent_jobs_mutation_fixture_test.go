@@ -46,9 +46,9 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authorit
 // dispatch mutations through the same envelope the production runtime
 // builds (mutation requests without a scope_version are refused with
 // stale_context).
-func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, ambientProject, selectedProduct string) CallEnvelope {
+func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, ambientProject string) CallEnvelope {
 	t.Helper()
-	env := agentJobsEnvelope(grant, ambientProject, selectedProduct)
+	env := agentJobsEnvelope(grant, ambientProject, "prod-alpha")
 	env.ScopeVersion = scopeVersionForProject(t, s, ambientProject)
 	return env
 }
@@ -59,11 +59,8 @@ func agentJobsMutationEnvelope(t *testing.T, s *store.Store, grant Authority, am
 // passed so the runtime can hand it to ApplyOperationTx (and the
 // preflight reads); the underlying connection is the same one
 // service.DatabaseForTesting() owns.
-func dispatchMutation(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope, input ...[]byte) Envelope {
+func dispatchMutation(t *testing.T, s *store.Store, service *Service, req InvokeRequest, env CallEnvelope) Envelope {
 	t.Helper()
-	if len(input) > 0 {
-		req.Input = input[0]
-	}
 	resp, err := Dispatch(context.Background(), s, service, req, env)
 	if err != nil {
 		t.Fatalf("Dispatch %s.%s: %v", req.Tool, req.Operation, err)
@@ -117,11 +114,11 @@ func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count in
 // readRelationsFor returns only relations whose from/to/kind matches
 // the filter — bindings use this to assert a single new edge landed
 // without scanning the whole table.
-func readRelationsFor(t *testing.T, s *store.Store, from, to, kind string) (count int) {
+func readRelationsFor(t *testing.T, s *store.Store, from, to string) (count int) {
 	t.Helper()
 	var n int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind=?`, from, to, kind).Scan(&n); err != nil {
-		t.Fatalf("read relations for %s->%s:%s: %v", from, to, kind, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='blocks'`, from, to).Scan(&n); err != nil {
+		t.Fatalf("read relations for %s->%s: %v", from, to, err)
 	}
 	return n
 }

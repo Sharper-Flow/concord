@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +14,12 @@ import (
 // re-pin of held verify leases.
 
 // seedWorktreeLifecycle moves a fixture work item to a terminal lifecycle.
-func seedWorktreeLifecycle(t *testing.T, s *Store, workID, to string, expected int64) {
+func seedWorktreeLifecycle(t *testing.T, s *Store) {
 	t.Helper()
-	payload := `{"from":"needed","to":"` + to + `","reason":"fixture terminal","evidence_refs":["fixture"],"expected_version":` + strconv.FormatInt(expected, 10) + `,"resulting_version":` + strconv.FormatInt(expected+1, 10) + `}`
+	payload := `{"from":"needed","to":"completed","reason":"fixture terminal","evidence_refs":["fixture"],"expected_version":3,"resulting_version":4}`
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		{EventID: workID + "-wt-" + to, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}})
+		{EventID: "work-w-wt-completed", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(payload)},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +28,7 @@ func seedWorktreeLifecycle(t *testing.T, s *Store, workID, to string, expected i
 func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 
 	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
@@ -85,7 +84,7 @@ func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
 func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +102,7 @@ func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +124,7 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 	t.Parallel()
 	s, _ := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, Destructive: true,
@@ -138,7 +137,7 @@ func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 func TestDestroyRefusesLocalOnlyCommits(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
-	seedWorktreeLifecycle(t, s, "work-w", "completed", 3)
+	seedWorktreeLifecycle(t, s)
 	// A clean tree with a commit that no remote ref retains.
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "local-only change\n"); err != nil {
 		t.Fatal(err)

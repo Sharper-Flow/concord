@@ -142,14 +142,15 @@ func resourceClaims(ctx context.Context, q queryer, resourceKey string, productI
 	}
 	var rows *sql.Rows
 	var err error
-	if resourceKey != "" {
+	switch {
+	case resourceKey != "":
 		if !resourceKeyPattern.MatchString(resourceKey) {
 			return nil, newFailure(KindInvalidPayload, "resource_claims", "resource key is not a typed bounded identifier", false, "look up a typed resource key")
 		}
 		rows, err = q.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE resource_key=?`, resourceKey)
-	} else if productID != "" {
+	case productID != "":
 		rows, err = q.QueryContext(ctx, `SELECT rc.resource_key,rc.holder_work_id,rc.holder_agent,rc.holder_session,rc.reason,rc.state,rc.claimed_at,coalesce(rc.released_at,'') FROM resource_claims rc JOIN work_projects wp ON wp.work_id=rc.holder_work_id JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=? ORDER BY rc.claimed_at DESC LIMIT ?`, productID, limit)
-	} else {
+	default:
 		rows, err = q.QueryContext(ctx, `SELECT resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at,coalesce(released_at,'') FROM resource_claims WHERE state='held' ORDER BY claimed_at DESC LIMIT ?`, limit)
 	}
 	if err != nil {

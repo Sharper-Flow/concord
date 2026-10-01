@@ -266,10 +266,7 @@ func TestContinuityRefusesModifiedLawMissingFromProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "spec:one" || failure.RecoveryAction != "rebuild the accepted Git law projection" {
-		t.Fatalf("missing modified law diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
-	}
+	assertLawContextDrift(t, err, "spec:one", "rebuild the accepted Git law projection")
 }
 
 // A verification obligation binds a pinned law by ID, so a law carrying the
@@ -341,8 +338,15 @@ func TestContinuityRefusesDomainMissingFromRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	assertLawContextDrift(t, err, "child", "rebuild the Domain registry projection")
+}
+
+// assertLawContextDrift proves the continuity read refuses fail-closed on a
+// drifted projection with the typed diagnosis the law context owns.
+func assertLawContextDrift(t *testing.T, err error, wantCandidate, wantRecovery string) {
+	t.Helper()
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != "child" || failure.RecoveryAction != "rebuild the Domain registry projection" {
-		t.Fatalf("missing Domain diagnosis = %v, want typed projection_not_found from the law context with candidate and rebuild recovery", err)
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "read_workflow_law_context" || len(failure.CandidateIDs) != 1 || failure.CandidateIDs[0] != wantCandidate || failure.RecoveryAction != wantRecovery {
+		t.Fatalf("drift diagnosis = %v, want typed projection_not_found from the law context with candidate %s and recovery %s", err, wantCandidate, wantRecovery)
 	}
 }

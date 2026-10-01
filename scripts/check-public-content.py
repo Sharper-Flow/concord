@@ -53,9 +53,12 @@ def main() -> int:
             for label, pattern in PATTERNS:
                 if pattern.search(line):
                     findings.append(f"{relative}:{line_number}: {label}")
-            if path.suffix.lower() == ".json" and '"$id"' in line:
-                if "https://raw.githubusercontent.com/Sharper-Flow/concord/main/" not in line:
-                    findings.append(f"{relative}:{line_number}: non-public schema ID")
+            if (
+                path.suffix.lower() == ".json"
+                and '"$id"' in line
+                and "https://raw.githubusercontent.com/Sharper-Flow/concord/main/" not in line
+            ):
+                findings.append(f"{relative}:{line_number}: non-public schema ID")
             if "JRedeker" in line and relative != ".github/CODEOWNERS":
                 findings.append(f"{relative}:{line_number}: maintainer identity is only permitted in .github/CODEOWNERS")
 

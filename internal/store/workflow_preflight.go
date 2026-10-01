@@ -109,7 +109,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 		return workflowPinFailure("workflow action request does not match the current definition step")
 	}
 	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, s.db, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, s.db, request.WorkID, request.ExpectedVersion, version)
 		if conflictErr != nil {
 			return conflictErr
 		}
@@ -415,7 +415,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, workflowPinFailure("workflow action request does not match the current definition step")
 	}
 	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, SubjectWorkItem, request.WorkID, request.ExpectedVersion, version, true)
+		conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, version)
 		if conflictErr != nil {
 			return RegisteredDefinition{}, conflictErr
 		}
@@ -961,8 +961,8 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	}
 }
 
-func validWorkflowProseItem(value string, max int) bool {
-	return len([]rune(value)) >= 1 && len([]rune(value)) <= max && strings.TrimSpace(value) != ""
+func validWorkflowProseItem(value string, upper int) bool {
+	return len([]rune(value)) >= 1 && len([]rune(value)) <= upper && strings.TrimSpace(value) != ""
 }
 
 func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string) bool {

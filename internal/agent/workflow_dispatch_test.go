@@ -380,7 +380,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
 		}
 	}
-	input := workflowContractActionInput(t, "work-1", 11, "wf-approve-contract", "")
+	input := workflowContractActionInput(t, "wf-approve-contract", "")
 	challenge, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("approval challenge response=%+v err=%v", challenge, err)
@@ -397,7 +397,7 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	if durableBefore != 4 {
 		t.Fatalf("approval challenge durable operation count=%d, want 4 prior actions", durableBefore)
 	}
-	approvedInput := workflowContractActionInput(t, "work-1", 11, "wf-approve-contract", challengeRef)
+	approvedInput := workflowContractActionInput(t, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)
 	if err != nil || approved.Outcome != OutcomeOK {
 		if approved.Error != nil {

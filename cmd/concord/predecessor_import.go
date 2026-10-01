@@ -429,7 +429,7 @@ func reconcileDeferredSelection(ctx context.Context, s *store.Store, resolved *r
 	for _, deferred := range resolved.deferredChanges {
 		exists, probeErr := s.EventIDExists(ctx, importEventID("work", deferred.ChangeID))
 		if probeErr != nil {
-			return wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import event for deferred selection", probeErr)
+			return wrapOperatorFailure("cannot probe existing import event for deferred selection", probeErr)
 		}
 		if exists {
 			resolved.alreadyImportedChanges = append(resolved.alreadyImportedChanges, deferred.selectedChange)
@@ -458,7 +458,7 @@ func probeSelectionConflicts(ctx context.Context, s *store.Store, resolved *reso
 	for _, change := range resolved.selectedChanges {
 		exists, probeErr := s.EventIDExists(ctx, importEventID("work", change.ChangeID))
 		if probeErr != nil {
-			return wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import event for conflict check", probeErr)
+			return wrapOperatorFailure("cannot probe existing import event for conflict check", probeErr)
 		}
 		if exists {
 			if err := refuseOnForeignWorkEvent(ctx, s, change); err != nil {
@@ -480,7 +480,7 @@ func probeSelectionConflicts(ctx context.Context, s *store.Store, resolved *reso
 func refuseOnForeignWorkEvent(ctx context.Context, s *store.Store, change selectedChange) error {
 	kind, actor, found, probeErr := s.FirstWorkEventByOtherActor(ctx, importWorkID(change.ChangeID), importOperatorActor)
 	if probeErr != nil {
-		return wrapOperatorFailure(store.KindUnavailable, "cannot probe imported work for Concord-side changes", probeErr)
+		return wrapOperatorFailure("cannot probe imported work for Concord-side changes", probeErr)
 	}
 	if !found {
 		return nil
@@ -523,7 +523,7 @@ func executePredecessorImport(ctx context.Context, s *store.Store, request *impo
 		report.AlreadyImported += 2 // Product + primary project bootstrap is atomic; both are already-imported.
 	}
 
-	productVersion, err := currentProjectVersionAfterWrite(ctx, s, request.Product.ProductID, createdProduct, currentProductVersion)
+	productVersion, err := currentProjectVersionAfterWrite(ctx, s, request.Product.ProductID, createdProduct)
 	if err != nil {
 		return err
 	}
@@ -606,7 +606,7 @@ func inspectExistingProductMembership(ctx context.Context, s *store.Store, produ
 	}
 	membership, err = s.ProductMembership(ctx, productID)
 	if err != nil {
-		return false, 0, nil, wrapOperatorFailure(store.KindUnavailable, "cannot read existing Product membership", err)
+		return false, 0, nil, wrapOperatorFailure("cannot read existing Product membership", err)
 	}
 	return true, version, membership, nil
 }
@@ -636,7 +636,7 @@ func productMembershipMatches(existing []string, declared []importProjectDecl) b
 // Product+primary-project bootstrap. When the Product was freshly created,
 // the bootstrap commits version 2 (create + membership). When the Product
 // already existed, the version is unchanged.
-func currentProjectVersionAfterWrite(ctx context.Context, s *store.Store, productID string, createdProduct bool, existingVersion int64) (int64, error) {
+func currentProjectVersionAfterWrite(ctx context.Context, s *store.Store, productID string, createdProduct bool) (int64, error) {
 	if createdProduct {
 		return 2, nil
 	}
@@ -744,17 +744,17 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 	alreadyImported = 0
 	currentVersion := startingVersion
 	for _, project := range resolved.secondaryProjects {
-		if _, lookupErr := s.EntityVersion(ctx, store.SubjectProject, project.ProjectID); lookupErr == nil {
+		_, lookupErr := s.EntityVersion(ctx, store.SubjectProject, project.ProjectID)
+		if lookupErr == nil {
 			// Project already exists. The membership it carries has already
 			// been validated as matching the request, so count it as
 			// already_imported and leave the Product version chain untouched.
 			alreadyImported++
 			continue
-		} else {
-			var failure *store.Failure
-			if !(errors.As(lookupErr, &failure) && failure.Kind == store.KindProjectionNotFound) {
-				return nil, 0, lookupErr
-			}
+		}
+		var failure *store.Failure
+		if !(errors.As(lookupErr, &failure) && failure.Kind == store.KindProjectionNotFound) {
+			return nil, 0, lookupErr
 		}
 		now := s.Now()
 		projectPayload, _ := json.Marshal(map[string]any{"display_name": project.DisplayName})
@@ -826,7 +826,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 		// pay for the whole-tx duplicate path on a hot re-run.
 		exists, eventErr := s.EventIDExists(ctx, importEventID("work", change.ChangeID))
 		if eventErr != nil {
-			return nil, nil, wrapOperatorFailure(store.KindUnavailable, "cannot probe existing import-advance event", eventErr)
+			return nil, nil, wrapOperatorFailure("cannot probe existing import-advance event", eventErr)
 		}
 		if exists {
 			already = append(already, change.ChangeID)
@@ -959,8 +959,8 @@ func isDuplicateEvent(err error) bool {
 // wrapOperatorFailure builds a typed diagnostic with the verb's stable Op so
 // CLI failures trace back to the import surface. Underlying causes are
 // preserved on Failure.Err.
-func wrapOperatorFailure(kind store.FailureKind, detail string, cause error) *store.Failure {
-	failure := &store.Failure{Kind: kind, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "rebuild the database from its durable log"}
+func wrapOperatorFailure(detail string, cause error) *store.Failure {
+	failure := &store.Failure{Kind: store.KindUnavailable, Op: importFailureOp, Detail: detail, RetrySafe: false, RecoveryAction: "rebuild the database from its durable log"}
 	failure.Err = cause
 	return failure
 }

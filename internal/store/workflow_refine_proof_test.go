@@ -65,14 +65,11 @@ func refineProofRequireMissingEvidence(t *testing.T, err error, wantContains str
 
 // refineProofSeedVerifyRun seeds one verify lease and, when the run is green,
 // the durable worktree.verify operation the production release path records.
-func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, command []string, exitCode int, acquired time.Time, changed bool) string {
+func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time) string {
 	t.Helper()
 	leaseID := digest + ":worktree-verify:" + workID
 	outcome := "completed"
-	if changed {
-		outcome = "refused_mutated"
-	}
-	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-1", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: exitCode, TrackedFilesChanged: changed})
+	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-1", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,20 +81,18 @@ func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, com
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		leaseID, workID, "project-1", "/tmp/worktrees/"+workID, "released", "client/concord-1", "agent/owner", "session/"+workID, "principal/operator",
-		string(commandJSON), acquiredText, acquired.Add(time.Second).UTC().Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON)); err != nil {
+		string(commandJSON), acquiredText, acquired.Add(time.Second).UTC().Format(time.RFC3339Nano), 0, outcome, string(resultJSON)); err != nil {
 		t.Fatalf("seed the verify lease: %v", err)
 	}
-	if exitCode == 0 && !changed {
-		// Only a passing run may stand as verification authority; mirror the
-		// production release fold.
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
+	// Only a passing run may stand as verification authority; mirror the
+	// production release fold.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
 			(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
 			 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 			 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
 			VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/operator','request/verify','`+acquiredText+`','','completed',?,?, '[]', ?)`,
-			worktreeVerifyOperationRef(leaseID), workID, string(resultJSON), workflowJSON([]string{worktreeVerifyOperationRef(leaseID)}), acquired.Add(time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
-			t.Fatalf("seed the verify authority: %v", err)
-		}
+		worktreeVerifyOperationRef(leaseID), workID, string(resultJSON), workflowJSON([]string{worktreeVerifyOperationRef(leaseID)}), acquired.Add(time.Second).UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatalf("seed the verify authority: %v", err)
 	}
 	return worktreeVerifyOperationRef(leaseID)
 }
@@ -139,7 +134,7 @@ func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 	if err != nil {
 		t.Fatalf("parse the refine start: %v", err)
 	}
-	ref := refineProofSeedVerifyRun(t, s, workID, digest, []string{"go", "vet", "./..."}, 0, startedAt.Add(time.Second), false)
+	ref := refineProofSeedVerifyRun(t, s, workID, digest, []string{"go", "vet", "./..."}, startedAt.Add(time.Second))
 	refineProofBindVerification(t, s, workID, ref, ref)
 }
 
@@ -159,7 +154,7 @@ func TestRefineExitRefusesWithoutGreenVerifyRunInEpoch(t *testing.T) {
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, fixture.store, workID, nil), "names no completed worktree.verify durable operation")
 
 	// The green run in the epoch admits the exit.
-	afterStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("4", 64), []string{"go", "vet", "./..."}, 0, time.Unix(10, 0), false)
+	afterStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("4", 64), []string{"go", "vet", "./..."}, time.Unix(10, 0))
 	refineProofBindVerification(t, fixture.store, workID, afterStart, afterStart)
 	if err := refineProofDelivery(t, fixture.store, workID, nil); err != nil {
 		t.Fatalf("record_delivery with the epoch's green run: %v", err)
@@ -175,12 +170,12 @@ func TestRefineExitRefusesAStaleVerifyRun(t *testing.T) {
 	// A green run acquired before the current refine start cannot prove this
 	// epoch: a replayed lease keeps its original acquire time, so the lease
 	// an earlier epoch ran stays stale however green it was.
-	beforeStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("2", 64), []string{"go", "vet", "./..."}, 0, time.Unix(8, 0), false)
+	beforeStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("2", 64), []string{"go", "vet", "./..."}, time.Unix(8, 0))
 	refineProofBindVerification(t, fixture.store, workID, beforeStart, beforeStart)
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, fixture.store, workID, nil), "acquired at or before the current refine start")
 
 	// The run acquired inside the epoch is the proof.
-	afterStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("3", 64), []string{"go", "vet", "./..."}, 0, time.Unix(10, 0), false)
+	afterStart := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("3", 64), []string{"go", "vet", "./..."}, time.Unix(10, 0))
 	refineProofBindVerification(t, fixture.store, workID, afterStart, afterStart)
 	if err := refineProofDelivery(t, fixture.store, workID, nil); err != nil {
 		t.Fatalf("record_delivery with the epoch's green run: %v", err)
@@ -193,7 +188,7 @@ func TestRefineExitRefusesWithoutGreenVerifyRunOnBreakFix(t *testing.T) {
 	fixture := refineProofFixture(t, workID, "workflow.break_fix", 16)
 	refineProofStartRefine(t, fixture, workID)
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, fixture.store, workID, nil), "no verification evidence is bound in the current refine epoch")
-	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("5", 64), []string{"python3", "scripts/check-json.py"}, 0, time.Unix(10, 0), false)
+	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("5", 64), []string{"python3", "scripts/check-json.py"}, time.Unix(10, 0))
 	refineProofBindVerification(t, fixture.store, workID, runRef, runRef)
 	if err := refineProofDelivery(t, fixture.store, workID, nil); err != nil {
 		t.Fatalf("record_delivery with the epoch's green run: %v", err)
@@ -205,7 +200,7 @@ func TestDeclaredToolInvocationAdmitsRefineExitAndUndeclaredArgvRefuses(t *testi
 	const workID = "refine-proof-declared-invocation"
 	fixture := refineProofFixture(t, workID, "workflow.implementation", 18)
 	refineProofStartRefine(t, fixture, workID)
-	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("6", 64), []string{"go", "vet", "./..."}, 0, time.Unix(10, 0), false)
+	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("6", 64), []string{"go", "vet", "./..."}, time.Unix(10, 0))
 	refineProofBindVerification(t, fixture.store, workID, runRef, runRef)
 
 	// A manifest that declares another tool refuses and names its declared
@@ -232,7 +227,7 @@ func TestProjectWithoutManifestPassesOnGreenRunRefusesWithoutRun(t *testing.T) {
 	refineProofRequireMissingEvidence(t, refineProofDelivery(t, fixture.store, workID, nil), "the Project declares no checks in .concord/tooling.v1.json")
 
 	// Any green run passes when the Project declares no manifest.
-	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("7", 64), []string{"bin/oc-test", "conformance"}, 0, time.Unix(10, 0), false)
+	runRef := refineProofSeedVerifyRun(t, fixture.store, workID, strings.Repeat("7", 64), []string{"bin/oc-test", "conformance"}, time.Unix(10, 0))
 	refineProofBindVerification(t, fixture.store, workID, runRef, runRef)
 	if err := refineProofDelivery(t, fixture.store, workID, nil); err != nil {
 		t.Fatalf("record_delivery without a manifest: %v", err)

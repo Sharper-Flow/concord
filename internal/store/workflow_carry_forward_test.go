@@ -9,7 +9,7 @@ import (
 
 // carryForwardFixture pins a work item to a named built-in definition version
 // and, when step is not empty, walks it to that step of the pin.
-func carryForwardFixture(t *testing.T, s *Store, workID, ref string, version int64, step string) WorkflowActor {
+func carryForwardFixture(t *testing.T, s *Store, workID, ref string, version int64, step string) {
 	t.Helper()
 	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
 	if !ok {
@@ -26,7 +26,6 @@ func carryForwardFixture(t *testing.T, s *Store, workID, ref string, version int
 			t.Fatal(err)
 		}
 	}
-	return stepFixtureActor()
 }
 
 // An instance stranded behind a promotion carries forward onto the current

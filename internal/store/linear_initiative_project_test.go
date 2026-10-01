@@ -16,7 +16,7 @@ import (
 
 // seedLinearWorkOfKind seeds a work item of any kind with primary membership
 // in the Product's project.
-func seedLinearWorkOfKind(t *testing.T, s *Store, workID, projectID, kind, title, valueStatement string) {
+func seedLinearWorkOfKind(t *testing.T, s *Store, workID, projectID, title, valueStatement string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -27,7 +27,7 @@ func seedLinearWorkOfKind(t *testing.T, s *Store, workID, projectID, kind, title
 	if err := enterFold(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, ?, ?, 'needed', 0, 'standard', 1, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, workID, kind, title, `{"title":"`+title+`","value_statement":"`+valueStatement+`","kind":"`+kind+`","priority":0,"urgency":"standard"}`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, ?, ?, 'needed', 0, 'standard', 1, ?, '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z')`, workID, "initiative", title, `{"title":"`+title+`","value_statement":"`+valueStatement+`","kind":"initiative","priority":0,"urgency":"standard"}`); err != nil {
 		t.Fatalf("seed work item %s: %v", workID, err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {
@@ -219,7 +219,7 @@ func TestLinearIssueCarriesOptionalLabelForNonRequiredEntry(t *testing.T) {
 				"task": "label-task", "optional": "label-optional", "project:optional-product-project": "label-repo",
 			})
 			enableLinearPlanning(t, s, "optional-product", 2)
-			seedLinearWorkOfKind(t, s, "optional-initiative", "optional-product-project", "initiative", "Optional initiative", "Initiative value")
+			seedLinearWorkOfKind(t, s, "optional-initiative", "optional-product-project", "Optional initiative", "Initiative value")
 			seedLinearWorkItem(t, s, "optional-work", "optional-product-project", "Entry title", "Entry value")
 			seedLinearInitiativeEntry(t, s, "optional-initiative", "optional-work", testCase.required)
 
@@ -248,8 +248,8 @@ func TestLinearIssueProjectFollowsTheEarliestInitiative(t *testing.T) {
 	setupLinearProduct(t, s, "owner-product")
 	setupLinearLabelConnection(t, s, "owner-product", map[string]string{"project:owner-product-project": "label-owner-repo"})
 	enableLinearPlanning(t, s, "owner-product", 2)
-	seedLinearWorkOfKind(t, s, "owner-first", "owner-product-project", "initiative", "First initiative", "First value")
-	seedLinearWorkOfKind(t, s, "owner-second", "owner-product-project", "initiative", "Second initiative", "Second value")
+	seedLinearWorkOfKind(t, s, "owner-first", "owner-product-project", "First initiative", "First value")
+	seedLinearWorkOfKind(t, s, "owner-second", "owner-product-project", "Second initiative", "Second value")
 	seedLinearWorkItem(t, s, "owner-work", "owner-product-project", "Shared title", "Shared value")
 	// Join order decides ownership, not creation or link order: the shared
 	// work item joined owner-first first, while owner-second is the only one
@@ -381,7 +381,7 @@ func TestLinearIssueEnqueueOnAnInitiativeQueuesProjectOperations(t *testing.T) {
 		"task": "label-task", "project:route-product-project": "label-repo",
 	})
 	enableLinearPlanning(t, s, "route-product", 2)
-	seedLinearWorkOfKind(t, s, "route-initiative", "route-product-project", "initiative", "Routed initiative", "Routed value")
+	seedLinearWorkOfKind(t, s, "route-initiative", "route-product-project", "Routed initiative", "Routed value")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The routed narrative.' WHERE id='route-initiative'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -427,9 +427,9 @@ func TestLinearIssueDescriptionLinksOtherInitiativesByProjectURL(t *testing.T) {
 		"task": "label-task", "project:linkdesc-product-project": "label-repo",
 	})
 	enableLinearPlanning(t, s, "linkdesc-product", 2)
-	seedLinearWorkOfKind(t, s, "linkdesc-first", "linkdesc-product-project", "initiative", "First initiative", "First value")
-	seedLinearWorkOfKind(t, s, "linkdesc-second", "linkdesc-product-project", "initiative", "Second initiative", "Second value")
-	seedLinearWorkOfKind(t, s, "linkdesc-third", "linkdesc-product-project", "initiative", "Third initiative", "Third value")
+	seedLinearWorkOfKind(t, s, "linkdesc-first", "linkdesc-product-project", "First initiative", "First value")
+	seedLinearWorkOfKind(t, s, "linkdesc-second", "linkdesc-product-project", "Second initiative", "Second value")
+	seedLinearWorkOfKind(t, s, "linkdesc-third", "linkdesc-product-project", "Third initiative", "Third value")
 	seedLinearWorkItem(t, s, "linkdesc-work", "linkdesc-product-project", "Shared title", "Shared value")
 	seedLinearInitiativeEntry(t, s, "linkdesc-first", "linkdesc-work", true)
 	seedLinearInitiativeEntry(t, s, "linkdesc-second", "linkdesc-work", true)
@@ -465,7 +465,7 @@ func TestLinearIssueEnqueueRefusesUnmappedOptionalLabel(t *testing.T) {
 		"task": "label-task", "project:optmap-product-project": "label-repo",
 	})
 	enableLinearPlanning(t, s, "optmap-product", 2)
-	seedLinearWorkOfKind(t, s, "optmap-initiative", "optmap-product-project", "initiative", "Optmap initiative", "Optmap value")
+	seedLinearWorkOfKind(t, s, "optmap-initiative", "optmap-product-project", "Optmap initiative", "Optmap value")
 	seedLinearWorkItem(t, s, "optmap-required", "optmap-product-project", "Required title", "Required value")
 	seedLinearWorkItem(t, s, "optmap-optional", "optmap-product-project", "Optional title", "Optional value")
 	seedLinearInitiativeEntry(t, s, "optmap-initiative", "optmap-required", true)
@@ -527,7 +527,7 @@ func TestCompleteLinearIssueOperationClosesTheProjectRace(t *testing.T) {
 		setupLinearProduct(t, s, "raceres-product")
 		setupLinearLabelConnection(t, s, "raceres-product", map[string]string{"project:raceres-product-project": "label-race-repo"})
 		enableLinearPlanning(t, s, "raceres-product", 2)
-		seedLinearWorkOfKind(t, s, "raceres-initiative", "raceres-product-project", "initiative", "Race initiative", "Race value")
+		seedLinearWorkOfKind(t, s, "raceres-initiative", "raceres-product-project", "Race initiative", "Race value")
 		seedLinearWorkItem(t, s, "raceres-entry", "raceres-product-project", "Race title", "Race value")
 		seedLinearInitiativeEntry(t, s, "raceres-initiative", "raceres-entry", true)
 		return s
@@ -721,7 +721,7 @@ func TestCompleteLinearIssueOperationConvergesAnEntryChangeAfterEnqueue(t *testi
 			"task": "label-task", "optional": "label-optional", "project:conv-product-project": "label-conv-repo",
 		})
 		enableLinearPlanning(t, s, "conv-product", 2)
-		seedLinearWorkOfKind(t, s, "conv-initiative", "conv-product-project", "initiative", "Convergence initiative", "Convergence value")
+		seedLinearWorkOfKind(t, s, "conv-initiative", "conv-product-project", "Convergence initiative", "Convergence value")
 		seedLinearWorkItem(t, s, "conv-entry", "conv-product-project", "Conv title", "Conv value")
 		seedLinearInitiativeEntry(t, s, "conv-initiative", "conv-entry", true)
 
@@ -765,8 +765,8 @@ func TestCompleteLinearIssueOperationConvergesAnEntryChangeAfterEnqueue(t *testi
 			"task": "label-task", "project:conv2-product-project": "label-conv-repo",
 		})
 		enableLinearPlanning(t, s, "conv2-product", 2)
-		seedLinearWorkOfKind(t, s, "conv2-initiative", "conv2-product-project", "initiative", "First initiative", "First value")
-		seedLinearWorkOfKind(t, s, "conv2-second", "conv2-product-project", "initiative", "Second initiative", "Second value")
+		seedLinearWorkOfKind(t, s, "conv2-initiative", "conv2-product-project", "First initiative", "First value")
+		seedLinearWorkOfKind(t, s, "conv2-second", "conv2-product-project", "Second initiative", "Second value")
 		seedLinearWorkItem(t, s, "conv2-entry", "conv2-product-project", "Shared title", "Shared value")
 		seedLinearInitiativeEntry(t, s, "conv2-initiative", "conv2-entry", true)
 
@@ -801,7 +801,7 @@ func TestLinearProjectCreateEnqueueCarriesValueAndNarrative(t *testing.T) {
 	setupLinearProduct(t, s, "projinit-product")
 	setupLinearLabelConnection(t, s, "projinit-product", map[string]string{})
 	enableLinearPlanning(t, s, "projinit-product", 2)
-	seedLinearWorkOfKind(t, s, "projinit-initiative", "projinit-product-project", "initiative", "Initiative title", "Initiative value statement")
+	seedLinearWorkOfKind(t, s, "projinit-initiative", "projinit-product-project", "Initiative title", "Initiative value statement")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET narrative='The coordination narrative.' WHERE id='projinit-initiative'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +842,7 @@ func TestLinearProjectUpdateRequiresCreatedProject(t *testing.T) {
 	setupLinearProduct(t, s, "projupd-product")
 	setupLinearLabelConnection(t, s, "projupd-product", map[string]string{})
 	enableLinearPlanning(t, s, "projupd-product", 2)
-	seedLinearWorkOfKind(t, s, "projupd-initiative", "projupd-product-project", "initiative", "Update initiative", "Update value")
+	seedLinearWorkOfKind(t, s, "projupd-initiative", "projupd-product-project", "Update initiative", "Update value")
 
 	if _, err := s.EnqueueLinearProjectForInitiative(ctx, "projupd-product", "projupd-initiative", LinearOpProjectUpdate); err == nil || !strings.Contains(err.Error(), "no created Linear Project") {
 		t.Fatalf("update-before-create error = %v, want typed refusal", err)
@@ -860,7 +860,7 @@ func TestCompleteLinearProjectOperationRecordsLinkOnce(t *testing.T) {
 	setupLinearProduct(t, s, "projdone-product")
 	setupLinearLabelConnection(t, s, "projdone-product", map[string]string{})
 	enableLinearPlanning(t, s, "projdone-product", 2)
-	seedLinearWorkOfKind(t, s, "projdone-initiative", "projdone-product-project", "initiative", "Done initiative", "Done value")
+	seedLinearWorkOfKind(t, s, "projdone-initiative", "projdone-product-project", "Done initiative", "Done value")
 
 	entry, err := s.EnqueueLinearProjectForInitiative(ctx, "projdone-product", "projdone-initiative", LinearOpProjectCreate)
 	if err != nil {
@@ -899,7 +899,7 @@ func TestLinearProjectCreateEnqueueIsIdempotentPerInitiative(t *testing.T) {
 	setupLinearProduct(t, s, "projidem-product")
 	setupLinearLabelConnection(t, s, "projidem-product", map[string]string{})
 	enableLinearPlanning(t, s, "projidem-product", 2)
-	seedLinearWorkOfKind(t, s, "projidem-initiative", "projidem-product-project", "initiative", "Idem initiative", "Idem value")
+	seedLinearWorkOfKind(t, s, "projidem-initiative", "projidem-product-project", "Idem initiative", "Idem value")
 
 	first, err := s.EnqueueLinearProjectForInitiative(ctx, "projidem-product", "projidem-initiative", LinearOpProjectCreate)
 	if err != nil {
@@ -963,7 +963,7 @@ func TestFailedProjectCreateReenqueueRevivesTheSameOperation(t *testing.T) {
 	setupLinearProduct(t, s, "projfail-product")
 	setupLinearLabelConnection(t, s, "projfail-product", map[string]string{})
 	enableLinearPlanning(t, s, "projfail-product", 2)
-	seedLinearWorkOfKind(t, s, "projfail-initiative", "projfail-product-project", "initiative", "Fail initiative", "Fail value")
+	seedLinearWorkOfKind(t, s, "projfail-initiative", "projfail-product-project", "Fail initiative", "Fail value")
 
 	first, err := s.EnqueueLinearProjectForInitiative(ctx, "projfail-product", "projfail-initiative", LinearOpProjectCreate)
 	if err != nil {
@@ -1086,7 +1086,7 @@ func TestProjectCreateCompletionRefreshesEntryIssues(t *testing.T) {
 	setupLinearProduct(t, s, "refresh-product")
 	setupLinearLabelConnection(t, s, "refresh-product", map[string]string{"project:refresh-product-project": "label-refresh-repo"})
 	enableLinearPlanning(t, s, "refresh-product", 2)
-	seedLinearWorkOfKind(t, s, "refresh-initiative", "refresh-product-project", "initiative", "Refresh initiative", "Refresh value")
+	seedLinearWorkOfKind(t, s, "refresh-initiative", "refresh-product-project", "Refresh initiative", "Refresh value")
 	seedLinearWorkItem(t, s, "refresh-entry", "refresh-product-project", "Entry title", "Entry value")
 	seedLinearInitiativeEntry(t, s, "refresh-initiative", "refresh-entry", true)
 	// One confirmed entry issue and one without any link.
@@ -1127,7 +1127,7 @@ func TestNarrativeRevisionFoldEnqueuesProjectUpdate(t *testing.T) {
 	setupLinearProduct(t, s, "narr-product")
 	setupLinearLabelConnection(t, s, "narr-product", map[string]string{})
 	enableLinearPlanning(t, s, "narr-product", 2)
-	seedLinearWorkOfKind(t, s, "narr-initiative", "narr-product-project", "initiative", "Narrative initiative", "Narrative value")
+	seedLinearWorkOfKind(t, s, "narr-initiative", "narr-product-project", "Narrative initiative", "Narrative value")
 	seedLinearProjectLink(t, s, "narr-initiative", "remote-project-narrative")
 
 	event, err := InitiativeNarrativeEvent("narr-revise-1", "narr-initiative", "The revised narrative.", "sync to Linear", "operator", time.Date(2026, 9, 23, 1, 0, 0, 0, time.UTC), 1)
@@ -1204,7 +1204,7 @@ func TestLinearConfigurationGapNeverRefusesLocalFolds(t *testing.T) {
 	setupLinearProduct(t, s, "foldgap-product")
 	setupLinearLabelConnection(t, s, "foldgap-product", map[string]string{"task": "label-task"})
 	enableLinearPlanning(t, s, "foldgap-product", 2)
-	seedLinearWorkOfKind(t, s, "foldgap-initiative", "foldgap-product-project", "initiative", "Fold gap initiative", "Fold gap value")
+	seedLinearWorkOfKind(t, s, "foldgap-initiative", "foldgap-product-project", "Fold gap initiative", "Fold gap value")
 	seedLinearWorkItem(t, s, "foldgap-transition", "foldgap-product-project", "Transition title", "Transition value")
 	seedLinearWorkItem(t, s, "foldgap-entry-child", "foldgap-product-project", "Entry child title", "Entry child value")
 	for _, workID := range []string{"foldgap-transition", "foldgap-entry-child"} {
@@ -1254,7 +1254,7 @@ func TestEntryAddedFoldEnqueuesIssueUpdateForConfirmedIssue(t *testing.T) {
 	setupLinearProduct(t, s, "entryhook-product")
 	setupLinearLabelConnection(t, s, "entryhook-product", map[string]string{"optional": "label-optional", "project:entryhook-product-project": "label-entryhook-repo"})
 	enableLinearPlanning(t, s, "entryhook-product", 2)
-	seedLinearWorkOfKind(t, s, "entryhook-initiative", "entryhook-product-project", "initiative", "Entry hook initiative", "Entry hook value")
+	seedLinearWorkOfKind(t, s, "entryhook-initiative", "entryhook-product-project", "Entry hook initiative", "Entry hook value")
 	seedLinearWorkItem(t, s, "entryhook-child", "entryhook-product-project", "Child title", "Child value")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('entryhook-child', 'child-issue-uuid-1', 'EX-9', '', '', '', 'confirmed', '2026-09-23T00:00:00Z', '2026-09-23T00:00:00Z'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
@@ -1309,7 +1309,7 @@ func TestCompleteLinearProjectOperationQueuesUpdateWhenStateMovedOn(t *testing.T
 	setupLinearProduct(t, s, "projrace-product")
 	setupLinearLabelConnection(t, s, "projrace-product", map[string]string{})
 	enableLinearPlanning(t, s, "projrace-product", 2)
-	seedLinearWorkOfKind(t, s, "projrace-initiative", "projrace-product-project", "initiative", "Race initiative", "Race value")
+	seedLinearWorkOfKind(t, s, "projrace-initiative", "projrace-product-project", "Race initiative", "Race value")
 
 	entry, err := s.EnqueueLinearProjectForInitiative(ctx, "projrace-product", "projrace-initiative", LinearOpProjectCreate)
 	if err != nil {
@@ -1353,8 +1353,8 @@ func TestResolveLinearProjectIDForWorkFollowsTheOwningInitiative(t *testing.T) {
 	setupLinearProduct(t, s, "resolvep-product")
 	setupLinearLabelConnection(t, s, "resolvep-product", map[string]string{})
 	enableLinearPlanning(t, s, "resolvep-product", 2)
-	seedLinearWorkOfKind(t, s, "resolvep-first", "resolvep-product-project", "initiative", "First initiative", "First value")
-	seedLinearWorkOfKind(t, s, "resolvep-second", "resolvep-product-project", "initiative", "Second initiative", "Second value")
+	seedLinearWorkOfKind(t, s, "resolvep-first", "resolvep-product-project", "First initiative", "First value")
+	seedLinearWorkOfKind(t, s, "resolvep-second", "resolvep-product-project", "Second initiative", "Second value")
 	seedLinearWorkItem(t, s, "resolvep-work", "resolvep-product-project", "Shared title", "Shared value")
 	seedLinearInitiativeEntry(t, s, "resolvep-first", "resolvep-work", true)
 	seedLinearInitiativeEntry(t, s, "resolvep-second", "resolvep-work", true)

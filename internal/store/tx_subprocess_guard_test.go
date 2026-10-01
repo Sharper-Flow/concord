@@ -448,7 +448,7 @@ func txSubprocessImportAliases(file *ast.File) map[string]string {
 	aliases := map[string]string{}
 	for _, imp := range file.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		name := ""
+		var name string
 		if imp.Name != nil {
 			name = imp.Name.Name
 		} else {

@@ -90,7 +90,7 @@ func TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim(t *testing.T) {
 	s, home, commit, path := seedStaleLawCompaction(t)
 	beforeEvents := countRows(t, s, "domain_events")
 
-	err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "stale-law-link", 3))
+	err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "stale-law-link"))
 	assertStaleLawRefusal(t, err)
 
 	if countRows(t, s, "archived_work") != 0 {
@@ -109,7 +109,7 @@ func TestCompactionLinkRecoveryExemptPublishesUnderStaleLawRevision(t *testing.T
 	ctx := context.Background()
 	s, home, commit, path := seedStaleLawCompaction(t)
 
-	request := compactionRequest(home, commit, path, "stale-law-recovery-link", 3)
+	request := compactionRequest(home, commit, path, "stale-law-recovery-link")
 	request.Boundary = CompactionBoundaryRecoveryExempt
 	if err := PublishCompactionLink(ctx, s, request); err != nil {
 		t.Fatalf("recovery-exempt compaction link refused under a superseded law revision: %v", err)

@@ -74,7 +74,7 @@ func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) 
 func TestApprovalChallengeVersionValidityRefusalNamesVersions(t *testing.T) {
 	db := openAgentDB(t)
 	service := NewService(db)
-	service.Now = func() time.Time { return fixedTime() }
+	service.Now = fixedTime
 	seedSimpleAuthorityScope(t, db)
 	if err := service.RegisterTrustedClient(context.Background(), testClientRegistration("client-1", "human-1", []Capability{"product_read"}, []string{"product-1"}, []string{"project-1"})); err != nil {
 		t.Fatal(err)

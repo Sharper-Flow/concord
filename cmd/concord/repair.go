@@ -37,7 +37,7 @@ func runRepairCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		ArtifactDir      string `json:"artifact_dir"`
 		BaseURL          string `json:"base_url"`
 	}
-	if code := decodeReleaseInput(args, in, out, errOut, "repair", &request); code != 0 {
+	if code := decodeReleaseInput(args, in, errOut, "repair", &request); code != 0 {
 		return code
 	}
 	dataRoot, err := leaseDataRoot()

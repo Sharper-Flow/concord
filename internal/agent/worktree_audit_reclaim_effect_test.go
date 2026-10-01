@@ -17,8 +17,8 @@ func TestWorktreeAuditReclaimPostCommitFailurePreservesCommittedRefs(t *testing.
 	t.Parallel()
 	s, _, _, second, secondGrant, _ := tiersFixture(t)
 	root := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1")
-	completeWork(t, s, "work-1", 3)
-	completeWork(t, s, "work-2", 3)
+	completeWork(t, s, "work-1")
+	completeWork(t, s, "work-2")
 	// work-2 reclaims, so its claiming session vacates first; work-1 stays
 	// occupied, so its row refuses.
 	vacateLinkedWorktree(t, s, second, secondGrant, filepath.Join(root, "work-2"), "audit-effect-vacate-2")

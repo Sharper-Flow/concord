@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
@@ -30,7 +29,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 		t.Fatal(err)
 	}
 	service := NewService(s)
-	service.Now = func() time.Time { return fixedTime() }
+	service.Now = fixedTime
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: mainWorktree})
 	publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
 	policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []Capability{"product_read", "work_define", "work_transition", "cross_scope"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}

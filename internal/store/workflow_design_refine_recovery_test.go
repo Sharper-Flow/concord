@@ -78,7 +78,7 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 // pass that dispatches and accepts a review lane at refine, corrects the
 // contract at acceptance without design_record, and returns to refine through
 // the confirm_premise failure edge. It returns the accepted first-pass review.
-func seedReturnedRefineCorrection(t *testing.T, workID string) (workflowReturnRouteFixture, string, int64) {
+func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
@@ -168,7 +168,7 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) (workflowReturnRo
 		t.Fatalf("step = %q, want refine", step)
 	}
 
-	return fixture, reviewAttempt, reviewEpoch
+	return fixture
 }
 
 func refineRecoveryStepSeq(t *testing.T, s *Store, workID, kind, stepID, actionID string) int64 {
@@ -185,7 +185,7 @@ func refineRecoveryStepSeq(t *testing.T, s *Store, workID, kind, stepID, actionI
 func TestReturnedRefinePassBoundaryStartsNewPass(t *testing.T) {
 	const workID = "refine-pass-boundary"
 	ctx := context.Background()
-	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	fixture := seedReturnedRefineCorrection(t, workID)
 	s := fixture.store
 	var definitionRef string
 	var definitionVersion int64
@@ -224,7 +224,7 @@ func TestReturnedRefinePassBoundaryStartsNewPass(t *testing.T) {
 func TestReturnedRefineRecordsReplacementDesignAndDispatches(t *testing.T) {
 	const workID = "refine-design-recovery"
 	ctx := context.Background()
-	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	fixture := seedReturnedRefineCorrection(t, workID)
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	_, _, dispatchErr := dispatchRefineAttempt(t, fixture, workID, "refine-stale")
 	if dispatchErr == nil {
@@ -366,7 +366,7 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 // design record, records a mismatch verdict, and confirms the premise so the
 // failure edge returns the item to refine. The caller then repairs the stale
 // design with a supersede that carries the replacement design.
-func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture, workID string, acceptor, operator WorkflowActor) {
+func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture, workID string, _, operator WorkflowActor) {
 	t.Helper()
 	s, owner := fixture.store, fixture.owner
 	if step := currentStep(t, s, workID); step != "acceptance" {
@@ -543,7 +543,7 @@ func TestAcceptedCheckpointReviewIsNotRejectable(t *testing.T) {
 func TestReturnedRefineSamePassRetryClosesCorrection(t *testing.T) {
 	const workID = "refine-same-pass-retry-correction"
 	ctx := context.Background()
-	fixture, _, _ := seedReturnedRefineCorrection(t, workID)
+	fixture := seedReturnedRefineCorrection(t, workID)
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
 		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)

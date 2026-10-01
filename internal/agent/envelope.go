@@ -783,27 +783,13 @@ func validateError(err TypedError) error {
 		return errors.New("invalid error details")
 	}
 	if err.Kind == "stale_law_revision" {
-		if err.StaleLawRevision == nil || !bounded(err.StaleLawRevision.OldLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.OldContentHash) || !bounded(err.StaleLawRevision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(err.StaleLawRevision.AcceptedSuccessorContentHash) || len(err.StaleLawRevision.RecoveryActions) == 0 || len(err.StaleLawRevision.RecoveryActions) > 4 || !boundedStrings(err.StaleLawRevision.RecoveryActions, 128) {
-			return errors.New("stale law revision coupling violated")
+		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {
+			return x
 		}
 	}
 	if err.Kind == "domain_overlap" {
-		if err.DomainOverlap == nil || len(err.DomainOverlap.Overlaps) == 0 || len(err.DomainOverlap.Overlaps) > 20 || err.DomainOverlap.TotalOverlaps < len(err.DomainOverlap.Overlaps) || err.DomainOverlap.ReturnedOverlaps != len(err.DomainOverlap.Overlaps) || err.DomainOverlap.TotalOverlaps < 1 || (!err.DomainOverlap.Truncated && err.DomainOverlap.TotalOverlaps != err.DomainOverlap.ReturnedOverlaps) {
-			return errors.New("domain overlap coupling violated")
-		}
-		for _, overlap := range err.DomainOverlap.Overlaps {
-			if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || len(overlap.SharedAffectedDomainIDs) == 0 || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
-				return errors.New("domain overlap detail bounds violated")
-			}
-			if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
-				return errors.New("sequenced overlap must preserve its directed resolution kind")
-			}
-			allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
-			for _, action := range overlap.RecoveryActions {
-				if !allowedRecovery[action] {
-					return errors.New("unknown domain overlap recovery action")
-				}
-			}
+		if x := validateDomainOverlapCoupling(err.DomainOverlap); x != nil {
+			return x
 		}
 	}
 	if err.ExternalRefConflict != nil {
@@ -849,17 +835,8 @@ func validateError(err TypedError) error {
 	// D2 coupling — present exactly when a challenge was minted — belongs to
 	// the mint sites; this validates the object's shape wherever it appears.
 	if summary := err.ConsequenceSummary; summary != nil {
-		if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
-			return errors.New("consequence summary identity fields are invalid")
-		}
-		if summary.ExpiresAt == "" {
-			return errors.New("consequence summary lacks expiry")
-		}
-		if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
-			return errors.New("consequence summary expiry is not RFC3339")
-		}
-		if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
-			return errors.New("consequence summary scope or versions are not canonical sorted bindings")
+		if x := validateConsequenceSummaryShape(summary); x != nil {
+			return x
 		}
 	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && err.EffectState != EffectNone {
@@ -867,6 +844,66 @@ func validateError(err TypedError) error {
 	}
 	if x := validateOptions(err); x != nil {
 		return x
+	}
+	return nil
+}
+
+// validateStaleLawRevisionCoupling validates the stale-law-revision payload
+// the kind requires: two bounded law IDs with proof hashes and one to four
+// bounded recovery actions.
+func validateStaleLawRevisionCoupling(revision *StaleLawRevision) error {
+	if revision == nil || !bounded(revision.OldLawID, 2, 256) || !validSHA256Proof(revision.OldContentHash) || !bounded(revision.AcceptedSuccessorLawID, 2, 256) || !validSHA256Proof(revision.AcceptedSuccessorContentHash) || len(revision.RecoveryActions) == 0 || len(revision.RecoveryActions) > 4 || !boundedStrings(revision.RecoveryActions, 128) {
+		return errors.New("stale law revision coupling violated")
+	}
+	return nil
+}
+
+// validateDomainOverlapCoupling validates the domain-overlap payload the kind
+// requires: a consistent overlap envelope and bounded, closed overlap rows.
+func validateDomainOverlapCoupling(overlap *DomainOverlap) error {
+	if overlap == nil || len(overlap.Overlaps) == 0 || len(overlap.Overlaps) > 20 || overlap.TotalOverlaps < len(overlap.Overlaps) || overlap.ReturnedOverlaps != len(overlap.Overlaps) || overlap.TotalOverlaps < 1 || (!overlap.Truncated && overlap.TotalOverlaps != overlap.ReturnedOverlaps) {
+		return errors.New("domain overlap coupling violated")
+	}
+	for _, row := range overlap.Overlaps {
+		if x := validateDomainOverlapRow(row); x != nil {
+			return x
+		}
+	}
+	return nil
+}
+
+// validateDomainOverlapRow validates one overlap row's bounds, counts,
+// resolution state, and recovery actions.
+func validateDomainOverlapRow(overlap DomainOverlapDetail) error {
+	if !bounded(overlap.ProductID, 1, 128) || !bounded(overlap.FromWorkID, 1, 128) || !bounded(overlap.ToWorkID, 1, 128) || overlap.FromContractVersion <= 0 || overlap.ToContractVersion <= 0 || len(overlap.SharedAffectedDomainIDs) == 0 || len(overlap.SharedAffectedDomainIDs) > 20 || len(overlap.SharedLawIDs) > 20 || len(overlap.SharedDomainModifications) > 20 || len(overlap.SharedRelationTuples) > 20 || overlap.SharedAffectedDomainCount < len(overlap.SharedAffectedDomainIDs) || overlap.SharedLawCount < len(overlap.SharedLawIDs) || overlap.SharedDomainModificationCount < len(overlap.SharedDomainModifications) || overlap.SharedRelationTupleCount < len(overlap.SharedRelationTuples) || len(overlap.OverlapClasses) == 0 || len(overlap.OverlapClasses) > 4 || len(overlap.RecoveryActions) == 0 || len(overlap.RecoveryActions) > 4 || (overlap.ResolutionState != "unresolved" && overlap.ResolutionState != "stale" && overlap.ResolutionState != "sequenced") {
+		return errors.New("domain overlap detail bounds violated")
+	}
+	if overlap.ResolutionState == "sequenced" && overlap.ResolutionKind != "depends_on" && overlap.ResolutionKind != "blocks" {
+		return errors.New("sequenced overlap must preserve its directed resolution kind")
+	}
+	allowedRecovery := map[string]bool{"wait": true, "resolve_overlap": true, "terminal_work": true, "supersede_contract": true}
+	for _, action := range overlap.RecoveryActions {
+		if !allowedRecovery[action] {
+			return errors.New("unknown domain overlap recovery action")
+		}
+	}
+	return nil
+}
+
+// validateConsequenceSummaryShape validates the closed object of
+// challenge-bound facts a consequence summary carries.
+func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
+	if !toolIDRE.MatchString(summary.Tool) || !operationIDRE.MatchString(summary.Operation) || !bounded(summary.Consequence, 2, 64) || !validSHA256Proof(summary.OperationDigest) {
+		return errors.New("consequence summary identity fields are invalid")
+	}
+	if summary.ExpiresAt == "" {
+		return errors.New("consequence summary lacks expiry")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
+		return errors.New("consequence summary expiry is not RFC3339")
+	}
+	if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
+		return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 	}
 	return nil
 }

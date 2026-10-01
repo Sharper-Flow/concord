@@ -527,67 +527,9 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 	if req.Cursor != "" {
 		args[2], args[3], args[4], args[5] = cursor.Name, cursor.Name, cursor.Name, cursor.ID
 	}
-	rows, err := tx.QueryContext(ctx, productRowPageSQL, args...)
+	products, err := scanProductRowPage(ctx, tx, args)
 	if err != nil {
-		return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot read Product rows", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-
-	type rawProductRow struct {
-		row   ProductRow
-		works []productRowWork
-	}
-	// queryLimit validates the requested page to at most queryMaxLimit rows.
-	// The allocation uses that constant ceiling directly so the capacity is a
-	// constant expression, not arithmetic on a request-sourced value; a page
-	// below the ceiling over-allocates by at most queryMaxLimit rows.
-	products := make([]rawProductRow, 0, queryMaxLimit+1)
-	productIndex := make(map[string]int)
-	registry := productRowWorkflowRegistry
-	definitionCache := make(map[string]RegisteredDefinition)
-	for rows.Next() {
-		var p Product
-		var workID, workKind, title, lifecycle, urgency, createdAt, updatedAt sql.NullString
-		var priority, projectCount, definitionVersion sql.NullInt64
-		var blocked, ready, activeProblem, overdueAwaits sql.NullBool
-		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax, livenessLastProgress sql.NullString
-		var livenessAttempts, livenessDispatched, livenessFailed, livenessOpenWaits, livenessUnboundedWaits, livenessDecisions sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
-			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem, &overdueAwaits,
-			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax,
-			&livenessAttempts, &livenessDispatched, &livenessFailed, &livenessOpenWaits, &livenessUnboundedWaits, &livenessDecisions, &livenessLastProgress); err != nil {
-			return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
-		}
-		idx, ok := productIndex[p.ID]
-		if !ok {
-			idx = len(products)
-			productIndex[p.ID] = idx
-			products = append(products, rawProductRow{row: ProductRow{ProductID: p.ID, DisplayName: p.DisplayName, Stage: ProductRowStage{Maturity: p.StageMaturity, AudienceCommitment: p.StageAudienceCommitment}}})
-		}
-		if !workID.Valid {
-			continue
-		}
-		approvalRequired, stepLabel, deliveryGate, err := productRowStepRequiresApprovalCached(registry, definitionRef.String, definitionVersion.Int64, definitionDigest.String, currentStep.String, instanceState.String, definitionCache)
-		if err != nil {
-			return out, newFailure(KindInvariantViolation, productRowQueryID, "workflow definition pin cannot be verified for Product-row projection", false, "repair or rebuild the workflow projection")
-		}
-		if lifecycle.String == "completed" || lifecycle.String == "cancelled" || lifecycle.String == "superseded" {
-			approvalRequired = false
-		}
-		parkedDelivery := deliveryGate && (lifecycle.String == "needed" || lifecycle.String == "in_progress")
-		products[idx].works = append(products[idx].works, productRowWork{
-			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64, Urgency: urgency.String,
-			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
-			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, ParkedDelivery: parkedDelivery, WorkflowStepLabel: stepLabel,
-			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
-			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessDispatched.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot scan Product rows", true, "retry once the database is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return out, wrapFailure(KindUnavailable, productRowQueryID, "cannot close Product rows", true, "retry once the database is readable", err)
+		return out, err
 	}
 	sort.SliceStable(products, func(i, j int) bool {
 		if products[i].row.DisplayName != products[j].row.DisplayName {
@@ -601,98 +543,8 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 	out.Freshness.ObservedAt = reliance.ObservedAt
 	out.Freshness.Age = reliance.Age
 	out.Freshness.Stale = reliance.Stale
-	for i := range products {
-		products[i].row.Reliance = reliance
-		unavailableReason, unavailable := productRowSourceUnavailable(reliance)
-		if unavailable {
-			products[i].row.ActionCounts = ProductRowActionCounts{
-				State:       ProductRowCountsUnavailable,
-				Unavailable: &ProductRowUnavailable{Reason: productRowUnavailableReason(reliance), Omissions: append([]string{}, reliance.Omissions...)},
-			}
-			products[i].row.FocusAbsentReason = unavailableReason
-			continue
-		}
-		values := &ProductRowActionCountValues{}
-		for _, work := range products[i].works {
-			if work.Lifecycle == "in_progress" {
-				values.InProgress++
-			}
-			if work.Blocked {
-				values.Blocked++
-			}
-			if work.Ready {
-				values.Ready++
-			}
-			if work.ActiveProblem {
-				values.ActiveProblems++
-			}
-			if work.OverdueAwaits {
-				values.OverdueAwaits++
-			}
-			if work.ParkedDelivery {
-				values.ParkedDeliveries++
-			}
-			if work.ApprovalRequired {
-				values.ApprovalRequired++
-			}
-			switch work.Liveness.State {
-			case "live":
-				values.Live++
-			case "waiting":
-				values.Waiting++
-			case "needs_attention":
-				values.NeedsAttention++
-			case "unknown":
-				values.Unknown++
-			}
-		}
-		products[i].row.ActionCounts = ProductRowActionCounts{State: ProductRowCountsKnown, Values: values}
-		focusCandidates := append([]productRowWork(nil), products[i].works...)
-		sort.SliceStable(focusCandidates, func(a, b int) bool {
-			rank := func(work productRowWork) int {
-				switch work.attentionKind() {
-				case ProductRowAttentionApprovalRequired:
-					return 0
-				case ProductRowAttentionActiveProblem:
-					return 1
-				case ProductRowAttentionBlocked:
-					return 2
-				case ProductRowAttentionInProgress:
-					return 3
-				case ProductRowAttentionReady:
-					return 4
-				default:
-					return 5
-				}
-			}
-			ra, rb := rank(focusCandidates[a]), rank(focusCandidates[b])
-			if ra != rb {
-				return ra < rb
-			}
-			return lessProductRowWork(focusCandidates[a], focusCandidates[b])
-		})
-		if len(focusCandidates) == 0 || !focusCandidates[0].actionable() {
-			if len(products[i].works) == 0 {
-				products[i].row.FocusAbsentReason = ProductRowFocusAuthoritativeEmpty
-			} else {
-				products[i].row.FocusAbsentReason = ProductRowFocusNoActionableWork
-			}
-			continue
-		}
-		focus := focusCandidates[0]
-		products[i].row.Focus = &ProductRowFocus{
-			WorkID: focus.ID, Title: focus.Title, WorkKind: focus.Kind, Lifecycle: focus.Lifecycle,
-			AttentionKind: focus.attentionKind(), Priority: focus.Priority, WorkflowStepLabel: focus.WorkflowStepLabel,
-			ProjectCount: focus.ProjectCount, StageContext: productRowStageContext(products[i].row.Stage, focus),
-			Liveness: focus.Liveness,
-		}
-		// Approval-gated focus carries the routing detail: which sessions
-		// are waiting, oldest first. Read bounded and indexed (issue #72).
-		if products[i].row.Focus.AttentionKind == ProductRowAttentionApprovalRequired {
-			if blocked, blockedErr := blockedSessionsTx(ctx, tx, time.Now().UTC(), []string{products[i].row.ProductID}, 10); blockedErr == nil && len(blocked.Sessions) > 0 {
-				products[i].row.Focus.BlockedSessions = blocked.Sessions
-			}
-		}
+	if err := assembleProductRows(ctx, tx, products, reliance); err != nil {
+		return out, err
 	}
 
 	hasNext := len(products) > limit
@@ -716,4 +568,186 @@ func (s *Store) QueryProductRows(ctx context.Context, req ProductRowRequest) (Pr
 		out.Rows = []ProductRow{}
 	}
 	return out, nil
+}
+
+// rawProductRow is one Product page row with its aggregated works.
+type rawProductRow struct {
+	row   ProductRow
+	works []productRowWork
+}
+
+// scanProductRowPage runs the page-data statement and aggregates its rows
+// into one rawProductRow per Product, preserving first-seen order.
+func scanProductRowPage(ctx context.Context, tx *sql.Tx, args []any) ([]rawProductRow, error) {
+	rows, err := tx.QueryContext(ctx, productRowPageSQL, args...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, productRowQueryID, "cannot read Product rows", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	// queryLimit validates the requested page to at most queryMaxLimit rows.
+	// The allocation uses that constant ceiling directly so the capacity is a
+	// constant expression, not arithmetic on a request-sourced value; a page
+	// below the ceiling over-allocates by at most queryMaxLimit rows.
+	products := make([]rawProductRow, 0, queryMaxLimit+1)
+	productIndex := make(map[string]int)
+	registry := productRowWorkflowRegistry
+	definitionCache := make(map[string]RegisteredDefinition)
+	for rows.Next() {
+		var p Product
+		var workID, workKind, title, lifecycle, urgency, createdAt, updatedAt sql.NullString
+		var priority, projectCount, definitionVersion sql.NullInt64
+		var blocked, ready, activeProblem, overdueAwaits sql.NullBool
+		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax, livenessLastProgress sql.NullString
+		var livenessAttempts, livenessDispatched, livenessFailed, livenessOpenWaits, livenessUnboundedWaits, livenessDecisions sql.NullInt64
+		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
+			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem, &overdueAwaits,
+			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax,
+			&livenessAttempts, &livenessDispatched, &livenessFailed, &livenessOpenWaits, &livenessUnboundedWaits, &livenessDecisions, &livenessLastProgress); err != nil {
+			return nil, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
+		}
+		idx, ok := productIndex[p.ID]
+		if !ok {
+			idx = len(products)
+			productIndex[p.ID] = idx
+			products = append(products, rawProductRow{row: ProductRow{ProductID: p.ID, DisplayName: p.DisplayName, Stage: ProductRowStage{Maturity: p.StageMaturity, AudienceCommitment: p.StageAudienceCommitment}}})
+		}
+		if !workID.Valid {
+			continue
+		}
+		approvalRequired, stepLabel, deliveryGate, err := productRowStepRequiresApprovalCached(registry, definitionRef.String, definitionVersion.Int64, definitionDigest.String, currentStep.String, instanceState.String, definitionCache)
+		if err != nil {
+			return nil, newFailure(KindInvariantViolation, productRowQueryID, "workflow definition pin cannot be verified for Product-row projection", false, "repair or rebuild the workflow projection")
+		}
+		if lifecycle.String == "completed" || lifecycle.String == "cancelled" || lifecycle.String == "superseded" {
+			approvalRequired = false
+		}
+		parkedDelivery := deliveryGate && (lifecycle.String == "needed" || lifecycle.String == "in_progress")
+		products[idx].works = append(products[idx].works, productRowWork{
+			ID: workID.String, Kind: workKind.String, Title: title.String, Lifecycle: lifecycle.String, Priority: priority.Int64, Urgency: urgency.String,
+			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
+			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, ParkedDelivery: parkedDelivery, WorkflowStepLabel: stepLabel,
+			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
+			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessDispatched.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, productRowQueryID, "cannot scan Product rows", true, "retry once the database is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, productRowQueryID, "cannot close Product rows", true, "retry once the database is readable", err)
+	}
+	return products, nil
+}
+
+// assembleProductRows fills each row's reliance, action counts, focus
+// selection, and the blocked-session detail an approval-gated focus carries.
+func assembleProductRows(ctx context.Context, tx *sql.Tx, products []rawProductRow, reliance ProductRowReliance) error {
+	for i := range products {
+		products[i].row.Reliance = reliance
+		unavailableReason, unavailable := productRowSourceUnavailable(reliance)
+		if unavailable {
+			products[i].row.ActionCounts = ProductRowActionCounts{
+				State:       ProductRowCountsUnavailable,
+				Unavailable: &ProductRowUnavailable{Reason: productRowUnavailableReason(reliance), Omissions: append([]string{}, reliance.Omissions...)},
+			}
+			products[i].row.FocusAbsentReason = unavailableReason
+			continue
+		}
+		products[i].row.ActionCounts = ProductRowActionCounts{State: ProductRowCountsKnown, Values: productRowActionCounts(products[i].works)}
+		focus, focusAbsent := selectProductRowFocus(products[i].works)
+		if focus == nil {
+			products[i].row.FocusAbsentReason = focusAbsent
+			continue
+		}
+		products[i].row.Focus = &ProductRowFocus{
+			WorkID: focus.ID, Title: focus.Title, WorkKind: focus.Kind, Lifecycle: focus.Lifecycle,
+			AttentionKind: focus.attentionKind(), Priority: focus.Priority, WorkflowStepLabel: focus.WorkflowStepLabel,
+			ProjectCount: focus.ProjectCount, StageContext: productRowStageContext(products[i].row.Stage, *focus),
+			Liveness: focus.Liveness,
+		}
+		// Approval-gated focus carries the routing detail: which sessions
+		// are waiting, oldest first. Read bounded and indexed (issue #72).
+		if products[i].row.Focus.AttentionKind == ProductRowAttentionApprovalRequired {
+			if blocked, blockedErr := blockedSessionsTx(ctx, tx, time.Now().UTC(), []string{products[i].row.ProductID}, 10); blockedErr == nil && len(blocked.Sessions) > 0 {
+				products[i].row.Focus.BlockedSessions = blocked.Sessions
+			}
+		}
+	}
+	return nil
+}
+
+// productRowActionCounts tallies one Product's works into its action counts.
+func productRowActionCounts(works []productRowWork) *ProductRowActionCountValues {
+	values := &ProductRowActionCountValues{}
+	for _, work := range works {
+		if work.Lifecycle == "in_progress" {
+			values.InProgress++
+		}
+		if work.Blocked {
+			values.Blocked++
+		}
+		if work.Ready {
+			values.Ready++
+		}
+		if work.ActiveProblem {
+			values.ActiveProblems++
+		}
+		if work.OverdueAwaits {
+			values.OverdueAwaits++
+		}
+		if work.ParkedDelivery {
+			values.ParkedDeliveries++
+		}
+		if work.ApprovalRequired {
+			values.ApprovalRequired++
+		}
+		switch work.Liveness.State {
+		case "live":
+			values.Live++
+		case "waiting":
+			values.Waiting++
+		case "needs_attention":
+			values.NeedsAttention++
+		case "unknown":
+			values.Unknown++
+		}
+	}
+	return values
+}
+
+// selectProductRowFocus picks the highest-attention actionable work, or names
+// why the Product has none.
+func selectProductRowFocus(works []productRowWork) (*productRowWork, string) {
+	focusCandidates := append([]productRowWork(nil), works...)
+	sort.SliceStable(focusCandidates, func(a, b int) bool {
+		rank := func(work productRowWork) int {
+			switch work.attentionKind() {
+			case ProductRowAttentionApprovalRequired:
+				return 0
+			case ProductRowAttentionActiveProblem:
+				return 1
+			case ProductRowAttentionBlocked:
+				return 2
+			case ProductRowAttentionInProgress:
+				return 3
+			case ProductRowAttentionReady:
+				return 4
+			default:
+				return 5
+			}
+		}
+		ra, rb := rank(focusCandidates[a]), rank(focusCandidates[b])
+		if ra != rb {
+			return ra < rb
+		}
+		return lessProductRowWork(focusCandidates[a], focusCandidates[b])
+	})
+	if len(focusCandidates) == 0 || !focusCandidates[0].actionable() {
+		if len(works) == 0 {
+			return nil, ProductRowFocusAuthoritativeEmpty
+		}
+		return nil, ProductRowFocusNoActionableWork
+	}
+	focus := focusCandidates[0]
+	return &focus, ""
 }

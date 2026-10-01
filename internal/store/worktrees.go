@@ -2402,139 +2402,192 @@ func (s *Store) WorktreeAudit(ctx context.Context, req WorktreeAuditRequest) (Wo
 // worktreeAudit classifies every drift row for one Product. It applies no
 // limit: the callers own the limit, and a reclaim pass must classify every
 // row before its limit consumes anything (CD-0179).
+// auditClaim is one pending or verified worktree claim row the audit reads.
+type auditClaim struct {
+	workID, projectID, path, state, observedAt string
+}
+
+// collectAuditQuery runs one audit read query and collects its rows. A query
+// or iteration failure is unavailable; a scan failure returns the raw error,
+// which is already a typed failure from the scanner.
+func collectAuditQuery[T any](ctx context.Context, db *sql.DB, cannotRead string, query string, args []any, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worktree_audit", cannotRead, true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		item, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID string, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool) (WorktreeAudit, error) {
 	if productID == "" {
 		return WorktreeAudit{}, newFailure(KindUnknownScope, "worktree_audit", "worktree audit requires one Product scope", false, "select one Product before auditing worktrees")
 	}
-
-	var projects []string
-	projectRows, err := db.QueryContext(ctx, `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, productID)
+	auditRows, err := readWorktreeAuditRows(ctx, db, productID)
 	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read Product Projects", true, "retry once the database is readable", err)
-	}
-	defer projectRows.Close()
-	for projectRows.Next() {
-		var id string
-		if err := projectRows.Scan(&id); err != nil {
-			return WorktreeAudit{}, err
-		}
-		projects = append(projects, id)
-	}
-	if err := projectRows.Err(); err != nil {
 		return WorktreeAudit{}, err
 	}
-
-	type auditClaim struct {
-		workID, projectID, path, state, observedAt string
-	}
-	claims := []auditClaim{}
-	claimRows, err := db.QueryContext(ctx, `SELECT c.work_id,c.project_id,c.pinned_path,c.state,c.observed_at FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, productID)
-	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree claims", true, "retry once the database is readable", err)
-	}
-	defer claimRows.Close()
-	for claimRows.Next() {
-		var c auditClaim
-		if err := claimRows.Scan(&c.workID, &c.projectID, &c.path, &c.state, &c.observedAt); err != nil {
-			return WorktreeAudit{}, err
-		}
-		claims = append(claims, c)
-	}
-	if err := claimRows.Err(); err != nil {
-		return WorktreeAudit{}, err
-	}
-
-	entries := []worktreeAuditEntry{}
-	entryRows, err := db.QueryContext(ctx, `SELECT e.set_id,e.project_id,e.path,e.branch FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, productID)
-	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree entries", true, "retry once the database is readable", err)
-	}
-	defer entryRows.Close()
-	for entryRows.Next() {
-		var setID string
-		var e worktreeAuditEntry
-		if err := entryRows.Scan(&setID, &e.projectID, &e.path, &e.branch); err != nil {
-			return WorktreeAudit{}, err
-		}
-		e.workID = strings.TrimPrefix(setID, worktreeSetPrefix)
-		entries = append(entries, e)
-	}
-	if err := entryRows.Err(); err != nil {
-		return WorktreeAudit{}, err
-	}
-
-	// Only needed-work ids with an active entry in this Product matter for the
-	// stranded class; the join answers exactly that set.
-	strandedIDs := map[string]bool{}
-	strandedRows, err := db.QueryContext(ctx, `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, worktreeSetPrefix, productID)
-	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read work lifecycle", true, "retry once the database is readable", err)
-	}
-	defer strandedRows.Close()
-	for strandedRows.Next() {
-		var id string
-		if err := strandedRows.Scan(&id); err != nil {
-			return WorktreeAudit{}, err
-		}
-		strandedIDs[id] = true
-	}
-	if err := strandedRows.Err(); err != nil {
-		return WorktreeAudit{}, err
-	}
-	// Terminal work with an active entry: the same join, the other side of
-	// the lifecycle. The lifecycle rides along so the row can say which.
-	terminalLifecycle := map[string]string{}
-	terminalRows, err := db.QueryContext(ctx, `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), worktreeSetPrefix, productID) //nolint:gosec // the IN list is the closed terminal set, never caller input
-	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read terminal work", true, "retry once the database is readable", err)
-	}
-	defer terminalRows.Close()
-	for terminalRows.Next() {
-		var id, lifecycle string
-		if err := terminalRows.Scan(&id, &lifecycle); err != nil {
-			return WorktreeAudit{}, err
-		}
-		terminalLifecycle[id] = lifecycle
-	}
-	if err := terminalRows.Err(); err != nil {
-		return WorktreeAudit{}, err
-	}
-	lifecycleByWorkID := map[string]string{}
-	lifecycleRows, err := db.QueryContext(ctx, `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, worktreeSetPrefix, productID)
-	if err != nil {
-		return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot read worktree lifecycle", true, "retry once the database is readable", err)
-	}
-	defer lifecycleRows.Close()
-	for lifecycleRows.Next() {
-		var workID, lifecycle string
-		if err := lifecycleRows.Scan(&workID, &lifecycle); err != nil {
-			return WorktreeAudit{}, err
-		}
-		lifecycleByWorkID[workID] = lifecycle
-	}
-	if err := lifecycleRows.Err(); err != nil {
-		return WorktreeAudit{}, err
-	}
-
 	claimedPaths := map[string]bool{}
-	for _, c := range claims {
+	for _, c := range auditRows.claims {
 		claimedPaths[c.path] = true
 	}
 	enteredPaths := map[string]bool{}
-	for _, e := range entries {
+	for _, e := range auditRows.entries {
 		enteredPaths[e.path] = true
 	}
-
-	exists := func(path string) (bool, error) {
-		if _, err := os.Stat(path); err != nil {
-			if os.IsNotExist(err) {
-				return false, nil
-			}
-			return false, wrapFailure(KindUnavailable, "worktree_audit", "cannot inspect worktree path "+path, true, "retry once the worktree root is readable", err)
-		}
-		return true, nil
+	orphanDrift, err := worktreeOrphanDrift(root, auditRows.projects, claimedPaths, enteredPaths)
+	if err != nil {
+		return WorktreeAudit{}, err
 	}
+	drift := append([]WorktreeDrift{}, orphanDrift...)
+	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, contentRows...)
+	// Unpublished lesson records: the rows ride after the content classes,
+	// and they do not set content-risk paths, so a terminal worktree stays
+	// classified and the reclaim pass attempts it and reports the typed
+	// refusal the gate produces.
+	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, lessonRows...)
+	stateDrift, err := worktreeStateDrift(auditRows.claims, auditRows.entries, auditRows.strandedIDs, auditRows.terminalLifecycle, contentRiskPaths)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, stateDrift...)
+	// Unstarted present: needed work whose active worktree holds nothing a
+	// merge could lose (CD-0118). The gate facts come from git, probed only
+	// for candidates: a dirty tree or a branch with commits beyond the
+	// default ref is work in flight, not drift, and stays unclassified.
+	claimObservedAt := map[string]string{}
+	for _, c := range auditRows.claims {
+		if c.state == worktreeStateVerified {
+			claimObservedAt[c.workID] = c.observedAt
+		}
+	}
+	unstarted, err := classifyUnstartedWorktrees(ctx, db, runner, now, defaultRefOverride, refRequired, auditRows.entries, auditRows.strandedIDs, claimObservedAt, contentRiskPaths)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	drift = append(drift, unstarted...)
+	return WorktreeAudit{Root: root, Drift: drift}, nil
+}
 
+// worktreeAuditRows holds every projection row one audit pass reads.
+type worktreeAuditRows struct {
+	projects          []string
+	claims            []auditClaim
+	entries           []worktreeAuditEntry
+	strandedIDs       map[string]bool
+	terminalLifecycle map[string]string
+	lifecycleByWorkID map[string]string
+}
+
+// readWorktreeAuditRows reads the Product's Projects, its pending and
+// verified claims, its active entries, and the lifecycle sets the drift
+// classes key on.
+func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (worktreeAuditRows, error) {
+	var out worktreeAuditRows
+	projects, err := collectAuditQuery(ctx, db, "cannot read Product Projects", `SELECT project_id FROM product_projects WHERE product_id=? ORDER BY project_id`, []any{productID}, func(r *sql.Rows) (string, error) {
+		var id string
+		if err := r.Scan(&id); err != nil {
+			return "", err
+		}
+		return id, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.projects = projects
+	claims, err := collectAuditQuery(ctx, db, "cannot read worktree claims", `SELECT c.work_id,c.project_id,c.pinned_path,c.state,c.observed_at FROM worktree_claims c JOIN product_projects pp ON pp.project_id=c.project_id WHERE pp.product_id=? AND c.state IN ('pending','verified') ORDER BY c.pinned_path`, []any{productID}, func(r *sql.Rows) (auditClaim, error) {
+		var c auditClaim
+		if err := r.Scan(&c.workID, &c.projectID, &c.path, &c.state, &c.observedAt); err != nil {
+			return c, err
+		}
+		return c, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.claims = claims
+	entries, err := collectAuditQuery(ctx, db, "cannot read worktree entries", `SELECT e.set_id,e.project_id,e.path,e.branch FROM worktree_entries e JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY e.path`, []any{productID}, func(r *sql.Rows) (worktreeAuditEntry, error) {
+		var setID string
+		var e worktreeAuditEntry
+		if err := r.Scan(&setID, &e.projectID, &e.path, &e.branch); err != nil {
+			return e, err
+		}
+		e.workID = strings.TrimPrefix(setID, worktreeSetPrefix)
+		return e, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.entries = entries
+	stranded, err := collectAuditQuery(ctx, db, "cannot read work lifecycle", `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) (string, error) {
+		var id string
+		if err := r.Scan(&id); err != nil {
+			return "", err
+		}
+		return id, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.strandedIDs = map[string]bool{}
+	for _, id := range stranded {
+		out.strandedIDs[id] = true
+	}
+	// Terminal work with an active entry: the same join, the other side of
+	// the lifecycle. The lifecycle rides along so the row can say which.
+	terminal, err := collectAuditQuery(ctx, db, "cannot read terminal work", `SELECT w.id, w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle IN `+terminalLifecycleSQLList(), []any{worktreeSetPrefix, productID}, func(r *sql.Rows) ([2]string, error) { //nolint:gosec // the IN list is the closed terminal set, never caller input
+		var pair [2]string
+		if err := r.Scan(&pair[0], &pair[1]); err != nil {
+			return pair, err
+		}
+		return pair, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.terminalLifecycle = map[string]string{}
+	for _, pair := range terminal {
+		out.terminalLifecycle[pair[0]] = pair[1]
+	}
+	lifecycles, err := collectAuditQuery(ctx, db, "cannot read worktree lifecycle", `SELECT DISTINCT w.id,w.lifecycle FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' ORDER BY w.id`, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) ([2]string, error) {
+		var pair [2]string
+		if err := r.Scan(&pair[0], &pair[1]); err != nil {
+			return pair, err
+		}
+		return pair, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.lifecycleByWorkID = map[string]string{}
+	for _, pair := range lifecycles {
+		out.lifecycleByWorkID[pair[0]] = pair[1]
+	}
+	return out, nil
+}
+
+// worktreeOrphanDrift reports on-disk directories under the Product's
+// Projects that no claim and no entry owns.
+func worktreeOrphanDrift(root string, projects []string, claimedPaths, enteredPaths map[string]bool) ([]WorktreeDrift, error) {
 	drift := []WorktreeDrift{}
 	// Orphan: on disk, claimed by nobody. Classes are appended in a fixed
 	// order over sorted inputs, so the result needs no explicit sort.
@@ -2545,7 +2598,7 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 			if os.IsNotExist(err) {
 				continue
 			}
-			return WorktreeAudit{}, wrapFailure(KindUnavailable, "worktree_audit", "cannot enumerate worktrees under "+projectDir, true, "retry once the worktree root is readable", err)
+			return nil, wrapFailure(KindUnavailable, "worktree_audit", "cannot enumerate worktrees under "+projectDir, true, "retry once the worktree root is readable", err)
 		}
 		for _, dir := range dirs {
 			if !dir.IsDir() {
@@ -2562,29 +2615,24 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 			drift = append(drift, row)
 		}
 	}
-	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, db, runner, defaultRefOverride, entries, lifecycleByWorkID)
-	if err != nil {
-		return WorktreeAudit{}, err
-	}
-	drift = append(drift, contentRows...)
-	// Unpublished lesson records: the rows ride after the content classes,
-	// and they do not set content-risk paths, so a terminal worktree stays
-	// classified and the reclaim pass attempts it and reports the typed
-	// refusal the gate produces.
-	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, db, runner, defaultRefOverride, entries, lifecycleByWorkID)
-	if err != nil {
-		return WorktreeAudit{}, err
-	}
-	drift = append(drift, lessonRows...)
+	return drift, nil
+}
+
+// worktreeStateDrift reports the three disk-state classes: stale verified
+// claims whose path vanished, stranded needed work whose active entry points
+// at nothing, and terminal work whose worktree is still present with no
+// content risk on it.
+func worktreeStateDrift(claims []auditClaim, entries []worktreeAuditEntry, strandedIDs map[string]bool, terminalLifecycle map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
+	drift := []WorktreeDrift{}
 	// Stale claim: the verified locator points at a path the disk no longer
 	// holds. ReclaimWorktree reconciles exactly this shape (already_absent).
 	for _, c := range claims {
 		if c.state != worktreeStateVerified {
 			continue
 		}
-		present, err := exists(c.path)
+		present, err := pathExistsForAudit(c.path)
 		if err != nil {
-			return WorktreeAudit{}, err
+			return nil, err
 		}
 		if present {
 			continue
@@ -2597,9 +2645,9 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 		if !strandedIDs[e.workID] {
 			continue
 		}
-		present, err := exists(e.path)
+		present, err := pathExistsForAudit(e.path)
 		if err != nil {
-			return WorktreeAudit{}, err
+			return nil, err
 		}
 		if present {
 			continue
@@ -2613,9 +2661,9 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 		if !terminal {
 			continue
 		}
-		present, err := exists(e.path)
+		present, err := pathExistsForAudit(e.path)
 		if err != nil {
-			return WorktreeAudit{}, err
+			return nil, err
 		}
 		if !present {
 			continue
@@ -2625,22 +2673,7 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 		}
 		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim})
 	}
-	// Unstarted present: needed work whose active worktree holds nothing a
-	// merge could lose (CD-0118). The gate facts come from git, probed only
-	// for candidates: a dirty tree or a branch with commits beyond the
-	// default ref is work in flight, not drift, and stays unclassified.
-	claimObservedAt := map[string]string{}
-	for _, c := range claims {
-		if c.state == worktreeStateVerified {
-			claimObservedAt[c.workID] = c.observedAt
-		}
-	}
-	unstarted, err := classifyUnstartedWorktrees(ctx, db, runner, now, defaultRefOverride, refRequired, entries, strandedIDs, claimObservedAt, contentRiskPaths)
-	if err != nil {
-		return WorktreeAudit{}, err
-	}
-	drift = append(drift, unstarted...)
-	return WorktreeAudit{Root: root, Drift: drift}, nil
+	return drift, nil
 }
 
 // Outcomes of one row in a reclaim pass.

@@ -67,6 +67,13 @@ knowledge home. This is a typed reference governed by PM6, not a copied repo pat
 The Project need not be a member of every work item in the Product; it is a Product-
 level cross-cutting knowledge home.
 
+Amended 2026-10-01 by CD-0200 D1: the designated home stays the Product's single
+shared-law home and is always a knowledge source. The operator may additionally
+register member Project canonical-path locators as knowledge sources; registration
+is explicit typed configuration, never discovery. Placement of each Project's own
+canonical notes and knowledge stays in that Project's `.concord/` tree, and the
+one-note-per-work-item rule is unchanged.
+
 ## 3. Deterministic selection rule
 
 For terminal work item `W`:

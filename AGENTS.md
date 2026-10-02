@@ -22,10 +22,13 @@ derivable fact drifts from its source and no check catches it.
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
   `concord_work_start` captures the item, claims its canonical worktree, and moves
-  the session; the shell reports the pre-move directory until the next turn.
-  A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
+  the session; the move result states what the move changed for the agent's next
+  actions. A hand-made worktree is the route rejected in [`CD-0088`](.concord/docs/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md).
 - Concord coordinates explicitly managed development. Other project work and
-  defect repair may proceed outside the workflow under host permissions and repository rules; they receive no Concord workflow authority or evidence.
+  defect repair may proceed outside the workflow under host permissions and
+  repository rules; they receive no Concord workflow authority or evidence.
+  Asked to fix a Concord defect that the Concord workflow would hit or obstruct,
+  tell the operator and recommend the general build agent, not a Concord agent.
 - Advance is public predecessor evidence only. Do not create or dual-write
   Advance state, and do not route Concord work through ADV. A local
   `project.json` may appear; it is ignored by git and must never be committed.
@@ -95,22 +98,19 @@ pre-transaction snapshot and silently miss uncommitted writes.
 ## Knowledge closure
 
 [Issue #295](https://github.com/Sharper-Flow/concord/issues/295) splits
-knowledge into four states: unprocessed, law, out of date, and out of spec.
-An unprocessed document has no manifest record and is **not law** for this
-Product regardless of how much it reads like a spec; treat it as source
-material awaiting formalization. `scripts/check-knowledge-closure.py` is
-the inverse-coverage validator: it walks every `*.md` under the manifest's
-`knowledge_roots`, lists paths the manifest does not acknowledge, and exits
-0 in warn mode (with per-file `unprocessed: <path>` lines) or 1 under
-`--strict` for cutover checks. `scripts/check-doc-contract.py` applies the
-required outline, Gherkin AC grammar, and STE subset (sentence length,
-banned phrases, abbreviation discipline) to records whose kind is in scope;
-hard-fail mode is gated by `doc_contract.enforced` in the manifest, which owns
-the current setting and its activation evidence. The anti-conflation rule for
-agents: a document not resolvable through `concord_knowledge` is not law —
-`resolve_note` returning
-`knowledge_missing` is the authoritative negative, never text-grep for law
-state when a record exists.
+knowledge into four states: unprocessed, law, out of date, and out of spec. An
+unprocessed document has no manifest record and is **not law** for this Product,
+however much it reads like a spec: it is source material awaiting formalization.
+`scripts/check-knowledge-closure.py`, the inverse-coverage validator, lists each
+`*.md` under the manifest's `knowledge_roots` that the manifest does not
+acknowledge. It exits 0 in warn mode (one `unprocessed: <path>` line per file),
+or 1 under `--strict` for cutover checks. `scripts/check-doc-contract.py`
+applies the required outline, Gherkin AC grammar, and STE subset (sentence
+length, banned phrases, abbreviation discipline) to in-scope record kinds.
+`doc_contract.enforced` in the manifest gates hard-fail mode and owns its
+setting and activation evidence. A document not resolvable through
+`concord_knowledge` is not law: `resolve_note` returning `knowledge_missing` is
+the authoritative negative. Never text-grep for law state when a record exists.
 
 ## Go style
 

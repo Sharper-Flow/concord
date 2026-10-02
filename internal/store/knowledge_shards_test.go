@@ -103,7 +103,7 @@ func composeWorkingTreeManifest(t *testing.T, repo string) KnowledgeManifest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := composeKnowledgeManifest(shards)
+	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 	run("add", ".")
 	run("commit", "--quiet", "-m", "no manifest")
 	bare := run("rev-parse", "HEAD")
-	if _, missing, err := readKnowledgeManifest(ctx, repo, bare); err != nil || !missing {
+	if _, missing, err := readKnowledgeManifest(ctx, repo, bare, manifestSharedHomeRole); err != nil || !missing {
 		t.Fatalf("commit with no manifest: missing=%t err=%v", missing, err)
 	}
 
@@ -211,7 +211,7 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 	run("add", ".")
 	run("commit", "--quiet", "-m", "shards")
 	sharded := run("rev-parse", "HEAD")
-	manifest, missing, err := readKnowledgeManifest(ctx, repo, sharded)
+	manifest, missing, err := readKnowledgeManifest(ctx, repo, sharded, manifestSharedHomeRole)
 	if err != nil || missing || len(manifest.Records) != 1 || manifest.Records[0].ID != "shard-one" {
 		t.Fatalf("sharded commit: missing=%t err=%v records=%+v", missing, err, manifest.Records)
 	}
@@ -229,7 +229,7 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 	run("add", ".")
 	run("commit", "--quiet", "-m", "legacy aggregate")
 	legacy := run("rev-parse", "HEAD")
-	fromAggregate, missing, err := readKnowledgeManifest(ctx, repo, legacy)
+	fromAggregate, missing, err := readKnowledgeManifest(ctx, repo, legacy, manifestSharedHomeRole)
 	if err != nil || missing || len(fromAggregate.Records) != 1 || fromAggregate.Records[0].ID != "shard-one" {
 		t.Fatalf("legacy commit: missing=%t err=%v records=%+v", missing, err, fromAggregate.Records)
 	}

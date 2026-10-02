@@ -16,6 +16,7 @@ import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-
 import { armTurnMoveBoundary } from "./turn-move-boundary"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
+import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
 
 type ToolContext = {
   sessionID: string
@@ -730,6 +731,19 @@ function appendWarnings(result: ToolResult, warnings: string[]): ToolResult {
   return { ...result, output: `${result.output}${suffix}` }
 }
 
+// appendMoveNotice drains the notice a confirmed session move recorded during
+// this call and appends it after the envelope line, where the agent reads it.
+// The envelope itself stays schema-clean: the published envelope contract is
+// closed, so the notice rides the same output layer the warnings use. The
+// tool result is the owning surface — it reaches every agent in every
+// repository at the moment of the move, while a repository AGENTS.md line
+// reaches only that repository's agents.
+function appendMoveNotice(result: ToolResult, context: ToolContext): ToolResult {
+  const notice = takeMoveNotice(context.sessionID)
+  if (!notice) return result
+  return appendWarnings(result, [notice])
+}
+
 // CD-0191: release staleness rides the result a stale session already gets.
 // The notice lives in the envelope's bounded warnings channel — the TS7
 // notice shape, no schema change — and names both versions and the restart
@@ -824,7 +838,7 @@ async function executeHostTransition(args: HostToolArgs, context: ToolContext): 
   const envelope = await executeWorkTransition(args, context, staleness)
   const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
   const warnings = await workStateReporter.report(settled, context)
-  return appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings])
+  return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_transition", args, context, settled), [...warnings, ...extraWarnings]), context)
 }
 
 // CD-0017 D4, extended by CD-0196: a dispatched worker lane runs under a
@@ -1657,9 +1671,13 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       worktree_path: target.worktree.path,
       agent,
       session_id: context.sessionID,
+      // The move notice replaces the bare runs-in line: the agent needs the
+      // new path, the paths-under-it rule, and the stale surfaces, not only
+      // the fact of the move. A rendered handoff appends the bounded job and
+      // next action so the receiving session holds both without the envelope.
       output: renderedHandoff
-        ? `This session now runs in ${target.worktree.path} on work item ${target.work_id}. Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
-        : `This session now runs in ${target.worktree.path} on work item ${target.work_id}.`,
+        ? `${moveNoticeText(target.worktree.path)} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
+        : moveNoticeText(target.worktree.path),
       // The remote Linear check rides the resume result into the envelope so
       // the resuming session sees remote drift before it acts.
       ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
@@ -1694,7 +1712,7 @@ export const work_relate = tool({
     const vacated = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
     const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
-    return appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings])
+    return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
   }),
 })
 export const work_compact = tool({ description: "Concord work compact", args: argsSchema("concord_work_compact"), execute: laneGuarded("concord_work_compact", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_compact", hostRequest(args), context)) })
@@ -1909,7 +1927,15 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     try {
       const relanded = await executeWorkStart({ work_id: abandonInput.work_id }, context, relandWarnings)
       if (record(relanded) && relanded.outcome === "ok") {
-        steps.push(`work_start: the session re-landed in ${typeof relanded.worktree_path === "string" ? relanded.worktree_path : "the claimed worktree"}`)
+        const relandPath = typeof relanded.worktree_path === "string" ? relanded.worktree_path : null
+        // The confirmed re-land supersedes the vacate's intermediate move
+        // notice: the composed answer must point the agent at the destination
+        // the session finally occupies, so the pending main-checkout notice
+        // is replaced before the result drains the queue. The notice rides
+        // the composed answer here rather than the re-land envelope, whose
+        // output this sequence discards.
+        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath))
+        steps.push(`work_start: the session re-landed in ${relandPath ?? "the claimed worktree"}`)
       } else {
         const failure = record(relanded) && record(relanded.error) ? relanded.error : null
         const detail = failure && typeof failure.message === "string" ? failure.message : "no diagnostic"
@@ -2056,6 +2082,10 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   // armed for the dispatch check.
   armClaimedWorktree(context.sessionID, path)
   if (!samePath(context.directory, path)) armTurnMoveBoundary(context.sessionID)
+  // The confirmed move is a fact the agent must act on, so the result this
+  // call encodes carries the notice: the new path, the paths-under-it rule,
+  // and the surfaces the move made stale.
+  recordMoveNotice(context.sessionID, moveNoticeText(path))
   return envelope
 }
 
@@ -2187,6 +2217,9 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // stale tool context already names the destination, so the move fact, not
   // the tool context, arms the boundary.
   if (moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
+  // The verified landing moved the session to the registered main checkout,
+  // so the result this call encodes carries the move notice.
+  recordMoveNotice(context.sessionID, moveNoticeText(destination))
   return envelope
 }
 

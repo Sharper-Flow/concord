@@ -1,0 +1,41 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-01T00:00:00Z",
+  "evidence": [
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workpin.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_liveness_test.go"
+  ],
+  "id": "lesson-recurring-defect-shape-needs-rca-before-fix",
+  "kind": "lesson",
+  "path": ".concord/docs/lessons/2026-10-01-a-recurring-defect-shape-needs-root-cause-analys.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "explicit",
+    "product_ids": [
+      "concord"
+    ],
+    "project_ids": [
+      "concord"
+    ],
+    "tag_ids": [
+      "workflow-engine",
+      "defect-intake",
+      "record-reality"
+    ]
+  },
+  "sha256": "sha256:e6d871bd9f13cb3bd256b49ccb15666d98cd147fdb81d69e7e6e6189b58dc794",
+  "status": "published",
+  "summary": "Seventeen Concord bugs in four days shared one failure shape: a work item stranded with every workflow action refused. Each was worked as a ready fix that added one guard clause. The shared cause, admission derived separately at four drifting sites with no liveness check, surfaced only when the operator asked.",
+  "tags": [
+    "workflow-engine",
+    "rca",
+    "defect-intake"
+  ],
+  "title": "A recurring defect shape needs root-cause analysis before any single report is fixed"
+}

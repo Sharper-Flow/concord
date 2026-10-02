@@ -5505,34 +5505,27 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		`,
 	},
 	{
-		Version:  112,
-		Name:     "project_handoffs_table",
-		Breaking: false,
+		Version: 112,
+		Name:    "product_knowledge_sources",
 		SQL: `
-CREATE TABLE project_handoffs (
-    handoff_id              TEXT    PRIMARY KEY,
-    work_id                 TEXT    NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-    contract_version        INTEGER NOT NULL CHECK(contract_version > 0),
-    source_project_id       TEXT    NOT NULL,
-    target_project_id       TEXT    NOT NULL,
-    source_session_ref      TEXT    NOT NULL,
-    bounded_job             TEXT    NOT NULL,
-    changes                 TEXT    NOT NULL CHECK(json_valid(changes)),
-    verification            TEXT    NOT NULL CHECK(json_valid(verification)),
-    artifact_refs           TEXT    NOT NULL CHECK(json_valid(artifact_refs)),
-    blockers                TEXT    NOT NULL CHECK(json_valid(blockers)),
-    next_action             TEXT    NOT NULL,
-    state                   TEXT    NOT NULL CHECK(state IN ('recorded','consumed')),
-    consumed_by_session_ref TEXT    NOT NULL DEFAULT '',
-    consumed_at             TEXT    NOT NULL DEFAULT '',
-    recorded_at             TEXT    NOT NULL,
-    CHECK(source_project_id <> target_project_id)
+-- CD-0200 federated knowledge placement: a Product resolves Product-wide
+-- knowledge over one designated shared-law home plus the member Project
+-- canonical-path locators the operator registers as sources. Registration is
+-- explicit operator configuration, never discovery. The designated home is
+-- always a source and never a row here, so the effective source set is the
+-- home row unioned with this table. One locator serves at most one Product
+-- as a home or a source.
+CREATE TABLE product_knowledge_sources (
+    product_id    TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    locator_id    TEXT NOT NULL REFERENCES project_locators(locator_id) ON DELETE RESTRICT,
+    registered_at TEXT NOT NULL,
+    PRIMARY KEY (product_id, project_id, locator_id),
+    UNIQUE(project_id, locator_id)
 );
-CREATE INDEX project_handoffs_work_state ON project_handoffs (work_id, state);
-CREATE INDEX project_handoffs_source ON project_handoffs (work_id, source_project_id, source_session_ref);
-CREATE TRIGGER project_handoffs_guard_insert BEFORE INSERT ON project_handoffs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'project_handoffs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER project_handoffs_guard_update BEFORE UPDATE ON project_handoffs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'project_handoffs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
-CREATE TRIGGER project_handoffs_guard_delete BEFORE DELETE ON project_handoffs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'project_handoffs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER product_knowledge_sources_guard_insert BEFORE INSERT ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER product_knowledge_sources_guard_update BEFORE UPDATE ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER product_knowledge_sources_guard_delete BEFORE DELETE ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
 }

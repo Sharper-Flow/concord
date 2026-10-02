@@ -466,11 +466,19 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         fail(findings, "manifest: records must be a bounded array")
         records = []
 
+    # CD-0200: the registry's presence decides the manifest's federated role.
+    # A manifest with a domain_registry is a shared-law home corpus and the
+    # registry validates deeply; a manifest without one is a registered-source
+    # corpus, whose Domain references validate against the shared home's
+    # registry at rebuild.
     registry = data.get("domain_registry")
-    if not isinstance(registry, dict):
-        fail(findings, "manifest: schema 1.2 requires a domain_registry object")
-        registry = {}
-    domain_ids = validate_domain_registry(registry, findings)
+    if registry is None:
+        domain_ids: set[str] = set()
+    elif not isinstance(registry, dict):
+        fail(findings, "manifest: domain_registry must be an object")
+        domain_ids = set()
+    else:
+        domain_ids = validate_domain_registry(registry, findings)
 
     # CD-0175: the per-record decision profile is demanded once the head
     # declares the amendment (decision.current_required_sections), so a
@@ -511,7 +519,19 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 fail(findings, f"{prefix}: law_relations are only allowed on decision/spec records")
         else:
             for relation in relations:
-                if not isinstance(relation, dict) or set(relation) != {"kind", "target_id"} or relation.get("kind") not in LAW_KINDS or not valid_id(relation.get("target_id")):
+                # CD-0200: a cross-source relation keeps target_id a bare law
+                # ID and names its source Project through the structured
+                # source_project_id field.
+                if (
+                    not isinstance(relation, dict)
+                    or not set(relation) <= {"kind", "target_id", "source_project_id"}
+                    or {"kind", "target_id"} - set(relation)
+                    or relation.get("kind") not in LAW_KINDS
+                    or not valid_id(relation.get("target_id"))
+                    or "/" in str(relation.get("target_id"))
+                    or ("source_project_id" in relation and not isinstance(relation.get("source_project_id"), str))
+                    or ("source_project_id" in relation and not re.fullmatch(r"[a-z][a-z0-9-]{1,63}", relation.get("source_project_id") or ""))
+                ):
                     fail(findings, f"{prefix}: invalid law relation")
 
         identifier = record["id"]
@@ -603,23 +623,25 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                     fail(findings, f"{prefix}: invalid {field}")
             if scopes["mode"] == "home" and any(scopes[field] for field in allowed_scopes - {"mode"}):
                 fail(findings, f"{prefix}: home scopes cannot contain explicit IDs")
-            if any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
+            if isinstance(registry, dict) and any(domain_id not in domain_ids for domain_id in scopes["domain_ids"]):
                 fail(findings, f"{prefix}: scope domain is dangling")
 
         if not law_bearing and ("home_domain_id" in record or "applies_to_domain_ids" in record or "product_wide_rationale" in record):
             fail(findings, f"{prefix}: non-law records cannot author law-home fields")
         # The root is the only home reachable by deciding nothing, so it
         # carries a stated claim. A child home has already decided and a
-        # rationale there would assert a reach the home contradicts.
-        root_homed = record.get("home_domain_id") == registry.get("root_domain_id")
+        # rationale there would assert a reach the home contradicts. A
+        # registered-source corpus declares no root, so the root-rationale
+        # rule defers to the shared home's registry at rebuild (CD-0200).
+        root_homed = isinstance(registry, dict) and record.get("home_domain_id") == registry.get("root_domain_id")
         rationale = record.get("product_wide_rationale")
         if root_homed and not bounded_text(rationale, 512):
             fail(findings, f"{prefix}: law homed to the root Domain must state product_wide_rationale")
-        if not root_homed and "product_wide_rationale" in record:
+        if isinstance(registry, dict) and not root_homed and "product_wide_rationale" in record:
             fail(findings, f"{prefix}: only root-homed law states product_wide_rationale")
         if law_bearing and status == "accepted" and ("home_domain_id" not in record or not valid_id(record.get("home_domain_id"))):
             fail(findings, f"{prefix}: an accepted law-bearing record requires one clean home_domain_id")
-        if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or record["home_domain_id"] not in domain_ids):
+        if "home_domain_id" in record and (not valid_id(record["home_domain_id"]) or (isinstance(registry, dict) and record["home_domain_id"] not in domain_ids)):
             fail(findings, f"{prefix}: home domain is dangling or invalid")
 
         # CD-0175: every decision names its outline generation in its own
@@ -653,7 +675,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             if "home_domain_id" not in record:
                 fail(findings, f"{prefix}: applies_to_domain_ids requires home_domain_id")
             values = record["applies_to_domain_ids"]
-            if not unique_string_list(values, 64) or not all(valid_id(item) and item in domain_ids for item in values):
+            if not unique_string_list(values, 64) or not all(valid_id(item) and (not isinstance(registry, dict) or item in domain_ids) for item in values):
                 fail(findings, f"{prefix}: invalid or dangling applies_to_domain_ids")
             if "home_domain_id" in record and record["home_domain_id"] in values:
                 fail(findings, f"{prefix}: applies_to_domain_ids repeats home_domain_id")
@@ -734,6 +756,14 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         prefix = f"manifest.records[{number}]"
         for relation in record.get("law_relations", []) if isinstance(record.get("law_relations", []), list) else []:
             if not isinstance(relation, dict) or relation.get("kind") not in LAW_KINDS:
+                continue
+            if isinstance(relation.get("source_project_id"), str):
+                # CD-0200: a cross-source relation names a law another
+                # registered source holds. It stays outside this manifest's
+                # relation graph; naming a target this manifest declares is a
+                # shape defect.
+                if by_id.get(relation.get("target_id")) is not None:
+                    fail(findings, f"{prefix}: law relation names a source for a target declared in the same manifest")
                 continue
             target = by_id.get(relation.get("target_id"))
             if target is None or target.get("kind") not in LAW_RELATION_SUBJECTS:

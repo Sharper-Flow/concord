@@ -1,0 +1,42 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-53464f08b2d9f2583b0ee847",
+    "tier": "legislated"
+  },
+  "date": "2026-10-01T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    ".concord/docs/concord-knowledge-index.md",
+    ".concord/docs/product-memory-query-contract.md",
+    "internal/store/product_knowledge_source.go",
+    "internal/store/knowledge_query.go"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0200",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0020"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0200-knowledge-placement-federates-across-registered-git-sources.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:0cf411f5e554444e17ade404a6ed6c6ec223bdd603ab4b07beb8e808f1255df9",
+  "status": "accepted",
+  "summary": "Federates knowledge placement across one designated shared-law home plus operator-registered member Project canonical-path sources: per-source projection with a single-owner Domain registry, Product-wide Q9 over the verified source set with per-source watermarks and degradation omissions, source-qualified law identity with ambiguous bare-ID refusal, explicit cross-source relations without inferred precedence, and workflow law resolution across the set. Records that CD-0020 reopen condition 1 is met by POKE-711 subcheck C evidence.",
+  "tags": [
+    "product-memory",
+    "knowledge-index",
+    "federation",
+    "law-relations"
+  ],
+  "title": "Knowledge placement federates across registered Git sources"
+}

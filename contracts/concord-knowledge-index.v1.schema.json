@@ -8,7 +8,6 @@
     "schema_version",
     "supported_kinds",
     "indexed_kinds",
-    "domain_registry",
     "records"
   ],
   "properties": {
@@ -51,6 +50,7 @@
       }
     },
     "domain_registry": {
+      "description": "CD-0200: required on the designated shared-law home's manifest and refused on a registered source's manifest. Absent means a registered-source corpus whose Domain references validate against the shared home's registry at rebuild.",
       "$ref": "#/$defs/domainRegistry"
     },
     "knowledge_roots": {
@@ -947,6 +947,7 @@
       ]
     },
     "lawRelation": {
+      "description": "CD-0200: a typed law relation. target_id stays a bare law ID; a target outside the declaring manifest names its source Project through the optional source_project_id field, never through a packed qualified string.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -964,6 +965,12 @@
         },
         "target_id": {
           "$ref": "#/$defs/id"
+        },
+        "source_project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9-]{1,63}$"
         }
       }
     },

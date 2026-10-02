@@ -1236,7 +1236,7 @@ func knowledgeKinds(values []string) []string {
 }
 
 // freshenProductKnowledge brings the index behind a Product's derived
-// projections up to its knowledge home's current content. It runs with no
+// projections up to its knowledge sources' current content. It runs with no
 // transaction open. A Product without a unique designated home is not an
 // error here: the caller's read owns that refusal, and an index cannot be
 // built for a home that does not exist.
@@ -1249,7 +1249,25 @@ func (r runtime) freshenProductKnowledge(ctx context.Context, product string) er
 		}
 		return err
 	}
-	return r.Store.EnsureKnowledgeIndexFresh(ctx, home)
+	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		return err
+	}
+	// CD-0200: the read demand covers the Product's full registered source
+	// set, so a member Project's source rebuilds on demand too, not only the
+	// designated shared-law home.
+	sources, err := r.Store.ProductKnowledgeSourceRegistrations(ctx, product)
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
+			continue
+		}
+		if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r runtime) knowledgeHome(ctx context.Context) (store.KnowledgeHome, error) {
@@ -1778,6 +1796,11 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		Hash        string `json:"content_hash,omitempty"`
 		Status      string `json:"status,omitempty"`
 		SuccessorID string `json:"successor_id,omitempty"`
+		// CD-0200: the source Project and locator name which registered
+		// repository holds each record's canonical note, beside its revision
+		// proof.
+		HomeProjectID string `json:"home_project_id,omitempty"`
+		HomeLocatorID string `json:"home_locator_id,omitempty"`
 	}
 	items := []item{}
 	for _, v := range q.Items {
@@ -1788,9 +1811,28 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		if kind == "spec" {
 			kind = "specification"
 		}
-		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID})
+		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID, HomeProjectID: v.HomeProjectID, HomeLocatorID: v.HomeLocatorID})
 	}
-	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "watermark": q.IndexWatermark})
+	payload := map[string]any{"items": items, "watermark": q.IndexWatermark}
+	// CD-0200: a federated answer carries its per-source watermarks in the
+	// payload and one envelope watermark entry per registered source, so the
+	// packet proves each source's freshness verdict. A single-source answer
+	// keeps the one-entry envelope shape it always had.
+	if len(q.SourceWatermarks) > 0 {
+		marks := make([]map[string]string, 0, len(q.SourceWatermarks))
+		markEntries := make([]Watermark, 0, len(q.SourceWatermarks))
+		for _, mark := range q.SourceWatermarks {
+			marks = append(marks, map[string]string{"project_id": mark.ProjectID, "locator_id": mark.LocatorID, "watermark": mark.Watermark, "authority": mark.Authority})
+			markEntries = append(markEntries, Watermark{SourceKind: "git_knowledge", SourceID: mark.ProjectID + "/" + mark.LocatorID, Version: mark.Watermark})
+		}
+		payload["source_watermarks"] = marks
+		response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
+		if err == nil {
+			response.SourceVersionWatermark = markEntries
+		}
+		return response, err
+	}
+	response, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 	if err == nil {
 		response.SourceVersionWatermark = []Watermark{{SourceKind: "git_knowledge", SourceID: q.IndexWatermark, Version: q.IndexWatermark}}
 	}

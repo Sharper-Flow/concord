@@ -256,9 +256,29 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
         value = v12_fixture()
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False) == []
+            # CD-0200: a manifest without a domain_registry is a
+            # registered-source corpus. It validates as the source shape: the
+            # root-rationale rule defers to the shared home's registry, and
+            # the source carries no registry of its own to validate.
             missing_registry = copy.deepcopy(value)
             del missing_registry["domain_registry"]
-            assert checker.validate(missing_registry, check_hashes=False)
+            del missing_registry["records"][0]["product_wide_rationale"]
+            assert checker.validate(missing_registry, check_hashes=False) == []
+            # A source corpus keeps the shape rules that need no registry:
+            # an accepted law still names a home Domain ID, and the
+            # cross-source relation vocabulary stays closed.
+            no_home_domain = copy.deepcopy(missing_registry)
+            del no_home_domain["records"][0]["home_domain_id"]
+            assert checker.validate(no_home_domain, check_hashes=False)
+            bad_relation = copy.deepcopy(missing_registry)
+            bad_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC/LAW", "source_project_id": "registered-source"}]
+            assert any("invalid law relation" in finding for finding in checker.validate(bad_relation, check_hashes=False))
+            good_relation = copy.deepcopy(missing_registry)
+            good_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC-LAW", "source_project_id": "registered-source"}]
+            assert checker.validate(good_relation, check_hashes=False) == []
+            same_manifest_target = copy.deepcopy(good_relation)
+            same_manifest_target["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-1", "source_project_id": "registered-source"}]
+            assert any("names a source for a target declared in the same manifest" in finding for finding in checker.validate(same_manifest_target, check_hashes=False))
             missing_scope = copy.deepcopy(value)
             del missing_scope["records"][0]["scopes"]["domain_ids"]
             assert checker.validate(missing_scope, check_hashes=False)

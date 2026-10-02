@@ -481,8 +481,24 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	// The read is the demand (CD-0082 D1): a stale index rebuilds here,
 	// before the query and outside any transaction. A home git cannot
 	// reach is left for the query itself to refuse or degrade by rule.
+	// CD-0200: the demand covers the Product's full registered source set,
+	// so a member Project's source rebuilds on demand too.
 	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil && !in.AllowDegraded {
 		return failureEnvelope(base, err), nil
+	}
+	if in.ProductID != "" {
+		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
+		if srcErr != nil && !in.AllowDegraded {
+			return failureEnvelope(base, srcErr), nil
+		}
+		for _, source := range sources {
+			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
+				continue
+			}
+			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil && !in.AllowDegraded {
+				return failureEnvelope(base, err), nil
+			}
+		}
 	}
 	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: r.boundedLimit(effectiveLimit(in.Limit, in.Page)), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 	if err != nil {

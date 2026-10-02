@@ -328,7 +328,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	if readErr != nil {
 		return out, readErr
 	}
-	manifest, parseErr := composeKnowledgeManifest(shards)
+	manifest, parseErr := composeKnowledgeManifest(shards, manifestSharedHomeRole)
 	if parseErr != nil {
 		return out, parseErr
 	}
@@ -383,7 +383,7 @@ func PublishLessonRecord(ctx context.Context, home KnowledgeHome, req LessonPubl
 	// lesson id claiming a note path the manifest already carries — refuses
 	// as the manifest conflict it is, with the worktree unchanged (CD-0114).
 	shards.records[req.LessonID+".json"] = shard
-	if _, err := composeKnowledgeManifest(shards); err != nil {
+	if _, err := composeKnowledgeManifest(shards, manifestSharedHomeRole); err != nil {
 		return out, err
 	}
 

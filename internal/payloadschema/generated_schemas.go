@@ -2364,6 +2364,12 @@ const GeneratedPayloadSchemaDocument = `{
               "content_hash": {
                 "$ref": "#/$defs/digest"
               },
+              "home_locator_id": {
+                "$ref": "#/$defs/id"
+              },
+              "home_project_id": {
+                "$ref": "#/$defs/id"
+              },
               "kind": {
                 "enum": [
                   "constitution",
@@ -2408,6 +2414,40 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor"
+        },
+        "source_watermarks": {
+          "description": "CD-0200: one freshness verdict per registered knowledge source in a Product-wide answer, home first. Absent from a single-source answer.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "authority": {
+                "enum": [
+                  "authoritative",
+                  "degraded"
+                ],
+                "type": "string"
+              },
+              "locator_id": {
+                "$ref": "#/$defs/id"
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "watermark": {
+                "maxLength": 256,
+                "type": "string"
+              }
+            },
+            "required": [
+              "project_id",
+              "locator_id",
+              "watermark",
+              "authority"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
         },
         "watermark": {
           "maxLength": 256,

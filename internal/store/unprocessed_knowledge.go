@@ -117,7 +117,11 @@ func (s *Store) ReadUnprocessedKnowledgeDocs(ctx context.Context, home Knowledge
 	if err != nil {
 		return nil, err
 	}
-	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit)
+	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
+	if err != nil {
+		return nil, err
+	}
+	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
 	if err != nil {
 		return nil, err
 	}

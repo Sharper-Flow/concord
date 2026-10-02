@@ -139,6 +139,16 @@ Commands read one strict JSON object from stdin:
   concord product knowledge-home-clear < JSON stdin
     required: product_id, expected_version
     optional: reason
+  concord product-knowledge-source-register < JSON stdin
+  concord product knowledge-source-register < JSON stdin
+    required: product_id, project_id, locator_id, expected_version
+    optional: reason
+    accepted values: locator_id: a canonical_path locator of the member Project, not the designated home
+  concord product-knowledge-source-remove < JSON stdin
+  concord product knowledge-source-remove < JSON stdin
+    required: product_id, project_id, locator_id, expected_version
+    optional: reason
+    accepted values: locator_id: a registered knowledge source of the Product
   concord project-locator-add < JSON stdin
   concord project locator-add < JSON stdin
     required: project_id, locator_id, kind, value, expected_version

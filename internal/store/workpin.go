@@ -219,7 +219,10 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 // workPinStepIntentsTx fills the pin's step intents: the declared actions
 // under the dispatch hold, the evidence-binding recovery, and the
 // post-rejection review debt that hides the delivery exit until the fresh
-// review stands behind it.
+// review stands behind it. The debt admission is the shared derivation — the
+// tx-scoped loader folds the refinement history once, and workflowAdmit
+// decides each advance — so the pin and the delivery guard answer identically
+// for the same state instead of re-deriving the debt per site.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) error {
 	dispatchHoldsAdvance, holdErr := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, pin.Step, 0)
 	if holdErr != nil {
@@ -233,28 +236,22 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if evidenceRecovery && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
 	}
-	postRejectionDebt, debtErr := workflowPostRejectionReviewOutstanding(ctx, tx, workID, definition, "work_pin")
-	if debtErr != nil {
-		return debtErr
-	}
-	if !postRejectionDebt || !workflowPostRejectionReviewStep(definition, pin.Step) {
-		return nil
+	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
+	if stateErr != nil {
+		return stateErr
 	}
 	// The pin never offers an advance the delivery guard will refuse, so
 	// an unreviewed repaired result hides the refinement step's accepted
-	// result, its recorded delivery, and the gate's delivery exit —
-	// except the acceptance of a completed review whose dispatch settles
-	// the debt, which is itself the fresh review the guard waits for.
-	pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "record_delivery")
-	pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "accept_worker_result")
-	if stepDeclaresAction(definition, pin.Step, "start_refine") {
-		ready, readyErr := workflowPostRejectionReviewReady(ctx, tx, workID, definition, "work_pin")
-		if readyErr != nil {
-			return readyErr
+	// result, its recorded delivery, and the gate's delivery exit.
+	for _, actionID := range []string{"record_delivery", "accept_worker_result"} {
+		if !workflowAdmit(definition, state, actionID).Admitted {
+			pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, actionID)
 		}
-		if ready {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
-		}
+	}
+	// The acceptance of the ready settling review is itself the fresh review
+	// the guard waits for, so the pin re-offers it at the refinement step.
+	if stepDeclaresAction(definition, pin.Step, "start_refine") && !workflowAdmit(definition, state, "accept_worker_result").Admitted && state.ReadyReviewAttemptID != "" {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
 	}
 	return nil
 }

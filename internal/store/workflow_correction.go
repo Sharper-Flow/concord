@@ -767,6 +767,23 @@ func workflowReviewDispatchSettlesDebt(dispatchSeq, frontierSeq int64) bool {
 	return frontierSeq > 0 && dispatchSeq > frontierSeq
 }
 
+// workflowReviewSettlesDebt is the single owner of the review-verdict half of
+// the settlement rule: a fresh accepted review settles post-rejection review
+// debt only when its typed verdict is ship, or absent for the pre-CD-0197
+// reports that carry no verdict. A no_ship review binds its findings and
+// leaves the debt outstanding, so refine does not advance to delivery and a
+// parked delivery gate keeps admitting the evidence-bearing corrective return.
+func workflowReviewSettlesDebt(verdict string) bool {
+	return verdict == "" || verdict == "ship"
+}
+
+// workflowReviewSettlesDebtSQL is the SQL form of workflowReviewSettlesDebt
+// over the attempt's worker.completed record: the review verdict is absent, or
+// ship. Every query that decides whether an accepted review settles the
+// post-rejection review debt composes this fragment, so the verdict rule
+// cannot drift between the settlement query, the ready query, and the guard.
+const workflowReviewSettlesDebtSQL = "COALESCE(json_extract(wc.payload,'$.review.verdict'),'') IN ('','ship')"
+
 // workflowPostRejectionFrontier returns the seq frontier a settling review
 // dispatch must postdate: the refinement step's latest rejection, or the
 // latest non-review worker dispatch or completion at the refinement step that
@@ -834,10 +851,12 @@ func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, work
 
 // workflowPostRejectionReviewMissing reports whether no accepted review
 // attempt covers the rejected refinement result. The query encodes the shared
-// fresh-review predicate workflowReviewDispatchSettlesDebt: the accepted
+// fresh-review predicate workflowReviewDispatchSettlesDebt — the accepted
 // attempt must dispatch on the review capability class after the debt's
 // frontier, so a repair completed after the review's dispatch reopens the
-// debt.
+// debt — and the verdict rule workflowReviewSettlesDebt: only an accepted
+// review whose verdict is ship or absent settles, so a no_ship review leaves
+// the debt outstanding.
 func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, refineStep string, rejectSeq int64, subject string) (bool, error) {
 	frontier, err := workflowPostRejectionRepairFrontier(ctx, q, workID, refineStep, rejectSeq, subject)
 	if err != nil {
@@ -847,26 +866,13 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 		frontier = rejectSeq
 	}
 	var reviewed int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>? WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id')='accept_worker_result' AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>?)`, WorkerDispatched, "review", frontier, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc
+		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>?
+		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id')='accept_worker_result' AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the post-rejection review history", true, "retry once the worker delivery projection is readable", err)
 	}
 	return reviewed == 0, nil
-}
-
-// workflowPostRejectionReviewReady reports whether a completed review attempt
-// stands ready to settle the post-rejection review debt: its dispatch
-// postdates the debt's frontier, so its acceptance is the fresh accepted
-// review. The work pin advertises that acceptance and nothing else.
-func workflowPostRejectionReviewReady(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (bool, error) {
-	frontier, err := workflowPostRejectionFrontier(ctx, q, workID, definition, subject)
-	if err != nil || frontier == 0 {
-		return false, err
-	}
-	var ready int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>?)`, WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, frontier).Scan(&ready); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the worker delivery projection is readable", err)
-	}
-	return ready == 1, nil
 }
 
 // workflowDeliveryGateCorrectionContext is the correction context of a
@@ -881,8 +887,13 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	if !workflowCorrectionWorkflow(definition) || !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		return nil, nil
 	}
-	outstanding, err := workflowPostRejectionReviewOutstanding(ctx, q, workID, definition, subject)
-	if err != nil || !outstanding {
+	// The gate's correction prerequisite is the shared derivation: the
+	// tx-scoped loader folds the refinement history once, and the debt the
+	// state carries is the same one the delivery guard and the work pin read,
+	// so a no_ship review keeps the corrective return admitted here exactly
+	// as it keeps record_delivery hidden.
+	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, currentStep, subject)
+	if err != nil || state.ReviewDebt != ReviewDebtOutstanding {
 		return nil, err
 	}
 	refineStep := workflowRefinementStepID(definition)

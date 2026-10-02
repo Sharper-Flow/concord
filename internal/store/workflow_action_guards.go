@@ -1181,12 +1181,15 @@ func workflowActionOccurredAt(ctx context.Context, q queryer, workID string, seq
 
 // guardPostRejectionReviewGate refuses an advance toward delivery whose
 // refinement history carries a rejected result no fresh accepted review has
-// covered. Accepting a review-lane attempt whose dispatch postdates the
-// debt's frontier — the rejection and every later non-review worker activity
-// at the refinement step — is itself the fresh review, so the guard admits
-// it; any other accept, and either delivery exit, waits for one. The refusal
-// leaves the evidence-bearing corrective return as the only route off a
-// parked, unreviewed gate.
+// covered. The admission is the shared derivation: the tx-scoped loader folds
+// the refinement history into the abstract admission state once, and the pure
+// workflowAdmit decides, so this guard, the work pin intents, and the
+// delivery-gate correction binding answer identically for the same state.
+// Accepting the ready settling review is itself the fresh review, so the
+// guard admits the accept whose attempt identity the decision names; any
+// other accept, and either delivery exit, waits for one. The refusal leaves
+// the evidence-bearing corrective return as the only route off a parked,
+// unreviewed gate.
 func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	if !workflowCorrectionWorkflow(g.entry.Definition) {
 		return nil
@@ -1203,56 +1206,27 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	default:
 		return nil
 	}
-	rejectSeq, err := workflowPostRejectionRejectSeq(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
+	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return err
 	}
-	if rejectSeq == 0 {
+	decision := workflowAdmit(g.entry.Definition, state, g.request.ActionID)
+	if decision.Admitted {
 		return nil
 	}
-	outstanding, err := workflowPostRejectionReviewMissing(g.ctx, g.tx, g.request.WorkID, workflowRefinementStepID(g.entry.Definition), rejectSeq, "workflow_action")
-	if err != nil {
-		return err
-	}
-	if !outstanding {
-		return nil
-	}
-	if g.request.ActionID == "accept_worker_result" {
+	// The attempt identity stays a guard check: the request's attempt_id
+	// must name the ready settling review the decision folded, so an accept
+	// of a different attempt cannot ride its admission.
+	if g.request.ActionID == "accept_worker_result" && decision.ReadyReviewAttemptID != "" {
 		fields, fieldsErr := workflowActionObject(g.request.Payload)
 		if fieldsErr != nil {
 			return fieldsErr
 		}
-		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-		class, dispatchSeq, dispatchErr := workflowAttemptDispatch(g.ctx, g.tx, g.request.WorkID, attemptID, "workflow_action")
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		if class == "review" {
-			frontier, frontierErr := workflowPostRejectionFrontier(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
-			if frontierErr != nil {
-				return frontierErr
-			}
-			if workflowReviewDispatchSettlesDebt(dispatchSeq, frontier) {
-				return nil
-			}
+		if workflowFieldStringDefault(fields, "attempt_id", "") == decision.ReadyReviewAttemptID {
+			return nil
 		}
 	}
-	return newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
-}
-
-// workflowAttemptDispatch returns the capability class and seq of the lane
-// dispatch that produced the worker attempt, or "" and 0 when the attempt has
-// no dispatch event.
-func workflowAttemptDispatch(ctx context.Context, q queryer, workID, attemptID, subject string) (string, int64, error) {
-	var class string
-	var dispatchSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.capability_class'),''), seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, attemptID).Scan(&class, &dispatchSeq); err != nil {
-		if err == sql.ErrNoRows {
-			return "", 0, nil
-		}
-		return "", 0, wrapFailure(KindUnavailable, subject, "cannot read the worker attempt dispatch", true, "retry once the worker dispatch projection is readable", err)
-	}
-	return class, dispatchSeq, nil
+	return decision.Failure
 }
 
 // defaultedPayload returns the action payload with an empty payload

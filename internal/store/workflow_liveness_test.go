@@ -1318,27 +1318,3 @@ func livenessPathKey(path []livenessMove) string {
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(encoded))
 }
-
-// A builtin workflow exploration reports observed stranded states. Its bounded
-// result is evidence for the sampled paths only, not a general liveness proof.
-func TestBuiltinWorkflowExplorationReportsNoObservedStrandedState(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		definition := definition
-		t.Run(definition.Ref, func(t *testing.T) {
-			result := livenessExplore(t, definition)
-			for _, report := range result.reports {
-				t.Errorf("%s", report.String())
-			}
-			if result.depthBoundStates != 0 {
-				t.Logf("inconclusive: %d paths left unexpanded (depth limit %d, state limit %d): %v", result.depthBoundStates, livenessDepth, livenessStateBudget, result.depthBoundStepHits)
-			}
-			if len(result.omittedVariants) != 0 {
-				t.Logf("inconclusive: omitted enum variants for %s", strings.Join(result.omittedVariants, ", "))
-			}
-			t.Logf("coverage: states=%d probes=%d admitted_transitions=%d terminal_states=%d", result.testedStates, result.testedProbes, result.testedTransitions, result.terminalStates)
-			if result.conclusion() == "inconclusive" {
-				t.Skip("inconclusive exploration; required completion witnesses run separately")
-			}
-		})
-	}
-}

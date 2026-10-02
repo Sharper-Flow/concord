@@ -140,6 +140,7 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 	}
 	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
+		key := source.HomeProjectID + "/" + source.HomeLocatorID
 		// Freshen first: a stale source rebuilds from its own head, and only
 		// then does the strict verification decide. An unreachable source
 		// refuses the consequential transaction outright — a law boundary has
@@ -159,7 +160,22 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 		if err != nil {
 			return ctx, err
 		}
-		revisions[source.HomeProjectID+"/"+source.HomeLocatorID] = knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}
+		// A commit that landed between the freshness probe and the head read
+		// must not bind a proof the probe never verified: re-validate that
+		// the captured head still freshens the same scanned revision before
+		// recording it. A content commit fails the strict probe here; a
+		// code-only commit rechecks clean and becomes part of the verified
+		// head.
+		if verifiedHead != verified {
+			rechecked, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+			if err != nil {
+				return ctx, err
+			}
+			if rechecked != verified {
+				return ctx, newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved while its verification ran", false, "verify the Product's registered sources again before the consequential transaction opens")
+			}
+		}
+		revisions[key] = knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}
 	}
 	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources, revisions: revisions}), nil
 }

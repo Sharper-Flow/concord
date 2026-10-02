@@ -727,7 +727,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 		}
 	}
 	if len(missing) > 0 || len(undeclared) > 0 {
-		segments := make([]string, 0, len(missing)+len(undeclared))
+		segments := make([]string, 0)
 		for _, name := range missing {
 			segments = append(segments, fmt.Sprintf("workflow action payload field %q is required for action %q", name, actionID))
 		}

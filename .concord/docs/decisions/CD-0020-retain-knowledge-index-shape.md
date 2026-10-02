@@ -4,6 +4,9 @@
 **Amended:** 2026-09-20. D2 names exact lookup, closed filters, and ranked
 body discovery as distinct retrieval jobs with a listed falsifier, and
 reconciles record-kind vocabulary and the CD-0159 tier interaction.
+**Amended:** 2026-10-01. CD-0200 amends D1, D3, and Invariant 2: knowledge
+placement federates across one shared-law home plus registered sources, and
+reopen condition 1 is met by `POKE-711` subcheck C evidence.
 **Approval date:** 2026-08-13.
 **Approval:** Operator-approved review and continuation for GitHub issue #92.
 **Type:** Architecture decision (CD-0019 shape review).
@@ -51,6 +54,12 @@ rebuildable query projection and never authors durable knowledge or law.
 
 This current shape satisfies CD-0019's preservation requirement for the knowledge
 index. CD-0020 does not authorize a replacement index.
+
+Amended 2026-10-01 by CD-0200 D1: the one-home placement boundary opens. A
+Product resolves knowledge over one designated shared-law home plus the
+member Project canonical-path locators the operator registers as sources.
+The manifest stays the authority per source, the projection stays derived
+per source, and registration stays explicit operator configuration.
 
 ### D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary
 
@@ -125,6 +134,12 @@ add a second law-freshness enum, generic `HEAD` assumption, or duplicate entity-
 hash mechanism. Law status remains `accepted` or `superseded`; projection lag is
 read authority/freshness, not a change in law status.
 
+Amended 2026-10-01 by CD-0200 D3: over a registered source set, each source's
+watermark is verified separately, the answer carries per-source watermarks, and
+the cursor binds to a source-set digest. A missing or stale source refuses, or
+returns an explicit omission under allow_degraded; an empty answer is never an
+authoritative negative.
+
 ### D4. Keep durable-law projection separate from knowledge search
 
 `law_subjects` and `law_relations` remain the derived projection for accepted
@@ -153,8 +168,10 @@ new read operation. Architecture expansion and conformance repair remain separat
 
 1. Git remains the durable knowledge and Product-law authority; SQLite projection
    rows cannot author or amend it.
-2. The projection is rebuildable from one resolved canonical-home commit and is
-   replaced transactionally for that home.
+2. The projection is rebuildable from one resolved canonical-home commit per
+   registered source and is replaced transactionally for that source; only the
+   shared-law home carries the Domain registry (amended 2026-10-01 by CD-0200
+   D2).
 3. Q9/Q10 remain bounded, typed, and explicit about authority, lag, reachability,
    omissions, commit identity, and content identity.
 4. Search/ranking metadata never becomes workflow or Product-law authority.
@@ -236,7 +253,12 @@ new read operation. Architecture expansion and conformance repair remain separat
 Reopen this decision only when at least one condition is proven:
 
 1. A repeated operator or agent job cannot be expressed by bounded Q9/Q10
-   without custom fan-out.
+   without custom fan-out. **Met 2026-10-01:** `POKE-711` subcheck C needs
+   native search and resolution of records in a second repository, and
+   scoped search resolves only the backend home (observations
+   `obs:04017bbc5627c604`, `obs:3ae8fa4b2c826b04`). [CD-0200](CD-0200-knowledge-placement-federates-across-registered-git-sources.md)
+   resolves the condition through federated placement; the condition stands
+   closed for the single-home boundary it named.
 2. Representative-scale evidence shows current bounded text or structural
    filters miss an accepted latency or output floor.
 3. Product-scoped external code intelligence cannot support an accepted cross-

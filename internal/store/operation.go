@@ -213,6 +213,8 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product_project.role_changed":            registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductProjectRoleChanged, nil),
 	"product.knowledge_home_designated":       registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeDesignated, nil),
 	"product.knowledge_home_cleared":          registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
+	"product.knowledge_source_registered":     registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRegistered, nil),
+	"product.knowledge_source_removed":        registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRemoved, nil),
 	"product.planning_mode_set":               registerEventKind[productPlanningModeSetPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductPlanningModeSet, nil),
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
@@ -721,7 +723,7 @@ var replayProjectionClearTables = []string{
 	"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets", "workflow_backlog_alignment",
 	"workflow_contracts", "workflow_decision_records", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "workflow_actors",
 	"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
-	"project_governing_requirements", "product_knowledge_homes", "project_locators", "products", "projects",
+	"project_governing_requirements", "product_knowledge_homes", "product_knowledge_sources", "project_locators", "products", "projects",
 }
 
 func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {

@@ -114,7 +114,15 @@ EXTERNAL_RECORD_PATH_RE = re.compile(r"^(?!.*[Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd
 # schema's $defs.criterionBinding patterns.
 CRITERION_WORK_ID_PATTERN = re.compile(r"^work-[0-9a-f]{8,64}$")
 CRITERION_PREDICATE_ID_PATTERN = re.compile(r"^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$")
+# CD-0200: the source_project_id field of a cross-source law relation names a
+# registered source Project with the same clean-slug shape a registry's
+# product_key uses.
+SOURCE_PROJECT_ID_PATTERN = re.compile(r"[a-z][a-z0-9-]{1,63}")
 SCOPE_FIELDS_V12 = {"mode", "product_ids", "project_ids", "domain_ids", "tag_ids"}
+
+
+def clean_slug(value: object) -> bool:
+    return isinstance(value, str) and bool(SOURCE_PROJECT_ID_PATTERN.fullmatch(value))
 
 
 class DuplicateKeyError(ValueError):
@@ -255,7 +263,7 @@ def build_override_coverage(overrides: object, product_key: object = None) -> ca
     return covered
 
 
-def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None) -> None:
+def validate_record(record: object, schema_version: str, domain_ids: set[str], prefix: str, findings: list[str], profiles_enforced: bool = False, record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None, source_role: bool = False) -> None:
     if not isinstance(record, dict):
         findings.append(f"{prefix}: shard must be an object")
         return
@@ -338,7 +346,18 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         relations = record["law_relations"]
         if kind not in LAW_RELATION_SUBJECTS or not isinstance(relations, list) or len(relations) > 32:
             findings.append(f"{prefix}: invalid law_relations")
-        elif any(not isinstance(item, dict) or set(item) != {"kind", "target_id"} or item["kind"] not in LAW_RELATION_KINDS or not clean_text(item["target_id"], 256) for item in relations):
+        elif any(
+            not isinstance(item, dict)
+            or not set(item) <= {"kind", "target_id", "source_project_id"}
+            or {"kind", "target_id"} - set(item)
+            or item["kind"] not in LAW_RELATION_KINDS
+            or not clean_text(item["target_id"], 256)
+            or "/" in item["target_id"]
+            or ("source_project_id" in item and not clean_slug(item.get("source_project_id")))
+            for item in relations
+        ):
+            # CD-0200: a cross-source relation keeps target_id a bare law ID
+            # and names its source Project through source_project_id.
             findings.append(f"{prefix}: invalid law relation")
     if "evidence" in record and (not isinstance(record["evidence"], list) or len(record["evidence"]) > 32 or any(not isinstance(item, str) or not 1 <= len(item) <= 512 or item.startswith("/") or ".." in item for item in record["evidence"])):
         findings.append(f"{prefix}: invalid evidence paths")
@@ -346,10 +365,12 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: non-law records cannot author law-home fields")
     if law_bearing and status == "accepted" and not clean_text(record.get("home_domain_id"), 256):
         findings.append(f"{prefix}: an accepted law-bearing record requires one home domain")
+    # CD-0200: in a registered-source composition the Domain IDs defer to the
+    # shared home's registry at rebuild, so only the shape checks here.
     findings.extend(
         f"{prefix}: home domain is dangling"
         for field in ("home_domain_id",)
-        if field in record and record[field] not in domain_ids
+        if field in record and not source_role and record[field] not in domain_ids
     )
     # CD-0175: every decision names its outline generation in its own shard.
     # The decision legacy profile is bounded by the closed historical set in
@@ -379,7 +400,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
         findings.append(f"{prefix}: doc_contract_profile is only valid on decision records and spec records whose id is in the frozen legacy spec set")
     if "applies_to_domain_ids" in record:
         values = record["applies_to_domain_ids"]
-        if not unique_ids(values) or any(value not in domain_ids for value in values):
+        if not unique_ids(values) or (not source_role and any(value not in domain_ids for value in values)):
             findings.append(f"{prefix}: invalid or dangling applies_to_domain_ids")
         if "home_domain_id" not in record:
             findings.append(f"{prefix}: applies_to_domain_ids requires home_domain_id")
@@ -445,7 +466,7 @@ def canonical_domain_registry(registry: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None) -> list[dict[str, object]]:
+def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles_enforced: bool, findings: list[str], record_path_re: re.Pattern[str] = RECORD_PATH_RE, covered: callable | None = None, source_role: bool = False) -> list[dict[str, object]]:
     directory = root / SHARD_DIR
     if not directory.is_dir():
         findings.append(f"shard directory missing: {SHARD_DIR}")
@@ -462,7 +483,7 @@ def load_records(root: Path, schema_version: str, domain_ids: set[str], profiles
             continue
         identifier = record.get("id")
         prefix = f"{SHARD_DIR / path.name}"
-        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re, covered)
+        validate_record(record, schema_version, domain_ids, prefix, findings, profiles_enforced, record_path_re, covered, source_role)
         if not isinstance(identifier, str):
             continue
         if path.stem != identifier:
@@ -565,9 +586,11 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     schema_version = str(root_template["schema_version"])
     registry_path = root / DOMAIN_REGISTRY
     registry = load_json(registry_path, findings) if registry_path.is_file() else root_template.get("domain_registry")
-    if not isinstance(registry, dict):
-        findings.append(f"domain registry missing: {DOMAIN_REGISTRY}")
-        return None
+    # CD-0200: the registry's presence decides the federated role. A tree
+    # with no registry composes as a registered source: only the shared-law
+    # home carries the registry, and the source's Domain references validate
+    # against it at rebuild.
+    source_role = not isinstance(registry, dict)
     if isinstance(registry, dict):
         unknown = set(registry) - {"schema_version", "product_key", "root_domain_id", "domains"}
         if unknown:
@@ -582,7 +605,7 @@ def derive_aggregate(root: Path, findings: list[str], template: dict[str, object
     profiles_enforced = isinstance(decision_head, dict) and "current_required_sections" in decision_head
     validate_operator_overrides(root_template, findings, registry.get("product_key") if isinstance(registry, dict) else None)
     covered = build_override_coverage(root_template.get("operator_overrides"), registry.get("product_key") if isinstance(registry, dict) else None)
-    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re, covered)
+    records = load_records(root, schema_version, domain_ids, profiles_enforced, findings, record_path_re, covered, source_role)
     if findings:
         return None
     aggregate = dict(root_template)

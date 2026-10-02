@@ -128,7 +128,7 @@ func TestReadKnowledgeManifestAtHeadParsesTheLiveCorpus(t *testing.T) {
 	t.Parallel()
 	root := repositoryRootForTest(t)
 	head := strings.TrimSpace(runKnowledgeGit(t, root, "rev-parse", "HEAD"))
-	manifest, missing, err := readKnowledgeManifest(context.Background(), root, head)
+	manifest, missing, err := readKnowledgeManifest(context.Background(), root, head, manifestSharedHomeRole)
 	if err != nil || missing {
 		t.Fatalf("live corpus at HEAD: missing=%t err=%v", missing, err)
 	}
@@ -168,7 +168,7 @@ func TestReadKnowledgeManifestRefusesAnOversizedRecordShard(t *testing.T) {
 	writeKnowledgeFile(t, repo, oversized, `{"id":"`+strings.Repeat("o", maxKnowledgeRecord)+`"}`)
 	writeKnowledgeFile(t, repo, "README.md", "seed\n")
 	head := commitKnowledgeRepo(t, repo, "oversized shard")
-	_, _, err := readKnowledgeManifest(context.Background(), repo, head)
+	_, _, err := readKnowledgeManifest(context.Background(), repo, head, manifestSharedHomeRole)
 	if err == nil {
 		t.Fatal("an oversized record shard parsed")
 	}

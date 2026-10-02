@@ -214,6 +214,17 @@ func seedReconstructionEndpoints(ctx context.Context, tx *sql.Tx, subject Subjec
 					return err
 				}
 			}
+		case subject.Type == SubjectProduct && (current.Kind == "product.knowledge_source_registered" || current.Kind == "product.knowledge_source_removed"):
+			if projectID := id("project_id"); projectID != "" {
+				if err := insertScratchProject(ctx, tx, projectID); err != nil {
+					return err
+				}
+			}
+			if locatorID := id("locator_id"); locatorID != "" {
+				if err := insertScratchLocator(ctx, tx, locatorID); err != nil {
+					return err
+				}
+			}
 		case subject.Type == SubjectWorkItem && (current.Kind == "work_project.added" || current.Kind == "work_project.removed" || current.Kind == "work_project.role_changed"):
 			if projectID := id("project_id"); projectID != "" {
 				if err := insertScratchProject(ctx, tx, projectID); err != nil {

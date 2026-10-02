@@ -300,6 +300,14 @@ The JSON corpus is executable through a candidate adapter implementing
   proves completeness against the projected content at every applicable canonical
   git authority head; otherwise it is `degraded`. Accepted PM6 supplies canonical
   home/locator semantics.
+- **Federated scope (amended 2026-10-01 by CD-0200 D3):** over a Product with a
+  registered source set, Q9 iterates every registered source, verifies each
+  source's watermark, merges items under the ordering above, returns per-source
+  watermarks, and binds the cursor to a source-set digest. A source that is
+  unreachable or stale refuses the answer unless the request allows degradation;
+  a degraded answer carries one omission per missing source and never reads as
+  an authoritative negative. A one-element source set takes the identical
+  single-home path with unchanged output.
 
 ### Q10. Resolve canonical durable note
 
@@ -314,6 +322,12 @@ The JSON corpus is executable through a candidate adapter implementing
 - **PM6 semantics:** locator identity is stable Project/knowledge-locator ID plus
   path, commit OID, and content hash. Outcomes remain locator, `not_compacted`,
   `missing`, or `ambiguous`; authority remains `authoritative|degraded|unreachable`.
+- **Source-qualified identity (amended 2026-10-01 by CD-0200 D4):** a knowledge
+  reference may take the qualified form `project_id/law_id` and resolves only
+  through that Project's canonical knowledge locator. A bare ID resolves across
+  the Product's registered source set and refuses as `ambiguous` when more than
+  one source holds it. Every returned locator names its source Project,
+  repository-relative path, commit OID, and content hash.
 
 ## 5. Decision and implementation evaluation
 

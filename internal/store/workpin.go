@@ -141,8 +141,16 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		// the one-active-contract gate refuses it, a terminal instance
 		// cannot run any earlier-step recovery, and a completed instance
 		// keeps the route closed on every shape but the complete-step
-		// correction admission.
-		if instanceState != "completed" && !workflowCompleteStepCorrectionStep(registered.Definition, pin.Step) && !workflowCompletedInstanceActionImmutable(instanceState, "supersede_contract", pin.Lifecycle) && !isTerminalLifecycle(pin.Lifecycle) {
+		// correction admission. The advertisement is the shared admission's
+		// answer, not a per-site predicate: the loader folds the duplicated
+		// projection, and workflowAdmitSupersede classifies the recovery, so
+		// the pin, the preflight, and the fold answer identically for the
+		// same state.
+		state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+		if stateErr != nil {
+			return pin, stateErr
+		}
+		if decision := workflowAdmit(registered.Definition, state, "supersede_contract"); decision.Admitted || decision.ApprovalRequired {
 			pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
 		}
 		return pin, nil
@@ -350,7 +358,13 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
 	}
-	if state.ContractCorrectionAvailable && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
+	// The contract recovery advertises exactly the pure decision's answer:
+	// the stale-law and duplicate recoveries the fold admits at a running
+	// step, and the ordinary correction admission, but never a terminal,
+	// off-shape, or gate-refused state. The correction checkpoint's own
+	// answer is not the advertisement's gate — the stale-law recovery stays
+	// offered at a step whose correction checkpoint refuses.
+	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
@@ -364,7 +378,7 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	if !isTerminalLifecycle(instanceState) {
 		return nil
 	}
-	if instanceState == "completed" && state.ContractCorrectionAvailable && !workflowCompletedInstanceActionImmutable(instanceState, "supersede_contract", pin.Lifecycle) {
+	if instanceState == "completed" && admits("supersede_contract") {
 		pin.NextValidIntents = []WorkPinIntent{workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction")}
 	} else {
 		pin.NextValidIntents = []WorkPinIntent{}

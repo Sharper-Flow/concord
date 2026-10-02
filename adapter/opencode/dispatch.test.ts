@@ -1940,7 +1940,7 @@ test("an oversized evidence array is worker-fail with invalid_report", async () 
   const { verbs, payloads } = await terminalEvidence(report({ evidence }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("evidence: carries more than 64 item(s)")
+  expect(payloads[1].detail).toContain("evidence: carries 65 item(s) against a limit of 64")
 })
 
 test("an oversized evidence detail is normalized before admission", async () => {
@@ -2230,7 +2230,7 @@ test("an over-long base_comparison command is refused, not normalized", async ()
   const { verbs, payloads } = await terminalEvidence(report({ base_comparison: { checks: [{ command: "é".repeat(257), branch_result: "pass" as const, base_result: "pass" as const }] } }))
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("exceeds 512 UTF-8 bytes")
+  expect(payloads[1].detail).toContain("base_comparison.checks[0].command: carries 514 UTF-8 bytes against a limit of 512")
 })
 
 // CD-0197: the review lane's completed report carries the typed review
@@ -2455,7 +2455,7 @@ test("validateSchema enforces declared UTF-8 byte bounds without echoing values"
   for (const text of ["12345", "ééa", "🙂a"]) {
     const failures: string[] = []
     expect(validateAgainstSchema(schema, { text }, failures)).toBe(false)
-    expect(failures).toEqual(["text: exceeds 4 UTF-8 bytes"])
+    expect(failures).toEqual(["text: carries 5 UTF-8 bytes against a limit of 4"])
   }
 })
 

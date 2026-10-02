@@ -17,7 +17,7 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	s := fixture.store
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, stepID, attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, stepID, attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestCheckpointUnspawnedDispatchKeepsTheFailedReviewHold(t *testing.T) {
 	s := fixture.store
 
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, "verify", "attempt:"+workID+":unspawned", "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":unspawned", "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("second review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// A newer dispatch_worker window opens and a second worker actually
 	// dispatches on the step.
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, "repair", "attempt:"+workID+":current", "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":current", "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("second dispatch at the repair step refused: %v", err)
 	}

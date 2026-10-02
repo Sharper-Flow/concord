@@ -522,7 +522,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep st
 	}
 
 	lane := BuiltinLaneDefinitions()[0]
-	packet := joinPacketFor(workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, fixture.store, workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
 	payload, err := json.Marshal(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet})
 	if err != nil {
 		t.Fatal(err)
@@ -572,7 +572,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":verify-review"
-	packet := joinPacketFor(workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, fixture.store, workID, "verify", attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}

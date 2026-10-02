@@ -96,7 +96,7 @@ func seedGenericOneOffVerifyWall(t *testing.T, s *store.Store, grant Authority, 
 		attemptID := fmt.Sprintf("attempt:work-1:verify-%d", cycle)
 		runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
 			"attempt_id":    attemptID,
-			"worker_packet": verifyWallPacket(t, attemptID, nil),
+			"worker_packet": verifyWallPacket(t, s, attemptID, nil),
 		}, owner, worktree, "dispatch-"+strconv.Itoa(cycle))
 		var epoch int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
@@ -125,14 +125,14 @@ func verifyWallReviewLane(t *testing.T) store.LaneDefinition {
 
 // verifyWallPacket builds the lane packet the verify checkpoint's dispatch
 // consumes, on the review lane the step admits.
-func verifyWallPacket(t *testing.T, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
+func verifyWallPacket(t *testing.T, s *store.Store, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := verifyWallReviewLane(t)
 	inputs := map[string]any{"task": "review the bounded change", "constraints": []string{"preserve the approved contract"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "verify", "inputs": inputs}
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "verify", "inputs": inputs})
 }
 
 // applyVerifyWallDispatchAndFailure records the lane dispatch on the review
@@ -205,7 +205,7 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 	retryID := "attempt:work-1:verify-4"
 	unapprovedPayload, err := json.Marshal(map[string]any{
 		"attempt_id":    retryID,
-		"worker_packet": verifyWallPacket(t, retryID, nil),
+		"worker_packet": verifyWallPacket(t, s, retryID, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +244,7 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 	version := workVersion(t, s, "work-1")
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verify-wall-challenge-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": verifyWallPacket(t, retryID, pin.Correction)},
+		"idempotency_key": "verify-wall-challenge-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": verifyWallPacket(t, s, retryID, pin.Correction)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -310,7 +310,7 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 	version = workVersion(t, s, "work-1")
 	input2 := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "verify-wall-challenge-2", "fields": map[string]any{"attempt_id": retry2ID, "worker_packet": verifyWallPacket(t, retry2ID, pin.Correction)},
+		"idempotency_key": "verify-wall-challenge-2", "fields": map[string]any{"attempt_id": retry2ID, "worker_packet": verifyWallPacket(t, s, retry2ID, pin.Correction)},
 	}
 	raw2, err := json.Marshal(input2)
 	if err != nil {

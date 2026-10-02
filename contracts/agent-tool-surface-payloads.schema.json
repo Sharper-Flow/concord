@@ -8489,13 +8489,17 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "task"
+            "task",
+            "binding"
           ],
           "properties": {
             "task": {
               "type": "string",
               "minLength": 1,
               "maxLength": 4096
+            },
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
             },
             "context": {
               "type": "string",
@@ -8521,6 +8525,83 @@
           }
         }
       }
+    },
+    "worker_packet_binding": {
+      "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective_source",
+        "work_version",
+        "contract_version",
+        "assigned_result"
+      ],
+      "properties": {
+        "objective_source": {
+          "type": "string",
+          "enum": [
+            "contract_premise",
+            "work_question"
+          ]
+        },
+        "work_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contract_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "assigned_result": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "contract_premise"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "work_question"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     },
     "work_transition_worktree_destroy_input": {
       "type": "object",
@@ -9066,7 +9147,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength)."
+      "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
     },
     "reference": {
       "type": "string",
@@ -9899,7 +9980,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -12932,7 +13014,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -13114,7 +13197,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",

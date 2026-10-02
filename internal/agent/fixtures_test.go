@@ -75,7 +75,7 @@ func TestWorkflowActionSchemaIsActionSpecificAndUsesPublicDispatchFields(t *test
 		t.Fatalf("public dispatch lane_id rejected: %v", err)
 	}
 
-	internalDispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"attempt_id":"attempt-1","worker_packet":{"schema_version":"1.0","attempt_id":"attempt-1","lane_id":"verify","lane_version":1,"lane_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","work_id":"work-1","step_id":"execute","inputs":{"task":"verify the change"}}}}`)
+	internalDispatch := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"dispatch_worker","idempotency_key":"dispatch-1","fields":{"attempt_id":"attempt-1","worker_packet":{"schema_version":"1.0","attempt_id":"attempt-1","lane_id":"verify","lane_version":1,"lane_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","work_id":"work-1","step_id":"execute","inputs":{"task":"verify the change","binding":{"objective_source":"contract_premise","work_version":1,"contract_version":1,"assigned_result":"exit_codes"}}}}}`)
 	if err := ValidatePayloadSchema("work_transition_action_public_input", internalDispatch); err == nil {
 		t.Fatal("public schema accepted adapter-owned dispatch fields")
 	}

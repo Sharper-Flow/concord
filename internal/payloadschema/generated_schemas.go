@@ -8144,6 +8144,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "minItems": 1
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11234,6 +11235,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11426,6 +11428,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -12061,6 +12064,9 @@ const GeneratedPayloadSchemaDocument = `{
         "inputs": {
           "additionalProperties": false,
           "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
             "constraints": {
               "items": {
                 "maxLength": 512,
@@ -12089,7 +12095,8 @@ const GeneratedPayloadSchemaDocument = `{
             }
           },
           "required": [
-            "task"
+            "task",
+            "binding"
           ],
           "type": "object"
         },
@@ -12123,6 +12130,83 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "step_id",
         "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet_binding": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "contract_premise"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "work_question"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
+      "properties": {
+        "assigned_result": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "type": "string"
+        },
+        "contract_version": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "objective_source": {
+          "enum": [
+            "contract_premise",
+            "work_question"
+          ],
+          "type": "string"
+        },
+        "work_version": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "objective_source",
+        "work_version",
+        "contract_version",
+        "assigned_result"
       ],
       "type": "object"
     },
@@ -13185,7 +13269,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "workflow_premise": {
-      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength).",
+      "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"

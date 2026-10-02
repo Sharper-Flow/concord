@@ -56,3 +56,13 @@ var generatedLegacyLaneDigests = map[string][]string{
 	"review:1":    []string{"sha256:cc4d20f113f1bd0a1587afe400b3c3e5421536814efc177bbdda8a4572e53a56", "sha256:49d6fac9d7ebcb95915dd3021e6e2cbd151a569a56221930c0d7a94232736e15"},
 	"verify:1":    []string{"sha256:27aa54758f4c90542c1e7d0da567e68bd79f8476cf50fa1590849be29a8a7f4c", "sha256:7999bab09a266d4e5bcda060e0cc75786f7c0678acbde09df7f30dd19fd9eff2"},
 }
+
+// generatedWorkerScopeAssignments maps each registered lane to the one
+// assigned result a worker attempt completes (contracts/worker-scope.v1.json).
+var generatedWorkerScopeAssignments = map[string]string{
+	"research":  "bounded_findings",
+	"implement": "files_touched",
+	"design":    "visual_artifacts",
+	"review":    "contract_findings",
+	"verify":    "exit_codes",
+}

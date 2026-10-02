@@ -13,7 +13,7 @@ const packet = {
   lane_digest: "sha256:" + "a".repeat(64),
   work_id: "work-1",
   step_id: "step-1",
-  inputs: { task: "do the bounded thing", context: "", constraints: [] },
+  inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
 }
 
 const here = async () => process.cwd()

@@ -28,7 +28,7 @@ const packet = (): AgentLanePacket => ({
   lane_digest: lane.digest,
   work_id: "work-1",
   step_id: "repair",
-  inputs: { task: "Verify the bounded fixture." },
+  inputs: { task: "Verify the bounded fixture.", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "exit_codes" } },
 })
 
 const workPin = {

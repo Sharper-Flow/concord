@@ -112,6 +112,15 @@ test("published tool arguments expose a host-safe request shape", () => {
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
   const payloadVariants = transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // The approval premise an author writes is the published action field, so
+  // it carries the unit guidance: code points, the UTF-8 byte admission, and
+  // its distinction from packet and model-token limits.
+  const premise = transition.properties.input.properties.fields.properties.premise
+  expect(premise.maxLength).toBe(4_096)
+  expect(premise.description).toContain("Unicode code points")
+  expect(premise.description).toContain("UTF-8 bytes")
+  expect(premise.description).toContain("model-token limit")
+  expect(premise.description).toContain("Do not truncate an approved objective")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   // project_id is the CD-0182 resume selector: resume-only, never capture.
@@ -2531,13 +2540,13 @@ const workStartDiagnosticCases: Array<{ name: string; args: unknown; fragments: 
   { name: "priority above maximum", args: { ...bootstrapArgs, priority: 101 }, fragments: ["priority", "maximum", "100"] },
   { name: "bad idempotency key", args: { ...bootstrapArgs, idempotency_key: "sensitive-input-value bad" }, fragments: ["idempotency_key", "match"] },
   { name: "bad workflow reference", args: { ...bootstrapArgs, workflow_type_ref: "sensitive-input-value bad" }, fragments: ["workflow_type_ref", "match"] },
-  { name: "empty title", args: { ...bootstrapArgs, title: "" }, fragments: ["title", "shorter", "1"] },
+  { name: "empty title", args: { ...bootstrapArgs, title: "" }, fragments: ["title", "Unicode code points", "minimum of 1"] },
   { name: "title character limit", args: { ...bootstrapArgs, title: "x".repeat(257) }, fragments: ["title", "256"] },
   { name: "title byte limit", args: { ...bootstrapArgs, title: "é".repeat(129) }, fragments: ["title", "256", "UTF-8 bytes"] },
   { name: "value statement byte limit", args: { ...bootstrapArgs, value_statement: "é".repeat(129) }, fragments: ["value_statement", "256", "UTF-8 bytes"] },
   { name: "external reference byte limit", args: { ...bootstrapArgs, external_ref: "é".repeat(129) }, fragments: ["external_ref", "256", "UTF-8 bytes"] },
   { name: "task byte limit", args: { ...bootstrapArgs, task: "🙂".repeat(2049) }, fragments: ["task", "8192", "UTF-8 bytes"] },
-  { name: "empty resume identity", args: { work_id: "" }, fragments: ["work_id", "shorter", "1"] },
+  { name: "empty resume identity", args: { work_id: "" }, fragments: ["work_id", "Unicode code points", "minimum of 1"] },
   { name: "invalid resume identity", args: { work_id: "sensitive-input-value bad" }, fragments: ["work_id", "match"] },
   { name: "oversize resume identity", args: { work_id: "w".repeat(129) }, fragments: ["work_id", "128"] },
   { name: "null resume identity", args: { work_id: null }, fragments: ["work_id", "string"] },
@@ -3076,7 +3085,7 @@ test("an ok worker_abandon releases the session's retained in-flight record", as
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
@@ -3123,7 +3132,7 @@ test("a worker_abandon refusal for a never-dispatched attempt releases the retai
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd())
@@ -3168,7 +3177,7 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd())

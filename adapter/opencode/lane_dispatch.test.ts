@@ -202,12 +202,14 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(isRecord(workflowInput.value)).toBe(true)
   const fields = (workflowInput.value as Record<string, unknown>).fields as Record<string, unknown>
   expect(typeof fields.attempt_id).toBe("string")
-  const packet = fields.worker_packet as Record<string, unknown>
+  const packet = fields.worker_packet as AgentLanePacket
   expect(isRecord(packet)).toBe(true)
   expect(packet.lane_id).toBe(lane.id)
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe(WORKFLOW_STEP)
-  expect(packet.attempt_id).toBe(fields.attempt_id)
+  expect(packet.attempt_id).toBe(fields.attempt_id as string)
+  expect(packet.inputs.task).toBe("Reachability test")
+  expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" })
   expect(validateAgentLanePacket(packet)).toBe(true)
   // The host runs the worker, so dispatch starts no process and records no
   // evidence. Both belong to completion (CD-0102 D5).
@@ -215,7 +217,7 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   expect(windows.has("session-1")).toBe(true)
 })
 
-test("pre-contract research dispatch builds a question mandate before core authorization", async () => {
+test("pre-contract research dispatch carries the recorded question as the task", async () => {
   const research = agentLanes.find((candidate) => candidate.id === "research")!
   const workflowInput: { value?: Record<string, unknown> } = {}
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
@@ -237,11 +239,116 @@ test("pre-contract research dispatch builds a question mandate before core autho
   const fields = workflowInput.value!.fields as Record<string, unknown>
   const packet = fields.worker_packet as AgentLanePacket
   expect(packet.lane_id).toBe(research.id)
-  expect(packet.inputs.task).toContain(NARRATIVE)
-  expect(packet.inputs.task).toContain("Step question:")
+  // The recorded question rides the task verbatim, not an invented objective;
+  // the narrative stays in context instead of a duplicate copy in the task.
+  expect(packet.inputs.task).toBe("Reachability: dispatch through work_transition")
+  expect(packet.inputs.task).not.toContain("Answer the recorded question")
+  expect(packet.inputs.task).not.toContain(NARRATIVE)
+  expect(packet.inputs.binding).toEqual({ objective_source: "work_question", work_version: 1, contract_version: null, assigned_result: "bounded_findings" })
+  expect(packet.inputs.context).toBe(NARRATIVE)
   expect(packet.inputs.outcome_predicates).toBeUndefined()
   expect(packet.inputs.constraints).toBeUndefined()
   expect(windows.has("session-1")).toBe(true)
+})
+
+// A full public dispatch with a premise at the admitted maximum —
+// 4096 UTF-8 bytes of ASCII — and eight synthetic predicates reaches the core
+// with the objective byte-for-byte and opens the authorization window. The
+// binding has independent capacity rather than consuming the task allowance.
+test("a full dispatch at the admitted maximum premise carries the objective verbatim and eight predicates", async () => {
+  const premise = "o".repeat(4_096)
+  const eightPredicates = Array.from({ length: 8 }, (_, ordinal) => ({
+    predicate_id: `predicate:dispatch-eight-${ordinal}`,
+    ordinal,
+    outcome_kind: "check",
+    outcome_payload: JSON.stringify({ kind: "check", check_ref: `check:dispatch/eight-${ordinal}`, immutable_subject_ref: "contracts/agent-lane-packet.schema.json", expected_result: "pass" }),
+  }))
+  const workflowInput: { value?: Record<string, unknown> } = {}
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") {
+      return continuityEnvelope({ pinned: { contract: { version: 2, premise, outcome_predicates: eightPredicates, required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false } } })
+    }
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { workflowInput.value = args.input; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "max-premise-dispatch", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, windows })
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  const fields = workflowInput.value!.fields as Record<string, unknown>
+  const packet = fields.worker_packet as AgentLanePacket
+  expect(packet.inputs.task).toBe(premise)
+  expect(Buffer.byteLength(packet.inputs.task, "utf8")).toBe(4_096)
+  expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 1, contract_version: 2, assigned_result: "files_touched" })
+  expect(packet.inputs.outcome_predicates).toHaveLength(8)
+  packet.inputs.outcome_predicates!.forEach((predicate, ordinal) => {
+    expect(predicate.ordinal).toBe(ordinal)
+    expect(predicate.predicate_id).toBe(`predicate:dispatch-eight-${ordinal}`)
+  })
+  expect(validateAgentLanePacket(packet)).toBe(true)
+  expect(windows.has("session-1")).toBe(true)
+})
+
+// Negative control: a premise the task bound refuses dispatches no core
+// attempt, opens no authorization window, and starts no worker. The refusal
+// names the field, the count unit, the actual, and the limit.
+test("an oversize premise authorizes nothing in the core", async () => {
+  const premise = "o".repeat(4_500)
+  let workflowCalls = 0
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") {
+      return continuityEnvelope({ pinned: { contract: { version: 1, premise, outcome_predicates: [{ predicate_id: "predicate:primary", ordinal: 0, outcome_kind: "check", outcome_payload: OUTCOME_PAYLOAD }], required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false } } })
+    }
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "oversize-premise", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("inputs.task")
+  expect(result.error?.message).toContain("Unicode code points")
+  expect(result.error?.message).toContain("4500")
+  expect(result.error?.message).toContain("4096")
+  expect(workflowCalls).toBe(0)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("predicate array overflow reports actual count before any authorization or window", async () => {
+  const predicates = Array.from({ length: 9 }, (_, ordinal) => ({
+    predicate_id: `predicate:overflow-${ordinal}`,
+    ordinal,
+    outcome_kind: "check",
+    outcome_payload: OUTCOME_PAYLOAD,
+  }))
+  let workflowCalls = 0
+  let runnerCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") {
+      return continuityEnvelope({ pinned: { contract: { version: 1, premise: "Verify the bound.", outcome_predicates: predicates, required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false } } })
+    }
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const runner: DispatchRunner = { async run() { runnerCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "array-overflow", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("inputs.outcome_predicates")
+  expect(result.error?.message).toContain("9 item(s)")
+  expect(result.error?.message).toContain("limit of 8")
+  expect(workflowCalls).toBe(0)
+  expect(runnerCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
 })
 
 // Where the worker will run must be known before the core authorizes the

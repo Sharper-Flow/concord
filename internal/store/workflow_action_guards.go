@@ -1591,6 +1591,9 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
+			if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
+				return events, "", err
+			}
 			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
 				return events, "", err
 			}

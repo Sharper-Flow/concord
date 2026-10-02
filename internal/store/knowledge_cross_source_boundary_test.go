@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -273,5 +275,96 @@ func TestRebuildKeepsOtherSourceScopeRows(t *testing.T) {
 	}
 	if got := countScopes(t); got != 2 {
 		t.Fatalf("the home rebuild erased the registered source's scope rows: %d remain", got)
+	}
+}
+
+// The two source roles stay disjoint (CD-0200 D1): the designated home is
+// always a source and never a registration row. Promoting a registered
+// source reconciles its registration in the same fold, so the effective
+// source set never names the same locator twice, and removing the home's
+// source role is the typed not-found refusal.
+func TestHomeDesignationReconcilesSourceRegistration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _, source := seedCrossSourceBoundaryProduct(t, "role-promotion")
+	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "role-promotion-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, ExpectedVersion: 2, Reason: "promote source"}); err != nil {
+		t.Fatalf("promoting a registered source to the shared home refused: %v", err)
+	}
+	sources, err := resolveKnowledgeQuerySources(ctx, s.DatabaseForTesting(), "role-promotion-product", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 {
+		t.Fatalf("the designated home occurs twice in the effective source set: %+v", sources)
+	}
+	if _, err := s.RemoveProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "role-promotion-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, ExpectedVersion: 3, Reason: "remove designated home"}); err == nil {
+		t.Fatal("removal of the designated home's source role succeeded instead of the typed not-found refusal")
+	}
+}
+
+// A cross-source relation names its endpoint by source plus bare target ID
+// (CD-0200 source-qualified identity). A local record holding the same bare
+// ID does not capture the endpoint, so the explicit source declaration
+// rebuilds instead of refusing as a same-manifest shape defect.
+func TestCrossSourceRelationNamesCollidingLocalTargetBySource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, source := seedCrossSourceBoundaryProduct(t, "target-collision")
+	shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := manifest.Records[0]
+	body, err := os.ReadFile(filepath.Join(home.RepoPath, local.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.Path = ".concord/docs/decisions/CD-0998-local-collision.md"
+	writeKnowledgeFile(t, home.RepoPath, local.Path, string(body))
+	local.ID = "SRC-LAW"
+	local.LawRelations = nil
+	manifest.Records = append(manifest.Records, local)
+	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "refines", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
+	writeManifestShards(t, home.RepoPath, manifest)
+	commitKnowledgeRepo(t, home.RepoPath, "explicitly qualified cross-source target")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("the explicit target source cannot disambiguate a colliding local ID: %v", err)
+	}
+}
+
+// A source-set proof binds the verified revisions, and the transaction
+// admission re-validates them (CD-0195 D2's cheap in-transaction
+// re-validation): a conflict committed after the verification moves the
+// source's head, the proof no longer holds, and the transaction-scoped
+// mandated-law boundary refuses the stale rows instead of answering from
+// them.
+func TestVerifiedSourceSetProofRefusesLaterConflict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, source := seedCrossSourceBoundaryProduct(t, "proof-conflict")
+	seedKnowledgeWork(t, s, "proof-conflict-work", "Proof conflict")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='proof-conflict-work' AND role='primary'; DELETE FROM fold_guard`, home.HomeProjectID); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, "proof-conflict-work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSourceRelations(t, source.RepoPath, []KnowledgeRelation{{Kind: "conflicts_with", TargetID: "HOME-LAW", SourceProjectID: home.HomeProjectID}})
+	commitKnowledgeRepo(t, source.RepoPath, "conflict after source-set verification")
+	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+		t.Fatal("setup: the public read did not reject the stale source set")
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(verified, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := checkMandatedLawsTxAtHome(verified, tx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
+		t.Fatal("the source-set proof admitted stale rows after a conflict committed post-verification")
 	}
 }

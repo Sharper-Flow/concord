@@ -159,3 +159,49 @@ func TestQueryQ9AndQ10ReturnIndexedSupersededLawStatusAndSuccessor(t *testing.T)
 		t.Fatalf("Q10 payload = %#v", q10.Result)
 	}
 }
+
+// A work lookup reads the historical corpus, not the current registered
+// source set (CD-0200): an archived work note is frozen evidence whose
+// recorded home is part of its identity, so a later home designation
+// changes neither its answer nor its locator.
+func TestQ10WorkNoteSurvivesHomeDesignationChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	path := ".concord/docs/work/2026-08-10-review-historical.md"
+	content := canonicalWorkNote("review-historical-work", "2026-08-10T00:00:00Z")
+	writeKnowledgeFile(t, repo, path, content)
+	commit := commitKnowledgeRepo(t, repo, "historical work note")
+	s := openTemp(t)
+	home := KnowledgeHome{HomeProjectID: "review-old-home", HomeLocatorID: "review-old-loc", RepoPath: repo, HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "review-history-product", home, home.HomeProjectID)
+	hash := sha256.Sum256([]byte(content))
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		"review-historical-work", "work_note", "Historical work", "2026-08-10T00:00:00Z", "completed", "[]", "completed", 1, "summary",
+		home.HomeProjectID, home.HomeLocatorID, path, commit, "sha256:"+hex.EncodeToString(hash[:]), "explicit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id) VALUES(?,?,?,?)`,
+		home.HomeProjectID, home.HomeLocatorID, "review-historical-work", "review-history-product"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.QueryQ10(ctx, Q10Request{Work: "review-historical-work", Product: "review-history-product"})
+	if err != nil || before.Status != "canonical" {
+		t.Fatalf("setup: before the home change Q10 = %+v, %v", before, err)
+	}
+	replacement := KnowledgeHome{HomeProjectID: "review-new-home", HomeLocatorID: "review-new-loc", RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
+	authorizeKnowledgeProductHome(t, s, "review-history-product", replacement, replacement.HomeProjectID)
+	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "review-history-product", ProjectID: replacement.HomeProjectID, LocatorID: replacement.HomeLocatorID, ExpectedVersion: 1, Reason: "new shared-law home"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.QueryQ10(ctx, Q10Request{Work: "review-historical-work", Product: "review-history-product"})
+	if err != nil || after.Status != "canonical" {
+		t.Fatalf("the frozen work note lost its answer after only the designation changed: status=%s err=%v", after.Status, err)
+	}
+}

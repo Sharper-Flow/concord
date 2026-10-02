@@ -274,11 +274,25 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
             bad_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC/LAW", "source_project_id": "registered-source"}]
             assert any("invalid law relation" in finding for finding in checker.validate(bad_relation, check_hashes=False))
             good_relation = copy.deepcopy(missing_registry)
+            # CD-0200 source-qualified identity: an explicit source_project_id
+            # owns the endpoint, so a bare target ID a local record also holds
+            # is a cross-source endpoint, not a shape defect. The corpus
+            # declares a local SRC-LAW beside the relation that names
+            # (registered-source, SRC-LAW), and the shape check passes; the
+            # endpoint validates over the verified source set at rebuild.
+            (root / ".concord/docs/src-law.md").write_text("source law\n", encoding="utf-8")
+            colliding_local = copy.deepcopy(missing_registry)
+            colliding_local["records"].append(dict(
+                colliding_local["records"][0],
+                id="SRC-LAW", path=".concord/docs/src-law.md",
+                sha256="sha256:" + "b" * 64, title="Source law", summary="Source summary",
+            ))
+            good_relation = colliding_local
             good_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC-LAW", "source_project_id": "registered-source"}]
             assert checker.validate(good_relation, check_hashes=False) == []
             same_manifest_target = copy.deepcopy(good_relation)
             same_manifest_target["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-1", "source_project_id": "registered-source"}]
-            assert any("names a source for a target declared in the same manifest" in finding for finding in checker.validate(same_manifest_target, check_hashes=False))
+            assert any("law relation target is the declaring law" in finding for finding in checker.validate(same_manifest_target, check_hashes=False))
             missing_scope = copy.deepcopy(value)
             del missing_scope["records"][0]["scopes"]["domain_ids"]
             assert checker.validate(missing_scope, check_hashes=False)

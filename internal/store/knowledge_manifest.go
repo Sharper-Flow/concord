@@ -972,13 +972,13 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target contains '/'; name the target source with source_project_id instead", false, "keep target_id a bare law ID and declare source_project_id")
 			}
 			target, ok := byID[relation.TargetID]
-			if !ok {
-				if relation.SourceProjectID == "" {
-					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
-				}
-				// Cross-manifest relation: target existence and the
-				// non-home precedence rule validate over the verified
-				// source set at rebuild (CD-0200).
+			if relation.SourceProjectID != "" {
+				// CD-0200 source-qualified identity: an explicit source
+				// project names the target's endpoint, so the relation is
+				// cross-source by declaration. A local record holding the
+				// same bare ID cannot capture the endpoint. Target
+				// existence, source-set membership, and the precedence
+				// rules validate over the verified source set at rebuild.
 				key := relation.Kind + "\x00" + record.ID + "\x00" + relation.SourceProjectID + "/" + relation.TargetID
 				if seen[key] {
 					return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is duplicated", false, "declare each typed law relation once")
@@ -986,8 +986,8 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 				seen[key] = true
 				continue
 			}
-			if relation.SourceProjectID != "" {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation names a source for a target declared in the same manifest", false, "declare source_project_id only for a target outside this manifest")
+			if !ok {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest, or name its source with source_project_id")
 			}
 			if !manifestLawRelationSubjects[target.Kind] {
 				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation target is not a declared decision/spec record", false, "reference a decision or spec in the same manifest")

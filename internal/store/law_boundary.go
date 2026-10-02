@@ -74,10 +74,15 @@ func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, home
 // transaction (CD-0195 D2) and the store pools one connection, so the
 // consequential law boundary proves its freshness with this value in the
 // call's context instead of re-probing: the transaction-scoped check refuses
-// a mandated-law read over a registered source set that carries no proof.
+// a mandated-law read over a registered source set that carries no proof,
+// and it re-validates the proof against the set and the per-source verified
+// revisions it records. A source whose head moved, or whose projection moved
+// off the verified revision, between the verification and the transaction
+// invalidates the proof.
 type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
+	revisions map[string]string
 }
 
 type knowledgeSourceSetProofKey struct{}
@@ -120,6 +125,7 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 	if err != nil || len(sources) <= 1 {
 		return ctx, nil
 	}
+	revisions := make(map[string]string, len(sources))
 	for _, source := range sources {
 		// Freshen first: a stale source rebuilds from its own head, and only
 		// then does the strict verification decide. An unreachable source
@@ -128,18 +134,23 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 		if err := s.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
 			return ctx, err
 		}
-		if _, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws"); err != nil {
+		verified, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws")
+		if err != nil {
 			return ctx, err
 		}
+		revisions[source.HomeProjectID+"/"+source.HomeLocatorID] = verified
 	}
-	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources}), nil
+	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources, revisions: revisions}), nil
 }
 
 // requireKnowledgeSourceSetProof refuses a transaction-scoped mandated-law
 // read over a registered source set that carries no proof, or a proof that no
-// longer matches the set the transaction sees. The refusal is the completion
-// gate's answer when the caller skipped the pre-transaction verification the
-// proof records.
+// longer matches the transaction's facts: the source set digest, the
+// projection watermark each verified revision was read from, and each
+// source's git head. The head re-read uses only small file reads
+// (resolveKnowledgeHeadCheap), so the re-validation stays inside CD-0195 D2.
+// The refusal is the completion gate's answer when the caller skipped the
+// pre-transaction verification, or when a source changed after it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil || productID == "" {
@@ -155,6 +166,24 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	}
 	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
+	}
+	for _, source := range proof.sources {
+		key := source.HomeProjectID + "/" + source.HomeLocatorID
+		revision := proof.revisions[key]
+		scanned, err := knowledgeIndexWatermark(ctx, q, source.HomeProjectID, source.HomeLocatorID, source.HeadRef)
+		if err != nil {
+			return err
+		}
+		if scanned != revision {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "the verified knowledge revision of registered source "+key+" is no longer the projection this transaction reads", false, "verify the Product's registered sources again before the consequential transaction opens")
+		}
+		current, headErr := resolveKnowledgeHeadCheap(source.RepoPath, source.HeadRef)
+		if headErr != nil {
+			return wrapFailure(KindInvalidOperation, "check_mandated_laws", "the git head of registered source "+key+" cannot be re-validated inside the transaction", false, "verify the Product's registered sources again before the consequential transaction opens", headErr)
+		}
+		if current != revision {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved to a new commit after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
+		}
 	}
 	return nil
 }

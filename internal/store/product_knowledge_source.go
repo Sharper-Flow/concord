@@ -124,6 +124,17 @@ func foldProductKnowledgeSourceRemoved(ctx context.Context, tx *sql.Tx, event Ev
 		return newFailure(KindInvalidPayload, "fold_event", "knowledge source payload names a different Product", false,
 			"remove the source on the event's own Product")
 	}
+	// CD-0200 D1: the designated home's source role is intrinsic — it is
+	// always a source and never a registration row — so its removal is the
+	// typed not-found refusal, never a delete of the home itself.
+	var homeProject, homeLocator string
+	homeErr := tx.QueryRowContext(ctx, `SELECT project_id, locator_id FROM product_knowledge_homes WHERE product_id = ?`, payload.ProductID).Scan(&homeProject, &homeLocator)
+	if homeErr == nil && homeProject == payload.ProjectID && homeLocator == payload.LocatorID {
+		return newFailure(KindProjectionNotFound, "fold_event", "locator is the Product's designated knowledge home, whose source role is not a removable registration", false,
+			"clear the home designation or remove a different registered source")
+	} else if homeErr != nil && homeErr != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the Product knowledge home", true, "retry once the database is readable", homeErr)
+	}
 	var projectID, locatorID string
 	err := tx.QueryRowContext(ctx, `SELECT project_id, locator_id FROM product_knowledge_sources WHERE product_id = ? AND project_id = ? AND locator_id = ?`,
 		payload.ProductID, payload.ProjectID, payload.LocatorID).Scan(&projectID, &locatorID)

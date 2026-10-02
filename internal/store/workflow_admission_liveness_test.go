@@ -1,0 +1,380 @@
+package store
+
+// The liveness law (CD-0201) as an exhaustive abstract check over every
+// registered definition version. Old versions stay in scope because stranded
+// items run on old pins (CD-0115 D2). The check is total: it proves
+//   (a) every well-formed nonterminal abstract state admits at least one
+//       non-continuity action — independent of the successor model, and
+//   (b) from every model-reachable nonterminal state a terminal step is
+//       reachable through admitted actions, counting operator-approvable
+//       routes (approval-required actions are admitted; the operator can
+//       approve them).
+// Both checks fail with a witness and never skip.
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// admissionModelState is one node of the abstract admission state space:
+// the workflow step, the folded post-rejection review debt, and the typed
+// verdict of the settling review whose acceptance stands ready.
+type admissionModelState struct {
+	step  string
+	debt  WorkflowReviewDebt
+	ready string // "", "ship", "absent"
+}
+
+// admissionHoldMode reports whether the action's execution mode holds the
+// work in place. The hold mode is the definition-owned base classifier; the
+// successor comparison in admissionExitAction decides the exit for every
+// mode against the folded rule.
+func admissionHoldMode(definition WorkflowDefinition, actionID string) bool {
+	mode, ok := workflowActionExecutionMode(definition, actionID)
+	if !ok {
+		if recovery, isRecovery := workflowRecoveryActionDefinition(actionID); isRecovery {
+			mode, ok = recovery.ExecutionMode, true
+		}
+	}
+	if !ok {
+		return true // unknown actions are held conservatively: never proof of an exit
+	}
+	return mode == ActionHold
+}
+
+// admissionExitAction reports whether one admitted action moves the work
+// out of the state: the successor comparison decides for every mode, so an
+// action whose fold keeps the step — the dispatched hold, the non-settling
+// accept whose advance waits — is never counted as an exit its engine does
+// not perform. request_correction is hold-moded but its fold returns a
+// parked step's change to the correction target step, so it stays an exit. A
+// state whose only admitted actions keep the step is stranded no matter how
+// many of them admit.
+func admissionExitAction(definition WorkflowDefinition, state admissionModelState, actionID string) bool {
+	// The successor comparison decides for every mode: an action whose
+	// successor equals the state holds the work in place no matter its
+	// declared mode, because the folded rule — the non-settling accept whose
+	// advance waits, the dispatched hold — keeps the step. Counting a
+	// same-state action as an exit would manufacture an exit the fold does
+	// not perform.
+	return admissionSuccessor(definition, state, actionID) != state
+}
+
+// admissionStateActions resolves the action universe of one abstract state:
+// the actions the step declares, plus the recovery actions whose admission
+// the folded state fully owns. request_correction counts only at a
+// correction workflow's delivery gate under outstanding debt — the parked
+// gate's debt-based return the engine proves — because the other recoveries'
+// preconditions (stale law, failed attempts, recorded verdicts) are not
+// folded into this state yet and counting them would manufacture exits no
+// engine admits.
+func admissionStateActions(definition WorkflowDefinition, state admissionModelState) []string {
+	seen := map[string]bool{}
+	var actions []string
+	add := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			actions = append(actions, id)
+		}
+	}
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID != state.step {
+			continue
+		}
+		for _, actionID := range step.Actions {
+			add(actionID)
+		}
+	}
+	if workflowCorrectionWorkflow(definition) && state.debt == ReviewDebtOutstanding && workflowStepIsDeliveryGate(workflowStep(definition, state.step)) {
+		if _, ok := workflowRecoveryActionDefinition("request_correction"); ok {
+			add("request_correction")
+		}
+	}
+	sort.Strings(actions)
+	return actions
+}
+
+// wellFormedAdmissionStates enumerates the well-formed abstract states of one
+// definition version: every step crossed with the debt and ready-review
+// combinations the loader can fold. The loader leaves the debt none outside a
+// correction workflow's review steps, and a ready review implies outstanding
+// debt. A ready review carries any typed verdict — a no_ship review stands
+// ready like a ship one, and its acceptance settles nothing.
+func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelState {
+	correction := workflowCorrectionWorkflow(definition)
+	var states []admissionModelState
+	for _, step := range definition.StepGraph.Steps {
+		state := admissionModelState{step: step.ID, debt: ReviewDebtNone}
+		states = append(states, state)
+		if !correction || !workflowPostRejectionReviewStep(definition, step.ID) {
+			continue
+		}
+		states = append(states,
+			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding},
+			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "ship"},
+			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "absent"},
+			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "no_ship"},
+		)
+	}
+	return states
+}
+
+// admissionWorkflowState lifts the abstract model state into the folded
+// WorkflowAdmissionState workflowAdmit decides over. The lift names the
+// conditions the engine proves for the well-formed states: a correction
+// workflow's gate under outstanding debt admits the evidence-bearing
+// corrective return, and a state whose step carries the premise confirmation
+// stands behind the operator question — the well-formed checkpoint carries
+// the investigation artifact the question requires. The artifact's own
+// presence is outside the folded dimensions; CON-809 owns widening the model
+// to the full fold.
+func admissionWorkflowState(definition WorkflowDefinition, state admissionModelState) WorkflowAdmissionState {
+	return WorkflowAdmissionState{
+		Step:                      state.step,
+		CorrectionWorkflow:        workflowCorrectionWorkflow(definition),
+		ReviewStep:                workflowPostRejectionReviewStep(definition, state.step),
+		ReviewDebt:                state.debt,
+		ReadyReviewAttemptID:      admissionReadyAttemptID(state),
+		ReadyReviewVerdict:        state.ready,
+		ReadyReviewSettles:        workflowReviewSettlesDebt(state.ready),
+		CorrectionRequestRecovery: workflowCorrectionWorkflow(definition) && state.debt == ReviewDebtOutstanding && workflowStepIsDeliveryGate(workflowStep(definition, state.step)),
+		PendingOperatorDecision:   workflowOperatorDecisionPending(definition, state.step) || stepDeclaresAction(definition, state.step, "confirm_premise"),
+	}
+}
+
+// admissionReadyAttemptID names the ready review the model carries, so the
+// identity-satisfying accept route counts as admitted.
+func admissionReadyAttemptID(state admissionModelState) string {
+	if state.ready == "" {
+		return ""
+	}
+	return "attempt:model:ready-" + state.ready
+}
+
+// admissionSuccessor is the abstract successor of one admitted action over
+// one model state. The step move is definition-owned: an advance-mode action
+// follows the forward edge; a hold or fenced action keeps the step. The
+// review-family effects are the folded debt semantics: a rejection opens the
+// debt, a review dispatch completes and awaits acceptance, the settling
+// accept — ship, or absent for the pre-CD-0197 reports — clears the debt and
+// carries the advance its mode names, and the no_ship accept binds its
+// findings, leaves the debt outstanding, and keeps the step current: the
+// advance waits for a settling review (CD-0201 D3), the fold the engine
+// performs on the accepted no_ship review.
+func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
+	next := state
+	advance := actionID != "request_correction"
+	switch actionID {
+	case "reject_worker_result":
+		next.debt, next.ready = ReviewDebtOutstanding, ""
+	case "dispatch_worker":
+		if next.debt == ReviewDebtOutstanding {
+			// A fresh review dispatch supersedes any ready review: the
+			// loader names the latest completed review whose acceptance no
+			// action has dispositioned, so the new completion replaces the
+			// standing one and the acceptance that follows settles from it.
+			next.ready = "ship"
+		}
+	case "accept_worker_result":
+		if next.ready != "" {
+			if next.ready == "no_ship" {
+				// The no_ship accept preserves the findings and settles
+				// nothing: the debt stays outstanding and the advance waits
+				// for a settling review, so the step stays current.
+				next.ready = ""
+				advance = false
+				break
+			}
+			next.debt, next.ready = ReviewDebtNone, ""
+		}
+	case "request_correction":
+		if target := workflowCorrectionTargetStep(definition, state.step); target != "" {
+			next.step = target
+		}
+	}
+	if advance {
+		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
+			if forward := workflowNextStep(definition, state.step); forward != "" {
+				next.step = forward
+			}
+		}
+	}
+	return next
+}
+
+// admissionModelMoves resolves the admitted moves of one state: every action
+// of the state's universe whose workflowAdmit decision admits it, plus the
+// debt family's deferred advance — the fresh-review refusal the review gate
+// owns, whose identity-satisfying accept the guard admits. The deferral
+// counts the accept alone: the gate's carve-out is the accept whose attempt
+// identity names the ready review, and the deferred record_delivery refusal
+// admits nothing payload-blind, so counting it would manufacture a move no
+// engine admits.
+func admissionModelMoves(definition WorkflowDefinition, state admissionModelState) []string {
+	folded := admissionWorkflowState(definition, state)
+	var moves []string
+	for _, actionID := range admissionStateActions(definition, state) {
+		decision := workflowAdmit(definition, folded, actionID)
+		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision) && folded.ReadyReviewAttemptID != "" && actionID == "accept_worker_result") {
+			moves = append(moves, actionID)
+		}
+	}
+	return moves
+}
+
+func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
+	return containsString(definition.StepGraph.TerminalSteps, step)
+}
+
+// wellFormedAdmissionExitWitnesses walks one definition version's well-formed
+// nonterminal abstract states and returns a witness line for each state that
+// admits no non-continuity exit.
+func wellFormedAdmissionExitWitnesses(definition WorkflowDefinition) []string {
+	var witnesses []string
+	for _, state := range wellFormedAdmissionStates(definition) {
+		if admissionTerminalStep(definition, state.step) {
+			continue
+		}
+		exits := []string{}
+		for _, actionID := range admissionModelMoves(definition, state) {
+			if admissionExitAction(definition, state, actionID) {
+				exits = append(exits, actionID)
+			}
+		}
+		if len(exits) == 0 {
+			witnesses = append(witnesses, fmt.Sprintf("well-formed nonterminal state (step %q debt %q ready %q) admits no non-continuity action; admitted: %s",
+				state.step, state.debt, state.ready, strings.Join(admissionModelMoves(definition, state), ", ")))
+		}
+	}
+	return witnesses
+}
+
+// TestWellFormedAdmissionStateHasNonContinuityExit proves liveness clause
+// (a) over every registered definition version: every well-formed nonterminal
+// abstract state admits at least one non-continuity action.
+func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
+	definitions := builtinWorkflowDefinitionsWithHistory()
+	if len(definitions) == 0 {
+		t.Fatal("no built-in workflow definitions are registered")
+	}
+	for _, definition := range definitions {
+		for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
+			t.Fatalf("%s v%d: %s", definition.Ref, definition.Version, witness)
+		}
+	}
+}
+
+// TestWellFormedExitCheckNamesSeededStrandedState proves the seeded-strand
+// half of the exit check: a definition whose step declares only hold actions
+// produces a witness that names the stranded state, so the check fails rather
+// than assumes.
+func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
+	builtins := builtinWorkflowDefinitionsWithHistory()
+	if len(builtins) == 0 {
+		t.Fatal("no built-in workflow definitions are registered")
+	}
+	seeded := cloneWorkflowDefinition(builtins[0])
+	seeded.Ref = "workflow.seed_missing_exit"
+	seeded.Version = 1
+	for i := range seeded.StepGraph.Steps {
+		if seeded.StepGraph.Steps[i].ID == seeded.StepGraph.StartStep {
+			seeded.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
+		}
+	}
+	witnesses := wellFormedAdmissionExitWitnesses(seeded)
+	if len(witnesses) == 0 {
+		t.Fatal("the seeded hold-only step produced no stranded witness")
+	}
+	if !strings.Contains(witnesses[0], seeded.StepGraph.StartStep) {
+		t.Fatalf("witness does not name the stranded step: %s", witnesses[0])
+	}
+}
+
+// TestReachableAdmissionStateReachesTerminal proves liveness clause (b) over
+// every registered definition version: from every model-reachable nonterminal
+// state, a terminal step is reachable through admitted actions. The witness
+// names the definition, the stranded state, and the admitted moves the model
+// exhausted.
+func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
+	definitions := builtinWorkflowDefinitionsWithHistory()
+	if len(definitions) == 0 {
+		t.Fatal("no built-in workflow definitions are registered")
+	}
+	for _, definition := range definitions {
+		start := admissionModelState{step: definition.StepGraph.StartStep}
+		reachable := admissionReachableStates(definition, start)
+		for _, state := range reachable {
+			if admissionTerminalStep(definition, state.step) {
+				continue
+			}
+			if !admissionReachesTerminal(definition, state, map[admissionModelState]bool{}) {
+				t.Fatalf("%s v%d: reachable nonterminal state (step %q debt %q ready %q) reaches no terminal step; admitted moves: %s",
+					definition.Ref, definition.Version, state.step, state.debt, state.ready,
+					strings.Join(admissionModelMoves(definition, state), ", "))
+			}
+		}
+	}
+}
+
+// admissionReachableStates is the BFS over the abstract successor from the
+// start state through admitted moves.
+func admissionReachableStates(definition WorkflowDefinition, start admissionModelState) []admissionModelState {
+	seen := map[admissionModelState]bool{start: true}
+	frontier := []admissionModelState{start}
+	var reachable []admissionModelState
+	for len(frontier) != 0 {
+		var next []admissionModelState
+		for _, state := range frontier {
+			reachable = append(reachable, state)
+			for _, actionID := range admissionModelMoves(definition, state) {
+				successors := []admissionModelState{admissionSuccessor(definition, state, actionID)}
+				if actionID == "dispatch_worker" && state.debt == ReviewDebtOutstanding && state.ready == "" {
+					// A fresh review completes with any typed verdict; the
+					// no_ship completion is the twin the well-formed space
+					// carries.
+					twin := successors[0]
+					twin.ready = "no_ship"
+					successors = append(successors, twin)
+				}
+				for _, successor := range successors {
+					if !seen[successor] {
+						seen[successor] = true
+						next = append(next, successor)
+					}
+				}
+			}
+		}
+		frontier = next
+	}
+	return reachable
+}
+
+// admissionReachesTerminal is the depth-first terminal search over admitted
+// moves, bounded by the visited set so cycles cannot loop it.
+func admissionReachesTerminal(definition WorkflowDefinition, state admissionModelState, visiting map[admissionModelState]bool) bool {
+	if admissionTerminalStep(definition, state.step) {
+		return true
+	}
+	if visiting[state] {
+		return false
+	}
+	visiting[state] = true
+	for _, actionID := range admissionModelMoves(definition, state) {
+		if admissionReachesTerminal(definition, admissionSuccessor(definition, state, actionID), visiting) {
+			return true
+		}
+	}
+	return false
+}
+
+// The model's witness rendering for a failing path, used by the conformance
+// test's failure output.
+func admissionModelPathString(definition string, path []admissionModelState) string {
+	parts := make([]string, 0, len(path))
+	for _, state := range path {
+		parts = append(parts, fmt.Sprintf("%s(Step=%s,debt=%s,ready=%s)", definition, state.step, state.debt, state.ready))
+	}
+	return strings.Join(parts, " -> ")
+}

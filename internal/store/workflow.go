@@ -232,6 +232,14 @@ type workflowActionCompletedPayload struct {
 	CorrectionPredicateIDs   []string `json:"correction_predicate_ids,omitempty"`
 	DeliveryArtifact         string   `json:"delivery_artifact,omitempty"`
 	DeliveryState            string   `json:"delivery_state,omitempty"`
+	// ReviewAdvanceHeld records the accept guard's one admission decision
+	// over the review-debt family: the accepted attempt is the ready
+	// non-settling review whose verdict leaves the debt outstanding, so the
+	// step advance waits for a settling review (CD-0201 D3). The guard
+	// writes it on the completion it authors; the fold honors the recorded
+	// field only and never re-derives the verdict, so an event without the
+	// field advances as recorded and recorded history replays unchanged.
+	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -2122,6 +2130,16 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
 		advancesStep = ok && executionMode == ActionAdvance
+		// A non-settling accepted review keeps the step current: refine does
+		// not advance to delivery behind a no_ship review, and the advance
+		// waits for a settling review (CD-0201 D3). The decision is the
+		// admission's alone: the accept guard records it on the completion
+		// it authors (review_advance_held), and the fold honors the recorded
+		// field only. An event without the field advances as recorded, so
+		// recorded history replays unchanged.
+		if p.ActionID == "accept_worker_result" {
+			advancesStep = advancesStep && !p.ReviewAdvanceHeld
+		}
 		if advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
 				return err
@@ -2171,9 +2189,19 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {
 			// The correction admission consults the current verdict state,
 			// which replay derives only as its folds reach it. The log stays
-			// the authority for the recorded request.
+			// the authority for the recorded request. The fold derives the
+			// correction request once — excludeSeq keeps its own in-flight
+			// completion out of the anchor's settled-entry judgment — and
+			// the payload check binds against that derivation.
+			context, missing, contextErr := workflowCorrectionRequestAdmission(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+			if contextErr != nil {
+				return contextErr
+			}
+			if context == nil {
+				return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
+			}
 			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
-			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event", event.Seq); err != nil {
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, correctionPayload, "fold_event", context); err != nil {
 				return err
 			}
 		}
@@ -2263,22 +2291,36 @@ func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, definition
 // checkpoint holds it until an accept or a checkpoint failure record
 // dispositions it, or a later worker actually dispatches there. A window no
 // worker used appears nowhere in that history, so it releases nothing.
+// beforeSeq bounds every search; zero reads the whole recorded history, so
+// the disposition checks bind only when the caller carries a position.
 func workflowCheckpointDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (bool, error) {
 	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, stepID, beforeSeq)
 	if err != nil || !found {
 		return false, err
 	}
 	if lifecycle == "completed" {
+		acceptBound := ""
+		args := []any{workID, WorkflowActionCompleted, attemptID}
+		if beforeSeq > 0 {
+			acceptBound = " AND seq<?"
+			args = append(args, beforeSeq)
+		}
 		var accepted int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&accepted); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(payload,'$.worker_attempt_id')=?`+acceptBound, args...).Scan(&accepted); err != nil {
 			return false, workflowProjectionError(err, "cannot inspect worker attempt accepts for the current workflow attempt")
 		}
 		if accepted != 0 {
 			return false, nil
 		}
 	}
+	recordBound := ""
+	args := []any{workID, WorkflowActionCompleted, attemptID}
+	if beforeSeq > 0 {
+		recordBound = " AND seq<?"
+		args = append(args, beforeSeq)
+	}
 	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&recorded); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`+recordBound, args...).Scan(&recorded); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect recorded worker failures for the current workflow attempt")
 	}
 	return recorded == 0, nil

@@ -654,17 +654,25 @@ func insertSupersededLaw(t *testing.T, s *Store, lawID, hash string) {
 	}
 }
 
-// The advisory read form and the mutation form must agree: on an empty law
-// mandate with an active Domain overlap, both return the typed overlap
-// refusal. The removed non-transactional twin returned nil here — the overlap
+// The read form and the mutation form must agree: on an empty law mandate
+// with an active Domain overlap, both return the typed overlap refusal. The
+// read form is the tx-scoped boundary the admission fold runs inside its own
+// transaction; a non-transactional twin once returned nil here — the overlap
 // half of the boundary silently omitted from the read path (issue #376).
 func TestWorkflowLawRevisionStalenessReadFormRunsTheOverlapHalf(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "overlap-left", "overlap-right", true)
 
+	readErr := func() error {
+		tx, beginErr := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if beginErr != nil {
+			return beginErr
+		}
+		defer tx.Rollback()
+		return checkWorkflowLawRevisionStalenessTx(ctx, tx, "overlap-left")
+	}()
 	var readFailure *Failure
-	readErr := checkWorkflowLawRevisionStalenessReadTx(ctx, s.DatabaseForTesting(), "overlap-left")
 	if !errors.As(readErr, &readFailure) || readFailure.Kind != KindDomainOverlap || readFailure.DomainOverlap == nil || len(readFailure.DomainOverlap.Overlaps) != 1 {
 		t.Fatalf("read form: expected typed overlap refusal, got %v", readErr)
 	}

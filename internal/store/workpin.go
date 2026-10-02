@@ -648,7 +648,7 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 // kind unbound then sees no route out, which is the wedge the acceptance
 // deliverable gate refuses on. The conditions here are the fold's conditions,
 // so the pin never advertises an action the fold would refuse.
-func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
+func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
 	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
 		return false, nil
 	}
@@ -656,7 +656,7 @@ func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, tx *sql.Tx, d
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
 		return false, nil
 	}
-	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, tx, workID, definition)
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, q, workID, definition)
 	if err != nil {
 		return false, err
 	}

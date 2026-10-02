@@ -36,15 +36,15 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			want:  map[string]bool{"record_delivery": true, "accept_worker_result": true, "dispatch_worker": true, "checkpoint_context": true},
 		},
 		{
-			name:  "debt at the refine step hides both advances",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
-			want:  map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true, "checkpoint_context": true},
+			name:     "debt at the refine step hides both advances",
+			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
+			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true, "checkpoint_context": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 		{
-			name:  "debt at the gate hides only the delivery exit",
-			state: WorkflowAdmissionState{Step: gateStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
-			want:  map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true},
+			name:     "debt at the gate hides only the delivery exit",
+			state:    WorkflowAdmissionState{Step: gateStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
+			want:     map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true},
 			refusals: map[string]bool{"record_delivery": true},
 		},
 		{
@@ -53,15 +53,15 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			want:  map[string]bool{"record_delivery": true, "request_correction": true},
 		},
 		{
-			name:  "a ready settling review stands behind the accept",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-ship", ReadyReviewVerdict: "ship"},
-			want:  map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
+			name:     "a ready settling review stands behind the accept",
+			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-ship", ReadyReviewVerdict: "ship"},
+			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 		{
-			name:  "the loader never folds a no_ship ready review but the answer stays defined",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-no-ship", ReadyReviewVerdict: "no_ship"},
-			want:  map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
+			name:     "the loader never folds a no_ship ready review but the answer stays defined",
+			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-no-ship", ReadyReviewVerdict: "no_ship"},
+			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 	}

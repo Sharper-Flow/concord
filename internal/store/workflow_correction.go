@@ -567,6 +567,12 @@ func workflowSameStepWindowAnchor(ctx context.Context, q queryer, definition Wor
 // when the same-step failed count reaches the CD-0164 limit. The message names
 // the counted population, and the escalated retry approval is the one escape.
 func workflowSameStepWallRefusal(currentStep string, count int64) error {
+	return workflowSameStepWallFailure(currentStep, count)
+}
+
+// workflowSameStepWallFailure is the wall refusal's typed form, so the shared
+// admission and the folding guard carry one refusal.
+func workflowSameStepWallFailure(currentStep string, count int64) *Failure {
 	return newFailure(KindApprovalRequired, "workflow_action",
 		fmt.Sprintf("worker dispatch at step %s reached the three-failed-attempt limit: %d failed attempts dispatched at this step since the last accepted result or step entry", currentStep, count),
 		false, "escalate the failed attempts to the operator")
@@ -893,8 +899,19 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// so a no_ship review keeps the corrective return admitted here exactly
 	// as it keeps record_delivery hidden.
 	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, currentStep, subject)
-	if err != nil || state.ReviewDebt != ReviewDebtOutstanding {
+	if err != nil {
 		return nil, err
+	}
+	return workflowDeliveryGateCorrectionContextFolded(ctx, q, workID, definition, currentStep, subject, state)
+}
+
+// workflowDeliveryGateCorrectionContextFolded is the gate's corrective return
+// over an admission state the caller already folded. The shared loader passes
+// its own state here, so the gate derivation reads the debt it carries instead
+// of re-entering the loader.
+func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, state WorkflowAdmissionState) (*WorkflowCorrectionContext, error) {
+	if state.ReviewDebt != ReviewDebtOutstanding {
+		return nil, nil
 	}
 	refineStep := workflowRefinementStepID(definition)
 	var rejectSeq int64
@@ -915,10 +932,11 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	}
 	predicates := correctionReferenceStrings(fields.CorrectionPredicates)
 	if len(predicates) == 0 {
-		predicates, err = workflowActiveContractPredicateIDs(ctx, q, workID, subject)
-		if err != nil {
-			return nil, err
+		contractPredicates, contractErr := workflowActiveContractPredicateIDs(ctx, q, workID, subject)
+		if contractErr != nil {
+			return nil, contractErr
 		}
+		predicates = contractPredicates
 	}
 	if len(predicates) == 0 {
 		return nil, nil

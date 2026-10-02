@@ -17,7 +17,13 @@ import (
 // model state and compares the two.
 func conformanceCheckpoint(t *testing.T, s *Store, definition WorkflowDefinition, step string, want admissionModelState, label string) {
 	t.Helper()
-	loaded, err := loadWorkflowAdmissionStateTx(context.Background(), s.db, "admission-conformance", definition, step, "workflow_admission_conformance_test")
+	ctx := context.Background()
+	tx, txErr := s.db.BeginTx(ctx, nil)
+	if txErr != nil {
+		t.Fatalf("%s: begin: %v", label, txErr)
+	}
+	defer func() { _ = tx.Rollback() }()
+	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, "admission-conformance", definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}

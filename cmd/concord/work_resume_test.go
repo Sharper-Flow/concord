@@ -76,13 +76,16 @@ func locatorOriginPath(t *testing.T, repo string) string {
 
 // pushLocatorOriginCommit advances the real origin by one commit from a
 // throwaway clone and returns its SHA, leaving the working repository's
-// remote-tracking cache stale until a fetch runs.
+// remote-tracking cache stale until a fetch runs. The clone carries its own
+// synthetic identity, so the commit never depends on the host's Git config.
 func pushLocatorOriginCommit(t *testing.T, repo, message string) string {
 	t.Helper()
 	origin := locatorOriginPath(t, repo)
 	seedParent := t.TempDir()
 	seed := filepath.Join(seedParent, "seed")
 	gitOutput(t, seedParent, "clone", "-q", origin, "seed")
+	gitOutput(t, seed, "config", "user.name", "t")
+	gitOutput(t, seed, "config", "user.email", "t@t")
 	if err := os.WriteFile(filepath.Join(seed, message), []byte(message+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +94,25 @@ func pushLocatorOriginCommit(t *testing.T, repo, message string) string {
 	gitOutput(t, seed, "push", "-q", "origin", "main")
 	head := strings.TrimSpace(gitOutput(t, seed, "rev-parse", "HEAD"))
 	return head
+}
+
+// TestPushLocatorOriginCommitNeedsNoHostGitIdentity runs the origin-advance
+// fixture with every host identity source removed, the way a clean CI runner
+// presents Git, and proves the pushed commit reaches the origin.
+func TestPushLocatorOriginCommitNeedsNoHostGitIdentity(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, name := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := initLocatorRepo(t)
+	pushed := pushLocatorOriginCommit(t, repo, "isolated-identity")
+	if got := strings.TrimSpace(gitOutput(t, locatorOriginPath(t, repo), "rev-parse", "refs/heads/main")); got != pushed {
+		t.Fatalf("origin main = %q, want pushed commit %q", got, pushed)
+	}
 }
 
 // goOfflineLocatorOrigin swaps the insteadOf mapping onto a removed local

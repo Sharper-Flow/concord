@@ -358,10 +358,15 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 // source-qualified nodes, and a cycle refuses the rebuild. CD-0200 D5: a
 // declared cross-source relation validates over the verified source set, so
 // before its target rows answer, every projected peer source's watermark
-// verifies against the peer's git head. A peer with no projection yet is an
-// omitted source (CD-0200 degraded-not-negative): the declaring shared home
-// proceeds without it instead of blocking the federation's only
-// reconstruction order, and a projected but stale peer still refuses.
+// verifies against the peer's git head, and a projected but stale peer
+// still refuses. A peer with no usable projection — never rebuilt, cleared,
+// or stamped incomplete over the law Domain rows the shared home's absent
+// registry forced it to omit — has no rows to read as evidence, so the
+// declaring rebuild resolves that peer's endpoints from the peer's verified
+// git head instead: an unreadable head, an absent manifest, or an
+// undeclared target law refuses the rebuild admission. Reconstruction
+// succeeds in either order, and read degradation never admits an
+// unresolvable edge.
 func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home KnowledgeHome, manifest KnowledgeManifest) error {
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, db, home)
 	if err != nil {
@@ -381,17 +386,18 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 	// target law removed at the peer's git head without a rebuild refuses
 	// here instead of admitting an edge against a vanished target. The home
 	// under rebuild verifies through its own rebuild admission, a peer with
-	// no projection yet is an omitted source for the declaring shared home
-	// (see knowledgeSourceUnprojected), and a registered source still
-	// refuses an unverified set, which is why the verification runs only
-	// when the manifest declares cross-source relations and the seed
-	// ordering (shared home first) stays valid.
+	// no usable projection is an omitted source for the declaring shared
+	// home (see knowledgeSourceRowsUnverified) whose endpoints resolve from
+	// its verified git head below, and a registered source still refuses an
+	// unverified set, which is why the verification runs only when the
+	// manifest declares cross-source relations and the seed ordering
+	// (shared home first) stays valid.
 	if manifestDeclaresCrossSourceRelations(manifest) {
 		for _, peer := range sources {
 			if peer.HomeProjectID == home.HomeProjectID && peer.HomeLocatorID == home.HomeLocatorID {
 				continue
 			}
-			if !sourceRole && knowledgeSourceUnprojected(ctx, db, peer) {
+			if !sourceRole && knowledgeSourceRowsUnverified(ctx, db, peer) {
 				continue
 			}
 			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, peer, false, "rebuild_knowledge_index"); err != nil {
@@ -429,11 +435,18 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, db, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
 			}
-			// An unprojected target source stays an omitted source for the
-			// declaring shared home: no endpoint row of that source can
-			// answer yet, and the peer verification above already admitted
-			// the omission. A projected target must resolve the named law.
-			if knowledgeSourceUnprojected(ctx, db, target) {
+			// A target source with no usable projection — never rebuilt,
+			// cleared, or stamped incomplete over omitted Domain rows — has
+			// no endpoint row to query, so the endpoint resolves from that
+			// source's verified git head instead (CD-0200 reconstruction):
+			// an unreadable head, an absent manifest, or an undeclared law
+			// refuses the rebuild admission. Read degradation governs
+			// answers, never admission. A projected target must resolve the
+			// named law from its rows.
+			if knowledgeSourceRowsUnverified(ctx, db, target) {
+				if err := resolvePeerRelationTargetFromGitHead(ctx, db, target, relation.TargetID); err != nil {
+					return err
+				}
 				continue
 			}
 			var present int
@@ -550,16 +563,56 @@ func scanFederatedRelationEdges(rows *sql.Rows, projectID, targetProjectColumn s
 	return rows.Close()
 }
 
-// knowledgeSourceUnprojected reports whether a registered source holds no
-// knowledge-index watermark: it has never rebuilt (or its projection was
-// cleared), so no endpoint row of that source can answer a cross-source
-// validation. The declaring shared home omits such a peer instead of
-// blocking on it (CD-0200 degraded-not-negative); a read error counts as
-// projected and surfaces through the freshness probe that follows.
-func knowledgeSourceUnprojected(ctx context.Context, db *sql.DB, home KnowledgeHome) bool {
-	var present int
-	err := db.QueryRowContext(ctx, `SELECT 1 FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&present)
-	return err == sql.ErrNoRows
+// knowledgeSourceRowsUnverified reports whether a registered source holds
+// no watermark a declaring rebuild can read endpoints from: it has never
+// rebuilt (or its projection was cleared), or its watermark is stamped
+// incomplete over the law Domain rows the shared home's absent registry
+// forced it to omit (CD-0200 reconstruction). Such a peer contributes no
+// rows as validation evidence; the declaring shared home resolves its
+// endpoints from its verified git head instead. A read error counts as
+// verified and surfaces through the verification that follows.
+func knowledgeSourceRowsUnverified(ctx context.Context, db *sql.DB, home KnowledgeHome) bool {
+	var complete int
+	err := db.QueryRowContext(ctx, `SELECT complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&complete)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return complete == 0
+}
+
+// resolvePeerRelationTargetFromGitHead resolves a declared cross-source
+// relation endpoint from the target source's verified git head when that
+// source holds no usable projection (CD-0200 reconstruction). The peer's
+// manifest read at its current head is the only evidence available, so an
+// unreadable head, an absent manifest, or a manifest that does not declare
+// the named law refuses the rebuild admission instead of leaving the edge
+// unresolved. Reading the peer under its own manifest role applies the same
+// shape rules its own rebuild applies.
+func resolvePeerRelationTargetFromGitHead(ctx context.Context, db *sql.DB, target KnowledgeHome, lawID string) error {
+	head, err := resolveKnowledgeHead(ctx, target)
+	if err != nil {
+		return err
+	}
+	role, err := resolveKnowledgeManifestRole(ctx, db, target)
+	if err != nil {
+		return err
+	}
+	manifest, manifestMissing, err := readKnowledgeManifest(ctx, target.RepoPath, head, role)
+	if err != nil {
+		return err
+	}
+	if manifestMissing {
+		return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target names an unprojected source with no knowledge manifest: "+target.HomeProjectID+"/"+lawID, false, "publish the target law in its source and rebuild that source before declaring the relation")
+	}
+	for _, record := range manifest.Records {
+		if record.ID == lawID && manifestLawBearingKinds[record.Kind] {
+			return nil
+		}
+	}
+	return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target does not exist at the unprojected source's git head: "+target.HomeProjectID+"/"+lawID, false, "publish the target law in its source and rebuild that source before declaring the relation")
 }
 
 // sharedLawHomeLocator reads the locator of the Product's designated shared
@@ -578,16 +631,18 @@ func sharedLawHomeLocator(ctx context.Context, q queryer, productID string) stri
 // validate against the registry the shared home projected, and the source
 // writes only its law Domain homes and applicability rows. When the shared
 // home has projected no registry yet, the source's first rebuild proceeds
-// without Domain rows instead of blocking the federation's only
-// reconstruction order (CD-0200 degraded-not-negative); the source's next
-// rebuild after the home projects validates its law Domains against the
-// registry.
+// without Domain rows and stamps its watermark incomplete instead of
+// blocking the federation's only reconstruction order (CD-0200
+// reconstruction); the watermark never reads fresh, so a demand-freshness
+// rebuild backfills the omitted rows once the home projects, and that
+// rebuild validates its law Domains against the registry.
 func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, productID string, manifest KnowledgeManifest) (domainProjection, error) {
 	result := domainProjection{ProductID: productID, SourceRole: true}
 	var productKey, rootDomain, registryHash string
 	err := q.QueryRowContext(ctx, `SELECT product_key,root_domain_id,content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&productKey, &rootDomain, &registryHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
+		result.DomainRowsOmitted = true
 		return result, nil
 	}
 	if err != nil {

@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2f04b9e71a6a84fb7bebe79b16ec63383b9a6373947bfd12c22159d516a89f37",
+  "sha256": "sha256:2bd83223d72ff841227f1be2de80e6c81302f9369d3207485e5aeb4aa7cbe9bd",
   "status": "accepted",
   "summary": "Defines Git-authoritative typed law relations and bounded workflow conflict checks.",
   "tags": [

@@ -72,19 +72,35 @@ structured source field in manifests. A bare ID resolves Product-wide and
 refuses as ambiguous when two sources hold it. A rebuild refuses a law ID
 that contains `/`, which the qualified form reserves.
 
-### D5. Cross-source relations are explicit and never infer precedence
+### D5. Cross-source relations are explicit, never infer precedence, and never supersede across sources
 
 A relation whose target lives outside the declaring manifest names the
 target's source Project. The relation validates over the verified source
 set at the declaring source's rebuild and again at every consequential
-boundary: the target Project must be registered, the target law must be
-projected, and a `conflicts_with` pair across sources blocks the rebuild
-and every consequential check until an accepted relation or amendment
-resolves it. The declaring source's rebuild projects the edge into
-`law_cross_source_relations` with its target source, and a consequential
-boundary that finds the target unregistered or unprojected refuses. A
-non-home source may not declare `supersedes`, `refines`, or
-`subordinate_to` toward shared-home law. No precedence is inferred.
+boundary: the target Project must be registered, the target law must
+resolve over the verified source set, and a `conflicts_with` pair across
+sources blocks the rebuild and every consequential check until an accepted
+relation or amendment resolves it. The declaring source's rebuild projects
+the edge into `law_cross_source_relations` with its target source, and a
+consequential boundary that finds the target unregistered or unprojected
+refuses. Every cross-source `supersedes` edge refuses fail closed: a
+supersession is one source's own law change, so the successor and its
+`supersedes` edge live in the target law's declaring source, and shared-law
+amendment runs through the shared home. No agreement check admits the edge.
+A non-home source may not declare `refines` or `subordinate_to` toward
+shared-home law. No precedence is inferred.
+
+Reconstruction from clean projections succeeds in either rebuild order. A
+peer source with no usable projection (never rebuilt, cleared, or stamped
+incomplete over the law Domain rows the shared home's absent registry
+forced it to omit) holds no rows a declaring rebuild can read as evidence.
+That rebuild resolves the peer's relation endpoints from the peer's
+verified Git head instead, and an unreadable head, an absent manifest, or
+an undeclared target law refuses the rebuild admission. Read degradation
+governs answers, never rebuild admission. A source-first rebuild stamps
+its watermark incomplete instead of stamping a complete watermark over the
+omitted Domain rows, and a demand-freshness rebuild backfills the omitted
+rows once the registry exists.
 
 ### D6. Workflow law resolves across the source set
 

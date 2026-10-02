@@ -17,6 +17,110 @@
       "value": "cmd/concord.TestWorkBootstrapRefusesPlantedCanonicalWorktreeWithCommits"
     },
     {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkBootstrapCaptureCreatesFromRefreshedDefaultHead"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkBootstrapCaptureRefusesWhenRefreshFails"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkBootstrapCaptureExplicitRefPreflightsAndPinsBase"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkBootstrapReplayKeepsPinnedBaseWithoutFetch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimWorktreeRefreshesBeforeFirstCreation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimWorktreeReplayOwesNoFetch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCrossProjectClaimRefreshesDefaultBase"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCrossProjectCreationRunsExactlyOnePreflight"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFreshnessPreflightLeavesConfiguredMappingsUnapplied"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFreshnessPreflightIgnoresSubmoduleOrigins"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRunNoninteractiveBoundsDescendantHeldPipes"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkBootstrapCaptureExplicitHEADStaysExactPin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSampleWorktreeFreshnessReportsExactLagWithoutWorktreeChanges"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSampleWorktreeFreshnessCountsSampledSHAs"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSampleWorktreeFreshnessTimeoutCoversProbes"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExecGitRunnerNoninteractiveEnv"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeReportsExactBranchLag"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkResumeMissingWorktreeUsesFetchedDefault"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClaimCreationBaseProbeSharesPreflightDeadline"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCaptureCreationBaseProbeSharesPreflightDeadline"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCrossProjectClaimBaseProbeSharesPreflightDeadline"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFreshnessPreflightNeverMovesLocalTipThroughSymref"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBranchFreshnessValidatorMatchesOwningContract"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBranchFreshnessProjectionMatchesOwningContract"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/branch_freshness_contract.test.ts#the owning contract derives both positive and negative fixtures"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start resume refuses a malformed branch freshness sample"
+    },
+    {
       "kind": "validator",
       "value": "scripts/check-agent-contracts.py"
     }

@@ -215,7 +215,13 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   await git(repo, "add", ".")
   await git(repo, "commit", "--quiet", "-m", "fixture")
   await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+  // The bootstrap preflight fetches origin's default branch, so the remote
+  // maps onto a local bare repository through insteadOf: the fetch stays
+  // hermetic while the URL stays one ResolveProject accepts.
+  await git(root, "init", "--quiet", "--bare", "--initial-branch=main", "origin.git")
+  await git(repo, "config", `url.${join(root, "origin.git")}.insteadOf`, "https://example.invalid/synthetic.git")
+  await git(repo, "push", "--quiet", "origin", "main")
+  await git(repo, "fetch", "--quiet", "origin")
   await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
   await runJSON(binary, dbPath, "product-create", {

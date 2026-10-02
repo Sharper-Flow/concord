@@ -61,6 +61,54 @@ func TestComposedRefusalNamesTheOffendingFieldOnce(t *testing.T) {
 	}
 }
 
+// One object level must name every missing required field and every
+// undeclared key in one refusal: missing fields in declared order, then
+// unknown keys sorted by name. The walk over the instance map is unordered,
+// so the test repeats the call to prove the joined segments are identical
+// on every run.
+func TestStructuralRefusalNamesEveryMissingAndUnknownField(t *testing.T) {
+	root := decodeSchema(t, `{
+		"type": "object",
+		"additionalProperties": false,
+		"required": ["alpha", "beta"],
+		"properties": {"alpha": {"type": "string"}, "beta": {"type": "string"}}
+	}`)
+	value := decodeValue(t, `{"zeta": true}`)
+
+	want := "missing required $.alpha; missing required $.beta; unknown property $.zeta"
+	for range 50 {
+		err := ValidateValue(value, root, root, "$")
+		if err == nil {
+			t.Fatal("a structurally incomplete payload was accepted")
+		}
+		if got := err.Error(); got != want {
+			t.Fatalf("refusal = %q, want %q", got, want)
+		}
+	}
+}
+
+// unevaluatedProperties false refuses every leftover key, sorted by name,
+// in one refusal rather than one refusal per key per run.
+func TestUnevaluatedRefusalNamesEveryLeftoverField(t *testing.T) {
+	root := decodeSchema(t, `{
+		"type": "object",
+		"unevaluatedProperties": false,
+		"properties": {"alpha": {"type": "string"}}
+	}`)
+	value := decodeValue(t, `{"alpha": "a", "zeta": true, "beta": true}`)
+
+	want := "unevaluated property $.beta; unevaluated property $.zeta"
+	for range 50 {
+		err := ValidateValue(value, root, root, "$")
+		if err == nil {
+			t.Fatal("a payload with unevaluated properties was accepted")
+		}
+		if got := err.Error(); got != want {
+			t.Fatalf("refusal = %q, want %q", got, want)
+		}
+	}
+}
+
 // anyOf keeps a frame, because every branch failed and no single branch
 // failure is the whole reason. The frame must still carry the causes.
 func TestAnyOfRefusalKeepsItsCauses(t *testing.T) {

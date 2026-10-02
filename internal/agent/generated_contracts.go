@@ -4,6 +4,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -347,6 +348,9 @@ var GeneratedPayloadFieldOwners = map[string]map[string][]string{
 // operation owns; naming that owner here is the only place the caller can
 // learn it, because the published schema cannot discriminate and no validator
 // runs in front of the core.
+// One refusal names every missing required field in declared order, then
+// every undeclared field sorted by name, so a caller repairs the payload in
+// one retry; each segment keeps its per-field message.
 func ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {
 	rule, ok := GeneratedPayloadRules[schemaName]
 	if !ok {
@@ -360,23 +364,33 @@ func ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, r
 	for _, name := range rule.Properties {
 		allowed[name] = true
 	}
-	for name := range object {
-		if !allowed[name] {
-			direction := "input"
-			if result {
-				direction = "result"
-			}
-			owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]
-			if len(owners) != 0 {
-				return fmt.Errorf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))
-			}
-			return fmt.Errorf("unknown payload field %s", name)
-		}
-	}
+	segments := []string{}
 	for _, name := range rule.Required {
 		if _, ok := object[name]; !ok {
-			return fmt.Errorf("missing payload field %s", name)
+			segments = append(segments, fmt.Sprintf("missing payload field %s", name))
 		}
+	}
+	unknown := []string{}
+	for name := range object {
+		if !allowed[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	sort.Strings(unknown)
+	direction := "input"
+	if result {
+		direction = "result"
+	}
+	for _, name := range unknown {
+		owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]
+		if len(owners) != 0 {
+			segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", ")))
+		} else {
+			segments = append(segments, fmt.Sprintf("unknown payload field %s", name))
+		}
+	}
+	if len(segments) != 0 {
+		return fmt.Errorf("%s", strings.Join(segments, "; "))
 	}
 	return nil
 }

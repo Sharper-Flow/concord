@@ -1791,6 +1791,11 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		HomeLocatorID string `json:"home_locator_id,omitempty"`
 	}
 	items := []item{}
+	// CD-0200: only a federated answer names each item's source Project and
+	// locator. A single-source answer keeps the wire shape it always had:
+	// every record resolves against the one source, so the fields would
+	// carry no information the envelope watermark does not already prove.
+	federated := len(q.SourceWatermarks) > 0
 	for _, v := range q.Items {
 		kind := v.Kind
 		if kind == "work_note" {
@@ -1799,7 +1804,12 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		if kind == "spec" {
 			kind = "specification"
 		}
-		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID, HomeProjectID: v.HomeProjectID, HomeLocatorID: v.HomeLocatorID})
+		wire := item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID}
+		if federated {
+			wire.HomeProjectID = v.HomeProjectID
+			wire.HomeLocatorID = v.HomeLocatorID
+		}
+		items = append(items, wire)
 	}
 	payload := map[string]any{"items": items, "watermark": q.IndexWatermark}
 	// CD-0200: a federated answer carries its per-source watermarks in the

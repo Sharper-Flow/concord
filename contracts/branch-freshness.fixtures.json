@@ -1,0 +1,194 @@
+{
+  "positive": [
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release/stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 2
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 41
+    },
+    {
+      "status": "unknown",
+      "reason": "timeout"
+    },
+    {
+      "status": "unknown",
+      "reason": "fetch_failed"
+    },
+    {
+      "status": "unknown",
+      "reason": "probe_failed"
+    }
+  ],
+  "negative": [
+    {
+      "status": "degraded",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0,
+      "reason": "timeout"
+    },
+    {
+      "status": "ok",
+      "head_sha": "short",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "short",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release//stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release/stable/",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release/stable.",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release/.stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release/stable.lock",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release..stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release@{stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/release stable",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 0
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": -1
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": 1.5
+    },
+    {
+      "status": "ok",
+      "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "default_ref": "origin/main",
+      "default_sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "behind_count": "2"
+    },
+    {
+      "status": "unknown",
+      "reason": "timeout",
+      "behind_count": 4
+    },
+    {
+      "status": "unknown",
+      "reason": "invented_reason"
+    },
+    {
+      "status": "unknown",
+      "reason": 7
+    }
+  ]
+}

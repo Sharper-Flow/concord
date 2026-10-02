@@ -26,6 +26,20 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// seedClaimOrigin registers a local bare origin and mirrors the default
+// branch into it, so the fixture repository exercises the shared preflight
+// the way a real Project repository does: origin/HEAD names the fetched
+// default branch and the tracking ref answers the claim's base resolution.
+func seedClaimOrigin(t *testing.T, repoRoot string) {
+	t.Helper()
+	origin := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-origin.git")
+	gitRun(t, filepath.Dir(repoRoot), "init", "-q", "--bare", "-b", "main", origin)
+	gitRun(t, repoRoot, "remote", "add", "origin", origin)
+	gitRun(t, repoRoot, "push", "-q", "origin", "main")
+	gitRun(t, repoRoot, "fetch", "-q", "origin")
+	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+}
+
 func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -54,8 +68,7 @@ func worktreeDispatchFixture(t *testing.T) (*store.Store, *Service, Authority, s
 	// A Project repository is a clone: validateBootstrapDefaultBranch proves
 	// the default branch through origin/HEAD, and a claim resolves its base
 	// from the matching remote-tracking ref.
-	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedClaimOrigin(t, repoRoot)
 	baseSHA := gitRun(t, repoRoot, "rev-parse", "HEAD")
 
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
@@ -274,8 +287,7 @@ func seedFixtureRepo(t *testing.T, dir, readme, message string) {
 	}
 	gitRun(t, dir, "add", "README.md")
 	gitRun(t, dir, "commit", "-m", message)
-	gitRun(t, dir, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRun(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedClaimOrigin(t, dir)
 }
 
 // A claim that names a Project outside the envelope's selected Product is a

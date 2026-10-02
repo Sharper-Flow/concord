@@ -21,12 +21,17 @@ type workResumeInput struct {
 }
 
 type workResumeOutput struct {
-	SchemaVersion string               `json:"schema_version"`
-	ProductID     string               `json:"product_id"`
-	ProjectID     string               `json:"project_id"`
-	WorkID        string               `json:"work_id"`
-	Worktree      workBootstrapTree    `json:"worktree"`
-	LinearRemote  *linearRemoteSection `json:"linear_remote,omitempty"`
+	SchemaVersion string            `json:"schema_version"`
+	ProductID     string            `json:"product_id"`
+	ProjectID     string            `json:"project_id"`
+	WorkID        string            `json:"work_id"`
+	Worktree      workBootstrapTree `json:"worktree"`
+	// BranchFreshness reports how far the worktree's branch sits behind the
+	// origin default branch after one bounded refresh. It never blocks the
+	// resume: a fetch or probe failure reports the typed unknown with no
+	// count, and the resume itself still succeeds.
+	BranchFreshness *store.BranchFreshness `json:"branch_freshness"`
+	LinearRemote    *linearRemoteSection   `json:"linear_remote,omitempty"`
 }
 
 // linearRemoteStatus is the remote workflow state compared with the
@@ -300,7 +305,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
 			return 1
 		}
-		ref := "HEAD"
+		var ref string
 		if !resolution.MainWorktree {
 			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
 				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
@@ -335,6 +340,12 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		SchemaVersion: "1.0", ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID,
 		Worktree: workBootstrapTree{SetID: entry.SetID, Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path, State: entry.State},
 	}
+	// The freshness sample runs after the worktree read or bootstrap has
+	// fully succeeded: the bounded refresh reports how far the branch sits
+	// behind the origin default branch so the agent rebases deliberately. It
+	// never rebases and never blocks the resume.
+	freshness := store.SampleWorktreeFreshness(ctx, entry, store.ExecGitRunner{})
+	output.BranchFreshness = &freshness
 	// The remote check runs only after the worktree read or bootstrap has
 	// fully succeeded: a degraded Linear authority never changes the resume
 	// outcome, and a failed resume never spends a Linear call.

@@ -655,6 +655,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 var derivedKnowledgeClearOrder = []string{
 	"law_bodies",
 	"law_relations",
+	"law_cross_source_relations",
 	"domain_relation_governing_laws",
 	"law_domain_applicability",
 	"law_domain_homes",
@@ -669,11 +670,20 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 		return err
 	}
 	for _, table := range []string{"archived_work_products", "archived_work_projects", "archived_work_components", "archived_work_domains", "archived_work_tags", "archived_work"} {
-		deleteSQL := "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ?" //nolint:gosec // table comes from the closed literal list and all values stay parameter-bound.
-		if table != "archived_work" {
-			deleteSQL = "DELETE FROM " + table + " WHERE work_id IN (SELECT id FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?)"
+		// Every scope row carries its own home pair: the same work id can
+		// project in more than one registered source, so the clear deletes
+		// only this home's rows. An unqualified work_id match erased another
+		// source's scopes whenever this source rebuilt.
+		var deleteSQL string
+		var args []any
+		if table == "archived_work" {
+			deleteSQL = "DELETE FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?" //nolint:gosec // table comes from the closed literal list and all values stay parameter-bound.
+			args = []any{home.HomeProjectID, home.HomeLocatorID}
+		} else {
+			deleteSQL = "DELETE FROM " + table + " WHERE home_project_id = ? AND home_locator_id = ? AND work_id IN (SELECT id FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?)" //nolint:gosec // table comes from the closed literal list and all values stay parameter-bound.
+			args = []any{home.HomeProjectID, home.HomeLocatorID, home.HomeProjectID, home.HomeLocatorID}
 		}
-		if _, err := tx.ExecContext(ctx, deleteSQL, home.HomeProjectID, home.HomeLocatorID); err != nil {
+		if _, err := tx.ExecContext(ctx, deleteSQL, args...); err != nil {
 			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot clear git-derived "+table, true, "retry once the database is writable", err)
 		}
 	}
@@ -774,15 +784,19 @@ func insertKnowledgeIndexDomains(ctx context.Context, tx *sql.Tx, home Knowledge
 // insertKnowledgeLawRelations writes each law's derived relations, ordering
 // a conflicts_with pair canonically. A cross-source relation (CD-0200) names
 // another home's law, which the same-home foreign keys of law_relations
-// cannot reference: it never projects as a same-home row. Enforcement lives
-// at the rebuild boundary — validateFederatedSourceManifest refuses invalid
-// and conflicting edges for both federated roles, and a later-declared
-// conflict leaves the declaring source's watermark stale, which the
-// consequential boundaries refuse.
+// cannot reference: it projects into law_cross_source_relations with the
+// target's source identity. Rebuild-time validation refuses invalid and
+// conflicting edges, and every consequential law boundary revalidates the
+// persisted endpoints over the Product's verified current source set, so a
+// later source removal or reindex cannot leave an orphaned edge behind a
+// passing check.
 func insertKnowledgeLawRelations(ctx context.Context, tx *sql.Tx, home KnowledgeHome, commit string, laws []indexedLaw) error {
 	for _, law := range laws {
 		for _, relation := range law.record.LawRelations {
 			if relation.SourceProjectID != "" {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO law_cross_source_relations(home_project_id,home_locator_id,source_law_id,kind,target_project_id,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, law.record.ID, relation.Kind, relation.SourceProjectID, relation.TargetID, commit); err != nil {
+					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot insert a derived cross-source law relation", true, "retry once the database is writable", err)
+				}
 				continue
 			}
 			source, target := law.record.ID, relation.TargetID

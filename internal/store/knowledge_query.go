@@ -406,15 +406,20 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	// caller home instead of a missing note. Without a Home, an id held by more
 	// than one home is ambiguous rather than an arbitrary pick.
 	homeSupplied := req.Home.HomeProjectID != "" || req.Home.HomeLocatorID != ""
-	// CD-0200: a bare ID resolves inside the requested Product's registered
-	// source set, and its ambiguity reads inside that set. Another Product's
-	// law with the same ID can neither make this Product's law ambiguous nor
-	// answer for it. A Product whose source set does not resolve (no
-	// designated home) keeps the historical whole-corpus lookup: Q10 proves a
-	// recorded locator, and the current source set governs Product-wide
-	// search, not the historical note read.
+	// CD-0200: a bare law-ID resolution reads inside the requested Product's
+	// registered source set, and its ambiguity reads inside that set. Another
+	// Product's law with the same ID can neither make this Product's law
+	// ambiguous nor answer for it. A work lookup keeps the historical
+	// whole-corpus read: an archived work note is frozen evidence whose
+	// recorded home is part of its identity, so a later home designation or
+	// source registration can neither hide the note nor relocate its answer.
+	// A Product whose source set does not resolve (no designated home) keeps
+	// the historical whole-corpus law lookup too: Q10 proves a recorded
+	// locator, and the current source set governs Product-wide search, not
+	// the historical note read.
+	isLawLookup := req.KnowledgeID != ""
 	var sourceScope []KnowledgeHome
-	if !homeSupplied && req.Product != "" {
+	if !homeSupplied && req.Product != "" && isLawLookup {
 		sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10")
 		if srcErr == nil {
 			sourceScope = sources
@@ -428,6 +433,21 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	sourceScopeWhere := ""
 	if len(sourceScope) > 0 {
 		sourceScopeWhere = ` AND (EXISTS (SELECT 1 FROM product_knowledge_homes h WHERE h.product_id = ? AND h.project_id = archived_work.home_project_id AND h.locator_id = archived_work.home_locator_id) OR EXISTS (SELECT 1 FROM product_knowledge_sources s WHERE s.product_id = ? AND s.project_id = archived_work.home_project_id AND s.locator_id = archived_work.home_locator_id))`
+	}
+	// CD-0200: a bare law-ID answer asserts uniqueness over the registered
+	// source set, so the set must be verified before the answer is
+	// authoritative. A registered source that has never indexed, or whose
+	// watermark is stale or unreachable, could hold a second copy of the same
+	// ID that this projection cannot see — the same population refusal Q9
+	// gives. A one-element set, a caller-supplied home, a qualified
+	// reference, and a work lookup verify trivially or not at all, exactly
+	// as before.
+	if len(sourceScope) > 1 && !homeSupplied {
+		for _, source := range sourceScope {
+			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, source, false, "PM1.Q10"); err != nil {
+				return out, err
+			}
+		}
 	}
 	scanNote := func(homeScoped bool) error {
 		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`

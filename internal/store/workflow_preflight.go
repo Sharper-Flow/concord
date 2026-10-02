@@ -703,32 +703,58 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	for _, field := range definitionFields {
 		allowed[field.Name] = field
 	}
-	// Walk the supplied names in sorted order so a payload carrying more
-	// than one undeclared or invalid field reports the same field each run.
-	for _, name := range slices.Sorted(maps.Keys(fields)) {
-		field, ok := allowed[name]
-		if !ok {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is not declared for action %q", name, actionID), false, "use only fields declared by the pinned definition")
+	// The structural scan runs before any per-field value check and refuses
+	// once for the whole object: missing required fields in declared order,
+	// then undeclared fields sorted by name, each segment keeping the
+	// per-field message. A payload missing N fields therefore costs one
+	// retry, not N, and the sorted undeclared walk reports the same fields
+	// in the same order on every run. Envelope fields are exempt from the
+	// required scan: the envelope carries them at the outer level, the
+	// generated envelope schema requires them there, and the
+	// operator-selection guard owns their presence at the agent boundary.
+	missing := make([]string, 0)
+	for _, field := range definitionFields {
+		if field.Required && !field.Envelope {
+			if _, ok := fields[field.Name]; !ok {
+				missing = append(missing, field.Name)
+			}
 		}
+	}
+	undeclared := make([]string, 0)
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if _, ok := allowed[name]; !ok {
+			undeclared = append(undeclared, name)
+		}
+	}
+	if len(missing) > 0 || len(undeclared) > 0 {
+		segments := make([]string, 0)
+		for _, name := range missing {
+			segments = append(segments, fmt.Sprintf("workflow action payload field %q is required for action %q", name, actionID))
+		}
+		for _, name := range undeclared {
+			segments = append(segments, fmt.Sprintf("workflow action payload field %q is not declared for action %q", name, actionID))
+		}
+		remedy := "supply every required registered action field"
+		if len(undeclared) > 0 {
+			if len(missing) > 0 {
+				remedy = "supply every required registered action field and use only fields declared by the pinned definition"
+			} else {
+				remedy = "use only fields declared by the pinned definition"
+			}
+		}
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", strings.Join(segments, "; "), false, remedy)
+	}
+	// The structure is complete, so the per-field value and schema checks
+	// walk the supplied names in sorted order and keep stop-at-first
+	// behavior: a type error on one field is a per-field value fact outside
+	// the structural refusal.
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		field := allowed[name]
 		if !validateWorkflowPayloadValue(field, fields[name]) {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
 		}
 		if err := validateWorkflowPayloadSchema(field, fields[name]); err != nil {
 			return err
-		}
-	}
-	// The declared slice carries the registry's declaration order, so the
-	// required-field scan walks it and reports the first declared field that
-	// is absent. A map walk here names whichever field the runtime yields
-	// first, so the same empty payload reports a different field per run.
-	// Envelope fields are exempt: the envelope carries them at the outer
-	// level, the generated envelope schema requires them there, and the
-	// operator-selection guard owns their presence at the agent boundary.
-	for _, field := range definitionFields {
-		if field.Required && !field.Envelope {
-			if _, ok := fields[field.Name]; !ok {
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is required for action %q", field.Name, actionID), false, "supply every required registered action field")
-			}
 		}
 	}
 	// The proposal document rule is cross-field, so it runs only for a pinned

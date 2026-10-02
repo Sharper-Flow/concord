@@ -167,7 +167,12 @@ func validateUnevaluatedProperties(value any, schema map[string]any, root map[st
 		}
 	}
 	if additionalPropertiesFalse, ok := unevaluated.(bool); ok && !additionalPropertiesFalse && len(remaining) > 0 {
-		return fmt.Errorf("unevaluated property %s.%s", path, remaining[0])
+		sort.Strings(remaining)
+		segments := make([]string, 0, len(remaining))
+		for _, key := range remaining {
+			segments = append(segments, fmt.Sprintf("unevaluated property %s.%s", path, key))
+		}
+		return fmt.Errorf("%s", strings.Join(segments, "; "))
 	}
 	if child, ok := unevaluated.(map[string]any); ok {
 		for _, key := range remaining {
@@ -326,18 +331,45 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 	return nil
 }
 
+// validateObjectKeywords enforces the object keywords at one instance path.
+// The structural scan collects every missing required field and, when
+// additionalProperties is false, every undeclared key, and returns one
+// refusal that names them all: missing fields in declared order, then
+// undeclared keys sorted by name. Each segment keeps the per-field message
+// callers match today. Value keywords keep stop-at-first behavior and run
+// only after the structure is complete.
 func validateObjectKeywords(object map[string]any, schema map[string]any, root map[string]any, path string) (map[string]bool, error) {
 	evaluated := map[string]bool{}
 	properties, _ := schema["properties"].(map[string]any)
+	patterns, _ := schema["patternProperties"].(map[string]any)
+	segments := make([]string, 0)
 	if required, ok := schema["required"].([]any); ok {
 		for _, raw := range required {
 			name, _ := raw.(string)
 			if _, exists := object[name]; !exists {
-				return nil, fmt.Errorf("missing required %s.%s", path, name)
+				segments = append(segments, fmt.Sprintf("missing required %s.%s", path, name))
 			}
 		}
 	}
-	patterns, _ := schema["patternProperties"].(map[string]any)
+	if additionalPropertiesFalse, ok := schema["additionalProperties"].(bool); ok && !additionalPropertiesFalse {
+		unknown := make([]string, 0)
+		for key := range object {
+			if _, exists := properties[key]; exists {
+				continue
+			}
+			if matchesPattern(patterns, key) {
+				continue
+			}
+			unknown = append(unknown, key)
+		}
+		sort.Strings(unknown)
+		for _, key := range unknown {
+			segments = append(segments, fmt.Sprintf("unknown property %s.%s", path, key))
+		}
+	}
+	if len(segments) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(segments, "; "))
+	}
 	if err := validateAdditionalProperties(object, schema, properties, patterns, root, path, evaluated); err != nil {
 		return nil, err
 	}
@@ -366,29 +398,12 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 }
 
 // validateAdditionalProperties enforces the additionalProperties keyword in
-// both forms: false refuses every key no property or pattern owns, and a
-// schema validates each such key and folds it into the evaluated set.
+// its schema form: it validates each key no property or pattern owns and
+// folds it into the evaluated set. The false form is structural and
+// validateObjectKeywords refuses it before this runs.
 func validateAdditionalProperties(object, schema, properties, patterns map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
 	additional, exists := schema["additionalProperties"]
 	if !exists {
-		return nil
-	}
-	if additionalPropertiesFalse, ok := additional.(bool); ok && !additionalPropertiesFalse {
-		for key := range object {
-			if _, exists := properties[key]; exists {
-				continue
-			}
-			matched := false
-			for pattern := range patterns {
-				if regexp.MustCompile(pattern).MatchString(key) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				return fmt.Errorf("unknown property %s.%s", path, key)
-			}
-		}
 		return nil
 	}
 	child, ok := additional.(map[string]any)

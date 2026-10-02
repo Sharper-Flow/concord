@@ -1576,7 +1576,8 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 // predicate id outside the id charset must be refused by the payload
 // declaration itself, before any correction-specific check runs.
 func TestRejectPayloadDeclarationRefusesNonIDPredicateID(t *testing.T) {
-	err := validateWorkflowActionPayload(WorkflowDefinition{}, "reject_worker_result", json.RawMessage(`{"predicate_ids":["predicate:primary/slash"]}`))
+	payload := json.RawMessage(`{"attempt_id":"attempt-correction-1","attempt_epoch":1,"diagnosis":"the delivered predicate id carries a slash","strategy":"re-request with an in-charset id","predicate_ids":["predicate:primary/slash"],"evidence_refs":["evidence:correction-gate"]}`)
+	err := validateWorkflowActionPayload(WorkflowDefinition{}, "reject_worker_result", payload)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, `"predicate_ids"`) {
 		t.Fatalf("payload gate failure=%v, want an invalid-payload refusal naming predicate_ids", err)

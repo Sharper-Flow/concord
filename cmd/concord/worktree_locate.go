@@ -20,8 +20,10 @@ import (
 //     repository basename stay distinct because the key is the Project ID,
 //     never a path.
 //   - Base: the commit SHA of the Project's `canonical_path` repository at
-//     the requested ref. The default `HEAD` resolves through the local
-//     `refs/remotes/origin/<default>` tracking ref.
+//     the requested ref. An omitted ref is default-based: it resolves through
+//     the local `refs/remotes/origin/<default>` tracking ref. A supplied
+//     ref, including `HEAD`, stays an exact pin resolved as given. The read
+//     is network-free: it never fetches.
 //
 // The store still owns validation: the derived intent passes
 // store.ValidateWorktreeClaimIntent — the claim's own patterns — before it is
@@ -46,13 +48,12 @@ func runWorktreeLocate(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "worktree-locate", "project_id and work_id are required")
 		return 1
 	}
-	ref := request.Ref
-	if ref == "" {
-		ref = "HEAD"
-	}
+	// An omitted ref stays omitted: the store's location read owns the
+	// default-based resolution through the local tracking ref, and every
+	// supplied ref, including HEAD, stays an exact pin.
 	ctx := context.Background()
 
-	location, err := s.LocateWorktree(ctx, request.ProjectID, request.WorkID, ref)
+	location, err := s.LocateWorktree(ctx, request.ProjectID, request.WorkID, request.Ref)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "worktree-locate", err.Error())
 		return 1

@@ -365,6 +365,25 @@ func TestOperationPayloadValidationNamesSiblingOperationForUnknownField(t *testi
 	}
 }
 
+// The generated payload validator refuses once per payload, not once per
+// field: missing required fields in declared order, then unknown fields
+// sorted by name. The instance walk is an unordered map walk, so the test
+// repeats the call to prove identical output on every run.
+func TestOperationPayloadValidationNamesEveryMissingAndUnknownField(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"work_id":"w-1","expected_version":1,"kind":"task","reason":"revise","idempotency_key":"idem-1","unknown_extra":true}`)
+	want := "missing payload field title; missing payload field value_statement; unknown payload field unknown_extra"
+	for range 50 {
+		err := ValidateOperationPayload("concord_work_define", "revise_intent", payload, false)
+		if err == nil {
+			t.Fatal("a payload missing required fields was accepted")
+		}
+		if got := err.Error(); got != want {
+			t.Fatalf("refusal = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 	t.Parallel()
 	for _, operation := range []struct{ tool, operation string }{

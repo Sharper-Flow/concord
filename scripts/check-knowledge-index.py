@@ -759,11 +759,13 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 continue
             if isinstance(relation.get("source_project_id"), str):
                 # CD-0200: a cross-source relation names a law another
-                # registered source holds. It stays outside this manifest's
-                # relation graph; naming a target this manifest declares is a
-                # shape defect.
-                if by_id.get(relation.get("target_id")) is not None:
-                    fail(findings, f"{prefix}: law relation names a source for a target declared in the same manifest")
+                # registered source holds, by source plus bare target ID. The
+                # named source owns the endpoint, so a local record holding
+                # the same bare ID does not capture it. The relation stays
+                # outside this manifest's relation graph, and the rebuild
+                # validates its endpoint over the verified source set.
+                if relation.get("target_id") == record.get("id"):
+                    fail(findings, f"{prefix}: law relation target is the declaring law")
                 continue
             target = by_id.get(relation.get("target_id"))
             if target is None or target.get("kind") not in LAW_RELATION_SUBJECTS:

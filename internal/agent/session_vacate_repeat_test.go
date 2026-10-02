@@ -495,8 +495,7 @@ func TestSessionVacateReoccupiesSameWorktree(t *testing.T) {
 	}
 	gitRun(t, repo2, "add", "README.md")
 	gitRun(t, repo2, "commit", "-m", "fixture base")
-	gitRun(t, repo2, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRun(t, repo2, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedClaimOrigin(t, repo2)
 	baseSHA2 := gitRun(t, repo2, "rev-parse", "HEAD")
 	if err := s.AddProjectLocator(ctx, "project-2", store.ProjectLocator{ID: "path-2", Kind: store.LocatorCanonicalPath, Value: repo2}, 1); err != nil {
 		t.Fatal(err)

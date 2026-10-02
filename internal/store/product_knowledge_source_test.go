@@ -415,8 +415,6 @@ func TestQualifiedAndAmbiguousLawIdentity(t *testing.T) {
 	}
 }
 
-// writeSourceRelations rewrites the source fixture manifest so lawID carries
-// exactly the given law relations, and leaves the tree uncommitted.
 // writeSourceRelations rewrites the fixture manifest so SRC-LAW, the law every
 // federated source fixture carries, declares exactly the given relations, and
 // leaves the tree uncommitted.
@@ -634,6 +632,13 @@ func TestWorkflowLawPinsDeriveAcrossSources(t *testing.T) {
 		"SRC-LAW", ".concord/docs/decisions/CD-0917-pin-law.md", "Pin source law")
 	seedKnowledgeWork(t, s, "pin-review-work", "Pin review work")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM fold_guard`, source.HomeProjectID); err != nil {
+		t.Fatal(err)
+	}
+	// The derivation runs the mandated-law boundary in its transaction, so
+	// the registered source set verifies before the transaction opens and the
+	// proof travels in the context the derivation reads.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, "pin-review-work")
+	if err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

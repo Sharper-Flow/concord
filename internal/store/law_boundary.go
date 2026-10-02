@@ -69,6 +69,96 @@ func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, home
 	return checkMandatedLawsQuery(ctx, s.db, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
+// knowledgeSourceSetProof is the record a pre-transaction source-set
+// verification leaves behind. A git probe can never run inside an open
+// transaction (CD-0195 D2) and the store pools one connection, so the
+// consequential law boundary proves its freshness with this value in the
+// call's context instead of re-probing: the transaction-scoped check refuses
+// a mandated-law read over a registered source set that carries no proof.
+type knowledgeSourceSetProof struct {
+	productID string
+	sources   []KnowledgeHome
+}
+
+type knowledgeSourceSetProofKey struct{}
+
+func withKnowledgeSourceSetProof(ctx context.Context, proof *knowledgeSourceSetProof) context.Context {
+	return context.WithValue(ctx, knowledgeSourceSetProofKey{}, proof)
+}
+
+func knowledgeSourceSetProofFrom(ctx context.Context) *knowledgeSourceSetProof {
+	proof, _ := ctx.Value(knowledgeSourceSetProofKey{}).(*knowledgeSourceSetProof)
+	return proof
+}
+
+// EstablishKnowledgeSourceSetProof freshens, rebuilds, and verifies every
+// registered knowledge source of the Product the work's canonical law home
+// belongs to, and returns the context that proves the verification to the
+// transaction-scoped law boundary entries. It must run before the
+// consequential transaction opens: a rebuild needs the connection the
+// transaction would hold, and a git probe must never run inside one
+// (CD-0195 D2). A one-source Product, and a work that resolves to no
+// registered source set, verify trivially and return the context unchanged,
+// so single-source Products keep their identical code path.
+func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID string) (context.Context, error) {
+	if s == nil || s.db == nil {
+		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
+	}
+	// A work whose law home does not resolve, and a Product with no unique
+	// designated home or no registered source set, verify trivially here and
+	// keep their refusal at the boundary clause that owns it — never ahead of
+	// the gate's ordered clauses.
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, s.db, workID)
+	if err != nil {
+		return ctx, nil
+	}
+	productID, _, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	if err != nil || productID == "" {
+		return ctx, nil
+	}
+	sources, err := resolveKnowledgeQuerySources(ctx, s.db, productID, "check_mandated_laws")
+	if err != nil || len(sources) <= 1 {
+		return ctx, nil
+	}
+	for _, source := range sources {
+		// Freshen first: a stale source rebuilds from its own head, and only
+		// then does the strict verification decide. An unreachable source
+		// refuses the consequential transaction outright — a law boundary has
+		// no degraded form (CD-0200 D3).
+		if err := s.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
+			return ctx, err
+		}
+		if _, _, err := validateKnowledgeHomeForQueryCore(ctx, s.db, source, false, "check_mandated_laws"); err != nil {
+			return ctx, err
+		}
+	}
+	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources}), nil
+}
+
+// requireKnowledgeSourceSetProof refuses a transaction-scoped mandated-law
+// read over a registered source set that carries no proof, or a proof that no
+// longer matches the set the transaction sees. The refusal is the completion
+// gate's answer when the caller skipped the pre-transaction verification the
+// proof records.
+func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
+	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	if err != nil || productID == "" {
+		return err
+	}
+	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
+	if err != nil || len(sources) <= 1 {
+		return err
+	}
+	proof := knowledgeSourceSetProofFrom(ctx)
+	if proof == nil {
+		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set was not verified before this transaction", false, "verify the Product's registered sources before the consequential transaction opens")
+	}
+	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
+		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
+	}
+	return nil
+}
+
 // verifyKnowledgeSourceSetFreshness refuses when any registered source of the
 // Product the home belongs to is unreachable or carries a stale watermark.
 // A home outside every source set, and a one-element set, verify trivially.
@@ -104,6 +194,9 @@ func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, h
 	if tx == nil {
 		return newFailure(KindUnavailable, "check_mandated_laws", "transaction is not open", false, "open a mutation transaction")
 	}
+	if err := requireKnowledgeSourceSetProof(ctx, tx, homeProjectID, homeLocatorID); err != nil {
+		return err
+	}
 	return checkMandatedLawsQuery(ctx, tx, homeProjectID, homeLocatorID, mandated, modified, allowAmendment)
 }
 
@@ -136,11 +229,13 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 			anyQualified = true
 		}
 	}
+	var sources []KnowledgeHome
 	if productID != "" {
-		sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
+		resolved, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_mandated_laws")
 		if err != nil {
 			return err
 		}
+		sources = resolved
 		if len(sources) > 1 || anyQualified {
 			return checkMandatedLawsAcrossSources(ctx, q, sources, mandated, modified, allowAmendment)
 		}
@@ -255,6 +350,112 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	}
 	if err := conflictRows.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
+	}
+	// CD-0200 D5: the same-home conflict rows are not the whole boundary. A
+	// mandated law may declare, or be targeted by, a persisted cross-source
+	// relation, and the endpoints must still resolve over the verified
+	// current source set.
+	if len(sources) > 0 {
+		return revalidateKnowledgeCrossSourceRelations(ctx, q, sources, mandated)
+	}
+	return nil
+}
+
+// revalidateKnowledgeCrossSourceRelations refuses a mandated law whose
+// persisted cross-source relation endpoints no longer resolve over the
+// verified current source set (CD-0200 D5): a conflicts_with pair, a target
+// source or endpoint law that left the set or its projection, or a non-home
+// source declaring supersedes, refines, or subordinate_to toward shared-home
+// law. The declaring home keeps the only row, so the scan runs over the
+// verified set's partitions and both edge directions refuse.
+func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sources []KnowledgeHome, lawIDs []string) error {
+	if len(lawIDs) == 0 {
+		return nil
+	}
+	lawPlaceholders := strings.TrimRight(strings.Repeat("?,", len(lawIDs)), ",")
+	pairFilters := strings.TrimSuffix(strings.Repeat("(home_project_id=? AND home_locator_id=?) OR ", len(sources)), " OR ")
+	args := []any{}
+	args = append(args, stringArgs(lawIDs)...)
+	args = append(args, stringArgs(lawIDs)...)
+	for _, source := range sources {
+		args = append(args, source.HomeProjectID, source.HomeLocatorID)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT home_project_id,home_locator_id,source_law_id,kind,target_project_id,target_law_id FROM law_cross_source_relations WHERE (source_law_id IN (`+lawPlaceholders+`) OR target_law_id IN (`+lawPlaceholders+`)) AND (`+pairFilters+`) ORDER BY home_project_id,home_locator_id,source_law_id,kind,target_project_id,target_law_id LIMIT 33`, args...) //nolint:gosec // the fragments contain only generated question-mark placeholders and every identifier stays parameter-bound.
+	if err != nil {
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read derived cross-source law relations", true, "retry once the knowledge projection is readable", err)
+	}
+	// The pool holds one connection, so every row is read and the cursor is
+	// closed before any endpoint query runs: a query beside an open result
+	// would park on the pool forever.
+	type crossSourceEdge struct {
+		declaringHome, declaringLocator, sourceLaw, kind, targetProject, targetLaw string
+	}
+	edges := make([]crossSourceEdge, 0, 8)
+	for rows.Next() {
+		var edge crossSourceEdge
+		if err := rows.Scan(&edge.declaringHome, &edge.declaringLocator, &edge.sourceLaw, &edge.kind, &edge.targetProject, &edge.targetLaw); err != nil {
+			rows.Close()
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot decode a derived cross-source law relation", true, "retry once the knowledge projection is readable", err)
+		}
+		if len(edges) == 32 {
+			rows.Close()
+			return newFailure(KindInvalidPayload, "check_mandated_laws", "derived cross-source relation query exceeds the bounded result size", false, "reduce the law set or resolve the relations before retrying")
+		}
+		edges = append(edges, edge)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived cross-source law relations", true, "retry once the knowledge projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived cross-source law relations", true, "retry once the knowledge projection is readable", err)
+	}
+	sourceByProject := make(map[string]KnowledgeHome, len(sources))
+	for _, source := range sources {
+		sourceByProject[source.HomeProjectID] = source
+	}
+	declaredRole := map[string]bool{}
+	for _, edge := range edges {
+		declaring := KnowledgeHome{HomeProjectID: edge.declaringHome, HomeLocatorID: edge.declaringLocator}
+		if edge.kind == "conflicts_with" {
+			return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved cross-source conflict: %s and %s/%s", edge.sourceLaw, edge.targetProject, edge.targetLaw), false, "resolve the Git law conflict through an accepted amendment before the consequential boundary")
+		}
+		var declaredPresent int
+		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, edge.declaringHome, edge.declaringLocator, edge.sourceLaw).Scan(&declaredPresent); err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation declaring law is unresolved: "+edge.sourceLaw, false, "publish and rebuild the declaring source before the consequential boundary")
+		} else if err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source declaring law", true, "retry once the knowledge projection is readable", err)
+		}
+		target, known := sourceByProject[edge.targetProject]
+		if !known {
+			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target source left the registered source set: "+edge.targetProject+"/"+edge.targetLaw, false, "register the target Project again, or remove the relation from the declaring manifest")
+		}
+		var targetPresent int
+		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&targetPresent); err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target law is unresolved: "+edge.targetProject+"/"+edge.targetLaw, false, "publish and rebuild the target source before the consequential boundary")
+		} else if err != nil {
+			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source target law", true, "retry once the knowledge projection is readable", err)
+		}
+		declaringKey := edge.declaringHome + "/" + edge.declaringLocator
+		if _, seen := declaredRole[declaringKey]; !seen {
+			_, designated, roleErr := resolveKnowledgeSourceRole(ctx, q, declaring)
+			if roleErr != nil {
+				return roleErr
+			}
+			declaredRole[declaringKey] = !designated
+		}
+		if declaredRole[declaringKey] {
+			targetProductID, targetDesignated, roleErr := resolveKnowledgeSourceRole(ctx, q, target)
+			if roleErr != nil {
+				return roleErr
+			}
+			if targetDesignated && targetProductID != "" {
+				var sharedLocator string
+				if err := q.QueryRowContext(ctx, `SELECT locator_id FROM product_knowledge_homes WHERE product_id=?`, targetProductID).Scan(&sharedLocator); err == nil && sharedLocator == target.HomeLocatorID && lawRelationKinds[edge.kind] && edge.kind != "conflicts_with" {
+					return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("a non-home source may not declare %s toward shared-home law: %s/%s", edge.kind, edge.targetProject, edge.targetLaw), false, "amend the shared law through its authoring home, or remove the precedence declaration")
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -463,7 +664,18 @@ func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []Kn
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot finish reading derived law conflicts", true, "retry once the knowledge projection is readable", err)
 		}
 	}
-	return nil
+	// CD-0200 D5: same-home conflicts are not the whole boundary here either.
+	// The resolved bare IDs are what cross-source rows store, so the
+	// endpoint revalidation runs over them against the verified set.
+	bareIDs := make([]string, 0, len(resolved))
+	seenBare := make(map[string]bool, len(resolved))
+	for _, r := range resolved {
+		if !seenBare[r.lawID] {
+			seenBare[r.lawID] = true
+			bareIDs = append(bareIDs, r.lawID)
+		}
+	}
+	return revalidateKnowledgeCrossSourceRelations(ctx, q, sources, bareIDs)
 }
 
 // workflowLawHome resolves the workflow's canonical Git law home over whichever

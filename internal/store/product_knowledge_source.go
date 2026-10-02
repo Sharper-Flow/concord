@@ -430,7 +430,22 @@ func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, prod
 	rows.Close()
 	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
 	for _, record := range manifest.Records {
-		if !manifestLawBearingKinds[record.Kind] || record.HomeDomainID == "" {
+		if !manifestLawBearingKinds[record.Kind] {
+			continue
+		}
+		// The shared-home role enforces the same rules at manifest parse
+		// time; a source has no local registry, so the rebuild owns them
+		// here, against the registry the shared home projected. An accepted
+		// law keeps its mandatory Domain home over the federation (CD-0200
+		// D2), and applicability still requires the authored home.
+		hasHome := record.homeDomainPresent || record.HomeDomainID != ""
+		if record.Status == "accepted" && !hasHome {
+			return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "an accepted law-bearing record requires exactly one home domain: "+record.ID, false, "author one home_domain_id the shared home's registry declares")
+		}
+		if (len(record.AppliesToDomainIDs) > 0 || record.appliesToDomainsPresent) && record.HomeDomainID == "" {
+			return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "law applicability requires an authored home domain: "+record.ID, false, "author home_domain_id before applies_to_domain_ids")
+		}
+		if record.HomeDomainID == "" {
 			continue
 		}
 		if !known[record.HomeDomainID] {

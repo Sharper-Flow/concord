@@ -429,6 +429,20 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	if len(sourceScope) > 0 {
 		sourceScopeWhere = ` AND (EXISTS (SELECT 1 FROM product_knowledge_homes h WHERE h.product_id = ? AND h.project_id = archived_work.home_project_id AND h.locator_id = archived_work.home_locator_id) OR EXISTS (SELECT 1 FROM product_knowledge_sources s WHERE s.product_id = ? AND s.project_id = archived_work.home_project_id AND s.locator_id = archived_work.home_locator_id))`
 	}
+	// CD-0200: a bare-ID answer asserts uniqueness over the registered source
+	// set, so the set must be verified before the answer is authoritative. A
+	// registered source that has never indexed, or whose watermark is stale
+	// or unreachable, could hold a second copy of the same ID that this
+	// projection cannot see — the same population refusal Q9 gives. A
+	// one-element set, a caller-supplied home, a qualified reference, and a
+	// work lookup verify trivially or not at all, exactly as before.
+	if len(sourceScope) > 1 && !homeSupplied {
+		for _, source := range sourceScope {
+			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, source, false, "PM1.Q10"); err != nil {
+				return out, err
+			}
+		}
+	}
 	scanNote := func(homeScoped bool) error {
 		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
 		scanArgs := []any{lookupID}

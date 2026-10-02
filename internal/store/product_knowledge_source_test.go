@@ -636,6 +636,13 @@ func TestWorkflowLawPinsDeriveAcrossSources(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM fold_guard`, source.HomeProjectID); err != nil {
 		t.Fatal(err)
 	}
+	// The derivation runs the mandated-law boundary in its transaction, so
+	// the registered source set verifies before the transaction opens and the
+	// proof travels in the context the derivation reads.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, "pin-review-work")
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

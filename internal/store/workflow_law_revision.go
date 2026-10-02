@@ -372,14 +372,23 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 	if err != nil {
 		return nil, err
 	}
-	for _, lawID := range mandated {
+	for _, reference := range mandated {
+		// The pins store the mandate's own reference form, so the pin lookup
+		// keeps the raw reference. Relation rows store bare law IDs, so the
+		// successor edge resolves through the parsed bare ID, and the
+		// successor's locator names its source with the qualified form over a
+		// registered set (CD-0200 D6).
+		_, bareLawID, _, parseErr := parseQualifiedKnowledgeID("check_workflow_law_revision", reference)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 		var pinnedHash string
-		err := q.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&pinnedHash)
+		err := q.QueryRowContext(ctx, `SELECT content_hash FROM workflow_contract_law_revisions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, reference).Scan(&pinnedHash)
 		pinned := err == nil
 		if err != nil && err != sql.ErrNoRows {
 			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read workflow law revision pins", true, "retry once the workflow projection is readable", err)
 		}
-		subject, err := resolveWorkflowLawSubjectTx(ctx, q, sources, homeProjectID, homeLocatorID, lawID)
+		subject, err := resolveWorkflowLawSubjectTx(ctx, q, sources, homeProjectID, homeLocatorID, reference)
 		if err != nil {
 			return nil, err
 		}
@@ -389,20 +398,26 @@ func findStaleWorkflowLawRevision(ctx context.Context, q queryer, homeProjectID,
 			continue
 		}
 		var successorID, successorHash string
-		err = q.QueryRowContext(ctx, `SELECT s.law_id,s.content_hash FROM law_relations r JOIN law_subjects s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='supersedes' AND r.target_law_id=? AND s.status='accepted' ORDER BY s.law_id LIMIT 1`, subject.source.HomeProjectID, subject.source.HomeLocatorID, lawID).Scan(&successorID, &successorHash)
+		err = q.QueryRowContext(ctx, `SELECT s.law_id,s.content_hash FROM law_relations r JOIN law_subjects s ON s.home_project_id=r.home_project_id AND s.home_locator_id=r.home_locator_id AND s.law_id=r.source_law_id WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='supersedes' AND r.target_law_id=? AND s.status='accepted' ORDER BY s.law_id LIMIT 1`, subject.source.HomeProjectID, subject.source.HomeLocatorID, bareLawID).Scan(&successorID, &successorHash)
 		if err == sql.ErrNoRows {
 			failure := newFailure(KindProjectionNotFound, "check_workflow_law_revision", "superseded mandated law has no valid accepted successor in the current projection", false, "publish and rebuild the accepted successor law projection")
-			failure.CandidateIDs = []string{lawID}
+			failure.CandidateIDs = []string{reference}
 			return nil, failure
 		}
 		if err != nil {
 			return nil, wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot read accepted successor law revision", true, "retry once the law projection is readable", err)
 		}
+		if sources != nil && !strings.Contains(successorID, "/") {
+			// A registered source set names the resolved successor through its
+			// source, so the recovery payload pins the same qualified form the
+			// successor contract's mandate carries.
+			successorID = subject.source.HomeProjectID + "/" + successorID
+		}
 		if !pinned {
 			pinnedHash = subject.hash
 		}
 		return &StaleLawRevision{
-			OldLawID:                     lawID,
+			OldLawID:                     reference,
 			OldContentHash:               pinnedHash,
 			AcceptedSuccessorLawID:       successorID,
 			AcceptedSuccessorContentHash: successorHash,

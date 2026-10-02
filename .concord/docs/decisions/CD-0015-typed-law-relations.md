@@ -27,15 +27,18 @@ and exact agreement between supersession edges and `successor` declarations.
 
 Amended 2026-10-01 by CD-0200 D5: a relation whose target lives outside the
 declaring manifest names the target's source Project in a structured field,
-never by packing the qualified form into the target ID. At the declaring
-source's rebuild the relation validates over the Product's verified source
-set: an unregistered target Project or an unprojected target law refuses,
-and a cross-source `conflicts_with` pair blocks the rebuild until an
-accepted relation or amendment resolves it. A non-home source may not
-declare `supersedes`, `refines`, or `subordinate_to` toward shared-home
+never by packing the qualified form into the target ID. The relation
+validates over the Product's verified source set at the declaring source's
+rebuild and again at every consequential boundary: an unregistered target
+Project or an unprojected target law refuses, and a cross-source
+`conflicts_with` pair blocks the rebuild and every consequential check
+until an accepted relation or amendment resolves it. A non-home source may
+not declare `supersedes`, `refines`, or `subordinate_to` toward shared-home
 law; no precedence between sources is ever inferred. Cross-source relations
-project no `law_relations` row: the same-home foreign keys cannot reference
-another source, and the rebuild boundary is the enforcement point.
+project no `law_relations` row — the same-home foreign keys cannot
+reference another source — and project instead into
+`law_cross_source_relations` with their target source; the consequential
+boundary, not the rebuild alone, is the enforcement point.
 
 The derived projection contains `law_subjects` and `law_relations` only. A
 knowledge-index rebuild replaces those rows transactionally for one Git home;

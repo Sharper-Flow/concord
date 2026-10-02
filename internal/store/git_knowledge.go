@@ -337,6 +337,145 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 	return commit, nil
 }
 
+// resolveKnowledgeHeadCheap re-reads a repository's head commit with a few
+// small file reads and no subprocess, network call, or bulk filesystem
+// operation (CD-0195 D2 admits exactly this cheap in-transaction
+// re-validation). It resolves the head the way git does: a detached HEAD
+// names the commit directly, a symbolic HEAD names a ref that a loose ref
+// file resolves, and a ref absent from the loose tree resolves through the
+// packed-refs file. A linked worktree keeps its own HEAD and takes shared
+// refs from its common directory. Everything it cannot resolve cheaply is an
+// error, never a guess: the admission that calls it is fail-closed, and the
+// caller re-establishes its verification outside the transaction.
+func resolveKnowledgeHeadCheap(repoPath, headRef string) (string, error) {
+	if repoPath == "" || headRef == "" || strings.HasPrefix(headRef, "-") || strings.ContainsAny(headRef, " \t\n\r\x00") {
+		return "", fmt.Errorf("knowledge head needs a repository path and a ref without option or delimiter bytes")
+	}
+	gitDir, err := knowledgeGitDir(repoPath)
+	if err != nil {
+		return "", err
+	}
+	ref := headRef
+	if ref == "HEAD" {
+		raw, err := os.ReadFile(path.Join(gitDir, "HEAD")) //nolint:gosec // gitDir is derived from the operator-selected git authority and HEAD is a fixed name.
+		if err != nil {
+			return "", err
+		}
+		line := strings.TrimSpace(string(raw))
+		if oid, valid := commitOIDFromRefLine(line); valid {
+			return oid, nil
+		}
+		symbolic, ok := strings.CutPrefix(line, "ref: ")
+		if !ok {
+			return "", fmt.Errorf("git HEAD is neither a commit nor a symbolic ref")
+		}
+		ref = symbolic
+	}
+	return resolveGitRefCheap(gitDir, ref)
+}
+
+// knowledgeGitDir locates a repository's git directory: the `.git` directory
+// beside the work tree, or the directory the `.git` file names.
+func knowledgeGitDir(repoPath string) (string, error) {
+	dotGit := path.Join(repoPath, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return dotGit, nil
+	}
+	raw, err := os.ReadFile(dotGit) //nolint:gosec // dotGit is a fixed name under the operator-selected git authority.
+	if err != nil {
+		return "", err
+	}
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir: ")
+	if !ok {
+		return "", fmt.Errorf(".git is neither a git directory nor a gitdir pointer")
+	}
+	if !path.IsAbs(gitdir) {
+		gitdir = path.Join(repoPath, gitdir)
+	}
+	return gitdir, nil
+}
+
+// resolveGitRefCheap resolves one fully qualified ref through the loose ref
+// file, then the packed-refs file, in the worktree git directory and its
+// common directory. Only refs under `refs/` whose every path component is a
+// plain name resolve, which bounds every path to a fixed subtree of the git
+// directory and refuses a ref that would traverse out of it.
+func resolveGitRefCheap(gitDir, ref string) (string, error) {
+	if !strings.HasPrefix(ref, "refs/") || !safeGitRefPath(ref) {
+		return "", fmt.Errorf("git ref stays outside the refs/ tree")
+	}
+	dirs := []string{gitDir}
+	if raw, err := os.ReadFile(path.Join(gitDir, "commondir")); err == nil { //nolint:gosec // commondir is a fixed name under the operator-selected git authority.
+		common := strings.TrimSpace(string(raw))
+		if !path.IsAbs(common) {
+			common = path.Join(gitDir, common)
+		}
+		dirs = append(dirs, common)
+	}
+	for _, dir := range dirs {
+		if raw, err := os.ReadFile(path.Join(dir, ref)); err == nil { //nolint:gosec // safeGitRefPath bounds ref to plain components under the fixed refs/ subtree.
+			if oid, ok := commitOIDFromRefLine(strings.TrimSpace(string(raw))); ok {
+				return oid, nil
+			}
+		}
+	}
+	for _, dir := range dirs {
+		oid, err := packedGitRef(dir, ref)
+		if err == nil {
+			return oid, nil
+		}
+	}
+	return "", fmt.Errorf("git ref cannot be resolved with a cheap read")
+}
+
+// safeGitRefPath reports whether a ref path carries only plain components:
+// no empty, dot, or dot-dot segment. A ref that fails it could make the
+// loose-ref read below escape the git directory, so the caller refuses it
+// before touching the filesystem.
+func safeGitRefPath(ref string) bool {
+	for _, part := range strings.Split(ref, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// packedGitRef reads one ref out of a git directory's packed-refs file.
+func packedGitRef(gitDir, ref string) (string, error) {
+	raw, err := os.ReadFile(path.Join(gitDir, "packed-refs")) //nolint:gosec // packed-refs is a fixed name under the operator-selected git authority.
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+		oid, name, ok := strings.Cut(line, " ")
+		if !ok || name != ref {
+			continue
+		}
+		if _, valid := commitOIDFromRefLine(strings.TrimSpace(oid)); valid {
+			return strings.TrimSpace(oid), nil
+		}
+	}
+	return "", fmt.Errorf("packed-refs does not carry the ref")
+}
+
+// commitOIDFromRefLine reports whether a trimmed git ref line is a commit
+// OID of either hash length.
+func commitOIDFromRefLine(line string) (string, bool) {
+	if err := validateCommitOID(line); err != nil {
+		return "", false
+	}
+	return line, true
+}
+
 // knowledgeWorkNoteTree is the canonical work-note directory the projection
 // scans. scanKnowledgeTree and knowledgeContentDigest must name the same paths,
 // or the digest would miss content the scan projects.

@@ -124,6 +124,17 @@ func foldProductKnowledgeSourceRemoved(ctx context.Context, tx *sql.Tx, event Ev
 		return newFailure(KindInvalidPayload, "fold_event", "knowledge source payload names a different Product", false,
 			"remove the source on the event's own Product")
 	}
+	// CD-0200 D1: the designated home's source role is intrinsic — it is
+	// always a source and never a registration row — so its removal is the
+	// typed not-found refusal, never a delete of the home itself.
+	var homeProject, homeLocator string
+	homeErr := tx.QueryRowContext(ctx, `SELECT project_id, locator_id FROM product_knowledge_homes WHERE product_id = ?`, payload.ProductID).Scan(&homeProject, &homeLocator)
+	if homeErr == nil && homeProject == payload.ProjectID && homeLocator == payload.LocatorID {
+		return newFailure(KindProjectionNotFound, "fold_event", "locator is the Product's designated knowledge home, whose source role is not a removable registration", false,
+			"clear the home designation or remove a different registered source")
+	} else if homeErr != nil && homeErr != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the Product knowledge home", true, "retry once the database is readable", homeErr)
+	}
 	var projectID, locatorID string
 	err := tx.QueryRowContext(ctx, `SELECT project_id, locator_id FROM product_knowledge_sources WHERE product_id = ? AND project_id = ? AND locator_id = ?`,
 		payload.ProductID, payload.ProjectID, payload.LocatorID).Scan(&projectID, &locatorID)
@@ -334,11 +345,16 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 // designated shared-law home. A relation target outside the declaring
 // manifest names its source Project; the rebuild refuses a target Project
 // outside the source set, an unresolved target law, a conflicts_with pair
-// across sources, and — from a non-home source only — any
-// supersedes/refines/subordinate_to edge toward the shared home's law: no
-// inferred precedence, and conflicts block until an accepted relation or
-// amendment resolves them. The shared home may declare precedence toward
-// member source law; the reverse refuses at the source's own rebuild.
+// across sources, a cross-source supersedes edge that disagrees with the
+// target's superseded status or exact successor declaration (CD-0015), and —
+// from a non-home source only — any supersedes/refines/subordinate_to edge
+// toward the shared home's law: no inferred precedence, and conflicts block
+// until an accepted relation or amendment resolves them. The shared home may
+// declare precedence toward member source law; the reverse refuses at the
+// source's own rebuild. CD-0015's acyclic directed-graph invariant extends
+// over the federated graph: the declaring manifest's own edges plus every
+// other verified source's persisted hierarchical relations form one graph
+// over source-qualified nodes, and a cycle refuses the rebuild.
 func validateFederatedSourceManifest(ctx context.Context, q queryer, home KnowledgeHome, manifest KnowledgeManifest) error {
 	productID, designated, err := resolveKnowledgeSourceRole(ctx, q, home)
 	if err != nil {
@@ -374,15 +390,124 @@ func validateFederatedSourceManifest(ctx context.Context, q queryer, home Knowle
 			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, q, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
 			}
-			var present int
-			if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&present); err == sql.ErrNoRows {
+			var targetStatus string
+			if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&targetStatus); err == sql.ErrNoRows {
 				return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target is unresolved: "+relation.SourceProjectID+"/"+relation.TargetID, false, "publish and rebuild the target source before declaring the relation")
 			} else if err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source relation target", true, "retry once the database is readable", err)
 			}
+			if relation.Kind == "supersedes" {
+				// CD-0015's exact supersession agreement holds across sources:
+				// the declaring record is accepted, the target law is
+				// superseded, and the target's own successor declaration
+				// names exactly the declaring record.
+				if record.Status != "accepted" {
+					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation does not declare an accepted source: "+record.ID, false, "declare the supersedes edge on the accepted successor")
+				}
+				if targetStatus != "superseded" {
+					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation targets a law that is not superseded: "+relation.SourceProjectID+"/"+relation.TargetID, false, "supersede the target law in its own manifest before declaring the edge")
+				}
+				var successor sql.NullString
+				if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&successor); err == sql.ErrNoRows {
+					return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source supersedes target declares no successor record: "+relation.SourceProjectID+"/"+relation.TargetID, false, "declare the superseding law as the target's successor in its own manifest")
+				} else if err != nil {
+					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source supersession successor", true, "retry once the database is readable", err)
+				}
+				if !successor.Valid || successor.String != record.ID {
+					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation disagrees with the target successor declaration: "+relation.SourceProjectID+"/"+relation.TargetID, false, "declare the exact superseding law as the target's successor")
+				}
+			}
+		}
+	}
+	graph := map[string][]string{}
+	for _, record := range manifest.Records {
+		for _, relation := range record.LawRelations {
+			var targetNode string
+			switch relation.Kind {
+			case "supersedes", "refines", "subordinate_to":
+				if relation.SourceProjectID != "" {
+					targetNode = relation.SourceProjectID + "/" + relation.TargetID
+				} else {
+					targetNode = home.HomeProjectID + "/" + relation.TargetID
+				}
+			default:
+				continue
+			}
+			declared := home.HomeProjectID + "/" + record.ID
+			graph[declared] = append(graph[declared], targetNode)
+		}
+	}
+	if err := appendFederatedPersistedRelationEdges(ctx, q, sources, home, graph); err != nil {
+		return err
+	}
+	if relationGraphHasCycle(graph) {
+		return newFailure(KindCycleDetected, "rebuild_knowledge_index", "federated law relations contain a cycle across the registered source set", false, "remove the cycle from the authored law graphs")
+	}
+	return nil
+}
+
+// appendFederatedPersistedRelationEdges adds verified sources' persisted
+// hierarchical relations to a source-qualified graph. skip names the home
+// whose persisted rows the caller replaces with an in-hand manifest at a
+// rebuild; an empty skip contributes every source, which is the shape the
+// transaction-scoped boundaries read. The skipping home's law can only be
+// entered by its own edges at a rebuild — a non-home source's hierarchical
+// edge toward shared-home law refused in the per-relation loop above — so
+// the combined graph is exactly the federated law graph the rebuild would
+// write.
+func appendFederatedPersistedRelationEdges(ctx context.Context, q queryer, sources []KnowledgeHome, skip KnowledgeHome, graph map[string][]string) error {
+	for _, source := range sources {
+		if source.HomeProjectID == skip.HomeProjectID && source.HomeLocatorID == skip.HomeLocatorID {
+			continue
+		}
+		rows, err := q.QueryContext(ctx, `SELECT source_law_id,target_law_id FROM law_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('supersedes','refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
+		if err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the derived law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+		}
+		if err := scanFederatedRelationEdges(rows, source.HomeProjectID, "", graph); err != nil {
+			return err
+		}
+		rows, err = q.QueryContext(ctx, `SELECT source_law_id,target_project_id,target_law_id FROM law_cross_source_relations WHERE home_project_id=? AND home_locator_id=? AND kind IN ('supersedes','refines','subordinate_to')`, source.HomeProjectID, source.HomeLocatorID)
+		if err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the derived cross-source law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+		}
+		if err := scanFederatedRelationEdges(rows, source.HomeProjectID, "target_project_id", graph); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// scanFederatedRelationEdges reads one relation cursor into the
+// source-qualified graph. targetProjectColumn selects the cross-source row
+// shape; an empty name selects the same-home shape. The pool holds one
+// connection, so each cursor is fully read and closed before the next query
+// opens.
+func scanFederatedRelationEdges(rows *sql.Rows, projectID, targetProjectColumn string, graph map[string][]string) error {
+	defer rows.Close()
+	for rows.Next() {
+		var sourceLaw, targetLaw string
+		var targetProject string
+		if targetProjectColumn != "" {
+			if err := rows.Scan(&sourceLaw, &targetProject, &targetLaw); err != nil {
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot decode a derived cross-source law relation", true, "retry once the database is readable", err)
+			}
+		} else {
+			if err := rows.Scan(&sourceLaw, &targetLaw); err != nil {
+				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot decode a derived law relation", true, "retry once the database is readable", err)
+			}
+		}
+		from := projectID + "/" + sourceLaw
+		to := projectID + "/" + targetLaw
+		if targetProjectColumn != "" {
+			to = targetProject + "/" + targetLaw
+		}
+		graph[from] = append(graph[from], to)
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot finish reading derived law relations", true, "retry once the database is readable", err)
+	}
+	return rows.Close()
 }
 
 // sharedLawHomeLocator reads the locator of the Product's designated shared
@@ -430,7 +555,22 @@ func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, prod
 	rows.Close()
 	result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
 	for _, record := range manifest.Records {
-		if !manifestLawBearingKinds[record.Kind] || record.HomeDomainID == "" {
+		if !manifestLawBearingKinds[record.Kind] {
+			continue
+		}
+		// The shared-home role enforces the same rules at manifest parse
+		// time; a source has no local registry, so the rebuild owns them
+		// here, against the registry the shared home projected. An accepted
+		// law keeps its mandatory Domain home over the federation (CD-0200
+		// D2), and applicability still requires the authored home.
+		hasHome := record.homeDomainPresent || record.HomeDomainID != ""
+		if record.Status == "accepted" && !hasHome {
+			return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "an accepted law-bearing record requires exactly one home domain: "+record.ID, false, "author one home_domain_id the shared home's registry declares")
+		}
+		if (len(record.AppliesToDomainIDs) > 0 || record.appliesToDomainsPresent) && record.HomeDomainID == "" {
+			return result, newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "law applicability requires an authored home domain: "+record.ID, false, "author home_domain_id before applies_to_domain_ids")
+		}
+		if record.HomeDomainID == "" {
 			continue
 		}
 		if !known[record.HomeDomainID] {

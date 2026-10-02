@@ -5528,6 +5528,36 @@ CREATE TRIGGER product_knowledge_sources_guard_update BEFORE UPDATE ON product_k
 CREATE TRIGGER product_knowledge_sources_guard_delete BEFORE DELETE ON product_knowledge_sources FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_knowledge_sources is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 113,
+		Name:    "law_cross_source_relations",
+		SQL: `
+-- CD-0200 D5: a law relation whose target lives outside the declaring
+-- manifest names the target's source Project, and the same-home foreign
+-- keys of law_relations cannot reference another source. The declaring
+-- home projects the edge here with the target's source identity, so every
+-- consequential law boundary revalidates the endpoints over the Product's
+-- verified current source set instead of trusting a rebuild-time answer
+-- that a later source removal or reindex would silently strand. The rows
+-- are git-derived: a rebuild clears and rewrites them beside law_relations.
+CREATE TABLE law_cross_source_relations (
+    home_project_id    TEXT NOT NULL,
+    home_locator_id    TEXT NOT NULL,
+    source_law_id      TEXT NOT NULL,
+    kind               TEXT NOT NULL CHECK(kind IN ('supersedes','refines','subordinate_to','conflicts_with')),
+    target_project_id  TEXT NOT NULL,
+    target_law_id      TEXT NOT NULL,
+    scanned_commit_oid TEXT NOT NULL,
+    PRIMARY KEY(home_project_id, home_locator_id, source_law_id, kind, target_project_id, target_law_id),
+    CHECK(source_law_id <> target_law_id OR target_project_id <> home_project_id),
+    FOREIGN KEY(home_project_id, home_locator_id, source_law_id) REFERENCES law_subjects(home_project_id, home_locator_id, law_id) ON DELETE RESTRICT
+);
+CREATE INDEX law_cross_source_relations_target ON law_cross_source_relations(home_project_id, home_locator_id, kind, target_project_id, target_law_id);
+CREATE TRIGGER law_cross_source_relations_guard_insert BEFORE INSERT ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_update BEFORE UPDATE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER law_cross_source_relations_guard_delete BEFORE DELETE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

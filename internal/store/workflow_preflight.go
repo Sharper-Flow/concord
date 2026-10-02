@@ -63,6 +63,16 @@ func workflowPinFailure(detail string) error {
 	return newFailure(KindInvariantViolation, "workflow_preflight", detail, false, "reread_entities")
 }
 
+// workflowPreflightFailure re-subjects one folded admission refusal for the
+// preflight surface: the kind, detail, and recovery action are the shared
+// admission's answer, and only the reporting operation names the surface that
+// refused.
+func workflowPreflightFailure(failure *Failure) *Failure {
+	resubjected := *failure
+	resubjected.Op = "workflow_action_preflight"
+	return &resubjected
+}
+
 func VerifyWorkflowInstanceDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
 	if s == nil || s.db == nil {
 		return RegisteredDefinition{}, newFailure(KindUnavailable, "workflow_preflight", "store is not open", false, "open the authority database")
@@ -91,6 +101,13 @@ func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry
 	return true, nil
 }
 
+// WorkflowActionPreflightWithRegistry answers whether the named workflow
+// action would pass the owning boundary against current authority, without
+// advancing the instance. The admission is the single implementation: the
+// action resolution runs against the store (it takes the pool-backed reader),
+// and the transaction preflight — the same function the owning boundary runs
+// — folds and decides inside one transaction, so this surface and the
+// boundary cannot drift on the answer that gates the effect.
 func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_preflight", "store is not open", false, "open the authority database")
@@ -98,192 +115,21 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, registry, request.WorkID)
-	if err != nil {
+	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
-	var currentStep, state, lifecycle string
-	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
-	}
-	if request.StepID != "" && request.StepID != currentStep {
-		return workflowPinFailure("workflow action request does not match the current definition step")
-	}
-	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, s.db, request.WorkID, request.ExpectedVersion, version)
-		if conflictErr != nil {
-			return conflictErr
-		}
-		return conflict
-	}
-	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
-		return newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
-	}
-	_, action, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID)
-	if err != nil {
-		return err
-	}
-	workerFailureRecovery := false
-	if request.ActionID == "record_worker_failure" {
-		workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-		if err != nil {
-			return err
-		}
-	}
-	correctionRecovery := false
-	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
-		if err != nil {
-			return err
-		}
-	}
-	if request.ActionID == "request_correction" {
-		available, missing, correctionErr := workflowCorrectionRequestAdmissionState(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
-		if correctionErr != nil {
-			return correctionErr
-		}
-		if !available {
-			return workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", missing)
-		}
-	}
-	// An escalated correction is not refused here. This preflight runs before
-	// the approval-gated mutation boundary, so a refusal on this surface would
-	// dead-end the correction before any operator challenge could be minted.
-	// The dispatch fold owns the escalated wall, and it admits a dispatch only
-	// behind the boundary-consumed operator approval.
-	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight", 0); err != nil {
-			return err
-		}
-	}
-	consequence := action.Consequence
-	staleRecovery := false
-	if request.ActionID == "supersede_contract" {
-		// The read-only surface validates the same complete-step payload
-		// route convention and the same shared admission the transaction
-		// preflight enforces, so the two preflights cannot diverge on the
-		// answer that gates the effect.
-		fields, fieldsErr := workflowActionObject(request.Payload)
-		if fieldsErr != nil {
-			return fieldsErr
-		}
-		atCompleteStep := workflowCompleteStepCorrectionStep(entry.Definition, currentStep)
-		declaresRoute := containsString(workflowFieldStrings(fields, "route_conventions"), workflowCompleteStepCorrectionRoute)
-		if declaresRoute && !atCompleteStep {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
-		}
-		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
-			return workflowCompletedInstanceOffShapeFailure("workflow_action_preflight")
-		}
-		activeContracts, countErr := activeWorkflowContractCount(ctx, s.db, request.WorkID, "workflow_action_preflight")
-		if countErr != nil {
-			return countErr
-		}
-		if atCompleteStep {
-			recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", declaresRoute, activeContracts)
-			if recoveryErr != nil {
-				return recoveryErr
-			}
-			staleRecovery = recovery
-		} else if activeContracts > 1 {
-			// A duplicate projection is the recovery subject. Do not ask the
-			// ordinary single-contract reader to classify it first.
-			staleRecovery = true
-		} else if lawErr := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, request.WorkID); lawErr != nil {
-			if !workflowContractRecoveryStaleness(lawErr, request.WorkID) {
-				return lawErr
-			}
-			staleRecovery = true
-		} else {
-			correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-			if correctionErr != nil {
-				return correctionErr
-			}
-			if !correction {
-				return newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-			}
-			staleRecovery = true
-		}
-	}
-	// The resolver admits record_verdict past its verification step, but
-	// the admission is bounded by the same shared availability the owning
-	// transaction checks (#1013): only a missing, non-ok, or incomparable
-	// verdict for an active-contract predicate may recover late, and the
-	// step-declaration check below must skip exactly those requests.
-	lateVerdictRecovery := false
-	if request.ActionID == "record_verdict" {
-		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload)
-		if err != nil {
-			return err
-		}
-	}
-	if workflowImpactBoundary(request.ActionID, consequence) {
-		var breakingNotices int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
-		}
-		if breakingNotices != 0 {
-			return newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
-		}
-	}
-	if consequence == ActionCrossAuthority || consequence == ActionExternalEffect {
-		var openConditions int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&openConditions); err != nil {
-			return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect consequential workflow conditions", true, "retry once the database is readable", err)
-		}
-		if openConditions != 0 {
-			return newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
-		}
-	}
-	if staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
-			return err
-		}
-	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
-		return err
-	}
-	if err := guardMandatedWorkflowLawBound(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
-		return err
-	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && request.ActionID != "request_correction" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		if request.ActionID != "bind_evidence" {
-			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
-		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		if !recoveryBind {
-			return newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
-	} else if request.ActionID == "bind_evidence" {
-		if _, err := guardRecoveryEvidenceBind(ctx, s.db, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
-			return err
-		}
-	}
-	if request.ActionID == "dispatch_worker" {
-		if err := validateWorkerDispatchWorktree(ctx, s.db, request.WorkID, request.SessionWorktree); err != nil {
-			return err
-		}
-	}
-	if err := ValidateWorkflowOperatorSelection(ctx, s, request.WorkID, request.ExpectedVersion, request.ActionID, request.SelectedChoice, request.DecisionContextDigest); err != nil {
-		return err
-	}
-	if err := ValidateWorkflowActor(request.Actor); err != nil {
-		return err
-	}
-	// The derivation still runs: an actor tuple that cannot produce a reference
-	// is invalid whoever presents it.
-	if _, err := WorkflowActorRef(request.Actor); err != nil {
-		return err
-	}
-	// An unrecorded actor is not refused here. guardRecordedActorTuple admits a
-	// new actor inside the action transaction and appends workflow.actor_recorded
-	// with it, so refusing first would make that path unreachable and lock every
-	// work item to the session that captured it. A recorded actor_ref whose tuple
-	// disagrees still fails closed, in the guard that can read both.
-	return nil
+	return s.Transact(ctx, func(transaction *Transaction) error {
+		return preflightWorkflowActionAdmissionTx(ctx, transaction.tx, registry, request)
+	})
+}
+
+// preflightWorkflowActionAdmissionTx drops the definition the transaction
+// preflight returns, because an inspecting caller asks only whether the action
+// is admissible. It keeps the Transact closure above a single delegating
+// return.
+func preflightWorkflowActionAdmissionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
+	_, err := workflowActionPreflightTx(ctx, tx, registry, request, true)
+	return err
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
@@ -423,42 +269,37 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 		return RegisteredDefinition{}, conflict
 	}
-	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
-		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
+	// One admission derivation for the preflight: the tx-scoped loader folds
+	// the instance history into the abstract admission state once, and the
+	// pure workflowAdmit decides. The refusal applies here except the review
+	// gate's own fresh-review refusal (its payload-bound ready-review
+	// carve-out), the operator-approval walls, and the closed-question wall,
+	// which the approval-gated mutation boundary and the selection chain own
+	// before the fold refuses them. A staleness, impact, wall, or
+	// step-legality refusal is never deferred. The recovery flags and the
+	// supersede classification below read the same folded state instead of
+	// re-deriving the conditions per site.
+	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+	if admissionErr != nil {
+		return RegisteredDefinition{}, admissionErr
 	}
-	staleRecovery := false
+	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision) && !decision.ApprovalRequired {
+		if requireTerminalConditions || !decision.ConsequentialConditions {
+			return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+		}
+		// The owning boundary resolves the open external conditions and
+		// re-preflights, where the consequential refusal applies.
+	}
+	staleRecovery := decision.RecoveryRoute
 	lateVerdictRecovery := false
-	workerFailureRecovery := false
-	correctionRecovery := false
 	if request.ActionID == "record_verdict" {
+		// The late-verdict recovery predicate is payload-bound: it checks the
+		// verdict entries the request names, so it stays a guard-side check
+		// beside the payload it reads.
 		lateVerdictRecovery, err = workflowLateVerdictRecoveryForActionPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload)
 		if err != nil {
 			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "record_worker_failure" {
-		workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-		if err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
-		if err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if request.ActionID == "request_correction" {
-		available, missing, admissionErr := workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", 0)
-		if admissionErr != nil {
-			return RegisteredDefinition{}, admissionErr
-		}
-		if !available {
-			// The shared admission names the one missing prerequisite. The
-			// refusal must carry that class here exactly as the resolver, the
-			// fold guard, and the read-only preflight state it; the generic
-			// off-step refusal below must not replace it.
-			return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", missing)
 		}
 	}
 	if request.ActionID == "supersede_contract" {
@@ -471,71 +312,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if declaresRoute && !atCompleteStep {
 			return RegisteredDefinition{}, newFailure(KindInvalidPayload, "workflow_action_preflight", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 		}
-		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
-			// The stale-law and duplicate recoveries belong to running
-			// earlier steps. A completed instance off the supported shape
-			// would fold without the return that reopens the work.
-			return RegisteredDefinition{}, workflowCompletedInstanceOffShapeFailure("workflow_action_preflight")
-		}
-		activeContracts, countErr := activeWorkflowContractCount(ctx, tx, request.WorkID, "workflow_action_preflight")
-		if countErr != nil {
-			return RegisteredDefinition{}, countErr
-		}
-		if atCompleteStep {
-			// Every correction path at the pinned complete step — duplicate,
-			// stale-law, or ordinary — passes through the shared complete-step
-			// admission before any effect.
-			recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight", declaresRoute, activeContracts)
-			if recoveryErr != nil {
-				return RegisteredDefinition{}, recoveryErr
-			}
-			staleRecovery = recovery
-		} else if activeContracts > 1 {
-			// A duplicate projection is the recovery subject. Do not ask the
-			// ordinary single-contract reader to classify it first.
-			staleRecovery = true
-		} else if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
-			if !workflowContractRecoveryStaleness(err, request.WorkID) {
-				return RegisteredDefinition{}, err
-			}
-			staleRecovery = true
-		} else {
-			correction, correctionErr := workflowContractCorrectionAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-			if correctionErr != nil {
-				return RegisteredDefinition{}, correctionErr
-			}
-			if correction {
-				staleRecovery = true
-			} else {
-				return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-			}
-		}
-	} else {
-		// The boundary holds every other action, late verdict recovery
-		// included: recovery admits the late timing, never a stale pin
-		// (CD-0041 D7). Attempt disposition records facts about attempts made
-		// under the pinned contract, so the subject's own stale pin admits it
-		// while a peer's stale pin still refuses.
-		if err := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, request.WorkID, workflowActionStalePinAdmission(request.ActionID)); err != nil {
-			return RegisteredDefinition{}, err
-		}
-	}
-	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite && requireTerminalConditions {
-		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
-			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect consequential workflow conditions", true, "retry once the database is readable", err)
-		}
-		if open != 0 {
-			return RegisteredDefinition{}, newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
-		}
-	}
-	if workflowImpactBoundary(request.ActionID, workflowActionConsequence(entry.Definition, request.ActionID)) {
-		var breakingNotices int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, request.WorkID).Scan(&breakingNotices); err != nil {
-			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
-		}
-		if breakingNotices != 0 {
-			return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_action_preflight", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
+		if atCompleteStep && !declaresRoute {
+			// The payload satisfies its own declaration; what refuses is the
+			// step state, so the refusal is an operation refusal, not a
+			// payload one.
+			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
 		}
 	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
@@ -554,21 +335,25 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !workerFailureRecovery && !correctionRecovery && request.ActionID != "request_correction" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		if request.ActionID != "bind_evidence" {
-			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
+	// The folded admission owns step legality, applied here — the engine's
+	// late position, after the payload and guard checks whose specific
+	// refusals precede the generic off-step one. The payload-bound recoveries
+	// refine it first: the late-verdict recovery checks the verdict entries
+	// the request names, and the evidence-binding recovery binds the
+	// outstanding requirement the payload names.
+	if request.ActionID == "record_verdict" && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+	}
+	if request.ActionID == "bind_evidence" {
 		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
 		if recoveryErr != nil {
 			return RegisteredDefinition{}, recoveryErr
 		}
-		if !recoveryBind {
+		if !recoveryBind && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
-	} else if request.ActionID == "bind_evidence" {
-		if _, err := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
-			return RegisteredDefinition{}, err
-		}
+	} else if decision.OffStep {
+		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {
@@ -576,7 +361,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight", 0); err != nil {
+		// The payload check binds against the folded state's one correction
+		// request derivation; it never re-enters the loader.
+		if admission.CorrectionRequestContext == nil {
+			return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
+		}
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	}

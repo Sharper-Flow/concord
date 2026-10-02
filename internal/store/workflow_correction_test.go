@@ -1156,8 +1156,8 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		}
 		_, _, err := WorkflowActionDefinitionFor(context.Background(), fixture.store, BuiltinWorkflowRegistry(), workID, "supersede_contract")
 		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is unavailable for terminal work" {
-			t.Fatalf("discovery on a terminal item = %v, want the terminal-work refusal", err)
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+			t.Fatalf("discovery on a terminal item = %v, want the shared admission's stale-contract refusal", err)
 		}
 	})
 

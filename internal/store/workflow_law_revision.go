@@ -583,25 +583,6 @@ func CheckWorkflowConsequentialBoundaryTx(ctx context.Context, transaction *Tran
 	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
 }
 
-// checkWorkflowLawRevisionStalenessReadTx is the advisory-read form of the
-// staleness boundary: the same single implementation as the mutation form, run
-// under a short-lived read transaction the caller opens and rolls back. A
-// non-transactional twin deliberately does not exist — a second
-// implementation of the same boundary is how the overlap half of the check
-// once went missing from the read path (issue #376).
-func checkWorkflowLawRevisionStalenessReadTx(ctx context.Context, db *sql.DB, workID string) (err error) {
-	tx, beginErr := db.BeginTx(ctx, nil)
-	if beginErr != nil {
-		return wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot open the read transaction", true, "retry once the store is readable", beginErr)
-	}
-	defer func() {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && err == nil {
-			err = wrapFailure(KindUnavailable, "check_workflow_law_revision", "cannot close the read transaction", true, "retry once the store is readable", rollbackErr)
-		}
-	}()
-	return checkWorkflowLawRevisionStalenessTx(ctx, tx, workID)
-}
-
 // WorkflowLawContext is the bounded, typed resolution of the approved
 // contract's binding law and Domain references. The core turns every
 // contract-bound law ID and home or affected Domain ID into its projection

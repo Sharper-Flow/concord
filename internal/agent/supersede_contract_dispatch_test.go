@@ -107,7 +107,12 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 			advertised = true
 		}
 	}
-	wantCorrection := !strings.HasPrefix(stage, "pending-dispatch")
+	// The advertisement is the shared admission's answer, not a per-site
+	// predicate. The stale-law and overlap recovery is fold-admitted at every
+	// running step, so the pin advertises it beside an authorized dispatch
+	// window too; the plain window case stays closed because the fold's own
+	// correction gate refuses supersede_contract there (CD-0133 D1).
+	wantCorrection := stage != "pending-dispatch"
 	if advertised != wantCorrection {
 		t.Errorf("correction advertised=%v at %s: %+v", advertised, stage, pin.NextValidIntents)
 	}
@@ -142,7 +147,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		t.Fatal(err)
 	}
 	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if strings.HasPrefix(stage, "pending-dispatch") {
+	if stage == "pending-dispatch" {
 		if challenge.Outcome != OutcomeError || challenge.Error == nil || challenge.Error.Kind == "approval_required" {
 			t.Fatalf("pending dispatch admitted correction: %+v", challenge.Error)
 		}
@@ -165,7 +170,9 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, map[string]any{"work": version, "contract": 1}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "supersede-contract-approval")
+	// The assertion binds the invoking session's worktree, which the
+	// pending-dispatch stages point at their claimed worktree fixture.
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}, map[string]any{"work": version, "contract": 1}, grant.SessionRef, grant.AgentRef, env.Worktree, fixedTime(), "supersede-contract-approval")
 	tampered := bytes.Replace(approvedRaw, []byte("corrected premise"), []byte("unapproved premise"), 1)
 	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: tampered}, env)
 	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "approval_invalid" || workflowIssue31Version(t, s) != version {
@@ -215,8 +222,15 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	if err != nil || after.Digest != before.Digest {
 		t.Fatalf("correction changed the pinned definition: before=%s after=%s err=%v", before.Digest, after.Digest, err)
 	}
-	if attempts := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); attempts != 0 {
-		t.Fatalf("operator correction required or fabricated %d worker attempts", attempts)
+	// The correction route must not need or fabricate a worker attempt. The
+	// pending-dispatch-overlap stage authorized one window before correcting,
+	// so its in-flight attempt is the only row the journey may carry.
+	wantAttempts := 0
+	if stage == "pending-dispatch-overlap" {
+		wantAttempts = 1
+	}
+	if attempts := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); attempts != wantAttempts {
+		t.Fatalf("operator correction required or fabricated %d worker attempts, want %d", attempts, wantAttempts)
 	}
 	if _, err := json.Marshal(response); err != nil {
 		t.Fatalf("correction result cannot be serialized: %v", err)

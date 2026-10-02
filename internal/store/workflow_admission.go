@@ -340,7 +340,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else {
 		state.EvidenceRecoveryRoute = evidenceRecovery
 	}
-	state.PendingOperatorDecision = workflowOperatorDecisionPending(definition, currentStep)
+	// The operator question reads the active contract's premise, so a
+	// contractless or ambiguous projection has no question to answer.
+	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, currentStep)
 	if state.PendingOperatorDecision {
 		if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
 			var failure *Failure
@@ -525,6 +527,10 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 		// steps. A completed instance off the supported shape would fold
 		// without the return that reopens the work.
 		decision.Failure = workflowCompletedInstanceOffShapeFailure("workflow_action")
+		return decision
+	}
+	if state.ActiveContracts == 0 {
+		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
 		return decision
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(definition, state.Step)

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -154,5 +155,42 @@ func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store
 		ORDER BY contract_version DESC LIMIT 1;
 		DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatalf("duplicate active contract: %v", err)
+	}
+}
+
+// A contractless projection at an investigated question checkpoint has no
+// premise to confirm and nothing to supersede. The shared admission refuses
+// both routes, so the pin, the operator question, and discovery agree.
+func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	const workID = "contractless-checkpoint"
+	const otherID = "contractless-checkpoint-other"
+	seedWork(t, s, workID)
+	seedWork(t, s, otherID)
+	seedWorkflowLaw(t, s)
+	seedIssue31DomainRegistry(t, s)
+	seedWithheldQuestionWorkflow(t, s, workID)
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherID})
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.PendingOperatorDecision != nil {
+		t.Fatalf("operator question without a contract: %+v", pin.PendingOperatorDecision)
+	}
+	if workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		t.Error("pin advertises confirm_premise with no operator question")
+	}
+	if workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+		t.Error("pin advertises supersede_contract with no active contract")
+	}
+	_, _, err = WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(failure.Detail, "requires an active workflow contract") {
+		t.Fatalf("supersede_contract discovery = %v, want the active-contract invariant refusal", err)
 	}
 }

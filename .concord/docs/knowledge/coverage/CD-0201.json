@@ -14,11 +14,11 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestNoShipReviewKeepsRefineExitAndGateCorrectionHonest"
+      "value": "internal/store.TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestNoShipReviewLeavesParkedGateCorrectionAdmitted"
+      "value": "internal/store.TestReleasedPinKeepsNoShipAcceptRefineCurrent"
     },
     {
       "kind": "go_test",

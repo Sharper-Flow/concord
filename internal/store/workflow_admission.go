@@ -101,6 +101,12 @@ type WorkflowAdmissionState struct {
 	// prerequisite when it does not.
 	CorrectionRequestRecovery bool
 	CorrectionRequestMissing  string
+	// CorrectionRequestContext is the folded correction request the current
+	// step admits, the one derivation the payload check consumes: the guard,
+	// the preflight, the dispatch fold, and the event fold bind their
+	// payloads against it instead of re-entering the loader. It is nil when
+	// the step admits no correction request.
+	CorrectionRequestContext *WorkflowCorrectionContext
 	// CorrectionEscalated reports a recorded worker correction that reached
 	// the attempt limit.
 	CorrectionEscalated bool
@@ -284,12 +290,18 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		if gateErr == nil && gateContext == nil {
 			state.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}
+		if gateErr == nil {
+			state.CorrectionRequestContext = gateContext
+		}
 	} else {
-		correctionRequestRoute, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionState(ctx, q, workID, definition, currentStep, subject, 0)
+		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, 0)
 		if correctionRequestErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return WorkflowAdmissionState{}, correctionRequestErr
 		}
-		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestRoute && correctionRequestErr == nil, correctionRequestMissing
+		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestContext != nil && correctionRequestErr == nil, correctionRequestMissing
+		if correctionRequestErr == nil {
+			state.CorrectionRequestContext = correctionRequestContext
+		}
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, q, workID, currentStep)
 	if correctionErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionErr)) {
@@ -577,7 +589,7 @@ func workflowReadyReviewAttemptTx(ctx context.Context, q queryer, workID string,
 		return "", "", err
 	}
 	var attemptID, verdict string
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(wc.payload,'$.attempt_id'),''), COALESCE(json_extract(wc.payload,'$.review.verdict'),'') FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' AND wd.seq>? WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>? AND NOT EXISTS(SELECT 1 FROM domain_events ax WHERE ax.subject_type=wc.subject_type AND ax.subject_id=wc.subject_id AND ax.kind=? AND json_extract(ax.payload,'$.action_id')='accept_worker_result' AND json_extract(ax.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND ax.seq>?) ORDER BY wc.seq DESC LIMIT 1`, WorkerDispatched, frontier, string(SubjectWorkItem), workID, WorkerCompleted, frontier, WorkflowActionCompleted, frontier).Scan(&attemptID, &verdict); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(wc.payload,'$.attempt_id'),''), COALESCE(json_extract(wc.payload,'$.review.verdict'),'') FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' AND wd.seq>? WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>? AND NOT EXISTS(SELECT 1 FROM domain_events ax WHERE ax.subject_type=wc.subject_type AND ax.subject_id=wc.subject_id AND ax.kind=? AND json_extract(ax.payload,'$.action_id')='accept_worker_result' AND json_extract(ax.payload,'$.worker_attempt_id')=json_extract(wc.payload,'$.attempt_id') AND ax.seq>?) ORDER BY wc.seq DESC LIMIT 1`, WorkerDispatched, frontier, string(SubjectWorkItem), workID, WorkerCompleted, frontier, WorkflowActionCompleted, frontier).Scan(&attemptID, &verdict); err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", nil
 		}

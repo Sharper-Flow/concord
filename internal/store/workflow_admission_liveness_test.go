@@ -29,8 +29,8 @@ type admissionModelState struct {
 
 // admissionHoldMode reports whether the action's execution mode holds the
 // work in place. The hold mode is the definition-owned base classifier; the
-// successor comparison in admissionExitAction refines it for holds whose
-// fold still moves the item.
+// successor comparison in admissionExitAction decides the exit for every
+// mode against the folded rule.
 func admissionHoldMode(definition WorkflowDefinition, actionID string) bool {
 	mode, ok := workflowActionExecutionMode(definition, actionID)
 	if !ok {
@@ -45,25 +45,29 @@ func admissionHoldMode(definition WorkflowDefinition, actionID string) bool {
 }
 
 // admissionExitAction reports whether one admitted action moves the work
-// out of the state: a non-hold execution mode, or a hold whose fold still
-// carries the item elsewhere — request_correction is hold-moded but its fold
-// returns a parked gate's change to the correction target step, so it is the
-// parked gate's recovery exit, never a continuity action. An action whose
-// successor equals the state holds the work in place; a state whose only
-// admitted actions hold is stranded no matter how many of them admit.
+// out of the state: the successor comparison decides for every mode, so an
+// action whose fold keeps the step — the dispatched hold, the non-settling
+// accept whose advance waits — is never counted as an exit its engine does
+// not perform. request_correction is hold-moded but its fold returns a
+// parked step's change to the correction target step, so it stays an exit. A
+// state whose only admitted actions keep the step is stranded no matter how
+// many of them admit.
 func admissionExitAction(definition WorkflowDefinition, state admissionModelState, actionID string) bool {
-	if admissionHoldMode(definition, actionID) && admissionSuccessor(definition, state, actionID) == state {
-		return false
-	}
-	return true
+	// The successor comparison decides for every mode: an action whose
+	// successor equals the state holds the work in place no matter its
+	// declared mode, because the folded rule — the non-settling accept whose
+	// advance waits, the dispatched hold — keeps the step. Counting a
+	// same-state action as an exit would manufacture an exit the fold does
+	// not perform.
+	return admissionSuccessor(definition, state, actionID) != state
 }
 
 // admissionStateActions resolves the action universe of one abstract state:
 // the actions the step declares, plus the recovery actions whose admission
 // the folded state fully owns. request_correction counts only at a
 // correction workflow's delivery gate under outstanding debt — the parked
-// gate admission the engine proves — because the other recoveries'
-// preconditions (stale law, failed attempts, verdict histories) are not
+// gate's debt-based return the engine proves — because the other recoveries'
+// preconditions (stale law, failed attempts, recorded verdicts) are not
 // folded into this state yet and counting them would manufacture exits no
 // engine admits.
 func admissionStateActions(definition WorkflowDefinition, state admissionModelState) []string {
@@ -156,24 +160,31 @@ func admissionReadyAttemptID(state admissionModelState) string {
 // debt, a review dispatch completes and awaits acceptance, the settling
 // accept — ship, or absent for the pre-CD-0197 reports — clears the debt and
 // carries the advance its mode names, and the no_ship accept binds its
-// findings, leaves the debt outstanding, and crosses the advance its mode
-// names onto the parked gate whose corrective return stays admitted.
+// findings, leaves the debt outstanding, and keeps the step current: the
+// advance waits for a settling review (CD-0201 D3), the fold the engine
+// performs on the accepted no_ship review.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	next := state
+	advance := actionID != "request_correction"
 	switch actionID {
 	case "reject_worker_result":
 		next.debt, next.ready = ReviewDebtOutstanding, ""
 	case "dispatch_worker":
-		if next.debt == ReviewDebtOutstanding && next.ready == "" {
-			next.ready = "ship" // a fresh review dispatch completes and awaits acceptance
+		if next.debt == ReviewDebtOutstanding {
+			// A fresh review dispatch supersedes any ready review: the
+			// loader names the latest completed review whose acceptance no
+			// action has dispositioned, so the new completion replaces the
+			// standing one and the acceptance that follows settles from it.
+			next.ready = "ship"
 		}
 	case "accept_worker_result":
 		if next.ready != "" {
 			if next.ready == "no_ship" {
 				// The no_ship accept preserves the findings and settles
-				// nothing: the debt stays outstanding and the parked gate
-				// keeps its evidence-bearing corrective return.
+				// nothing: the debt stays outstanding and the advance waits
+				// for a settling review, so the step stays current.
 				next.ready = ""
+				advance = false
 				break
 			}
 			next.debt, next.ready = ReviewDebtNone, ""
@@ -183,7 +194,7 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 			next.step = target
 		}
 	}
-	if actionID != "request_correction" {
+	if advance {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
 			if forward := workflowNextStep(definition, state.step); forward != "" {
 				next.step = forward
@@ -196,13 +207,17 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 // admissionModelMoves resolves the admitted moves of one state: every action
 // of the state's universe whose workflowAdmit decision admits it, plus the
 // debt family's deferred advance — the fresh-review refusal the review gate
-// owns, whose identity-satisfying accept the guard admits.
+// owns, whose identity-satisfying accept the guard admits. The deferral
+// counts the accept alone: the gate's carve-out is the accept whose attempt
+// identity names the ready review, and the deferred record_delivery refusal
+// admits nothing payload-blind, so counting it would manufacture a move no
+// engine admits.
 func admissionModelMoves(definition WorkflowDefinition, state admissionModelState) []string {
 	folded := admissionWorkflowState(definition, state)
 	var moves []string
 	for _, actionID := range admissionStateActions(definition, state) {
 		decision := workflowAdmit(definition, folded, actionID)
-		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision) && folded.ReadyReviewAttemptID != "") {
+		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision) && folded.ReadyReviewAttemptID != "" && actionID == "accept_worker_result") {
 			moves = append(moves, actionID)
 		}
 	}

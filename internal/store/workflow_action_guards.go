@@ -87,7 +87,16 @@ func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRequestRecovery {
 		return workflowCorrectionRequestUnavailableFailure("workflow_action", g.correctionRequestMissing)
 	}
-	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action", 0)
+	// The payload check binds against the folded state's one correction
+	// request derivation; it never re-enters the loader.
+	state, err := g.foldedAdmissionState()
+	if err != nil {
+		return err
+	}
+	if state.CorrectionRequestContext == nil {
+		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
+	}
+	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext)
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for

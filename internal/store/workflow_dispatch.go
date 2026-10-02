@@ -333,11 +333,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 			return result, err
 		}
 	}
-	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action", 0); err != nil {
-			return result, err
-		}
-	}
 	if request.ActionID == "reject_worker_result" {
 		if err := validateRejectCorrectionPinValues(request.Payload, request.EvidenceRefs); err != nil {
 			return result, err

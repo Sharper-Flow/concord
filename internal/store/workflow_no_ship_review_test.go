@@ -60,16 +60,16 @@ func reviewGateRunAttemptWithVerdict(t *testing.T, s *Store, workID, attemptID s
 	}
 }
 
-// TestNoShipReviewKeepsDebtAndParkedGateCorrectionHonest reproduces CON-796
-// on the current break-fix definition: after a rejection, a fresh review
-// completes with a no_ship verdict, and its acceptance binds the findings
-// without settling the review debt. The accepted disposition is the
+// TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances reproduces
+// CON-796 on the current break-fix definition: after a rejection, a fresh
+// review completes with a no_ship verdict, and its acceptance binds the
+// findings without settling the review debt. The accepted disposition is the
 // non-delivery accept — a review that refused the result carries no delivery
-// assertion — so the item crosses onto the delivery gate with the debt
-// outstanding: the pin keeps hiding the delivery exits, offers the accept
-// while the review stands ready, and the parked gate keeps admitting the
-// evidence-bearing corrective return that returns the item to repair.
-func TestNoShipReviewKeepsDebtAndParkedGateCorrectionHonest(t *testing.T) {
+// assertion — so the refinement step stays current: the advance waits for a
+// settling review (CD-0201 D3), the accepted review's readiness clears, the
+// pin keeps hiding the delivery exits while offering the fresh-review
+// dispatch, and the settling review's acceptance carries the advance.
+func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 	const workID = "no-ship-review-current"
 	ctx := context.Background()
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -110,16 +110,31 @@ func TestNoShipReviewKeepsDebtAndParkedGateCorrectionHonest(t *testing.T) {
 	}
 
 	// The accepted disposition of the no_ship review is the non-delivery
-	// accept: it binds the findings, settles nothing, and the definition's
-	// advance carries the item onto the parked delivery gate.
+	// accept: it binds the findings, settles nothing, and keeps the
+	// refinement step current — the advance waits for a settling review.
 	if err := reviewGateAcceptResult(t, s, workID, noShipReview, refineEpoch, acceptor); err != nil {
 		t.Fatalf("non-delivery accept of the no_ship review = %v, want the accepted findings-binding disposition", err)
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
+	reviewGateRequireStep(t, s, workID, "refine")
 
-	// The debt is still outstanding, so the parked gate keeps hiding the
-	// delivery exit and keeps admitting the evidence-bearing corrective
-	// return.
+	// The acceptance dispositioned the review: the ready-review read returns
+	// none, so no later accept can ride the dispositioned attempt's
+	// identity.
+	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if defErr != nil {
+		t.Fatal(defErr)
+	}
+	readyAttempt, readyVerdict, readyErr := workflowReadyReviewAttemptTx(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
+	if readyErr != nil {
+		t.Fatal(readyErr)
+	}
+	if readyAttempt != "" || readyVerdict != "" {
+		t.Fatalf("the accepted no_ship review still stands ready: %q verdict %q", readyAttempt, readyVerdict)
+	}
+
+	// The debt is still outstanding, so the parked refinement step keeps
+	// hiding the delivery exit, keeps hiding the dispositioned accept, and
+	// keeps offering the fresh-review dispatch the advance waits behind.
 	pin, pinErr = ReadWorkPin(ctx, s, workID)
 	if pinErr != nil {
 		t.Fatal(pinErr)
@@ -130,16 +145,12 @@ func TestNoShipReviewKeepsDebtAndParkedGateCorrectionHonest(t *testing.T) {
 	if workPinContainsAction(pin.NextValidIntents, "accept_worker_result") {
 		t.Fatalf("pin offered an accept with no ready review: %#v", pin.NextValidIntents)
 	}
-	if !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		t.Fatalf("pin hid the parked gate's corrective return behind a no_ship review: %#v", pin.NextValidIntents)
+	if !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		t.Fatalf("pin hid the fresh-review dispatch behind the accepted no_ship review: %#v", pin.NextValidIntents)
 	}
 
 	// The review debt stays outstanding: the settlement query reads no
 	// accepted ship review behind the rejection.
-	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
 	outstanding, outstandingErr := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
 	if outstandingErr != nil {
 		t.Fatal(outstandingErr)
@@ -148,13 +159,16 @@ func TestNoShipReviewKeepsDebtAndParkedGateCorrectionHonest(t *testing.T) {
 		t.Fatal("the no_ship review settled the post-rejection review debt")
 	}
 
-	// The evidence-bearing corrective return returns the item to repair, the
-	// CON-796 sequence's typed route with its operator approval, worker
-	// identity, and evidence intact.
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("evidence-bearing corrective return behind a no_ship review: %v", err)
+	// The wait resolves through the route the pin named: a fresh review of
+	// the repaired result completes with a ship verdict, and its settling
+	// acceptance carries the advance the no_ship acceptance withheld.
+	shipReview := "attempt:" + workID + ":review-3"
+	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	at += 2
+	if err := acceptRefineResult(t, s, workID, shipReview, refineEpoch, acceptor); err != nil {
+		t.Fatalf("settling accept behind the accepted no_ship review: %v", err)
 	}
-	reviewGateRequireStep(t, s, workID, "repair")
+	reviewGateRequireStep(t, s, workID, "delivery")
 }
 
 // TestReadyReviewAcceptCannotRideAnUnrelatedRefusal pins the deferral rule:
@@ -201,13 +215,14 @@ func TestReadyReviewAcceptCannotRideAnUnrelatedRefusal(t *testing.T) {
 	reviewGateRequireStep(t, s, workID, "refine")
 }
 
-// TestNoShipReviewLeavesParkedGateCorrectionAdmitted reproduces the CON-796
-// parked-gate half on the released closed-gate version: the coordinator
-// accepts the fresh no_ship review — the acceptance binds its findings and
-// settles nothing — so the refinement step keeps its debt, and an item later
-// parked on the delivery gate keeps admitting the evidence-bearing corrective
-// return.
-func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
+// TestReleasedPinKeepsNoShipAcceptRefineCurrent proves the corrected fold on
+// a released definition version: the coordinator accepts the fresh no_ship
+// review — the acceptance stands, binds its findings, and settles nothing —
+// and the refinement step stays current on the closed-gate pin exactly as on
+// the current one (CD-0201 D4: admission code is not definition content, so
+// pinned instances receive the corrected admission on release). The advance
+// still resolves through the settling review the step keeps admitting.
+func TestReleasedPinKeepsNoShipAcceptRefineCurrent(t *testing.T) {
 	const workID = "no-ship-review-parked"
 	released, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
 	if !ok {
@@ -225,22 +240,20 @@ func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
 	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
 
 	// A fresh review completes with a no_ship verdict, and the coordinator
-	// accepts it: the acceptance stands, binds the findings, and settles
-	// nothing (CD-0201 D3). On the released version the accept itself is the
-	// advancing action, so the accepted no_ship review crosses the item onto
-	// the closed gate — the CON-796 sequence itself.
+	// accepts it: the acceptance binds the findings and settles nothing
+	// (CD-0201 D3). The refinement step stays current on the released pin.
 	noShipReview := "attempt:" + workID + ":review-2"
 	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
 	at += 2
 	if err := reviewGateAcceptResult(t, s, workID, noShipReview, refineEpoch, acceptor); err != nil {
 		t.Fatalf("accept of the no_ship review at the released refine = %v, want the accepted-no_ship history", err)
 	}
-	reviewGateRequireStep(t, s, workID, "delivery")
+	reviewGateRequireStep(t, s, workID, "refine")
 	ctx := context.Background()
 
 	// The accepted no_ship review settled none of the debt, so the parked
-	// gate keeps hiding its delivery exit and keeps admitting the
-	// evidence-bearing corrective return.
+	// refinement step keeps hiding its delivery exit and keeps offering the
+	// fresh-review dispatch the advance waits behind.
 	pin, pinErr := ReadWorkPin(ctx, s, workID)
 	if pinErr != nil {
 		t.Fatal(pinErr)
@@ -248,12 +261,31 @@ func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
 	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("pin offered record_delivery behind the accepted no_ship review: %#v", pin.NextValidIntents)
 	}
-	if !workPinContainsAction(pin.NextValidIntents, "request_correction") {
-		t.Fatalf("pin hid the parked gate's corrective return behind a no_ship review: %#v", pin.NextValidIntents)
+	if !workPinContainsAction(pin.NextValidIntents, "dispatch_worker") {
+		t.Fatalf("pin hid the fresh-review dispatch behind the accepted no_ship review: %#v", pin.NextValidIntents)
 	}
 
-	if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("evidence-bearing corrective return behind a no_ship review: %v", err)
+	// The review debt stays outstanding: the settlement query reads no
+	// accepted ship review behind the rejection.
+	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if defErr != nil {
+		t.Fatal(defErr)
 	}
-	reviewGateRequireStep(t, s, workID, "repair")
+	outstanding, outstandingErr := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
+	if outstandingErr != nil {
+		t.Fatal(outstandingErr)
+	}
+	if !outstanding {
+		t.Fatal("the no_ship review settled the post-rejection review debt")
+	}
+
+	// The settling review resolves the wait the acceptance opened: its plain
+	// accepted advance carries the released pin onto the delivery step.
+	shipReview := "attempt:" + workID + ":review-3"
+	reviewGateRunAttemptWithVerdict(t, s, workID, shipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+	at += 2
+	if err := acceptRefineResult(t, s, workID, shipReview, refineEpoch, acceptor); err != nil {
+		t.Fatalf("settling accept on the released pin: %v", err)
+	}
+	reviewGateRequireStep(t, s, workID, "delivery")
 }

@@ -360,7 +360,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 	}
 	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight", 0); err != nil {
+		// The payload check binds against the folded state's one correction
+		// request derivation; it never re-enters the loader.
+		if admission.CorrectionRequestContext == nil {
+			return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
+		}
+		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, request.Payload, "workflow_action_preflight", admission.CorrectionRequestContext); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	}

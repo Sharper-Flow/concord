@@ -2122,6 +2122,19 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			return newFailure(KindInvariantViolation, "fold_event", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 		}
 		advancesStep = ok && executionMode == ActionAdvance
+		// A non-settling accepted review keeps the step current: refine does
+		// not advance to delivery behind a no_ship review, and the advance
+		// waits for a settling review (CD-0201 D3). The accepted attempt's
+		// completion precedes its accept in the log, so the verdict read is
+		// replay-deterministic, and the settle rule is the same one fragment
+		// the settlement and ready queries compose.
+		if p.ActionID == "accept_worker_result" && advancesStep {
+			settles, settlesErr := workflowAcceptReviewSettlesTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq)
+			if settlesErr != nil {
+				return settlesErr
+			}
+			advancesStep = settles
+		}
 		if advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {
 				return err
@@ -2171,9 +2184,19 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		if p.ActionID == "request_correction" && !isWorkflowReplay(ctx) {
 			// The correction admission consults the current verdict state,
 			// which replay derives only as its folds reach it. The log stays
-			// the authority for the recorded request.
+			// the authority for the recorded request. The fold derives the
+			// correction request once — excludeSeq keeps its own in-flight
+			// completion out of the anchor's settled-entry judgment — and
+			// the payload check binds against that derivation.
+			context, missing, contextErr := workflowCorrectionRequestAdmission(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", event.Seq)
+			if contextErr != nil {
+				return contextErr
+			}
+			if context == nil {
+				return workflowCorrectionRequestUnavailableFailure("fold_event", missing)
+			}
 			correctionPayload, _ := json.Marshal(map[string]any{"diagnosis": p.CorrectionDiagnosis, "strategy": p.CorrectionStrategy, "predicate_ids": p.CorrectionPredicateIDs, "evidence_refs": p.CorrectionEvidenceRefs})
-			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, entry.Definition, currentStep, correctionPayload, "fold_event", event.Seq); err != nil {
+			if err := validateCorrectionRequestPayload(ctx, tx, event.SubjectID, correctionPayload, "fold_event", context); err != nil {
 				return err
 			}
 		}

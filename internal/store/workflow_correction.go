@@ -797,8 +797,30 @@ func workflowReviewSettlesDebt(verdict string) bool {
 // over the attempt's worker.completed record: the review verdict is absent, or
 // ship. Every query that decides whether an accepted review settles the
 // post-rejection review debt composes this fragment, so the verdict rule
-// cannot drift between the settlement query, the ready query, and the guard.
+// cannot drift between the settlement query, the ready query, the guard, and
+// the fold's advance rule.
 const workflowReviewSettlesDebtSQL = "COALESCE(json_extract(wc.payload,'$.review.verdict'),'') IN ('','ship')"
+
+// workflowAcceptReviewSettlesTx reports whether one accept_worker_result
+// completion advances the shared step: the accepted attempt's completion
+// verdict must settle the post-rejection review debt — ship, or absent for
+// the pre-CD-0197 reports (CD-0201 D3). A no_ship review binds its findings
+// and leaves the debt outstanding, so its acceptance keeps the refinement
+// step current and the advance waits for a settling review. beforeSeq bounds
+// the read at the accept's own sequence position, so a replay fold sees only
+// the completions its log order proves. An attempt with no completed record
+// carries no refusing verdict, so the advance keeps the behavior it had.
+func workflowAcceptReviewSettlesTx(ctx context.Context, tx *sql.Tx, workID, attemptID string, beforeSeq int64) (bool, error) {
+	var settles bool
+	if err := tx.QueryRowContext(ctx, `SELECT `+workflowReviewSettlesDebtSQL+` FROM domain_events wc WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=? AND wc.seq<? ORDER BY wc.seq DESC LIMIT 1`,
+		string(SubjectWorkItem), workID, WorkerCompleted, attemptID, beforeSeq).Scan(&settles); err != nil {
+		if err == sql.ErrNoRows {
+			return true, nil
+		}
+		return false, wrapFailure(KindUnavailable, "fold_event", "cannot read the accepted attempt's review verdict", true, "retry once the worker delivery projection is readable", err)
+	}
+	return settles, nil
+}
 
 // workflowPostRejectionFrontier returns the seq frontier a settling review
 // dispatch must postdate: the refinement step's latest rejection, or the
@@ -1197,11 +1219,17 @@ func workflowActiveContractPredicateIDs(ctx context.Context, q queryer, workID, 
 	return predicates, nil
 }
 
-// validateCorrectionRequestPayload refuses a correction payload the current
-// step's admission cannot represent. excludeSeq names the fold's own
-// in-flight completion so the fold's re-validation does not count the request
-// against itself; callers before the events are appended pass zero.
-func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string, excludeSeq int64) error {
+// validateCorrectionRequestPayload refuses a correction payload the folded
+// correction request cannot represent. context is the one admission derivation
+// the caller already folded — the admission state's CorrectionRequestContext
+// at the guard and preflight sites, the fold's own derived request — so this
+// check binds predicates and evidence only and never re-enters the loader.
+// A nil context refuses: the step admits no correction request to bind
+// against.
+func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID string, payload json.RawMessage, subject string, context *WorkflowCorrectionContext) error {
+	if context == nil {
+		return newFailure(KindUnavailable, subject, "the current step admits no correction request", false, "reread_entities")
+	}
 	fields, err := workflowActionObject(payload)
 	if err != nil {
 		return err
@@ -1212,13 +1240,6 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	evidence := workflowFieldStrings(fields, "evidence_refs")
 	if diagnosis == "" || strategy == "" || len(predicates) == 0 || len(evidence) == 0 {
 		return newFailure(KindInvalidPayload, subject, "request_correction requires diagnosis, strategy, predicate IDs, and bound evidence", false, "supply the complete correction disposition")
-	}
-	context, missing, err := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, excludeSeq)
-	if err != nil {
-		return err
-	}
-	if context == nil {
-		return workflowCorrectionRequestUnavailableFailure(subject, missing)
 	}
 	// The request path records every correction the verdict admits, including
 	// the escalated one: CD-0164 D4 arms the approval wall at dispatch when the

@@ -962,8 +962,17 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law_relations are only allowed on decision/spec records", false, "publish authored relations on a decision or spec")
 		}
 		for _, relation := range record.LawRelations {
-			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" || relation.TargetID == record.ID {
-				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind, target, or self-edge is invalid", false, "use one closed relation kind and a distinct law ID")
+			if !lawRelationKinds[relation.Kind] || relation.TargetID == "" {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation kind or target is invalid", false, "use one closed relation kind and a distinct law ID")
+			}
+			// The self-edge refusal compares same-manifest endpoints. A
+			// relation carrying an explicit source_project_id names another
+			// source's node, so a bare ID both sources hold is not a
+			// self-edge; the rebuild refuses a qualified target that names
+			// the declaring source's own Project (CD-0200 source-qualified
+			// identity).
+			if relation.SourceProjectID == "" && relation.TargetID == record.ID {
+				return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "law relation is a self-edge", false, "use one closed relation kind and a distinct law ID")
 			}
 			if strings.Contains(relation.TargetID, "/") {
 				// A cross-source target is named by the structured
@@ -1019,14 +1028,11 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		if record.Successor == "" {
 			continue
 		}
-		if external, err := externalKnowledgeSuccessor("parse_knowledge_manifest", record.Successor); err != nil {
+		// Cross-source supersedes is refused fail closed, so a successor
+		// must be declared in the superseded record's own manifest; the
+		// qualified project_id/law_id form is the refusal (CD-0200).
+		if err := refuseExternalKnowledgeSuccessor("parse_knowledge_manifest", record.ID, record.Successor); err != nil {
 			return err
-		} else if external {
-			// CD-0200 source-qualified identity: an external successor is
-			// declared in its own source's manifest, and its supersedes edge
-			// validates over the verified source set at the rebuild boundary
-			// and at every consequential law boundary.
-			continue
 		}
 		found := false
 		for _, relation := range byID[record.Successor].LawRelations {
@@ -1109,12 +1115,20 @@ func validateManifestDispositions(dispositions []KnowledgeDisposition, recordPat
 	return nil
 }
 
-// externalKnowledgeSuccessor reports whether a successor declaration names
-// another registered source through the qualified project_id/law_id form
-// (CD-0200). A malformed qualified form is the parse failure.
-func externalKnowledgeSuccessor(op, successor string) (bool, error) {
+// refuseExternalKnowledgeSuccessor refuses the qualified project_id/law_id
+// successor form (CD-0200). A cross-source supersedes edge has no admitted
+// declaration — the rebuild and every consequential boundary refuse it with
+// "supersede within the declaring source or amend through the shared home" —
+// so a superseded record's successor must live in its own manifest.
+func refuseExternalKnowledgeSuccessor(op, recordID, successor string) error {
 	_, _, qualified, err := parseQualifiedKnowledgeID(op, successor)
-	return qualified, err
+	if err != nil {
+		return err
+	}
+	if !qualified {
+		return nil
+	}
+	return newFailure(KindInvalidNoteProof, op, "supersede within the declaring source or amend through the shared home: "+recordID+" declares the external successor "+successor, false, "declare the successor record in the same manifest")
 }
 
 func validateManifestSuccessors(records []KnowledgeRecord) error {
@@ -1129,15 +1143,8 @@ func validateManifestSuccessors(records []KnowledgeRecord) error {
 		if record.Successor == record.ID {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record cannot succeed itself", false, "reference a distinct canonical successor")
 		}
-		if external, err := externalKnowledgeSuccessor("parse_knowledge_manifest", record.Successor); err != nil {
+		if err := refuseExternalKnowledgeSuccessor("parse_knowledge_manifest", record.ID, record.Successor); err != nil {
 			return err
-		} else if external {
-			// CD-0200: the external successor's kind, status, and matching
-			// supersedes edge live in its own source's manifest, so the
-			// declaring manifest validates only the qualified form here; the
-			// agreement validates over the verified source set at the
-			// supersession boundaries.
-			continue
 		}
 		successor, ok := byID[record.Successor]
 		if !ok {

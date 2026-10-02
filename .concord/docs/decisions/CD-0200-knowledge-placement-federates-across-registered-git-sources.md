@@ -123,8 +123,7 @@ holds it. The Domain registry resolves from its single owner.
 
 - Registration, watermarks, and ambiguity refusals add operator steps.
 - Every federated read pays one watermark verification per source.
-- Cross-source conflicts block until resolved; the projection carries no
-  cross-source relation rows.
+- Cross-source conflicts block until resolved.
 
 ## Verification
 

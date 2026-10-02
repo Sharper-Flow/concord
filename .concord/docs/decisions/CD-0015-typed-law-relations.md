@@ -40,9 +40,9 @@ reference another source — and project instead into
 `law_cross_source_relations` with their target source; the consequential
 boundary, not the rebuild alone, is the enforcement point.
 
-The derived projection contains `law_subjects` and `law_relations` only. A
-knowledge-index rebuild replaces those rows transactionally for one Git home;
-invalid input or rollback preserves the prior projection byte-for-byte.
+A knowledge-index rebuild replaces the derived law rows transactionally for
+one Git home; invalid input or rollback preserves the prior projection
+byte-for-byte.
 
 Workflow contracts reuse `spec_mandate` for referenced law IDs and add bounded
 `law_modifies`. The latter must be a subset of the mandate and explicitly

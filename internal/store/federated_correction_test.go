@@ -2,15 +2,17 @@ package store
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
-// A superseded source law may name its successor in another registered
-// source through the qualified project_id/law_id form (CD-0200
-// source-qualified identity): the external successor is not copied into the
-// declaring source, so the source's rebuild projects the qualified
-// declaration instead of refusing it as an undeclared successor.
-func TestCrossSourceSuccessorProjectsWhenDeclaredQualified(t *testing.T) {
+// A superseded law's successor must live in the declaring manifest: the
+// qualified project_id/law_id successor form is refused fail closed
+// (CD-0200), because the cross-source supersedes edge it implies has no
+// admitted declaration. The successor is not copied into the declaring
+// source either — the refusal, not a projection, answers.
+func TestCrossSourceSuccessorRefusesQualifiedForm(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "external-successor")
@@ -26,23 +28,18 @@ func TestCrossSourceSuccessorProjectsWhenDeclaredQualified(t *testing.T) {
 	manifest.Records[0].Successor = home.HomeProjectID + "/HOME-LAW"
 	writeSourceManifest(t, source.RepoPath, manifest)
 	commitKnowledgeRepo(t, source.RepoPath, "qualified external successor")
-	if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
-		t.Fatalf("external successor cannot project without a forbidden local copy: %v", err)
-	}
-	var successor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id='SRC-LAW'`, source.HomeProjectID, source.HomeLocatorID).Scan(&successor); err != nil {
-		t.Fatal(err)
-	}
-	if successor != home.HomeProjectID+"/HOME-LAW" {
-		t.Fatalf("the qualified successor declaration did not project: %q", successor)
+	err = s.RebuildKnowledgeIndex(ctx, source)
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
+		t.Fatalf("qualified external successor rebuild error = %v, want the fail-closed supersedes refusal", err)
 	}
 }
 
-// CD-0015's exact supersession agreement is source-qualified: a shared-home
-// law cannot capture the agreement of a superseded source law whose own
-// successor declaration names a distinct local law holding the same bare ID.
-// The declaring home's rebuild refuses, and the consequential boundary
-// refuses with it.
+// Cross-source supersedes is refused fail closed even when the declaring
+// source's manifest carries a valid local supersession: the edge itself has
+// no admitted declaration, so the shared home cannot capture a source law's
+// supersession whatever the target's own successor declaration says
+// (CD-0200).
 func TestCrossSourceSupersedesRefusesBareLocalSuccessorCapture(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -80,15 +77,14 @@ func TestCrossSourceSupersedesRefusesBareLocalSuccessorCapture(t *testing.T) {
 	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
 	writeManifestShards(t, home.RepoPath, manifest)
 	commitKnowledgeRepo(t, home.RepoPath, "incorrect external supersession")
-	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
-		t.Logf("correct rebuild refusal: %v", err)
-		return
+	err = s.RebuildKnowledgeIndex(ctx, home)
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
+		t.Fatalf("cross-source supersedes rebuild error = %v, want the fail-closed refusal", err)
 	}
-	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err != nil {
-		t.Logf("correct boundary refusal: %v", err)
-		return
+	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err == nil {
+		t.Fatal("the mandated-law boundary answered for a law whose manifest declares a refused cross-source supersedes edge")
 	}
-	t.Fatal("rebuild and consequential boundary accepted shared HOME-LAW as successor even though SRC-LAW names the distinct local HOME-LAW")
 }
 
 // CD-0200 D5: a declared cross-source relation validates over the verified

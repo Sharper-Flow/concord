@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -366,5 +367,114 @@ func TestVerifiedSourceSetProofRefusesLaterConflict(t *testing.T) {
 	defer tx.Rollback()
 	if err := checkMandatedLawsTxAtHome(verified, tx, home.HomeProjectID, home.HomeLocatorID, []string{"HOME-LAW", "SRC-LAW"}, nil, false); err == nil {
 		t.Fatal("the source-set proof admitted stale rows after a conflict committed post-verification")
+	}
+}
+
+// Reconstruction from clean projections must succeed in either rebuild
+// order (CD-0200 degraded-not-negative): the shared home declaring a
+// relation toward a peer with no projection yet omits that peer instead of
+// blocking, and the peer's first rebuild proceeds without the home's
+// registry. Neither side waits on the other.
+func TestFederatedReconstructionSucceedsInEitherOrder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, order := range []string{"home-first", "source-first"} {
+		t.Run(order, func(t *testing.T) {
+			_, home, source := seedCrossSourceBoundaryProduct(t, "reconstruct")
+			shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "refines", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
+			writeManifestShards(t, home.RepoPath, manifest)
+			commitKnowledgeRepo(t, home.RepoPath, "valid home relation")
+			restored := openTemp(t)
+			authorizeKnowledgeProductHome(t, restored, "reconstruct-product", home, home.HomeProjectID, source.HomeProjectID)
+			authorizeSourceLocator(t, restored, source)
+			if _, err := restored.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "reconstruct-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, ExpectedVersion: 1, Reason: "recreate typed source configuration"}); err != nil {
+				t.Fatal(err)
+			}
+			var homeErr, sourceErr error
+			if order == "home-first" {
+				homeErr = restored.RebuildKnowledgeIndex(ctx, home)
+				sourceErr = restored.RebuildKnowledgeIndex(ctx, source)
+			} else {
+				sourceErr = restored.RebuildKnowledgeIndex(ctx, source)
+				homeErr = restored.RebuildKnowledgeIndex(ctx, home)
+			}
+			if homeErr != nil || sourceErr != nil {
+				t.Fatalf("reconstruction order %s: home=%v; source=%v", order, homeErr, sourceErr)
+			}
+		})
+	}
+}
+
+// Two distinct sources may hold the same bare law ID: relation endpoints
+// compare as source-qualified nodes, so a qualified relation between them
+// is not a self-edge (CD-0200 source-qualified identity).
+func TestQualifiedRelationBetweenDistinctSourcesWithSameBareIDRebuilds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, source := seedCrossSourceBoundaryProduct(t, "equal-id")
+	shards, err := readKnowledgeShardsWorkingTree(source.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := composeKnowledgeManifest(shards, manifestRegisteredSourceRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Records[0].ID = "HOME-LAW"
+	writeSourceManifest(t, source.RepoPath, manifest)
+	commitKnowledgeRepo(t, source.RepoPath, "distinct source-qualified law with same bare id")
+	if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	shards, err = readKnowledgeShardsWorkingTree(home.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "refines", TargetID: "HOME-LAW", SourceProjectID: source.HomeProjectID}}
+	writeManifestShards(t, home.RepoPath, manifest)
+	commitKnowledgeRepo(t, home.RepoPath, "valid qualified relation between distinct nodes")
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatalf("distinct source-qualified endpoints incorrectly refused as self edge: %v", err)
+	}
+}
+
+// The single-source control: the qualified successor form refuses at parse
+// with no registered source set at all — the refusal is the manifest shape,
+// not a federation artifact.
+func TestQualifiedSuccessorRefusesWithoutFederation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, home, _ := seedCrossSourceBoundaryProduct(t, "single")
+	if _, err := s.RemoveProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "single-product", ProjectID: "single-src", LocatorID: "single-src-loc", ExpectedVersion: 2, Reason: "single source control"}); err != nil {
+		t.Fatal(err)
+	}
+	shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Records[0].Status = "superseded"
+	manifest.Records[0].Successor = "missing-project/MISSING-LAW"
+	writeManifestShards(t, home.RepoPath, manifest)
+	commitKnowledgeRepo(t, home.RepoPath, "invalid single-source successor")
+	err = s.RebuildKnowledgeIndex(ctx, home)
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
+		t.Fatalf("single-source qualified successor rebuild error = %v, want the fail-closed refusal", err)
 	}
 }

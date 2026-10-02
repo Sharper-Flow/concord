@@ -275,11 +275,15 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
             assert any("invalid law relation" in finding for finding in checker.validate(bad_relation, check_hashes=False))
             good_relation = copy.deepcopy(missing_registry)
             # CD-0200 source-qualified identity: an explicit source_project_id
-            # owns the endpoint, so a bare target ID a local record also holds
-            # is a cross-source endpoint, not a shape defect. The corpus
-            # declares a local SRC-LAW beside the relation that names
+            # owns the endpoint, and endpoints compare as source-qualified
+            # nodes, so a bare target ID a local record also holds — including
+            # the declaring record's own bare ID, which names another source's
+            # distinct node — is not a shape defect. The corpus declares a
+            # local SRC-LAW beside the relation that names
             # (registered-source, SRC-LAW), and the shape check passes; the
-            # endpoint validates over the verified source set at rebuild.
+            # endpoint validates over the verified source set at rebuild,
+            # which refuses a qualified target naming the declaring source's
+            # own Project.
             (root / ".concord/docs/src-law.md").write_text("source law\n", encoding="utf-8")
             colliding_local = copy.deepcopy(missing_registry)
             colliding_local["records"].append(dict(
@@ -290,9 +294,9 @@ def test_v12_requires_domain_registry_domain_scopes_and_law_home() -> None:
             good_relation = colliding_local
             good_relation["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "SRC-LAW", "source_project_id": "registered-source"}]
             assert checker.validate(good_relation, check_hashes=False) == []
-            same_manifest_target = copy.deepcopy(good_relation)
-            same_manifest_target["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-1", "source_project_id": "registered-source"}]
-            assert any("law relation target is the declaring law" in finding for finding in checker.validate(same_manifest_target, check_hashes=False))
+            same_bare_id_target = copy.deepcopy(good_relation)
+            same_bare_id_target["records"][0]["law_relations"] = [{"kind": "refines", "target_id": "spec-1", "source_project_id": "registered-source"}]
+            assert checker.validate(same_bare_id_target, check_hashes=False) == []
             missing_scope = copy.deepcopy(value)
             del missing_scope["records"][0]["scopes"]["domain_ids"]
             assert checker.validate(missing_scope, check_hashes=False)
@@ -352,6 +356,38 @@ def test_v12_rejects_historical_law_applicability_without_home() -> None:
         del value["records"][0]["product_wide_rationale"]
         with mock.patch.object(checker, "ROOT", root):
             assert checker.validate(value, check_hashes=False)
+
+
+def test_qualified_successor_is_refused_fail_closed() -> None:
+    """The cross-source supersedes edge a qualified successor implies has no
+    admitted declaration, so the successor must live in this manifest."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
+        value = v12_fixture()
+        value["records"][0]["status"] = "superseded"
+        value["records"][0]["successor"] = "project-external/NEXT-LAW"
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert any("supersede within the declaring source or amend through the shared home" in finding for finding in findings), findings
+
+
+def test_qualified_relation_between_distinct_sources_sharing_a_bare_id_is_not_a_self_edge() -> None:
+    """Relation endpoints compare as source-qualified nodes, so two distinct
+    sources holding the same bare ID are not a self-edge; the rebuild owns
+    the qualified-target-same-project refusal."""
+    with tempfile.TemporaryDirectory(dir=checker.ROOT) as directory:
+        root = Path(directory)
+        (root / ".concord/docs").mkdir(parents=True)
+        (root / ".concord/docs/spec.md").write_text("spec\n", encoding="utf-8")
+        value = v12_fixture()
+        value["records"][0]["law_relations"] = [
+            {"kind": "refines", "target_id": "spec-1", "source_project_id": "peer-project"}
+        ]
+        with mock.patch.object(checker, "ROOT", root):
+            findings = checker.validate(value, check_hashes=False)
+        assert not any("declaring law" in finding or "self" in finding for finding in findings), findings
 
 
 def test_v12_rejects_self_referential_domain_dependency() -> None:

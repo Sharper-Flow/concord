@@ -108,7 +108,7 @@ func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 		if move.action != "request_correction" {
 			continue
 		}
-		if err := livenessApply(context.Background(), fixture.store, workID, move, 100, true); err != nil {
+		if err := livenessApply(context.Background(), fixture.store, workID, move, 100); err != nil {
 			t.Fatalf("generated correction cannot execute: %v", err)
 		}
 		if got := currentStep(t, fixture.store, workID); got != "execution" {
@@ -174,7 +174,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal, true); err != nil {
+				if err := livenessApply(ctx, s, workID, livenessMove{action: actionID, variant: livenessVariantLabel(variant), payload: payload}, ordinal); err != nil {
 					t.Fatalf("witness action %d %s: %v", ordinal, actionID, err)
 				}
 				ordinal++
@@ -248,7 +248,7 @@ func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
 	if proposal.action == "" {
 		t.Fatal("fixture has no proposal action")
 	}
-	if err := livenessApply(ctx, first, workID, proposal, 0, true); err != nil {
+	if err := livenessApply(ctx, first, workID, proposal, 0); err != nil {
 		t.Fatal(err)
 	}
 	after, err := livenessWorkVersion(ctx, second, workID)

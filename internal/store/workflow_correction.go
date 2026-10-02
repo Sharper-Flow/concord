@@ -590,13 +590,6 @@ func workflowSameStepWindowAnchor(ctx context.Context, q queryer, definition Wor
 	return anchor, nil
 }
 
-// workflowSameStepWallRefusal is the operator approval wall a dispatch faces
-// when the same-step failed count reaches the CD-0164 limit. The message names
-// the counted population, and the escalated retry approval is the one escape.
-func workflowSameStepWallRefusal(currentStep string, count int64) error {
-	return workflowSameStepWallFailure(currentStep, count)
-}
-
 // workflowSameStepWallFailure is the wall refusal's typed form, so the shared
 // admission and the folding guard carry one refusal.
 func workflowSameStepWallFailure(currentStep string, count int64) *Failure {
@@ -790,16 +783,6 @@ func workflowPostRejectionReviewStep(definition WorkflowDefinition, currentStep 
 	return stepDeclaresAction(definition, currentStep, "start_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
 }
 
-// workflowReviewDispatchSettlesDebt is the fresh-review predicate the accept
-// guard and the review-debt query share: a review attempt settles a
-// post-rejection review debt only when its worker dispatch postdates the
-// debt's frontier — the rejection and every later non-review worker activity
-// at the refinement step — so a review dispatched before the rejection, or
-// before the repaired result it must cover, covers nothing.
-func workflowReviewDispatchSettlesDebt(dispatchSeq, frontierSeq int64) bool {
-	return frontierSeq > 0 && dispatchSeq > frontierSeq
-}
-
 // workflowReviewSettlesDebt is the single owner of the review-verdict half of
 // the settlement rule: a fresh accepted review settles post-rejection review
 // debt only when its typed verdict is ship, or absent for the pre-CD-0197
@@ -884,12 +867,11 @@ func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, work
 
 // workflowPostRejectionReviewMissing reports whether no accepted review
 // attempt covers the rejected refinement result. The query encodes the shared
-// fresh-review predicate workflowReviewDispatchSettlesDebt — the accepted
-// attempt must dispatch on the review capability class after the debt's
-// frontier, so a repair completed after the review's dispatch reopens the
-// debt — and the verdict rule workflowReviewSettlesDebt: only an accepted
-// review whose verdict is ship or absent settles, so a no_ship review leaves
-// the debt outstanding.
+// fresh-review dispatch-order rule — the accepted attempt must dispatch on
+// the review capability class after the debt's frontier, so a repair
+// completed after the review's dispatch reopens the debt — and the verdict
+// rule workflowReviewSettlesDebt: only an accepted review whose verdict is
+// ship or absent settles, so a no_ship review leaves the debt outstanding.
 func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, refineStep string, rejectSeq int64, subject string) (bool, error) {
 	frontier, err := workflowPostRejectionRepairFrontier(ctx, q, workID, refineStep, rejectSeq, subject)
 	if err != nil {
@@ -1186,13 +1168,6 @@ func workflowCorrectionRequestAdmissionState(ctx context.Context, q queryer, wor
 	return context != nil, missing, err
 }
 
-// workflowCorrectionRequestContext returns the correction context the current
-// step admits, or nil when the step offers no correction request.
-func workflowCorrectionRequestContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	context, _, err := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, 0)
-	return context, err
-}
-
 // workflowActiveContractPredicateIDs lists the active contract's predicate IDs
 // in ordinal order, or an empty slice when the item has no active contract.
 func workflowActiveContractPredicateIDs(ctx context.Context, q queryer, workID, subject string) ([]string, error) {
@@ -1437,10 +1412,11 @@ func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workI
 }
 
 // validateWorkerPacketCorrection refuses a packet that does not consume the
-// current correction context. An escalated correction is admissible only
-// through the approval-gated boundary, which sets escalatedRetryApproved after
-// it consumed the operator approval bound to this correction.
-func validateWorkerPacketCorrection(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, packetRaw json.RawMessage, escalatedRetryApproved bool) error {
+// current correction context. The same-step wall and the escalation stay out
+// of this check: the pure workflowAdmit decides them over the folded state,
+// and the fold refuses before event assembly runs, so re-deriving them here
+// would be a second derivation of the folded conditions.
+func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, currentStep string, packetRaw json.RawMessage) error {
 	var packet struct {
 		AttemptID string `json:"attempt_id"`
 		Inputs    struct {
@@ -1449,17 +1425,6 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, definition W
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
-	}
-	// The same-step wall does not depend on a recorded correction: it counts
-	// the failed attempts the step's own dispatch completions show since the
-	// window anchor, so a re-dispatch loop with no correction record reaches
-	// the same operator escalation a recorded correction reaches.
-	sameStepFailed, err := workflowSameStepFailedAttemptCount(ctx, q, definition, workID, currentStep, "workflow_action")
-	if err != nil {
-		return err
-	}
-	if sameStepFailed >= workflowCorrectionAttemptLimit && !escalatedRetryApproved {
-		return workflowSameStepWallRefusal(currentStep, sameStepFailed)
 	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, currentStep, packet.AttemptID)
 	if err != nil {
@@ -1470,9 +1435,6 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, definition W
 			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries correction context without a durable correction", false, "build the packet from the current work pin")
 		}
 		return nil
-	}
-	if correction.Escalated && !escalatedRetryApproved {
-		return newFailure(KindApprovalRequired, "workflow_action", "worker retry reached the three-attempt limit", false, "escalate the correction to the operator")
 	}
 	if packet.Inputs.Correction == nil || !sameWorkflowCorrection(packet.Inputs.Correction, correction) {
 		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current correction context", false, "build a fresh packet from the current work pin")

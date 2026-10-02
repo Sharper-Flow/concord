@@ -156,7 +156,8 @@ func admissionReadyAttemptID(state admissionModelState) string {
 // debt, a review dispatch completes and awaits acceptance, the settling
 // accept — ship, or absent for the pre-CD-0197 reports — clears the debt and
 // carries the advance its mode names, and the no_ship accept binds its
-// findings and holds the step with the debt still outstanding.
+// findings, leaves the debt outstanding, and crosses the advance its mode
+// names onto the parked gate whose corrective return stays admitted.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	next := state
 	switch actionID {
@@ -170,9 +171,10 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 		if next.ready != "" {
 			if next.ready == "no_ship" {
 				// The no_ship accept preserves the findings and settles
-				// nothing: the debt stays outstanding and the step holds.
+				// nothing: the debt stays outstanding and the parked gate
+				// keeps its evidence-bearing corrective return.
 				next.ready = ""
-				return next
+				break
 			}
 			next.debt, next.ready = ReviewDebtNone, ""
 		}
@@ -193,15 +195,14 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 
 // admissionModelMoves resolves the admitted moves of one state: every action
 // of the state's universe whose workflowAdmit decision admits it, plus the
-// debt family's deferred advance — the accept whose identity the guard binds
-// against the ready review, the one payload-bound carve-out the review gate
-// owns.
+// debt family's deferred advance — the fresh-review refusal the review gate
+// owns, whose identity-satisfying accept the guard admits.
 func admissionModelMoves(definition WorkflowDefinition, state admissionModelState) []string {
 	folded := admissionWorkflowState(definition, state)
 	var moves []string
 	for _, actionID := range admissionStateActions(definition, state) {
 		decision := workflowAdmit(definition, folded, actionID)
-		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(definition, folded, actionID) && folded.ReadyReviewAttemptID != "") {
+		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision) && folded.ReadyReviewAttemptID != "") {
 			moves = append(moves, actionID)
 		}
 	}

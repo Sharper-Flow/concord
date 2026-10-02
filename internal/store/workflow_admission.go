@@ -151,7 +151,14 @@ type WorkflowAdmissionDecision struct {
 	// The fold's own advance rule enforces it at event assembly, the
 	// position whose timing the admission fold and the read-only preflight
 	// do not own; the work pin's intent omission is its advertisement half.
-	AdvanceHeld          bool
+	AdvanceHeld bool
+	// FreshReviewRequired marks the debt-hidden advance refusal the
+	// claim-phase post-rejection review guard owns. The fold and the
+	// preflight defer exactly this refusal to that guard, whose ready-review
+	// carve-out is payload-bound; every other refusal — staleness, impact,
+	// the wall, step legality — applies at the caller's own decision point
+	// and is never deferred past it.
+	FreshReviewRequired  bool
 	ReadyReviewAttemptID string
 	ReadyReviewSettles   bool
 	Failure              *Failure
@@ -218,11 +225,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if openErr := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, workID).Scan(&state.ExternalConditionsOpen); openErr != nil {
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot inspect consequential workflow conditions", true, "retry once the database is readable", openErr)
 	}
-	if _, designStale, designErr := readCurrentWorkflowDesign(ctx, q, workID); designErr != nil {
+	_, designStale, designErr := readCurrentWorkflowDesign(ctx, q, workID)
+	if designErr != nil {
 		return WorkflowAdmissionState{}, designErr
-	} else {
-		state.DesignStale = designStale
 	}
+	state.DesignStale = designStale
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
@@ -326,11 +333,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 		state.CompleteStepCorrection = completeCorrection
 	}
-	if contractCorrection, contractCorrectionErr := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject); contractCorrectionErr != nil {
+	contractCorrection, contractCorrectionErr := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
+	if contractCorrectionErr != nil {
 		return WorkflowAdmissionState{}, contractCorrectionErr
-	} else {
-		state.ContractCorrectionAvailable = contractCorrection
 	}
+	state.ContractCorrectionAvailable = contractCorrection
 	return state, nil
 }
 
@@ -536,31 +543,24 @@ func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 
 // workflowAdmitFreshReviewRefusal is the typed refusal both debt-hidden
 // advances carry: the work waits for a fresh accepted review of the repaired
-// result before delivery.
+// result before delivery. It is the one refusal the claim-phase review guard
+// owns, so the decision marks it FreshReviewRequired for the deferring sites.
 func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
+	decision.FreshReviewRequired = true
 	decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
 	return decision
 }
 
 // workflowAdmissionDefersToReviewGate reports whether one action's refusal
 // belongs to the claim-phase post-rejection review guard instead of the
-// caller's own decision application. The guard owns the one payload-bound
-// carve-out in the debt family — the accept whose attempt identity names the
-// ready settling review is itself the fresh review — so the mutating fold and
-// the preflight defer these advances to it rather than refuse them payload-
-// blind, and every other site still answers from the same folded state.
-func workflowAdmissionDefersToReviewGate(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
-	if !state.CorrectionWorkflow || state.ReviewDebt != ReviewDebtOutstanding {
-		return false
-	}
-	switch actionID {
-	case "record_delivery":
-		return state.ReviewStep
-	case "accept_worker_result":
-		return stepDeclaresAction(definition, state.Step, "start_refine")
-	default:
-		return false
-	}
+// caller's own decision application. Only the guard's own refusal defers:
+// the fresh-review refusal over the debt-hidden advances, whose ready-review
+// carve-out is the one payload-bound member of the debt family — the accept
+// whose attempt identity names the ready review. A staleness, impact, wall,
+// or step-legality refusal is never deferred, so an unrelated cause cannot
+// ride the review gate's acceptance route.
+func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision) bool {
+	return decision.FreshReviewRequired
 }
 
 // workflowReadyReviewAttemptTx names the latest completed review attempt

@@ -299,17 +299,19 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// One admission derivation for the fold: the tx-scoped loader folds the
 	// instance history into the abstract admission state once, the request's
 	// consumed operator approval fills the wall approval, and the pure
-	// workflowAdmit decides. Every refusal applies here except the advances
-	// the claim-phase review guard owns, whose ready-review carve-out is
-	// payload-bound; the recovery guards and the step-legality check read the
-	// same folded state below.
+	// workflowAdmit decides. Every refusal applies here except the review
+	// gate's own fresh-review refusal, whose ready-review carve-out is
+	// payload-bound; a staleness, impact, wall, or step-legality refusal is
+	// never deferred, so no unrelated cause can ride the review gate's
+	// acceptance route. The recovery guards and the step-legality check read
+	// the same folded state below.
 	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 	if admissionErr != nil {
 		return result, admissionErr
 	}
 	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(decision) {
 		return result, decision.Failure
 	}
 	guards.admissionState = &admission
@@ -447,6 +449,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
 		envelopeEvidenceRefs: envelopeEvidenceRefs,
+		admission:            guards.admissionState,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {

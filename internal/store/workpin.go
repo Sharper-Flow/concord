@@ -240,16 +240,25 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 		kept = append(kept, intent)
 	}
 	pin.NextValidIntents = kept
+	// The evidence-binding recovery advertises only when the pure decision
+	// admits the binding: a staleness or terminal refusal keeps the route
+	// hidden instead of advertising a dead one.
 	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
+		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted || decision.ApprovalRequired {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
+		}
 	}
-	// The acceptance of the ready settling review is itself the fresh review
-	// the guard waits for, so the pin re-offers it at the refinement step. A
-	// ready no_ship review settles nothing, so its acceptance carries no
-	// delivery assertion and the pin does not offer the advance; the
-	// completed review result keeps its rejection route below.
-	if stepDeclaresAction(definition, pin.Step, "start_refine") && state.ReadyReviewAttemptID != "" && state.ReadyReviewSettles && !workflowAdmit(definition, state, "accept_worker_result").Admitted {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
+	// The acceptance of the ready review is itself the fresh review the
+	// guard waits for, so the pin re-offers it at the refinement step. The
+	// re-offer rides the review gate's own refusal alone: a refusal of any
+	// other cause leaves the accept hidden. A ready no_ship review settles
+	// nothing, so its acceptance is the non-delivery accept that binds the
+	// findings and leaves the debt; the pin offers the action and the
+	// delivery assertion stays refused.
+	if stepDeclaresAction(definition, pin.Step, "start_refine") && state.ReadyReviewAttemptID != "" {
+		if decision := workflowAdmit(definition, state, "accept_worker_result"); decision.FreshReviewRequired {
+			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
+		}
 	}
 	return state, nil
 }
@@ -291,7 +300,9 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		}
 		pin.PendingOperatorDecision, pin.WithheldOperatorDecision = pending, withheld
 		if state.LateVerdictRoute {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
+			if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted || decision.ApprovalRequired {
+				pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(currentActionDefinition("record_verdict", true), pin.Version, "late_verdict_recovery"))
+			}
 		}
 		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateVerdictRoute {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
@@ -328,18 +339,24 @@ func workPinReadAttemptTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 // correction route the folded admission state admits: worker-failure and
 // contract correction, the delivery-gate correction request, escalated
 // retry, the rejected-worker-result correction, and the terminal-state
-// selections that close the set.
+// selections that close the set. Every append consumes the pure decision,
+// so a route the folded state owns but another folded condition refuses —
+// staleness, terminal immutability, the hold — stays hidden.
 func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
-	if state.WorkerFailureRecovery {
+	admits := func(actionID string) bool {
+		decision := workflowAdmit(definition, state, actionID)
+		return decision.Admitted || decision.ApprovalRequired
+	}
+	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
 	}
-	if state.ContractCorrectionAvailable && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+	if state.ContractCorrectionAvailable && !workPinContainsAction(pin.NextValidIntents, "supersede_contract") && admits("supersede_contract") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowContractRecoveryActionDefinition(), pin.Version, "operator_contract_correction"))
 	}
 	if err := workPinCorrectionRequestIntentsTx(ctx, tx, workID, pin, definition, state); err != nil {
 		return err
 	}
-	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery {
+	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery && admits("reject_worker_result") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
 	}
 	// An unavailable confirmation is not advertised. confirm_premise is
@@ -372,15 +389,18 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 // carries the pin's correction display; the admission decisions read the
 // folded state.
 func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, state WorkflowAdmissionState) error {
+	decision := workflowAdmit(definition, state, "request_correction")
+	admitted := decision.Admitted || decision.ApprovalRequired
 	if workflowStepIsDeliveryGate(workflowStep(definition, pin.Step)) {
 		// The gate's corrective return carries one reason code on every
 		// pinned shape, and it is advertised only when the folded admission
-		// proves the route and no escalation stands behind it.
+		// proves the route, no escalation stands behind it, and the pure
+		// decision admits the return.
 		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "request_correction")
-		if state.CorrectionRequestRecovery && !state.CorrectionEscalated {
+		if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "delivery_gate_correction"))
 		}
-	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+	} else if state.CorrectionRequestRecovery && !state.CorrectionEscalated && admitted && !workPinContainsAction(pin.NextValidIntents, "request_correction") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionRequestActionDefinition(), pin.Version, "verification_correction"))
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, tx, workID, pin.Step)

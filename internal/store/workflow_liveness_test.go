@@ -23,11 +23,6 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// errLivenessProbe forces the probe transaction to roll back after the action
-// applied successfully. Its presence in the returned error means the engine
-// admitted the action.
-var errLivenessProbe = errors.New("liveness probe rollback")
-
 // livenessMove is one explored action: the action ID, the payload variant
 // label, and the synthesized payload.
 type livenessMove struct {
@@ -604,10 +599,9 @@ func livenessActionActor(actionID string) WorkflowActor {
 	}
 }
 
-// livenessApply runs one action against the store. commit decides whether the
-// action persists; a probe rolls back so the caller can test many actions from
-// one state.
-func livenessApply(ctx context.Context, s *Store, workID string, move livenessMove, sequence int, commit bool) error {
+// livenessApply runs one action against the store and commits it, so the
+// explorer's moves land the state the next move reads.
+func livenessApply(ctx context.Context, s *Store, workID string, move livenessMove, sequence int) error {
 	version, err := livenessWorkVersion(ctx, s, workID)
 	if err != nil {
 		return err
@@ -731,14 +725,8 @@ func livenessApply(ctx context.Context, s *Store, workID string, move livenessMo
 		if _, inner := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request); inner != nil {
 			return inner
 		}
-		if commit {
-			return nil
-		}
-		return errLivenessProbe
-	})
-	if !commit && errors.Is(err, errLivenessProbe) {
 		return nil
-	}
+	})
 	return err
 }
 
@@ -846,7 +834,7 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		if err != nil {
 			return nil, err
 		}
-		correction, err := workflowCorrectionRequestContext(ctx, s.db, workID, entry.Definition, step, "liveness")
+		correction, _, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, step, "liveness", 0)
 		if err != nil {
 			return nil, err
 		}
@@ -992,7 +980,7 @@ func (cache livenessReplayCache) replay(t *testing.T, definition WorkflowDefinit
 	}
 	for index := start; index < len(path); index++ {
 		move := path[index]
-		if err := livenessApply(ctx, s, workID, move, index, true); err != nil {
+		if err := livenessApply(ctx, s, workID, move, index); err != nil {
 			t.Fatalf("%s replay of %s at index %d failed: %v", definition.Ref, move.String(), index, err)
 		}
 	}

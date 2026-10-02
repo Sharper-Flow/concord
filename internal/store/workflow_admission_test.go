@@ -98,13 +98,14 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 				if decision.ReadyReviewAttemptID != tc.state.ReadyReviewAttemptID || decision.ReadyReviewSettles != tc.state.ReadyReviewSettles {
 					t.Fatalf("action %s: ready review = %q (settles %v), want %q (%v)", actionID, decision.ReadyReviewAttemptID, decision.ReadyReviewSettles, tc.state.ReadyReviewAttemptID, tc.state.ReadyReviewSettles)
 				}
-				if tc.refusals[actionID] {
+				switch {
+				case tc.refusals[actionID]:
 					if decision.Failure == nil || decision.Failure.Kind != KindInvalidOperation || !strings.Contains(decision.Failure.Detail, "fresh accepted review") {
 						t.Fatalf("action %s: refusal = %v, want the typed fresh-review failure", actionID, decision.Failure)
 					}
-				} else if wantAdmitted && decision.Failure != nil {
+				case wantAdmitted && decision.Failure != nil:
 					t.Fatalf("action %s: admitted decision carries a failure: %v", actionID, decision.Failure)
-				} else if !wantAdmitted && decision.Failure == nil {
+				case !wantAdmitted && decision.Failure == nil:
 					t.Fatalf("action %s: refused decision carries no failure", actionID)
 				}
 			}

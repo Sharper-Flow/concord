@@ -931,6 +931,16 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 	state := workflowFieldStringDefault(fields, "delivery_state", "")
 	if workflowAcceptDeliveryAdmissionActive(g.entry.Definition, g.currentStep) {
+		// The accepted disposition of a ready non-settling review is the one
+		// non-delivery accept the delivery-admitting refinement step takes:
+		// the review refused the result, so its acceptance binds the findings
+		// and leaves the debt outstanding, carries no delivery assertion, and
+		// rides the review gate's identity binding (CD-0201 D3). The gate
+		// owns both halves — it refuses the identity-satisfying accept that
+		// does carry the assertion, and admits the one that does not.
+		if workflowAcceptBindsReadyUnsettledReview(g.admissionState, fields) {
+			return guardPostRejectionReviewGate(g)
+		}
 		if artifact == "" || state == "" {
 			return newFailure(KindInvalidOperation, "workflow_action",
 				"the refine step exits only through an admitted delivery assertion: record_delivery, or an accept_worker_result carrying delivery_artifact and delivery_state asserted",
@@ -1174,6 +1184,13 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	if decision.Admitted {
 		return nil
 	}
+	// A refusal whose cause is not the review gate's own — staleness, an
+	// impact notice, the wall — applies here unchanged; the ready-review
+	// carve-out below is the acceptance route of the fresh-review refusal
+	// alone, so no unrelated cause can ride it.
+	if !decision.FreshReviewRequired {
+		return decision.Failure
+	}
 	// The attempt identity and the delivery assertion stay guard checks: the
 	// request's attempt_id must name the ready review the decision folded, so
 	// an accept of a different attempt cannot ride its admission, and the
@@ -1217,6 +1234,19 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 // the refinement step.
 func workflowAcceptCarriesDeliveryAssertion(fields map[string]json.RawMessage) bool {
 	return workflowFieldStringDefault(fields, "delivery_artifact", "") != "" || workflowFieldStringDefault(fields, "delivery_state", "") != ""
+}
+
+// workflowAcceptBindsReadyUnsettledReview reports whether one accept payload
+// names the folded ready review whose verdict does not settle the
+// post-rejection review debt: the accepted non-delivery disposition the claim
+// guard admits and the delivery-fields backstop exempts (CD-0201 D3). A ready
+// attempt folds only under outstanding debt at a review step, so the identity
+// match alone names the guard-approved shape.
+func workflowAcceptBindsReadyUnsettledReview(state *WorkflowAdmissionState, fields map[string]json.RawMessage) bool {
+	if state == nil || state.ReadyReviewAttemptID == "" || state.ReadyReviewSettles {
+		return false
+	}
+	return workflowFieldStringDefault(fields, "attempt_id", "") == state.ReadyReviewAttemptID
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -1323,6 +1353,9 @@ type workflowActionAssemblyInput struct {
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
 	envelopeEvidenceRefs   []string
+	// admission carries the fold's derived admission state, so the assembly's
+	// payload checks read the folded conditions instead of re-deriving them.
+	admission *WorkflowAdmissionState
 }
 
 type workflowActionEventAssembly struct {
@@ -1462,15 +1495,19 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// same completion event a record_delivery appends, so delivery readers
 	// identify the assertion by its asserted fields rather than by action_id.
 	// The guard already required the fields; this refuses closed if the
-	// route ever runs without them.
+	// route ever runs without them. The accepted non-delivery disposition of
+	// a ready non-settling review is the one exempt shape: the guard admitted
+	// it and a refused result carries no delivery assertion (CD-0201 D3).
 	if in.request.ActionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
-		if artifact == "" || state == "" {
+		if (artifact == "" || state == "") && !workflowAcceptBindsReadyUnsettledReview(in.admission, fields) {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
-		completionValues["delivery_artifact"] = artifact
-		completionValues["delivery_state"] = state
+		if artifact != "" && state != "" {
+			completionValues["delivery_artifact"] = artifact
+			completionValues["delivery_state"] = state
+		}
 	}
 	var workerPacketDigest string
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
@@ -1537,7 +1574,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
-			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, in.currentStep, packetRaw, in.request.EscalatedRetryApproved); err != nil {
+			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
 				return events, "", err
 			}
 		}

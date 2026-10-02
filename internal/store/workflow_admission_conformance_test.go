@@ -96,8 +96,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	// A fresh review of the repaired result completes with a ship verdict:
 	// the model's dispatch move names the settling review ready.
-	reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", "refine", 1, reviewGateLane(t, "review"), ownerRef, "ship", at)
-	at += 2
+	reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", 1, reviewGateLane(t, "review"), ownerRef, "ship", at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
 	conformanceCheckpoint(t, s, def, "refine", model, "after settling review completion")
 

@@ -38,7 +38,7 @@ func workflowCompletedInstanceSupersedeOffShape(state string, definition Workflo
 // workflowCompletedInstanceOffShapeFailure is the refusal every admission
 // surface names for a completed instance off the supported shape, so a
 // divergence between the surfaces cannot reopen the route.
-func workflowCompletedInstanceOffShapeFailure(subject string) error {
+func workflowCompletedInstanceOffShapeFailure(subject string) *Failure {
 	return newFailure(KindInvalidOperation, subject, "a completed workflow instance supersedes its contract only on the pinned complete-step correction shape", false, "start a successor workflow")
 }
 
@@ -897,12 +897,34 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// tx-scoped loader folds the refinement history once, and the debt the
 	// state carries is the same one the delivery guard and the work pin read,
 	// so a no_ship review keeps the corrective return admitted here exactly
-	// as it keeps record_delivery hidden.
-	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, currentStep, subject)
+	// as it keeps record_delivery hidden. A pool-backed reader cannot answer
+	// the fold, so the read opens its own short transaction around the same
+	// single implementation — a non-transactional twin deliberately does not
+	// exist.
+	lawTx, isTx := q.(*sql.Tx)
+	if !isTx {
+		db, isDB := q.(*sql.DB)
+		if !isDB {
+			return nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
+		}
+		readTx, beginErr := db.BeginTx(ctx, nil)
+		if beginErr != nil {
+			return nil, wrapFailure(KindUnavailable, subject, "cannot open the read transaction", true, "retry once the store is readable", beginErr)
+		}
+		defer func() {
+			_ = readTx.Rollback()
+		}()
+		lawTx = readTx
+	}
+	// The fold and its continuation read on the transaction's connection: on
+	// the pool-backed queryer the continuation's queries would park behind
+	// the read transaction this wrapper holds (the store connection
+	// invariant).
+	state, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
 	if err != nil {
 		return nil, err
 	}
-	return workflowDeliveryGateCorrectionContextFolded(ctx, q, workID, definition, currentStep, subject, state)
+	return workflowDeliveryGateCorrectionContextFolded(ctx, lawTx, workID, definition, currentStep, subject, state)
 }
 
 // workflowDeliveryGateCorrectionContextFolded is the gate's corrective return

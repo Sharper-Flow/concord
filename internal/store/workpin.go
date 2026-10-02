@@ -219,26 +219,18 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 // workPinStepIntentsTx fills the pin's step intents: the declared actions
 // under the dispatch hold, the evidence-binding recovery, and the
 // post-rejection review debt that hides the delivery exit until the fresh
-// review stands behind it. The debt admission is the shared derivation — the
-// tx-scoped loader folds the refinement history once, and workflowAdmit
+// review stands behind it. The whole admission is the shared derivation —
+// the tx-scoped loader folds the instance history once, and workflowAdmit
 // decides each advance — so the pin and the delivery guard answer identically
-// for the same state instead of re-deriving the debt per site.
+// for the same state instead of re-deriving the conditions per site.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) error {
-	dispatchHoldsAdvance, holdErr := workflowDispatchHoldsStepAdvance(ctx, tx, definition, workID, pin.Step, 0)
-	if holdErr != nil {
-		return holdErr
-	}
-	evidenceRecovery, recoveryErr := workflowEvidenceBindingRecoveryAvailable(ctx, tx, definition, workID, pin.Step)
-	if recoveryErr != nil {
-		return recoveryErr
-	}
-	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version, dispatchHoldsAdvance)
-	if evidenceRecovery && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
-	}
 	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
 	if stateErr != nil {
 		return stateErr
+	}
+	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version, state.DispatchHold)
+	if state.EvidenceRecoveryRoute && !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "evidence_binding_recovery"))
 	}
 	// The pin never offers an advance the delivery guard will refuse, so
 	// an unreviewed repaired result hides the refinement step's accepted

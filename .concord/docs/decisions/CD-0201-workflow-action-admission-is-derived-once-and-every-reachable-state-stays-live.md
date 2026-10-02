@@ -54,9 +54,21 @@ invariant). The request payload checks and the attempt identity checks stay
 in the guards. The accept guard binds the request's attempt against the
 ready review the decision names.
 
-The folded state grows one family at a time. This record folds the
-post-rejection review debt family. A later record folds the next family into
-the same state and the same pure function.
+The folded state covers every condition the five sites read when this
+record was accepted: the step and lifecycle, the instance state, the active
+contract count, the law and registry pin staleness, the breaking impact
+notices, the design currency, the latest worker attempt and its capability
+class, the latest result disposition, the post-rejection review debt and
+its settling verdict, the recovery routes, the same-step wall and its
+operator approval, the dispatch hold, the evidence-binding recovery, and
+the correction classifications. A duplicated contract projection folds on:
+the count classifies the supersede recovery, and the singular-reader folds
+degrade instead of refusing the route that recovery owns.
+
+The liveness checks count only exits the folded state proves, so they fail
+rather than assume. Widening the liveness, well-formed-exit, and
+conformance checks to the full folded state is later work in a separate
+record and does not change this record's law.
 
 ### D2. The liveness law
 
@@ -121,16 +133,15 @@ the corrected admission on release.
 
 ## Consequences
 
-Every admission site that folds the review debt answers identically for the
-same history. A change that strands a reachable state fails the liveness
-checks with a witness before merge. A no_ship review can no longer carry an
-unreviewed result to delivery, and a parked gate keeps its typed corrective
-return.
+Every admission site that folds one of these conditions answers identically
+for the same history. A change that strands a reachable state fails the
+liveness checks with a witness before merge. A no_ship review can no longer
+carry an unreviewed result to delivery, and a parked gate keeps its typed
+corrective return.
 
-The model covers the review debt family today. The checks count only exits
-the folded state proves, so a future strand surfaces as a failing check
-rather than a silent pass. Each later family grows the same fold and the
-same pure function.
+The checks count only exits the folded state proves, so a future strand
+surfaces as a failing check rather than a silent pass. Each later family
+grows the same fold and the same pure function.
 
 ## Verification
 

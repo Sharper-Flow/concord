@@ -17,13 +17,14 @@ import (
 // guard in applyWorkflowActionRawTx. Three guards are deliberately absent,
 // because each applies to every action and the dispatcher therefore calls them
 // directly: guardOperatorPremiseActor, guardRecordedActorTuple, and the
-// spec-mandate guard.
+// spec-mandate guard. dispatch_worker carries no guard either: the folded
+// admission workflowAdmit owns its design-currency boundary, and the packet
+// and identity checks the fold keeps are not action guards.
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
 	"reject_worker_result":   guardPhaseRecovery,
 	"request_correction":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
-	"dispatch_worker":        guardPhaseBoundary,
 	"accept_worker_result":   guardPhaseClaim,
 	"link_successor":         guardPhasePostValidation,
 	"record_alignment":       guardPhasePostValidation,

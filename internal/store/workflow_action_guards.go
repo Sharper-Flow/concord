@@ -41,11 +41,17 @@ type workflowActionGuardContext struct {
 	correctionRecovery        bool
 	correctionRequestRecovery bool
 	correctionRequestMissing  string
-	actorRef                  string
-	eventActor                string
-	operatorRef               string
-	actorNeedsRecord          bool
-	operatorNeedsRecord       bool
+	// admissionState and admissionDecision carry the fold's one admission
+	// derivation: the tx-scoped loader's folded state and workflowAdmit's
+	// decision over it. Guards consume them instead of re-deriving the
+	// conditions per site.
+	admissionState      *WorkflowAdmissionState
+	admissionDecision   *WorkflowAdmissionDecision
+	actorRef            string
+	eventActor          string
+	operatorRef         string
+	actorNeedsRecord    bool
+	operatorNeedsRecord bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -63,7 +69,6 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
-	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
 	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
@@ -508,33 +513,12 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
-// workflowSupersedeRecoveryAtCompleteStep is the complete-step supersede_contract
-// admission every surface shares before any effect: duplicate-contract
-// recovery stays on its declared earlier steps, the successor must declare the
-// reserved convention, and the shared state gate decides. staleRecovery
-// reports that the supersession may proceed as recovery.
-func workflowSupersedeRecoveryAtCompleteStep(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, declaresRoute bool, activeContracts int64) (bool, error) {
-	if activeContracts > 1 {
-		return false, newFailure(KindInvariantViolation, subject, "duplicate contract recovery is unavailable at the pinned complete step", false, "run duplicate recovery on a declared earlier step")
-	}
-	if !declaresRoute {
-		// The payload satisfies its own declaration; what refuses is the step
-		// state, so the refusal is an operation refusal, not a payload one.
-		return false, newFailure(KindInvalidOperation, subject, "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
-	}
-	available, err := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
-	if err != nil {
-		return false, err
-	}
-	if !available {
-		return false, newFailure(KindInvalidOperation, subject, "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-	}
-	return true, nil
-}
-
-// guardSupersedeContractRecovery admits contract recovery only for a workflow
-// contract whose law revision is stale or domain-overlapped, and records that
-// recovery for the later validation stages.
+// guardSupersedeContractRecovery keeps the supersede payload checks the
+// recovery classification needs: the reserved route convention is payload
+// state, and the recovery classification itself is the folded admission
+// decision the dispatch fold already ran, so the guard records it for the
+// later validation stages instead of re-deriving the stale-law and duplicate
+// conditions.
 func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
 	if fieldsErr != nil {
@@ -545,46 +529,13 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	if declaresRoute && !atCompleteStep {
 		return newFailure(KindInvalidPayload, "workflow_action", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 	}
-	if workflowCompletedInstanceSupersedeOffShape(g.instanceState, g.entry.Definition, g.currentStep) {
-		return workflowCompletedInstanceOffShapeFailure("workflow_action")
+	if atCompleteStep && !declaresRoute {
+		// The payload satisfies its own declaration; what refuses is the step
+		// state, so the refusal is an operation refusal, not a payload one.
+		return newFailure(KindInvalidOperation, "workflow_action", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
 	}
-	activeContracts, countErr := activeWorkflowContractCount(g.ctx, g.tx, g.request.WorkID, "workflow_action")
-	if countErr != nil {
-		return countErr
-	}
-	if atCompleteStep {
-		// Every correction path at the pinned complete step — duplicate,
-		// stale-law, or ordinary — passes through the shared complete-step
-		// admission before any effect.
-		recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", declaresRoute, activeContracts)
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		g.staleRecovery = recovery
-		return nil
-	}
-	if activeContracts > 1 {
-		// Recovery owns the ambiguous projection. The normal authority check
-		// cannot run first because it deliberately refuses duplicate state.
-		g.staleRecovery = true
-		return nil
-	}
-	if err := checkWorkflowLawRevisionStalenessTx(g.ctx, g.tx, g.request.WorkID); err != nil {
-		if !workflowContractRecoveryStaleness(err, g.request.WorkID) {
-			return err
-		}
-		g.staleRecovery = true
-		return nil
-	}
-	correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-	if correctionErr != nil {
-		return correctionErr
-	}
-	if correction {
-		g.staleRecovery = true
-		return nil
-	}
-	return newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+	g.staleRecovery = g.admissionDecision != nil && g.admissionDecision.RecoveryRoute
+	return nil
 }
 
 func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
@@ -1206,11 +1157,20 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	default:
 		return nil
 	}
-	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-	if err != nil {
-		return err
+	// The dispatch fold already folded and decided this request's admission;
+	// the guard consumes that derivation. A caller without the fold's state
+	// (no other production caller exists) falls back to its own fold.
+	decision := g.admissionDecision
+	if decision == nil {
+		state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+		if err != nil {
+			return err
+		}
+		decided := workflowAdmit(g.entry.Definition, state, g.request.ActionID)
+		decision = &decided
+		g.admissionState = &state
+		g.admissionDecision = decision
 	}
-	decision := workflowAdmit(g.entry.Definition, state, g.request.ActionID)
 	if decision.Admitted {
 		return nil
 	}

@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWellFormedAdmissionStateHasNonContinuityExit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNoShipReviewKeepsRefineExitAndGateCorrectionHonest"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNoShipReviewLeavesParkedGateCorrectionAdmitted"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowAdmitDecisionTable"
+    }
+  ],
+  "id": "CD-0201",
+  "state": "satisfied"
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 )
 
 // ActiveWorkflowContractVersions returns every active contract version so a
@@ -35,12 +36,33 @@ func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subje
 	return version, nil
 }
 
-func activeWorkflowContractCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
-	var count int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&count); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect active workflow contracts", true, "retry once the workflow contract projection is readable", err)
+// workflowDuplicateContractProjection reports the singular active-contract
+// reader's duplicate invariant at any level of a wrapped refusal, so a caller
+// that owns the duplicated projection's recovery — the admission fold, where
+// workflowAdmitSupersede classifies the duplicates on the count alone — can
+// degrade its conditional folds instead of refusing the route the recovery
+// admits.
+func workflowDuplicateContractProjection(err error) bool {
+	return workflowProjectionInvariant(err, "workflow contract projection has multiple active contracts")
+}
+
+// workflowMissingContractProjection reports the singular active-contract
+// reader's missing-contract invariant, so an admission read over a workflow
+// that runs without an approved contract degrades to its empty answer instead
+// of refusing.
+func workflowMissingContractProjection(err error) bool {
+	return workflowProjectionInvariant(err, "approved workflow contract is missing")
+}
+
+func workflowProjectionInvariant(err error, detail string) bool {
+	for err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindInvariantViolation && failure.Detail == detail {
+			return true
+		}
+		err = errors.Unwrap(err)
 	}
-	return count, nil
+	return false
 }
 
 func validWorkflowContractVersionList(versions []int64) bool {

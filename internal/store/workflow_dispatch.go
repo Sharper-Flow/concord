@@ -299,44 +299,37 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
-	if request.ActionID == "record_worker_failure" {
-		guards.workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
-		if err != nil {
-			return result, err
-		}
+	// One admission derivation for the fold: the tx-scoped loader folds the
+	// instance history into the abstract admission state once, the request's
+	// consumed operator approval fills the wall approval, and the pure
+	// workflowAdmit decides. Every refusal applies here except the advances
+	// the claim-phase review guard owns, whose ready-review carve-out is
+	// payload-bound; the recovery guards and the step-legality check read the
+	// same folded state below.
+	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+	if admissionErr != nil {
+		return result, admissionErr
 	}
-	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		guards.correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
-		if err != nil {
-			return result, err
-		}
+	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
+	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
+	if !decision.Admitted && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) {
+		return result, decision.Failure
 	}
-	if request.ActionID == "request_correction" {
-		guards.correctionRequestRecovery, guards.correctionRequestMissing, err = workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
-		if err != nil {
-			return result, err
-		}
-	}
+	guards.admissionState = &admission
+	guards.admissionDecision = &decision
+	guards.workerFailureRecovery = admission.WorkerFailureRecovery
+	guards.correctionRecovery = admission.CorrectionRecovery
+	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery
+	guards.correctionRequestMissing = admission.CorrectionRequestMissing
 	var retryCorrection *WorkflowCorrectionContext
 	if request.ActionID == "dispatch_worker" {
+		// The completion fence reads the correction context the wall admission
+		// folded: a retry must open a fresh attempt epoch past the failed one.
 		correction, correctionErr := workflowCorrectionContext(ctx, tx, request.WorkID, currentStep)
 		if correctionErr != nil {
 			return result, correctionErr
 		}
 		retryCorrection = correction
-		if correction != nil && correction.Escalated && !request.EscalatedRetryApproved {
-			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
-		}
-		// The same-step wall mirrors the packet wall without depending on a
-		// recorded correction: failed attempts dispatched at this step since
-		// the window anchor count whatever route re-dispatched them.
-		sameStepFailed, sameStepErr := workflowSameStepFailedAttemptCount(ctx, tx, entry.Definition, request.WorkID, currentStep, "workflow_action")
-		if sameStepErr != nil {
-			return result, sameStepErr
-		}
-		if sameStepFailed >= workflowCorrectionAttemptLimit && !request.EscalatedRetryApproved {
-			return result, workflowSameStepWallRefusal(currentStep, sameStepFailed)
-		}
 		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {
 			return result, err
 		}
@@ -354,21 +347,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
 	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		// Recovery admits the late timing only, and the guard's predicate is
+		// payload-bound: it checks the verdict entries the request names. The
+		// staleness boundary already held this action through the folded
+		// admission above.
 		if err := guardLateVerdictRecovery(guards); err != nil {
-			return result, err
-		}
-		// Recovery admits the late timing only. A verdict is a consequential
-		// action (CD-0041 D7), so the stale law and Domain registry boundary
-		// holds it exactly as it holds a verdict at its own step.
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
-			return result, err
-		}
-	} else if !guards.staleRecovery {
-		// CD-0041 D7: the boundary holds every advancing action. Attempt
-		// disposition records facts about attempts made under the pinned
-		// contract, so the subject's own stale pin admits it and the enclosed
-		// item settles its attempt; contract judgment keeps the refusal.
-		if err := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, request.WorkID, workflowActionStalePinAdmission(request.ActionID)); err != nil {
 			return result, err
 		}
 	}

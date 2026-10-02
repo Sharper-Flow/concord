@@ -14,7 +14,10 @@
     "internal/store/workflow_no_ship_review_test.go",
     "internal/store/workflow_action_guards.go",
     "internal/store/workflow_correction.go",
-    "internal/store/workpin.go"
+    "internal/store/workpin.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow_liveness_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0201",
@@ -41,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:af5e6439103e42863158b21d4b6f961879859da06aac55b597eacc0fa53410ed",
+  "sha256": "sha256:d1b93c22cf7adfebfb52fcd0931439386c299595def3561affd506f4089d6dca",
   "status": "accepted",
   "summary": "Workflow action admission is derived once: a tx-scoped loader folds one work item's history into an abstract admission state, and a pure workflowAdmit function decides admission for preflight, the guard table, the work pin intents, the dispatch fold, and the correction binding, while payload and identity checks stay in the guards. The liveness law binds every registered definition version: every well-formed nonterminal abstract state admits a state-exiting action, every model-reachable nonterminal state reaches a terminal step through admitted actions, both checks fail with a witness and never skip, and a conformance replay binds the model to the real fold. A fresh accepted review settles post-rejection review debt only when its verdict is ship or absent, so a no_ship review leaves the debt outstanding and a parked delivery gate keeps admitting request_correction; no definition version changes.",
   "tags": [

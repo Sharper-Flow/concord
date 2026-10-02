@@ -1,10 +1,10 @@
 package store
 
-// Bounded exploration exercises the real engine with isolated ordered paths.
-// A state with no sampled admissible input is a candidate failure, not proof
-// that every possible input refuses. Omitted inputs and truncated paths make
-// the result inconclusive. Separate finite witnesses prove durable completion.
-// Payload synthesis failures are harness failures, never liveness findings.
+// Shared harness for the engine-driving exploration tests: typed action
+// payload synthesis from the declared schemas, actor fixtures, ordered action
+// application on a real store, and the path helpers the witnesses use. The
+// liveness law itself is the exhaustive abstract check in
+// workflow_admission_liveness_test.go.
 
 import (
 	"context"

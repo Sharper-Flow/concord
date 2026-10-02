@@ -640,6 +640,12 @@ func workflowEvidenceRequirementDeclared(kind, reference string, required, manda
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
 	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
+		// A work item whose workflow runs without an approved contract carries
+		// no contract evidence requirements, so the admission surfaces that
+		// fold this read stay total instead of refusing the route.
+		if workflowMissingContractProjection(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)

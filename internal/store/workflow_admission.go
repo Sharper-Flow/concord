@@ -159,6 +159,13 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
 	}
+	// A duplicated contract projection is the supersede recovery's subject:
+	// workflowAdmitSupersede admits its route on the count alone, and the
+	// singular active-contract reader refuses duplicates. The conditional
+	// folds below that resolve one active contract degrade instead of
+	// refusing, so the loader stays total over the projection the recovery
+	// owns and every action still reaches its typed route.
+	duplicatedProjection := state.ActiveContracts > 1
 	// The staleness boundary reads through the mutation transaction the
 	// admission sites already hold; a pool-backed queryer cannot answer it
 	// inside one fold, so the loader refuses rather than read past the tx.
@@ -167,9 +174,19 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 	}
 	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitNone)
+	// The staleness boundary's overlap half resolves the one active contract,
+	// so under a duplicated projection it raises the duplicate invariant the
+	// supersede recovery owns. The count itself classifies the recovery, so
+	// the boundary's duplicate refusal degrades and the state folds on.
+	if lawErr != nil && duplicatedProjection && workflowDuplicateContractProjection(lawErr) {
+		lawErr = nil
+	}
 	state.LawPinStaleError = lawErr
 	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, workID)
 	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitOwnMarker)
+	if state.LawPinSelfError != nil && duplicatedProjection && workflowDuplicateContractProjection(state.LawPinSelfError) {
+		state.LawPinSelfError = nil
+	}
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, workID).Scan(&state.BreakingNotices); err != nil {
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
 	}
@@ -202,10 +219,10 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 	}
 	lateRoute, lateErr := workflowLateVerdictRecoveryAvailable(ctx, q, workID, definition, currentStep)
-	if lateErr != nil {
+	if lateErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(lateErr)) {
 		return WorkflowAdmissionState{}, lateErr
 	}
-	state.LateVerdictRoute = lateRoute
+	state.LateVerdictRoute = lateRoute && lateErr == nil
 	workerFailureRoute, workerFailureErr := workflowWorkerFailureRecoveryAvailable(ctx, q, workID, definition, currentStep, subject)
 	if workerFailureErr != nil {
 		return WorkflowAdmissionState{}, workerFailureErr
@@ -215,30 +232,36 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if correctionRouteErr != nil {
 		return WorkflowAdmissionState{}, correctionRouteErr
 	}
-	state.CorrectionRecovery = correctionRoute
+	// The rejection recovery is a worker-dispatch-step route: off a step that
+	// declares dispatch_worker the state carries no recovery, so a caller
+	// cannot admit the rejection onto an unrelated step.
+	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(definition, currentStep, "dispatch_worker")
 	// The delivery gate's corrective return reads the review debt this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
-	// correction-request admission directly.
+	// correction-request admission directly. Under a duplicated projection
+	// the singular active-contract reader refuses, and the duplicate
+	// recovery owns the route out, so the conditional folds degrade.
 	if workflowCorrectionWorkflow(definition) && workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(ctx, q, workID, definition, currentStep, subject, state)
-		if gateErr != nil {
+		if gateErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(gateErr)) {
 			return WorkflowAdmissionState{}, gateErr
 		}
-		state.CorrectionRequestRecovery = gateContext != nil
-		if gateContext == nil {
+		state.CorrectionRequestRecovery = gateErr == nil && gateContext != nil
+		if gateErr == nil && gateContext == nil {
 			state.CorrectionRequestMissing = workflowCorrectionMissingGateReview
 		}
 	} else {
 		correctionRequestRoute, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmissionState(ctx, q, workID, definition, currentStep, subject, 0)
-		if correctionRequestErr != nil {
+		if correctionRequestErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionRequestErr)) {
 			return WorkflowAdmissionState{}, correctionRequestErr
 		}
-		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestRoute, correctionRequestMissing
+		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestRoute && correctionRequestErr == nil, correctionRequestMissing
 	}
-	if correction, correctionErr := workflowCorrectionContext(ctx, q, workID, currentStep); correctionErr != nil {
+	correction, correctionErr := workflowCorrectionContext(ctx, q, workID, currentStep)
+	if correctionErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionErr)) {
 		return WorkflowAdmissionState{}, correctionErr
-	} else if correction != nil {
+	} else if correctionErr == nil && correction != nil {
 		state.CorrectionEscalated = correction.Escalated
 	}
 	sameStepFailed, wallErr := workflowSameStepFailedAttemptCount(ctx, q, definition, workID, currentStep, subject)
@@ -252,7 +275,10 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.DispatchHold = dispatchHold
 	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryAvailable(ctx, q, definition, workID, currentStep); evidenceErr != nil {
-		return WorkflowAdmissionState{}, evidenceErr
+		if !duplicatedProjection || !workflowDuplicateContractProjection(evidenceErr) {
+			return WorkflowAdmissionState{}, evidenceErr
+		}
+		state.EvidenceRecoveryRoute = false
 	} else {
 		state.EvidenceRecoveryRoute = evidenceRecovery
 	}
@@ -333,10 +359,17 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 }
 
 // workflowAdmitSupersede classifies one supersede_contract request's recovery
-// route over the folded state. The payload's route declaration and the
-// completed-instance shape stay payload checks at the calling guard; the
-// state answer is the recovery classification and its typed refusals.
+// route over the folded state. The payload's route declaration stays a
+// payload check at the calling guard; the state answer is the shape refusal,
+// the recovery classification, and the typed refusals.
 func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissionState, decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
+	if workflowCompletedInstanceSupersedeOffShape(state.InstanceState, definition, state.Step) {
+		// The stale-law and duplicate recoveries belong to running earlier
+		// steps. A completed instance off the supported shape would fold
+		// without the return that reopens the work.
+		decision.Failure = workflowCompletedInstanceOffShapeFailure("workflow_action")
+		return decision
+	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(definition, state.Step)
 	if atCompleteStep {
 		if state.ActiveContracts > 1 {
@@ -346,7 +379,9 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 		decision.RecoveryRoute = state.CompleteStepCorrection
 		if !decision.RecoveryRoute {
 			decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+			return decision
 		}
+		decision.Admitted = true
 		return decision
 	}
 	if state.ActiveContracts > 1 {
@@ -390,6 +425,27 @@ func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) WorkflowAdmissionDecision {
 	decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
 	return decision
+}
+
+// workflowAdmissionDefersToReviewGate reports whether one action's refusal
+// belongs to the claim-phase post-rejection review guard instead of the
+// caller's own decision application. The guard owns the one payload-bound
+// carve-out in the debt family — the accept whose attempt identity names the
+// ready settling review is itself the fresh review — so the mutating fold and
+// the preflight defer these advances to it rather than refuse them payload-
+// blind, and every other site still answers from the same folded state.
+func workflowAdmissionDefersToReviewGate(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
+	if !state.CorrectionWorkflow || state.ReviewDebt != ReviewDebtOutstanding {
+		return false
+	}
+	switch actionID {
+	case "record_delivery":
+		return state.ReviewStep
+	case "accept_worker_result":
+		return stepDeclaresAction(definition, state.Step, "start_refine")
+	default:
+		return false
+	}
 }
 
 // workflowReadySettlingReviewAttemptTx names the latest completed review

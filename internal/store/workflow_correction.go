@@ -795,32 +795,10 @@ func workflowReviewSettlesDebt(verdict string) bool {
 
 // workflowReviewSettlesDebtSQL is the SQL form of workflowReviewSettlesDebt
 // over the attempt's worker.completed record: the review verdict is absent, or
-// ship. Every query that decides whether an accepted review settles the
-// post-rejection review debt composes this fragment, so the verdict rule
-// cannot drift between the settlement query, the ready query, the guard, and
-// the fold's advance rule.
+// ship. The settlement query composes this fragment, so the verdict rule
+// cannot drift between the settlement query and the guard that records the
+// accept's admission decision on its completion (CD-0201 D3).
 const workflowReviewSettlesDebtSQL = "COALESCE(json_extract(wc.payload,'$.review.verdict'),'') IN ('','ship')"
-
-// workflowAcceptReviewSettlesTx reports whether one accept_worker_result
-// completion advances the shared step: the accepted attempt's completion
-// verdict must settle the post-rejection review debt — ship, or absent for
-// the pre-CD-0197 reports (CD-0201 D3). A no_ship review binds its findings
-// and leaves the debt outstanding, so its acceptance keeps the refinement
-// step current and the advance waits for a settling review. beforeSeq bounds
-// the read at the accept's own sequence position, so a replay fold sees only
-// the completions its log order proves. An attempt with no completed record
-// carries no refusing verdict, so the advance keeps the behavior it had.
-func workflowAcceptReviewSettlesTx(ctx context.Context, tx *sql.Tx, workID, attemptID string, beforeSeq int64) (bool, error) {
-	var settles bool
-	if err := tx.QueryRowContext(ctx, `SELECT `+workflowReviewSettlesDebtSQL+` FROM domain_events wc WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=? AND wc.seq<? ORDER BY wc.seq DESC LIMIT 1`,
-		string(SubjectWorkItem), workID, WorkerCompleted, attemptID, beforeSeq).Scan(&settles); err != nil {
-		if err == sql.ErrNoRows {
-			return true, nil
-		}
-		return false, wrapFailure(KindUnavailable, "fold_event", "cannot read the accepted attempt's review verdict", true, "retry once the worker delivery projection is readable", err)
-	}
-	return settles, nil
-}
 
 // workflowPostRejectionFrontier returns the seq frontier a settling review
 // dispatch must postdate: the refinement step's latest rejection, or the

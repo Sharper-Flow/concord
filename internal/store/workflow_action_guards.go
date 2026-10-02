@@ -1518,6 +1518,14 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			completionValues["delivery_state"] = state
 		}
 	}
+	// CD-0201 D3: the accept guard's admission decision rides the completion
+	// it authors. The accepted non-delivery disposition of a ready
+	// non-settling review holds the step's advance — the debt waits for a
+	// settling review — so the guard records the hold from the folded
+	// admission state, and the fold honors the recorded field only.
+	if in.request.ActionID == "accept_worker_result" && workflowAcceptBindsReadyUnsettledReview(in.admission, fields) {
+		completionValues["review_advance_held"] = true
+	}
 	var workerPacketDigest string
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
 		completionValues["attempt_epoch"] = workflowFieldInt(fields, "attempt_epoch", 0)

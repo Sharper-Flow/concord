@@ -124,9 +124,12 @@ type WorkflowAdmissionState struct {
 	EvidenceRecoveryRoute bool
 	// PendingOperatorDecision reports an open operator question at the
 	// current step: the checkpoint declares an approval-required action and
-	// the investigation artifact stands behind it. The question-open refusal
-	// itself stays in the operator-selection guard chain, whose checks the
-	// payload-blind admission cannot reorder.
+	// the investigation artifact stands behind it. workflowAdmit refuses
+	// confirm_premise on it — the question-open refusal is the admission's
+	// answer, the one owner the work pin's advertisement reads — while the
+	// operator-selection chain keeps the payload checks, the closed choice
+	// and the decision-context digest, which the payload-blind admission
+	// cannot judge.
 	PendingOperatorDecision bool
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
@@ -164,10 +167,20 @@ type WorkflowAdmissionDecision struct {
 	// carve-out is payload-bound; every other refusal — staleness, impact,
 	// the wall, step legality — applies at the caller's own decision point
 	// and is never deferred past it.
-	FreshReviewRequired  bool
-	ReadyReviewAttemptID string
-	ReadyReviewSettles   bool
-	Failure              *Failure
+	FreshReviewRequired bool
+	// OperatorQuestionClosed marks the closed-question answer over
+	// confirm_premise: the step declares the approval-required confirmation
+	// and no operator question stands open behind it. It is an advertisement
+	// wall like ApprovalRequired — the work pin drops the unadmitted
+	// intent, and the interactive refusal plus the payload checks (the
+	// closed choice, the decision-context digest, the operator identity)
+	// stay with the operator-selection chain the payload-blind admission
+	// cannot judge — so the execution path leaves confirm_premise to those
+	// checks instead of refusing at the admission point.
+	OperatorQuestionClosed bool
+	ReadyReviewAttemptID   string
+	ReadyReviewSettles     bool
+	Failure                *Failure
 }
 
 // workflowFailureOf converts a folded boundary error into its typed refusal.
@@ -236,7 +249,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, designErr
 	}
 	state.DesignStale = designStale
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return WorkflowAdmissionState{}, wrapFailure(KindUnavailable, subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(f.payload,'$.action_id'),'') FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY f.seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
@@ -422,6 +435,16 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 				return workflowAdmitFreshReviewRefusal(decision)
 			}
 		}
+	}
+	// The question-open answer is the admission's: confirm_premise is
+	// answered only through an open operator question, so the decision
+	// marks the question closed and refuses advertisement. The work pin
+	// reads this same decision and drops the unadmitted intent — its
+	// former private copy is gone.
+	if actionID == "confirm_premise" && !state.PendingOperatorDecision {
+		decision.OperatorQuestionClosed = true
+		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "no operator question is open at the current workflow step", false, "record the investigation artifact the question requires, or take a declared route")
+		return decision
 	}
 	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
 		decision.Failure = workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)

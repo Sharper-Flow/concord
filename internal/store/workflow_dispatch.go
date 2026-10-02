@@ -301,17 +301,19 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// consumed operator approval fills the wall approval, and the pure
 	// workflowAdmit decides. Every refusal applies here except the review
 	// gate's own fresh-review refusal, whose ready-review carve-out is
-	// payload-bound; a staleness, impact, wall, or step-legality refusal is
-	// never deferred, so no unrelated cause can ride the review gate's
-	// acceptance route. The recovery guards and the step-legality check read
-	// the same folded state below.
+	// payload-bound, the operator-approval walls, and the closed-question
+	// wall whose interactive refusal the selection chain owns; a staleness,
+	// impact, wall, or step-legality refusal is never deferred, so no
+	// unrelated cause can ride the review gate's acceptance route. The
+	// recovery guards and the step-legality check read the same folded
+	// state below.
 	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 	if admissionErr != nil {
 		return result, admissionErr
 	}
 	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(decision) {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision) {
 		return result, decision.Failure
 	}
 	guards.admissionState = &admission

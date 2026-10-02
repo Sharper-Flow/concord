@@ -232,6 +232,14 @@ type workflowActionCompletedPayload struct {
 	CorrectionPredicateIDs   []string `json:"correction_predicate_ids,omitempty"`
 	DeliveryArtifact         string   `json:"delivery_artifact,omitempty"`
 	DeliveryState            string   `json:"delivery_state,omitempty"`
+	// ReviewAdvanceHeld records the accept guard's one admission decision
+	// over the review-debt family: the accepted attempt is the ready
+	// non-settling review whose verdict leaves the debt outstanding, so the
+	// step advance waits for a settling review (CD-0201 D3). The guard
+	// writes it on the completion it authors; the fold honors the recorded
+	// field only and never re-derives the verdict, so an event without the
+	// field advances as recorded and recorded history replays unchanged.
+	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -2124,16 +2132,13 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		advancesStep = ok && executionMode == ActionAdvance
 		// A non-settling accepted review keeps the step current: refine does
 		// not advance to delivery behind a no_ship review, and the advance
-		// waits for a settling review (CD-0201 D3). The accepted attempt's
-		// completion precedes its accept in the log, so the verdict read is
-		// replay-deterministic, and the settle rule is the same one fragment
-		// the settlement and ready queries compose.
-		if p.ActionID == "accept_worker_result" && advancesStep {
-			settles, settlesErr := workflowAcceptReviewSettlesTx(ctx, tx, event.SubjectID, p.WorkerAttemptID, event.Seq)
-			if settlesErr != nil {
-				return settlesErr
-			}
-			advancesStep = settles
+		// waits for a settling review (CD-0201 D3). The decision is the
+		// admission's alone: the accept guard records it on the completion
+		// it authors (review_advance_held), and the fold honors the recorded
+		// field only. An event without the field advances as recorded, so
+		// recorded history replays unchanged.
+		if p.ActionID == "accept_worker_result" {
+			advancesStep = advancesStep && !p.ReviewAdvanceHeld
 		}
 		if advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {

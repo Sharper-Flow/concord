@@ -117,6 +117,17 @@ func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 	}
 	reviewGateRequireStep(t, s, workID, "refine")
 
+	// The guard records its admission decision on the completion it authors,
+	// and the fold honors the recorded field: the accepted attempt is the
+	// ready non-settling review, so the completion carries the hold.
+	var held bool
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.review_advance_held'),0) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, noShipReview).Scan(&held); err != nil {
+		t.Fatal(err)
+	}
+	if !held {
+		t.Fatal("the guarded no_ship accept recorded no review advance hold")
+	}
+
 	// The acceptance dispositioned the review: the ready-review read returns
 	// none, so no later accept can ride the dispositioned attempt's
 	// identity.
@@ -288,4 +299,85 @@ func TestReleasedPinKeepsNoShipAcceptRefineCurrent(t *testing.T) {
 		t.Fatalf("settling accept on the released pin: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
+}
+
+// TestNoShipReviewLeavesParkedGateCorrectionAdmitted reproduces the CON-796
+// parked-gate half on the released closed-gate version. The history the
+// pre-correction code recorded carries the accepted no_ship review's
+// advancing accept — a completion without the recorded hold field — and the
+// fold advances recorded history as recorded, so the item stands parked on
+// the delivery gate with the debt outstanding. The gate keeps hiding its
+// delivery exit and keeps admitting the evidence-bearing corrective return,
+// which returns the item to repair (CD-0201 D3).
+func TestNoShipReviewLeavesParkedGateCorrectionAdmitted(t *testing.T) {
+	const workID = "no-ship-review-parked-gate"
+	released, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
+	if !ok {
+		t.Fatal("workflow.break_fix v13 is not registered")
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, released, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
+	s := fixture.store
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := int64(100)
+
+	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+
+	// A fresh review completes with a no_ship verdict, and the pre-correction
+	// history records its acceptance as the advancing accept: appended here
+	// as the completion that code wrote, with no recorded hold field.
+	noShipReview := "attempt:" + workID + ":review-2"
+	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+	at += 2
+	acceptorRef, acceptorRefErr := WorkflowActorRef(reviewGateAcceptor(workID))
+	if acceptorRefErr != nil {
+		t.Fatal(acceptorRefErr)
+	}
+	version := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
+		EventID: "no-ship-parked-gate-accept", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: acceptorRef, OccurredAt: time.Unix(at, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"step_id": "refine", "action_id": "accept_worker_result", "attempt_epoch": refineEpoch, "worker_attempt_id": noShipReview,
+			"actor_ref": acceptorRef,
+		}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("replay of the recorded pre-correction accept: %v", err)
+	}
+	reviewGateRequireStep(t, s, workID, "delivery")
+	ctx := context.Background()
+
+	// The accepted no_ship review settled none of the debt, so the parked
+	// gate keeps hiding its delivery exit and keeps admitting the
+	// evidence-bearing corrective return.
+	pin, pinErr := ReadWorkPin(ctx, s, workID)
+	if pinErr != nil {
+		t.Fatal(pinErr)
+	}
+	if workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+		t.Fatalf("pin offered record_delivery behind the accepted no_ship review: %#v", pin.NextValidIntents)
+	}
+	if !workPinContainsAction(pin.NextValidIntents, "request_correction") {
+		t.Fatalf("pin hid the parked gate's corrective return behind a no_ship review: %#v", pin.NextValidIntents)
+	}
+
+	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if defErr != nil {
+		t.Fatal(defErr)
+	}
+	outstanding, outstandingErr := workflowPostRejectionReviewOutstanding(ctx, s.db, workID, definition.Definition, "workflow_no_ship_review_test")
+	if outstandingErr != nil {
+		t.Fatal(outstandingErr)
+	}
+	if !outstanding {
+		t.Fatal("the no_ship review settled the post-rejection review debt")
+	}
+
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", reviewGateCorrectionPayload("evidence:return-route-verification"), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("evidence-bearing corrective return behind a no_ship review: %v", err)
+	}
+	reviewGateRequireStep(t, s, workID, "repair")
 }

@@ -273,17 +273,18 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// the instance history into the abstract admission state once, and the
 	// pure workflowAdmit decides. The refusal applies here except the review
 	// gate's own fresh-review refusal (its payload-bound ready-review
-	// carve-out) and the operator-approval walls, which the approval-gated
-	// mutation boundary clears before the fold refuses them. A staleness,
-	// impact, wall, or step-legality refusal is never deferred. The recovery
-	// flags and the supersede classification below read the same folded
-	// state instead of re-deriving the conditions per site.
+	// carve-out), the operator-approval walls, and the closed-question wall,
+	// which the approval-gated mutation boundary and the selection chain own
+	// before the fold refuses them. A staleness, impact, wall, or
+	// step-legality refusal is never deferred. The recovery flags and the
+	// supersede classification below read the same folded state instead of
+	// re-deriving the conditions per site.
 	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(decision) && !decision.ApprovalRequired {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision) && !decision.ApprovalRequired {
 		if requireTerminalConditions || !decision.ConsequentialConditions {
 			return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 		}

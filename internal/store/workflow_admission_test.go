@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -25,9 +26,10 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			{ID: "dispatch_worker", ExecutionMode: ActionHold},
 			{ID: "checkpoint_context", ExecutionMode: ActionHold},
 			{ID: "start_refine", ExecutionMode: ActionHold},
+			{ID: "confirm_premise", ExecutionMode: ActionAdvance},
 		},
 		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
-			{ID: refineStep, Actions: []string{"start_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "checkpoint_context"}},
+			{ID: refineStep, Actions: []string{"start_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "confirm_premise", "checkpoint_context"}},
 			{ID: gateStep, Actions: []string{"record_delivery", "request_correction", "checkpoint_context"}},
 		}}}
 	// Each case names the step, the debt, and the ready review the loader
@@ -87,6 +89,16 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
 			want:  map[string]bool{"record_verdict": false},
 		},
+		{
+			name:  "confirm_premise refuses without an open operator question",
+			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
+			want:  map[string]bool{"confirm_premise": false, "dispatch_worker": true},
+		},
+		{
+			name:  "an open operator question admits the confirmation",
+			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, PendingOperatorDecision: true},
+			want:  map[string]bool{"confirm_premise": true, "dispatch_worker": true},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,6 +106,14 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 				decision := workflowAdmit(definition, tc.state, actionID)
 				if decision.Admitted != wantAdmitted {
 					t.Fatalf("action %s: admitted = %v, want %v", actionID, decision.Admitted, wantAdmitted)
+				}
+				if actionID == "confirm_premise" && !wantAdmitted {
+					if decision.Failure == nil || decision.Failure.Kind != KindStaleRequiresReview {
+						t.Fatalf("action %s: refusal = %v, want the question-open failure", actionID, decision.Failure)
+					}
+					if !decision.OperatorQuestionClosed {
+						t.Fatalf("action %s: the closed-question answer is not marked", actionID)
+					}
 				}
 				if decision.ReadyReviewAttemptID != tc.state.ReadyReviewAttemptID || decision.ReadyReviewSettles != tc.state.ReadyReviewSettles {
 					t.Fatalf("action %s: ready review = %q (settles %v), want %q (%v)", actionID, decision.ReadyReviewAttemptID, decision.ReadyReviewSettles, tc.state.ReadyReviewAttemptID, tc.state.ReadyReviewSettles)
@@ -117,5 +137,45 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 		if workflowReviewSettlesDebt(verdict) != want {
 			t.Fatalf("workflowReviewSettlesDebt(%q) = %v, want %v", verdict, !want, want)
 		}
+	}
+}
+
+// TestAdmissionLoaderFoldsDispatchCapabilityClass proves the loader's
+// worker.dispatched join: the latest attempt's capability class folds from
+// the dispatched event's $.attempt_id — the identity WorkerDispatchedPayload
+// writes — so the folded state names the class the lane-step dispatch join
+// and the hold admissions read instead of folding an empty one.
+func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
+	const workID = "admission-capability-class"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := int64(100)
+	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+	reviewAttempt := "attempt:" + workID + ":review-class"
+	reviewGateRunAttemptWithVerdict(t, s, workID, reviewAttempt, refineEpoch, reviewGateLane(t, "review"), ownerRef, "ship", at)
+
+	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if defErr != nil {
+		t.Fatal(defErr)
+	}
+	ctx := context.Background()
+	tx, txErr := s.db.BeginTx(ctx, nil)
+	if txErr != nil {
+		t.Fatal(txErr)
+	}
+	defer tx.Rollback()
+	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test")
+	if stateErr != nil {
+		t.Fatal(stateErr)
+	}
+	if state.AttemptState != "completed" || state.AttemptCapabilityClass != "review" {
+		t.Fatalf("folded attempt = %q class %q, want the completed review attempt's class", state.AttemptState, state.AttemptCapabilityClass)
+	}
+	if state.ReadyReviewAttemptID != reviewAttempt || !state.ReadyReviewSettles {
+		t.Fatalf("ready review = %q (settles %v), want the completed ship review", state.ReadyReviewAttemptID, state.ReadyReviewSettles)
 	}
 }

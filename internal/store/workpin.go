@@ -230,7 +230,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}
-	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version, state.DispatchHold)
+	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version)
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
 		decision := workflowAdmit(definition, state, intent.ActionID)
@@ -358,15 +358,6 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	}
 	if stepDeclaresAction(definition, pin.Step, "dispatch_worker") && state.CorrectionRecovery && admits("reject_worker_result") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowCorrectionActionDefinition(), pin.Version, "worker_result_rejection"))
-	}
-	// An unavailable confirmation is not advertised. confirm_premise is
-	// answered only through an open operator question, so a pin without one
-	// hides the action instead of sending the caller into a guaranteed
-	// refusal. The gate closes the question both when the investigation
-	// precondition withholds it and when no approved contract exists, and
-	// neither state lets the selection guard through.
-	if pin.PendingOperatorDecision == nil && workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
-		pin.NextValidIntents = workPinWithoutAction(pin.NextValidIntents, "confirm_premise")
 	}
 	// A completed instance with nonterminal work retains only the admitted
 	// complete-step contract correction. Every other action remains immutable.
@@ -527,12 +518,12 @@ func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes,
 	return nil
 }
 
-// workPinIntents lists the actions the current step offers. When
-// dispatchHoldsAdvance is set, a worker dispatch in the current attempt holds
-// every advancing exit except accept_worker_result, so those advances are
-// omitted: the pin states what the caller may do, and an action the fold
-// refuses is not one of them (CD-0133 D4).
-func workPinIntents(definition WorkflowDefinition, stepID string, version int64, dispatchHoldsAdvance bool) []WorkPinIntent {
+// workPinIntents lists the actions the current step offers, the pure shape
+// read. The per-intent workflowAdmit decision in workPinStepIntentsTx drops
+// what the folded state refuses — a dispatched worker's hold hides every
+// advancing exit except accept_worker_result (CD-0133 D4) — so the hold is
+// the shared admission's answer, never a per-site predicate here.
+func workPinIntents(definition WorkflowDefinition, stepID string, version int64) []WorkPinIntent {
 	step := workflowStep(definition, stepID)
 	if step == nil {
 		return []WorkPinIntent{}
@@ -545,9 +536,6 @@ func workPinIntents(definition WorkflowDefinition, stepID string, version int64,
 	for _, actionID := range step.Actions {
 		action, ok := actions[actionID]
 		if !ok {
-			continue
-		}
-		if dispatchHoldsAdvance && action.ExecutionMode == ActionAdvance && actionID != "accept_worker_result" {
 			continue
 		}
 		payload := publicWorkflowActionPayload(action)

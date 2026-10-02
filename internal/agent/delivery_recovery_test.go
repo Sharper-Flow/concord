@@ -34,7 +34,7 @@ func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefini
 func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemptID, capabilityClass string) map[string]any {
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
-	inputs := map[string]any{"task": "advance the approved gate objective", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "exit_codes"}, "constraints": []string{"preserve the approved contract"}}
+	inputs := map[string]any{"task": "advance the approved gate objective", "constraints": []string{"preserve the approved contract"}}
 	pin, err := store.ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 	if pin.Correction != nil {
 		inputs["correction"] = pin.Correction
 	}
-	return map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs}
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 // deliveryRecoveryCompletion records the lane dispatch and the completed

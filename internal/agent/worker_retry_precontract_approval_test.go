@@ -29,7 +29,7 @@ func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) 
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	freshAttemptID := "attempt:work-1:fresh"
-	packet := preContractRetryPacket(t, "work-1", "discovery", freshAttemptID, pin.Correction)
+	packet := preContractRetryPacket(t, s, "work-1", "discovery", freshAttemptID, pin.Correction)
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
 		"idempotency_key": "precontract-retry-1", "fields": map[string]any{"attempt_id": freshAttemptID, "worker_packet": packet},
@@ -127,7 +127,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	}
 	grant.Worktree = path
 	initialEnv := mutationEnvelope(grant, scopeVersion)
-	initialInput := retryJSON(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "precontract-initial", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": preContractRetryPacket(t, "work-1", "discovery", attemptID, nil)}})
+	initialInput := retryJSON(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "precontract-initial", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": preContractRetryPacket(t, s, "work-1", "discovery", attemptID, nil)}})
 	initial := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, initialEnv)
 	if initial.Outcome != OutcomeOK {
 		t.Fatalf("seed initial pre-contract research dispatch: %+v", initial.Error)
@@ -174,14 +174,14 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	return version, attemptID, path
 }
 
-func preContractRetryPacket(t *testing.T, workID, stepID, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
+func preContractRetryPacket(t *testing.T, s *store.Store, workID, stepID, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := preContractResearchLane(t)
-	inputs := map[string]any{"task": "retry the recorded discovery question", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "bounded_findings"}, "constraints": []string{"cite primary sources"}}
+	inputs := map[string]any{"task": "retry the recorded discovery question", "constraints": []string{"cite primary sources"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs}
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 func preContractResearchLane(t *testing.T) store.LaneDefinition {

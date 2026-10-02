@@ -357,6 +357,21 @@ test("a read-only lane carries the recorded question verbatim before contract ap
   assertNoMandateSplice(packet)
 })
 
+test("a read-only recorded question preserves surrounding whitespace and Unicode", async () => {
+  const question = "  Compare 𝕏 and é.\n"
+  const scope = scopeEnvelope() as any
+  scope.result.work.task = question
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_browse.scope": scope,
+    "concord_work_trace.continuity": continuityEnvelope(null),
+  }, { laneId: "research" })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.task).toBe(question)
+  expect(Buffer.from(built.packet!.inputs.task)).toEqual(Buffer.from(question))
+  expect(built.packet!.inputs.context).not.toContain(question)
+})
+
 test("a review lane keeps the pinned contract mandate after read-only classification", async () => {
   const contract = pinnedContract()
   const built = await build(

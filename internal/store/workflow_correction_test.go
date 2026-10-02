@@ -260,7 +260,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
 		t.Fatalf("start fresh correction attempt: %v", err)
 	}
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(workID, "execution", "attempt:fresh-"+workID))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
 		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
 	}
-	packet := dispatchWorkerPacket(workID, "execution", "attempt:fresh-"+workID)
+	packet := dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID)
 	packet["inputs"].(map[string]any)["correction"] = correctionPayload
 	packetPayload, err = json.Marshal(packet)
 	if err != nil {
@@ -348,7 +348,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	if !sameWorkflowCorrection(pin.Correction, validatorCorrection) {
 		t.Fatalf("work pin correction=%#v, validator correction=%#v", pin.Correction, validatorCorrection)
 	}
-	withoutCorrection := dispatchWorkerPacket(workID, "repair", attemptID)
+	withoutCorrection := dispatchWorkerPacket(t, s, workID, "repair", attemptID)
 	packetPayload, err := json.Marshal(withoutCorrection)
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		t.Fatalf("dispatch without correction error=%v, want invalid_payload", err)
 	}
 
-	validPayload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+	validPayload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
 	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: validPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "dispatch-corrective:" + workID, OperationID: "dispatch-corrective:" + workID,
@@ -395,7 +395,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		t.Fatalf("work pin retained discharged correction: %#v", pin.Correction)
 	}
 	nextAttemptID := "attempt:" + workID + ":later"
-	nextPacket, err := json.Marshal(dispatchWorkerPacket(workID, "repair", nextAttemptID))
+	nextPacket, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "repair", nextAttemptID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	defer s.Close()
 
 	attemptID := "attempt:" + workID + ":4"
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
 	base := WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "issue1013-escalated-dispatch", OperationID: "issue1013-escalated-dispatch",
@@ -618,7 +618,7 @@ func TestHalfMaterializedDispatchLeavesTheCorrectionRecordLive(t *testing.T) {
 	if pin.Correction == nil || pin.Correction.FailedAttemptID != attemptID {
 		t.Fatalf("pin correction before the interrupted dispatch = %#v, want the failed attempt", pin.Correction)
 	}
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", interrupted, pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", interrupted, pin.Correction)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "half-dispatch-" + workID, OperationID: "half-dispatch-" + workID,
@@ -665,7 +665,7 @@ func seedIssue1013EscalatedCorrection(t *testing.T, workID string) (*Store, Work
 			return s, owner, pin
 		}
 		attemptID = "attempt:" + workID + ":" + fmt.Sprint(correctionAttempt+1)
-		payload := issue1013CorrectionDispatchPayload(t, workID, "repair", attemptID, pin.Correction)
+		payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
 		if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 			Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "issue1013-dispatch-" + attemptID, OperationID: "issue1013-dispatch-" + attemptID,
@@ -708,9 +708,9 @@ func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowA
 	}
 }
 
-func issue1013CorrectionDispatchPayload(t *testing.T, workID, stepID, attemptID string, correction *WorkflowCorrectionContext) json.RawMessage {
+func issue1013CorrectionDispatchPayload(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext) json.RawMessage {
 	t.Helper()
-	packet := dispatchWorkerPacket(workID, stepID, attemptID)
+	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
 	packet["inputs"].(map[string]any)["correction"] = map[string]any{
 		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
 		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
@@ -1334,7 +1334,7 @@ func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, wor
 	if nextAttemptID == "" {
 		return pin
 	}
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", nextAttemptID, pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", nextAttemptID, pin.Correction)
 	key := operationID + "-dispatch"
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
@@ -1389,7 +1389,7 @@ func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 		t.Fatalf("workflow correction attempt limit = %d, want 3", workflowCorrectionAttemptLimit)
 	}
 
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", "attempt:"+workID+":4", pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", "attempt:"+workID+":4", pin.Correction)
 	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "infra-count-4", OperationID: "infra-count-4",
@@ -1419,13 +1419,13 @@ func dispatchCountingAttempt(t *testing.T, s *Store, stepID, attemptID string, c
 	t.Helper()
 	var payload json.RawMessage
 	if correction == nil {
-		packetPayload, err := json.Marshal(dispatchWorkerPacket("correction-count-accept-reset", stepID, attemptID))
+		packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, "correction-count-accept-reset", stepID, attemptID))
 		if err != nil {
 			t.Fatal(err)
 		}
 		payload = mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
 	} else {
-		payload = issue1013CorrectionDispatchPayload(t, "correction-count-accept-reset", stepID, attemptID, correction)
+		payload = issue1013CorrectionDispatchPayload(t, s, "correction-count-accept-reset", stepID, attemptID, correction)
 	}
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: "correction-count-accept-reset", ExpectedVersion: expectedVersion, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, "correction-count-accept-reset"),
@@ -1549,7 +1549,7 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 	}
 
 	correctiveAttempt := "attempt:" + workID + ":3"
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", correctiveAttempt, pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", correctiveAttempt, pin.Correction)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "supersede-count-3", OperationID: "supersede-count-3",

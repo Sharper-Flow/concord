@@ -15,7 +15,9 @@ import (
 // dispatch-time validation refuses a lane whose capability class the current
 // step kind does not admit.
 
-func joinPacketFor(workID, stepID, attemptID, laneID string, laneVersion int64, laneDigest string) map[string]any {
+func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID string, laneVersion int64, laneDigest string) map[string]any {
+	t.Helper()
+	task, binding := recordedPacketInputs(t, s, workID, laneID, "lane-step dispatch join probe")
 	return map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,
@@ -25,13 +27,8 @@ func joinPacketFor(workID, stepID, attemptID, laneID string, laneVersion int64, 
 		"work_id":        workID,
 		"step_id":        stepID,
 		"inputs": map[string]any{
-			"task": "lane-step dispatch join probe",
-			"binding": map[string]any{
-				"objective_source": "contract_premise",
-				"work_version":     1,
-				"contract_version": 1,
-				"assigned_result":  "files_touched",
-			},
+			"task":        task,
+			"binding":     binding,
 			"constraints": []string{"do-not-modify-product-truth"},
 		},
 	}
@@ -216,7 +213,7 @@ func TestJoinAdmitsResearchLaneAtReadStep(t *testing.T) {
 	actor := seedJoinFixture(t, s, workID, "reproduce")
 	version := readWorkVersion(t, s, workID)
 	laneVersion, laneDigest := registeredLaneIdentity(t, "research")
-	packet := joinPacketFor(workID, "reproduce", "attempt-join-admit", "research", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "reproduce", "attempt-join-admit", "research", laneVersion, laneDigest)
 	result, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, packet)
 	if err != nil {
 		t.Fatalf("research lane dispatch at reproduce refused: %v", err)
@@ -236,7 +233,7 @@ func TestJoinAdmitsReviewLaneAtEffectStep(t *testing.T) {
 	actor := seedJoinFixture(t, s, workID, "repair")
 	version := readWorkVersion(t, s, workID)
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, "repair", "attempt-join-admit-review", "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "repair", "attempt-join-admit-review", "review", laneVersion, laneDigest)
 	result, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, packet)
 	if err != nil {
 		t.Fatalf("review lane dispatch at an external_effect step refused: %v", err)
@@ -255,7 +252,7 @@ func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	version := readWorkVersion(t, s, workID)
 
 	implVersion, implDigest := registeredLaneIdentity(t, "implement")
-	implPacket := joinPacketFor(workID, "reproduce", "attempt-join-refuse-impl", "implement", implVersion, implDigest)
+	implPacket := joinPacketFor(t, s, workID, "reproduce", "attempt-join-refuse-impl", "implement", implVersion, implDigest)
 	_, err := dispatchJoinAttempt(context.Background(), t, s, workID, version, actor, implPacket)
 	if err == nil {
 		t.Fatal("implement lane dispatch at an internal_sqlite step was admitted")
@@ -274,7 +271,7 @@ func TestJoinRefusesLaneAtUnadmittedStepKind(t *testing.T) {
 	repairActor := seedJoinFixture(t, s, repairWorkID, "repair")
 	repairVersion := readWorkVersion(t, s, repairWorkID)
 	researchVersion, researchDigest := registeredLaneIdentity(t, "research")
-	researchPacket := joinPacketFor(repairWorkID, "repair", "attempt-join-refuse-research", "research", researchVersion, researchDigest)
+	researchPacket := joinPacketFor(t, s, repairWorkID, "repair", "attempt-join-refuse-research", "research", researchVersion, researchDigest)
 	_, err = dispatchJoinAttempt(context.Background(), t, s, repairWorkID, repairVersion, repairActor, researchPacket)
 	if err == nil {
 		t.Fatal("research lane dispatch at an external_effect step was admitted")
@@ -377,7 +374,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":checkpoint-review"
-	packet := joinPacketFor(workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -463,7 +460,7 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 		t.Fatalf("step after repin = %q, want verify", step)
 	}
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
-	packet := joinPacketFor(workID, "verify", "attempt:"+workID+":repin-review", "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":repin-review", "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch after repin refused: %v", err)
 	}

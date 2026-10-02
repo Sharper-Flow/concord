@@ -321,6 +321,36 @@ test("an oversize premise authorizes nothing in the core", async () => {
   expect(windows.has("session-1")).toBe(false)
 })
 
+test("predicate array overflow reports actual count before any authorization or window", async () => {
+  const predicates = Array.from({ length: 9 }, (_, ordinal) => ({
+    predicate_id: `predicate:overflow-${ordinal}`,
+    ordinal,
+    outcome_kind: "check",
+    outcome_payload: OUTCOME_PAYLOAD,
+  }))
+  let workflowCalls = 0
+  let runnerCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    const key = `${toolName}.${args.operation}`
+    if (key === "concord_work_trace.continuity") {
+      return continuityEnvelope({ pinned: { contract: { version: 1, premise: "Verify the bound.", outcome_predicates: predicates, required_evidence: [], route_conventions: [], spec_mandate: [], changes_product_truth: false } } })
+    }
+    if (key === "concord_work_browse.scope") return scopeEnvelope()
+    if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope() }
+    throw new Error(`unscripted ${key}`)
+  }
+  const runner: DispatchRunner = { async run() { runnerCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "array-overflow", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("inputs.outcome_predicates")
+  expect(result.error?.message).toContain("9 item(s)")
+  expect(result.error?.message).toContain("limit of 8")
+  expect(workflowCalls).toBe(0)
+  expect(runnerCalls).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
 // Where the worker will run must be known before the core authorizes the
 // dispatch. The directory itself is the host's answer and is not compared
 // against the host process directory, which is not where Task runs; the window

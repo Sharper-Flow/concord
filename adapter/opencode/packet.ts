@@ -309,7 +309,8 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   }
   const narrative = typeof work.narrative === "string" ? work.narrative : ""
   const title = typeof work.title === "string" ? work.title : ""
-  const recordedTask = typeof work.task === "string" ? work.task.trim() : ""
+  const recordedTask = typeof work.task === "string" ? work.task : ""
+  const hasRecordedTask = recordedTask.trim().length > 0
   const valueStatement = typeof work.value_statement === "string" ? work.value_statement.trim() : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
@@ -359,7 +360,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     if (title.trim().length === 0 && narrative.trim().length === 0) {
       return failure("mandate_unapproved", `work ${request.workId} carries no recorded question or narrative for the read-only dispatch`)
     }
-    task = recordedTask.length > 0 ? recordedTask : title.trim().length > 0 ? title : narrative
+    task = hasRecordedTask ? recordedTask : title.trim().length > 0 ? title : narrative
     contractVersion = null
     objectiveSource = "work_question"
     // The question already carries the recorded task or narrative text
@@ -409,7 +410,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     design +
     lawContext +
     proposal +
-    (contextRecordedTask && recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") +
+    (contextRecordedTask && hasRecordedTask ? `Recorded task:\n${recordedTask}\n\n` : "") +
     (readOnlyQuestion !== null && narrative === readOnlyQuestion ? "" : narrative)
   const contextCodePoints = codePoints(context)
   if (contextCodePoints > CONTEXT_MAX_LENGTH) {

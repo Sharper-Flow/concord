@@ -23,7 +23,7 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	packet := retryMutationPacket(t, attemptID, pin.Correction)
+	packet := retryMutationPacket(t, s, attemptID, pin.Correction)
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
 		"idempotency_key": "retry-approval-1", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": packet},
@@ -62,7 +62,7 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	changedInput := cloneWithApproval(t, input, challengeRef)
 	changedInput["idempotency_key"] = "retry-approval-2"
 	changedInput["fields"].(map[string]any)["attempt_id"] = "attempt:work-1:fresh"
-	changedInput["fields"].(map[string]any)["worker_packet"] = retryMutationPacket(t, "attempt:work-1:fresh", pin.Correction)
+	changedInput["fields"].(map[string]any)["worker_packet"] = retryMutationPacket(t, s, "attempt:work-1:fresh", pin.Correction)
 	changedRaw, _ := json.Marshal(changedInput)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, changedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	reused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: changedRaw}, env)
@@ -77,7 +77,7 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	delete(freshInput, "approval")
 	freshInput["idempotency_key"] = "retry-approval-fresh"
 	freshInput["fields"].(map[string]any)["attempt_id"] = "attempt:work-1:fresh"
-	freshInput["fields"].(map[string]any)["worker_packet"] = retryMutationPacket(t, "attempt:work-1:fresh", pin.Correction)
+	freshInput["fields"].(map[string]any)["worker_packet"] = retryMutationPacket(t, s, "attempt:work-1:fresh", pin.Correction)
 	freshRaw, _ := json.Marshal(freshInput)
 	freshChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshRaw}, env)
 	freshRef, ok := freshChallenge.Error.Details["approval_ref"].(string)
@@ -178,14 +178,14 @@ func retryJSON(value any) json.RawMessage {
 	return raw
 }
 
-func retryMutationPacket(t *testing.T, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
+func retryMutationPacket(t *testing.T, s *store.Store, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := retryLane(t)
-	inputs := map[string]any{"task": "retry the approved objective", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "files_touched"}, "constraints": []string{"preserve the approved contract"}}
+	inputs := map[string]any{"task": "retry the approved objective", "constraints": []string{"preserve the approved contract"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs}
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
 }
 
 func retryLane(t *testing.T) store.LaneDefinition {

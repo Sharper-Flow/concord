@@ -43,15 +43,17 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 		t.Fatalf("subject re-pin to the current hash: %v", err)
 	}
 
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(workID, "repair", "attempt-"+workID))
-	if err != nil {
-		t.Fatalf("marshal dispatch packet: %v", err)
-	}
-	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-" + workID, "worker_packet": json.RawMessage(packetPayload)})
-	if err != nil {
-		t.Fatalf("marshal dispatch fields: %v", err)
-	}
+	// Each dispatch builds its packet from the state it is admitted at, as
+	// the adapter does, so the binding names the current work version.
 	dispatch := func(operationID, idempotencyKey string) error {
+		packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "repair", "attempt-"+workID))
+		if err != nil {
+			t.Fatalf("marshal dispatch packet: %v", err)
+		}
+		fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": "attempt-" + workID, "worker_packet": json.RawMessage(packetPayload)})
+		if err != nil {
+			t.Fatalf("marshal dispatch fields: %v", err)
+		}
 		_, invokeErr := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "dispatch_worker",
 			Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),

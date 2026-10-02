@@ -31,7 +31,7 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":" + label
-	packet := joinPacketFor(workID, "refine", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, fixture.store, workID, "refine", attemptID, "review", laneVersion, laneDigest)
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}

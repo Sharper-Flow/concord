@@ -80,10 +80,10 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
-			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": map[string]any{
+			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
 				"schema_version": "1.0", "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "verify the synthetic change", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "exit_codes"}},
-			}},
+				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "verify the synthetic change"},
+			})},
 		})
 		if err != nil {
 			t.Fatal(err)

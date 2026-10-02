@@ -534,14 +534,26 @@ class WorkerScopeProjectionTests(unittest.TestCase):
         self.assertIn('"implement": "files_touched"', projection)
         self.assertIn("export function workerScopeAssignedResult", projection)
 
+    def test_go_projection_emits_the_assigned_result_surface(self):
+        # The store validates a packet binding's assigned result against the
+        # same worker-scope contract the adapter reads, so both generated
+        # layers must project it.
+        projection = generator.go_projection(
+            {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY},
+            "sha256:" + "0" * 64,
+            {"research": "bounded_findings"},
+        )
+        self.assertIn("var generatedWorkerScopeAssignments = map[string]string{\n\t\"research\": \"bounded_findings\",\n}", projection)
+
     def test_projections_carry_the_legacy_lane_digest_set(self):
         # The legacy digest set (CD-0197 D5) is registry contract: both
         # generated layers must project it, so a persisted packet pinned to a
         # pre-policy digest resolves in the store and the adapter alike.
         manifest = {"lanes": self.FULL_LANES, "utilities": [], "legacy_lane_digests": self.LEGACY}
         digest = "sha256:" + "0" * 64
-        go = generator.go_projection(manifest, digest)
-        ts = generator.ts_projection(manifest, digest, {}, {}, {"research": "bounded_findings"})
+        scope = {"research": "bounded_findings", "implement": "files_touched"}
+        go = generator.go_projection(manifest, digest, scope)
+        ts = generator.ts_projection(manifest, digest, {}, {}, scope)
         for projection in (go, ts):
             self.assertIn('"research:1"', projection)
             self.assertIn('"sha256:' + "b" * 64 + '"', projection)

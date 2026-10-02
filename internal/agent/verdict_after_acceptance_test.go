@@ -226,10 +226,10 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	attemptID := "attempt:accept-e2e"
 	dispatched := action("dispatch_worker", map[string]any{
 		"attempt_id": attemptID,
-		"worker_packet": map[string]any{
+		"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
 			"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-			"work_id": workID, "step_id": "execute", "inputs": map[string]any{"task": "prove the acceptance binds evidence", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "exit_codes"}},
-		},
+			"work_id": workID, "step_id": "execute", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
+		}),
 	}, "accept-e2e-dispatch")
 	if dispatched.Outcome != OutcomeOK {
 		t.Fatalf("dispatch_worker refused: %+v", dispatched.Error)

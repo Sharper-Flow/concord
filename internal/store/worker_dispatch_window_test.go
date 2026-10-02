@@ -109,7 +109,7 @@ func TestDispatchFoldOpensAFencedWindowAgainstTheStepEpoch(t *testing.T) {
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-dispatch-fence")
 	actor := seed.ownerActor
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-fence"))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-fence"))
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestDispatchWorkerRefusesMismatchedSessionWorktreeBeforeWindow(t *testing.T
 	claimed := t.TempDir()
 	session := t.TempDir()
 	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-worktree-mismatch"))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-worktree-mismatch"))
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestDispatchWorkerBindsCanonicalWorktreeIdentityToWindow(t *testing.T) {
 	claimed := t.TempDir()
 	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
 	attemptID := "attempt-worktree-identity"
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", attemptID))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, seed.workID, "execution", attemptID))
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestDispatchWorkerResultCarriesClaimedWorktree(t *testing.T) {
 	claimed := t.TempDir()
 	insertWorkerWorktreeEntry(t, s, seed.workID, claimed)
 	attemptID := "attempt-claimed-worktree"
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", attemptID))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, seed.workID, "execution", attemptID))
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestWorkerDispatchRejectsReuseOfAConsumedWindow(t *testing.T) {
 	seed := seedDispatchFixture(t, s, "work-reuse")
 	// Open the dispatch window by invoking dispatch_worker.
 	actor := seed.ownerActor
-	packetPayload, err := json.Marshal(dispatchWorkerPacket(seed.workID, "execution", "attempt-reuse"))
+	packetPayload, err := json.Marshal(dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-reuse"))
 	if err != nil {
 		t.Fatalf("marshal dispatch packet: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestDispatchFoldRecordsTheCanonicalPacketDigest(t *testing.T) {
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-digest")
 	actor := seed.ownerActor
-	packet := dispatchWorkerPacket(seed.workID, "execution", "attempt-digest")
+	packet := dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-digest")
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -541,7 +541,8 @@ func TestDispatchFoldRefusesPacketWorkIDMismatch(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-mismatch")
-	packet := dispatchWorkerPacket("work-other", "execution", "attempt-mismatch")
+	packet := dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-mismatch")
+	packet["work_id"] = "work-other"
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -587,7 +588,7 @@ func TestDispatchFoldRefusesPacketAttemptIDMismatch(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-attempt-mismatch")
-	packet := dispatchWorkerPacket(seed.workID, "execution", "attempt-other")
+	packet := dispatchWorkerPacket(t, s, seed.workID, "execution", "attempt-other")
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -675,8 +676,10 @@ type cd0059DispatchSeed struct {
 // fields.attempt_id, and the seeded execution step; the helper enforces those
 // equalities from its arguments so callers cannot ship a packet the fold
 // refuses on identity grounds.
-func dispatchWorkerPacket(workID, stepID, attemptID string) map[string]any {
+func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID string) map[string]any {
+	t.Helper()
 	laneVersion, laneDigest := mustLaneIdentity("implement")
+	task, binding := recordedPacketInputs(t, s, workID, "implement", "cd0065 dispatch packet")
 	return map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,
@@ -686,13 +689,8 @@ func dispatchWorkerPacket(workID, stepID, attemptID string) map[string]any {
 		"work_id":        workID,
 		"step_id":        stepID,
 		"inputs": map[string]any{
-			"task": "cd0065 dispatch packet",
-			"binding": map[string]any{
-				"objective_source": "contract_premise",
-				"work_version":     1,
-				"contract_version": 1,
-				"assigned_result":  "files_touched",
-			},
+			"task":        task,
+			"binding":     binding,
 			"constraints": []string{"do-not-modify-product-truth"},
 		},
 	}
@@ -841,7 +839,7 @@ func TestFindAuthorizedDispatchWindowSurfacesThePacketDigest(t *testing.T) {
 	seed := seedDispatchFixture(t, s, "work-window-digest")
 	actor := seed.ownerActor
 	attemptID := "attempt-window-digest"
-	packet := dispatchWorkerPacket(seed.workID, "execution", attemptID)
+	packet := dispatchWorkerPacket(t, s, seed.workID, "execution", attemptID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -913,7 +911,7 @@ func TestValidateWorkerDispatchWindowAcceptsMatchingPacketDigest(t *testing.T) {
 	seed := seedDispatchFixture(t, s, "work-window-enforce")
 	actor := seed.ownerActor
 	attemptID := "attempt-window-enforce"
-	packet := dispatchWorkerPacket(seed.workID, "execution", attemptID)
+	packet := dispatchWorkerPacket(t, s, seed.workID, "execution", attemptID)
 	packetBytes, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
@@ -1074,8 +1072,8 @@ func TestValidateWorkerDispatchWindowRefusesADifferentStep(t *testing.T) {
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-window-step-fence")
 	attemptID := "attempt-step-fence"
-	digest := cd781DispatchPacketDigest(t, seed.workID, attemptID)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-step-fence")); err != nil {
+	digest := cd781DispatchPacketDigest(t, s, seed.workID, attemptID)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-step-fence")); err != nil {
 		t.Fatalf("dispatch_worker failed: %v", err)
 	}
 	err := s.Transact(ctx, func(tx *Transaction) error {
@@ -1113,10 +1111,10 @@ func TestDispatchWorkerRefusesASecondAuthorizationForTheSameAttempt(t *testing.T
 	s := openTemp(t)
 	seed := seedDispatchFixture(t, s, "work-double-authorize")
 	attemptID := "attempt-double-authorize"
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-a")); err != nil {
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-a")); err != nil {
 		t.Fatalf("first dispatch_worker failed: %v", err)
 	}
-	_, secondErr := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-b"))
+	_, secondErr := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, seed.workID, readWorkVersion(t, s, seed.workID), attemptID, seed.ownerActor, dispatchSessionWorktree(t, s, seed.workID), "cd781-double-b"))
 	if secondErr == nil {
 		t.Fatal("a second dispatch_worker authorization for a live attempt was accepted")
 	}
@@ -1168,8 +1166,8 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	// row exists while A's native worker runs, which is the visibility the
 	// incident's frontend checkpoint lacked.
 	backendAttempt := "attempt-781-backend"
-	backendDigest := cd781DispatchPacketDigest(t, workID, backendAttempt)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), backendAttempt, seed.ownerActor, claimed, "cd781-backend")); err != nil {
+	backendDigest := cd781DispatchPacketDigest(t, s, workID, backendAttempt)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), backendAttempt, seed.ownerActor, claimed, "cd781-backend")); err != nil {
 		t.Fatalf("coordinator A dispatch_worker failed: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, backendAttempt, "in_flight")
@@ -1178,8 +1176,8 @@ func TestTwoCoordinatorInterleavingKeepsBothDispatchAuthorizations(t *testing.T)
 	// admits it: same-step concurrent dispatch stays admissible, and the
 	// live backend binding does not refuse it.
 	frontendAttempt := "attempt-781-frontend"
-	frontendDigest := cd781DispatchPacketDigest(t, workID, frontendAttempt)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")); err != nil {
+	frontendDigest := cd781DispatchPacketDigest(t, s, workID, frontendAttempt)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), frontendAttempt, coordinatorB, claimed, "cd781-frontend")); err != nil {
 		t.Fatalf("coordinator B dispatch_worker was refused: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, frontendAttempt, "in_flight")
@@ -1292,15 +1290,15 @@ func TestStrandedInFlightAttemptClosesThroughAbandonment(t *testing.T) {
 	// flight, but no worker ever dispatches, so the attempt carries no
 	// worker.dispatched evidence and no report.
 	stranded := "attempt-791-stranded"
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), stranded, seed.ownerActor, claimed, "cd791-stranded")); err != nil {
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), stranded, seed.ownerActor, claimed, "cd791-stranded")); err != nil {
 		t.Fatalf("stranded dispatch_worker failed: %v", err)
 	}
 	assertWorkerAttemptState(t, s, workID, stranded, "in_flight")
 
 	// A fresh coordinator dispatches again and its worker completes.
 	fresh := "attempt-791-fresh"
-	freshDigest := cd781DispatchPacketDigest(t, workID, fresh)
-	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, workID, readWorkVersion(t, s, workID), fresh, seed.ownerActor, claimed, "cd791-fresh")); err != nil {
+	freshDigest := cd781DispatchPacketDigest(t, s, workID, fresh)
+	if _, err := invokeWorkflowActionForCD0059(ctx, t, s, cd781DispatchRequest(t, s, workID, readWorkVersion(t, s, workID), fresh, seed.ownerActor, claimed, "cd791-fresh")); err != nil {
 		t.Fatalf("fresh dispatch_worker failed: %v", err)
 	}
 	if err := seedWorkerEvidenceForAttempt(t, s, workID, fresh, "cd791-fresh", freshDigest); err != nil {
@@ -1448,9 +1446,9 @@ func seedWorkerEvidenceForAttempt(t *testing.T, s *Store, workID, attemptID, lab
 // cd781DispatchPacketDigest marshals the closed dispatch packet for
 // attemptID and returns the canonical sha256 digest the dispatch fold
 // records and the worker-dispatch evidence must quote.
-func cd781DispatchPacketDigest(t *testing.T, workID, attemptID string) string {
+func cd781DispatchPacketDigest(t *testing.T, s *Store, workID, attemptID string) string {
 	t.Helper()
-	packetBytes, err := json.Marshal(dispatchWorkerPacket(workID, "execution", attemptID))
+	packetBytes, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "execution", attemptID))
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
 	}
@@ -1465,8 +1463,8 @@ func cd781DispatchPacketDigest(t *testing.T, workID, attemptID string) string {
 // cd781DispatchRequest builds the dispatch_worker action request for one
 // coordinator's attempt at the execution step, with unique idempotency
 // identity per label.
-func cd781DispatchRequest(t *testing.T, workID string, version int64, attemptID string, actor WorkflowActor, worktree, label string) WorkflowActionExecutionRequest {
-	packetBytes, err := json.Marshal(dispatchWorkerPacket(workID, "execution", attemptID))
+func cd781DispatchRequest(t *testing.T, s *Store, workID string, version int64, attemptID string, actor WorkflowActor, worktree, label string) WorkflowActionExecutionRequest {
+	packetBytes, err := json.Marshal(dispatchWorkerPacket(t, s, workID, "execution", attemptID))
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
 	}
@@ -1554,7 +1552,12 @@ func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T)
 func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	t.Parallel()
 	attemptID := "attempt-reaches-canonical"
-	packetBytes, err := json.Marshal(dispatchWorkerPacket("work-fold-defensive", "execution", attemptID))
+	laneVersion, laneDigest := mustLaneIdentity("implement")
+	packetBytes, err := json.Marshal(map[string]any{
+		"schema_version": "1.0", "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+		"work_id": "work-fold-defensive", "step_id": "execution",
+		"inputs": map[string]any{"task": "cd0065 dispatch packet", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
+	})
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
 	}

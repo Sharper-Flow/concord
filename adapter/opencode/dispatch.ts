@@ -509,7 +509,8 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
     const length = [...value].length
     if (schema.minLength !== undefined && length < schema.minLength) return fail(`carries ${length} Unicode code points against a minimum of ${schema.minLength}`)
     if (schema.maxLength !== undefined && length > schema.maxLength) return fail(`carries ${length} Unicode code points against a limit of ${schema.maxLength}`)
-    if (schema["x-maxBytes"] !== undefined && Buffer.byteLength(value) > schema["x-maxBytes"]) return fail(`exceeds ${schema["x-maxBytes"]} UTF-8 bytes`)
+    const bytes = Buffer.byteLength(value)
+    if (schema["x-maxBytes"] !== undefined && bytes > schema["x-maxBytes"]) return fail(`carries ${bytes} UTF-8 bytes against a limit of ${schema["x-maxBytes"]}`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
   if (typeof value === "number") {
@@ -527,8 +528,8 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
     }
   }
   if (Array.isArray(value)) {
-    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries fewer than ${schema.minItems} item(s)`)
-    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries more than ${schema.maxItems} item(s)`)
+    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries ${value.length} item(s) against a minimum of ${schema.minItems}`)
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries ${value.length} item(s) against a limit of ${schema.maxItems}`)
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail("carries duplicate items")
     if (schema.items) {
       for (let index = 0; index < value.length; index++) {

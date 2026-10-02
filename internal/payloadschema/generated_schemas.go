@@ -719,6 +719,118 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "continuity_pending_project_handoff": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_refs": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^sha256:[0-9a-f]{64}:/.+$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "blockers": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "bounded_job": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "changes": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "contract_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "handoff_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "next_action": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "recorded_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_session_ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "const": "recorded"
+        },
+        "target_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "verification": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "handoff_id",
+        "work_id",
+        "contract_version",
+        "source_project_id",
+        "target_project_id",
+        "source_session_ref",
+        "bounded_job",
+        "changes",
+        "verification",
+        "artifact_refs",
+        "blockers",
+        "next_action",
+        "state",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
     "continuity_snapshot": {
       "additionalProperties": false,
       "properties": {
@@ -876,6 +988,10 @@ const GeneratedPayloadSchemaDocument = `{
                   "type": "null"
                 }
               ]
+            },
+            "pending_project_handoff": {
+              "$ref": "#/$defs/continuity_pending_project_handoff",
+              "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work."
             },
             "product_identity": {
               "items": {

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:35dc0de8f58666cdc97faa4d0516c423025023dd0ece7897fe92a56e4d55bd99"
+const ManifestDigest = "sha256:15f150e2025ea2ae6a6ab521ee1c77dc198a4144c4a5c01e588e01ed1e197cee"
 
 type OperationKind string
 
@@ -143,6 +143,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"continuity_domain_overlap":                      {Required: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}, Properties: []string{"product_id", "from_work_id", "to_work_id", "from_contract_version", "to_contract_version", "shared_affected_domain_ids", "shared_law_ids", "shared_domain_modifications", "shared_relation_tuples", "overlap_classes", "resolution_state", "resolution_kind", "recovery_actions", "shared_affected_domain_count", "shared_law_count", "shared_domain_modification_count", "shared_relation_tuple_count", "detail_truncated"}},
 	"continuity_failure":                             {Required: []string{"kind", "recoverable", "step_id", "attempt_epoch"}, Properties: []string{"kind", "recoverable", "step_id", "attempt_epoch"}},
 	"continuity_operator_decision":                   {Required: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}, Properties: []string{"action_id", "prompt", "header", "choices", "allow_multiple", "allow_custom", "premise_summary", "contract_summary", "decision_context_digest"}},
+	"continuity_pending_project_handoff":             {Required: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}, Properties: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}},
 	"continuity_snapshot":                            {Required: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "pending_messages"}, Properties: []string{"work_id", "pinned", "latest_checkpoint", "boundaries", "typed_availability", "observations", "pending_messages"}},
 	"domain_active_work_input":                       {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "page", "limit", "requested_budget_seconds"}},
 	"domain_active_work_item":                        {Required: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain"}, Properties: []string{"work_id", "kind", "title", "lifecycle", "priority", "contract_version", "home_domain", "liveness"}},

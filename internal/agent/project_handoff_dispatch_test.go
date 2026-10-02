@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -315,5 +316,94 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	blockers, _ := retirement["blockers"].([]any)
 	if len(blockers) == 0 {
 		t.Fatalf("retirement=%+v, want named blockers", retirement)
+	}
+}
+
+// TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness runs
+// the retirement owning routes end to end at the agent boundary: the real
+// session_vacate mutation records the relocation request from the
+// authenticated grant toward the registered main checkout, the adapter-only
+// landing verb's store owner releases the session's occupancy at the
+// verified landing, and the retirement read derives
+// READY_TO_CLOSE_OR_REPLACE from those verified facts while the shared work
+// lifecycle stays untouched.
+func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *testing.T) {
+	t.Parallel()
+	s, _, _, _, _, _, receiveWorktree := handoffDispatchFixture(t)
+	ctx := context.Background()
+	// The retiring session authorizes from the receiving Project's claimed
+	// worktree, whose Project's canonical locator names the registered main
+	// checkout the vacate destination resolves to.
+	vacateService, _, vacateGrant := authorizedHandoffService(t, s, "client-receive-vacate", []string{"project-2"}, receiveWorktree)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vacateEnv := handoffEnvelope(vacateGrant, "project-2", scopeVersion)
+	// The retiring session records its addressed handoff from its own
+	// authenticated identities; the claimed worktree is clean, so the
+	// preservation probe passes before the transaction.
+	record := handoffInvoke(t, s, vacateService, vacateEnv, "project_handoff_record", map[string]any{
+		"idempotency_key": "retire-record",
+		"work_id":         "work-1", "target_project_id": "project-1",
+		"bounded_job": "verify the receiving repository's adapter surface",
+		"next_action": "consume the handoff and run the bounded job",
+		"changes":     []string{"adapter/opencode: opener route"},
+	})
+	if record.Outcome != OutcomeOK {
+		t.Fatalf("record failed: %+v", record.Error)
+	}
+	// The real session_vacate mutation records the relocation request; the
+	// destination is the registered main checkout the project locator names.
+	vacated := handoffInvoke(t, s, vacateService, vacateEnv, "session_vacate", map[string]any{"idempotency_key": "retire-vacate"})
+	if vacated.Outcome != OutcomeOK {
+		t.Fatalf("session_vacate failed: %+v", vacated.Error)
+	}
+	var target struct {
+		WorkID               string `json:"work_id"`
+		ProjectID            string `json:"project_id"`
+		SourceDirectory      string `json:"source_directory"`
+		DestinationDirectory string `json:"destination_directory"`
+	}
+	if json.Unmarshal(vacated.Result, &target) != nil {
+		t.Fatalf("session_vacate result is not an object: %s", vacated.Result)
+	}
+	if target.WorkID != "work-1" || target.ProjectID != "project-2" || target.SourceDirectory != receiveWorktree {
+		t.Fatalf("target=%+v, want the claimed source directory on the shared work", target)
+	}
+	if target.DestinationDirectory == "" || target.DestinationDirectory == receiveWorktree {
+		t.Fatalf("target=%+v, want the registered main checkout destination", target)
+	}
+	// The adapter-only landing verb's store owner records the verified
+	// landing and releases the session's occupancy rows in one transaction.
+	landing, err := s.RecordSessionVacateLanding(ctx, store.SessionVacateLandingRequest{
+		WorkID: "work-1", SessionRef: vacateEnv.SessionRef, LandedDirectory: filepath.Clean(target.DestinationDirectory), HostPID: os.Getpid(), Now: fixedTime(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if landing.AlreadyRecorded {
+		t.Fatalf("landing replayed: %+v", landing)
+	}
+	// The retirement read derives readiness from the verified facts while
+	// the shared work lifecycle stays untouched.
+	retirement := retirementInvoke(t, s, vacateService, vacateEnv, "work-1")
+	if retirement["state"] != "ready_to_close_or_replace" {
+		t.Fatalf("retirement=%+v, want READY_TO_CLOSE_OR_REPLACE from the verified facts", retirement)
+	}
+	for _, fact := range []string{"recorded_handoff", "artifacts_preserved", "workers_stopped", "vacate_landed"} {
+		if retirement[fact] != true {
+			t.Fatalf("retirement=%+v, want %s verified", retirement, fact)
+		}
+	}
+	if blockers, _ := retirement["blockers"].([]any); len(blockers) != 0 {
+		t.Fatalf("retirement=%+v, want no blockers", retirement)
+	}
+	var lifecycle string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id='work-1'`).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "in_progress" {
+		t.Fatalf("lifecycle=%q, want retirement to leave the shared work alone", lifecycle)
 	}
 }

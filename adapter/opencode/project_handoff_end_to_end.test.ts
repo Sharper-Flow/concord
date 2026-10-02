@@ -1,22 +1,28 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, consumeAddressedProjectHandoff, consumedProjectHandoff, invokeConcordOperation, resetConsumedProjectHandoffs } from "./concord"
+import { configureConcordAdapter, invokeConcordOperation, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
 import { configureHostLease } from "./host-lease"
+import { resetClaimedWorktrees } from "./claimed-worktree"
+import { resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
+import { MOVE_SESSION_ROUTE, SESSION_ROUTE } from "./move-session"
 
 // The Project-session handoff acceptance runs on the real boundary: a real
 // core binary against a real store, two Projects in two repositories, the
-// real boot/resume route naming the bounded job, and the real
-// claim-landing verb recording the receiving session's placement. A clean
-// checkout has no binary on PATH; declare the test skipped when neither
-// CONCORD_BIN nor a Go toolchain can produce one, so a suite run without
-// the toolchain reports a skip, never a silent pass.
+// real boot route (work_start -> work-resume -> move readbacks ->
+// claim-landing -> addressed consume) for both coordinator sessions, the
+// real session_vacate mutation with its readback-verified landing
+// (CD-0190), and the real project_retirement read deriving
+// READY_TO_CLOSE_OR_REPLACE. A clean checkout has no binary on PATH; declare
+// the test skipped when neither CONCORD_BIN nor a Go toolchain can produce
+// one, so a suite run without the toolchain reports a skip, never a silent
+// pass.
 const routeDeclaration =
   process.env.CONCORD_BIN || Bun.spawnSync(["go", "version"]).exitCode === 0
     ? (name: string, fn: () => Promise<void>) => test(name, fn, { timeout: 300000 })
@@ -30,6 +36,8 @@ const RECEIVE_PROJECT = "project-handoff-receive"
 const CLIENT_REF = "opencode"
 const SOURCE_SESSION = "session-handoff-source"
 const RECEIVE_SESSION = "session-handoff-receive"
+const AGENT = "concord-implement"
+const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(11)
 const PRIVATE_KEY_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex")
 const HANDOFF_PREDICATE = {
@@ -77,13 +85,17 @@ function dbValue(dbPath: string, sql: string): any {
 }
 
 // realCoreRunner spawns the real core binary against the real store for
-// every transport leg. This is the boundary the acceptance claims: no
-// canned answer stands between the adapter's consume and the core.
-function realCoreRunner(binary: string, dbPath: string, captured: { invoke?: JSONRecord }): DispatchRunner {
+// every transport leg, honoring the child working directory the boot flow
+// resolves (work-resume and session-prepare run from the session's own
+// directories) and the session-prepare seams: a HOME holding the lane agent
+// definitions and a fake `opencode` probe on PATH. This is the boundary the
+// acceptance claims: no canned answer stands between the boot flow and the
+// core.
+function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string, string>, captured: { invoke?: JSONRecord }): DispatchRunner {
   return {
-    async run(argv: string[], input: string, signal?: AbortSignal) {
+    async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) {
       if (argv[1] === "invoke") captured.invoke = JSON.parse(input) as JSONRecord
-      const child = Bun.spawn([binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
       if (signal?.aborted) child.kill()
       await child.stdin.write(input)
       await child.stdin.end()
@@ -93,13 +105,20 @@ function realCoreRunner(binary: string, dbPath: string, captured: { invoke?: JSO
   } as never
 }
 
-async function fakeHostControlPlane(directory: string, runner: DispatchRunner) {
+// fakeHostControlPlane holds per-session live directories and participation
+// metadata: moveSession performs the relocation the boot flow and the vacate
+// mover request, the session route reads the directory and metadata back,
+// and the PATCH route persists the managed Task scope the boot enrolls. The
+// seed names where each session runs before its first move.
+async function fakeHostControlPlane(seed: Array<[string, string]>, runner: DispatchRunner) {
+  const directories = new Map(seed)
+  const metadata = new Map<string, Record<string, unknown>>()
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: {
       async run(argv: string[]) {
         if (argv[1] === "host-lease") {
-          return { exitCode: 0, stdout: JSON.stringify({ pid: process.pid, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory, worktree: directory }), stderr: "" }
+          return { exitCode: 0, stdout: JSON.stringify({ pid: process.pid, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory: seed[0][1], worktree: seed[0][1] }), stderr: "" }
         }
         throw new Error("unexpected host-lease invocation: " + argv.join(" "))
       },
@@ -109,13 +128,24 @@ async function fakeHostControlPlane(directory: string, runner: DispatchRunner) {
   await ConcordAdapterPlugin({
     client: {
       _client: {
-        post: async () => {
-          throw new Error("unexpected POST")
+        get: async ({ path }: { path?: Record<string, unknown> }) => {
+          const id = String(path?.id ?? "")
+          if (!directories.has(id)) return { data: { message: "session missing" }, response: new Response(null, { status: 404 }) }
+          return { data: { id, directory: directories.get(id), metadata: metadata.get(id) ?? {} }, response: new Response(null, { status: 200 }) }
         },
-        get: async (request: { path?: { id?: string } }) => ({
-          data: { id: request?.path?.id ?? RECEIVE_SESSION, directory },
-          response: new Response(null, { status: 200 }),
-        }),
+        post: async ({ url, body }: { url: string; body?: unknown }) => {
+          expect(url).toBe(MOVE_SESSION_ROUTE)
+          const { sessionID, destination } = body as { sessionID: string; destination: { directory: string } }
+          directories.set(sessionID, destination.directory)
+          return { data: null, response: new Response(null, { status: 204 }) }
+        },
+        patch: async ({ url, path, body }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
+          expect(url).toBe(SESSION_ROUTE)
+          const id = String(path?.id ?? "")
+          const patch = body as { metadata?: Record<string, unknown>; title?: string }
+          if (patch.metadata !== undefined) metadata.set(id, patch.metadata)
+          return { response: new Response(null, { status: 200 }) }
+        },
       },
     },
     serverUrl: new URL("http://127.0.0.1:4096"),
@@ -126,7 +156,7 @@ const contextFor = (sessionID: string, directory: string) =>
   ({
     sessionID,
     messageID: "message-1",
-    agent: "concord-implement",
+    agent: AGENT,
     directory,
     worktree: directory,
     abort: new AbortController().signal,
@@ -140,6 +170,7 @@ interface HandoffFixture {
   dbPath: string
   workID: string
   sourceWorktree: string
+  repoReceive: string
   handoffID: string
   captured: { invoke?: JSONRecord }
 }
@@ -148,13 +179,25 @@ interface HandoffFixture {
 // Projects with canonical locators in distinct repositories, one shared work
 // item holding both memberships, one approved contract, and the recorded
 // handoff the source session addressed to the receiving Project through the
-// real invoke route.
+// real invoke route. The session-prepare seams (lane agent definitions in a
+// fixture HOME and a fake `opencode` probe on PATH) let the real boot flow
+// run its prepare step without an installed host.
 async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
-  let binRoot = ""
+  const binRoot = join(root, "bin")
+  const homeRoot = join(root, "home")
+  await mkdir(binRoot)
+  await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
+  for (const lane of LANE_AGENTS) {
+    await writeFile(join(homeRoot, ".config", "opencode", "agents", `${lane}.md`), `${lane} synthetic definition\n`)
+  }
+  const probe = join(binRoot, "opencode")
+  await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+  await chmod(probe, 0o755)
+  const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}` }
+  let binBuildRoot = ""
   let binary = process.env.CONCORD_BIN ?? ""
   if (!binary) {
-    binRoot = join(root, "bin")
-    await mkdir(binRoot)
+    binBuildRoot = binRoot
     binary = join(binRoot, "concord")
     const build = await runProcess(["go", "build", "-o", binary, "./cmd/concord"], "", join(import.meta.dir, "..", ".."))
     expect(build.exitCode, `go build: ${build.stderr}`).toBe(0)
@@ -217,14 +260,15 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
     capabilities: ["product_read", "work_transition", "work_relate"],
     product_scope: [PRODUCT_ID],
     project_scope: [SOURCE_PROJECT, RECEIVE_PROJECT],
-    agent_scope: ["concord-implement"],
+    agent_scope: [AGENT],
   })
   const captured: { invoke?: JSONRecord } = {}
   const sourceWorktree = (bootstrap.worktree as JSONRecord).path as string
-  // The host session route answers the session's current directory: after
-  // the boot move the session reads back inside the claimed worktree. The
-  // real core runner serves every transport leg from here on.
-  await fakeHostControlPlane(sourceWorktree, realCoreRunner(binary, dbPath, captured))
+  // The host session route answers each session's current directory: the
+  // source session runs in its claimed worktree and the receiving session
+  // starts in the receiving repository. The real core runner serves every
+  // transport leg from here on.
+  await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive]], realCoreRunner(binary, dbPath, childEnv, captured))
   const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
   const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
   const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
@@ -269,11 +313,13 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
   expect(recorded.outcome, `record: ${JSON.stringify(recorded)}`).toBe("ok")
   const handoffID = (recorded.result as JSONRecord).handoff_id as string
   expect(handoffID).toBeTruthy()
-  return { root, binary, dbPath, workID, sourceWorktree, handoffID, captured }
+  return { root, binary, dbPath, workID, sourceWorktree, repoReceive, handoffID, captured }
 }
 
 afterEach(async () => {
   resetConsumedProjectHandoffs()
+  resetClaimedWorktrees()
+  resetTurnMoveBoundaries()
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
   await ConcordAdapterPlugin({})
@@ -281,52 +327,60 @@ afterEach(async () => {
   delete process.env.CONCORD_DB_PATH
 })
 
-routeDeclaration("consumes the addressed handoff through the real core on the real boot route", async () => {
+routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
   const root = await mkdtemp(join(tmpdir(), "concord-handoff-e2e-"))
   try {
     const fixture = await bootHandoffFixture(root)
-    const { binary, dbPath, workID, sourceWorktree, handoffID, captured } = fixture
-    const runJSON = async (command: string, value: JSONRecord, cwd?: string): Promise<JSONRecord> => {
-      const result = await runProcess([binary, command], JSON.stringify(value), cwd)
-      expect(result.exitCode, `${command}: ${result.stderr}`).toBe(0)
-      return JSON.parse(result.stdout.trim().split("\n").filter(Boolean)[0]) as JSONRecord
+    const { dbPath, workID, sourceWorktree, repoReceive, handoffID, captured } = fixture
+    const parseToolResult = (result: any) => {
+      try {
+        return JSON.parse(String(result.output).split("\n")[0]) as JSONRecord
+      } catch {
+        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+      }
     }
-    const repoReceive = join(root, "repo-receive")
+    const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
+    const occupantOf = (projectID: string) =>
+      dbValue(dbPath, `SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id='${workID}' AND c.project_id='${projectID}' AND e.state='active'`).occupant as string
 
-    // The Project-selected boot route names the bounded job: work-resume
-    // claims the receiving Project's worktree and renders the addressed
-    // handoff the receiving session must consume, with no operator copying.
-    const resume = await runJSON("work-resume", { product_id: PRODUCT_ID, project_id: RECEIVE_PROJECT, work_id: workID }, repoReceive)
-    const rendered = resume.project_handoff as JSONRecord
+    // The source session boots through the real route: the resume read finds
+    // its bootstrap claim, both readbacks prove the placement, and the
+    // verified claim landing records the source session's occupancy.
+    const sourceBoot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
+    expect(sourceBoot.outcome, JSON.stringify(sourceBoot)).toBe("ok")
+    expect(occupantOf(SOURCE_PROJECT)).toBe(SOURCE_SESSION)
+
+    // The receiving session's boot names the bounded job: the first
+    // work_start from the repository root claims the receiving Project's
+    // worktree through the real work-resume route, but the tool context has
+    // not landed, so the metadata-only move refuses closed and arms no
+    // claim (issue #1322).
+    const unlanded = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, repoReceive)))
+    expect(unlanded.outcome, JSON.stringify(unlanded)).toBe("error")
+    expect(unlanded.error.kind).toBe("session_directory_mismatch")
+    expect(unlanded.error.message).toContain("Replay work_start")
+    const receiveWorktree = unlanded.worktree_path as string
+    expect(receiveWorktree).toBeTruthy()
+    // The bootstrap recorded the claim's occupancy from creation (CD-0179),
+    // and the refused boot consumed nothing: the addressed handoff stands
+    // unconsumed while the boot reported no success and armed no claim.
+    expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("recorded")
+
+    // The replay from the landed context runs the whole receiving flow
+    // through executeWorkStart: the verified landing records this session's
+    // occupancy, and the boot consumes exactly the handoff the resume
+    // rendered, by its own id, through the authenticated boundary — with no
+    // operator copying and no separate canned consume call.
+    const boot = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, receiveWorktree)))
+    expect(boot.outcome, JSON.stringify(boot)).toBe("ok")
+    const rendered = boot.project_handoff as JSONRecord
     expect(rendered.handoff_id).toBe(handoffID)
     expect(rendered.bounded_job).toContain("verify the receiving repository's adapter surface")
     expect(rendered.source_project_id).toBe(SOURCE_PROJECT)
-    const receiveWorktree = (resume.worktree as JSONRecord).path as string
-    const resolve = await runJSON("project-resolve", { directory: receiveWorktree })
-    expect(resolve.project_id).toBe(RECEIVE_PROJECT)
+    expect(rendered.next_action).toContain("consume the handoff")
+    expect(boot.worktree_path).toBe(receiveWorktree)
+    expect(occupantOf(RECEIVE_PROJECT)).toBe(RECEIVE_SESSION)
 
-    // The consume refuses closed before the verified landing: no placement,
-    // no bind, no managed execution.
-    const receiveContext = contextFor(RECEIVE_SESSION, receiveWorktree)
-    const transport = { sessionDirectory: receiveWorktree, ambient: { projectID: RECEIVE_PROJECT, productIDs: [PRODUCT_ID], scopeVersion: resolve.scope_version as string, mainWorktree: false } }
-    const unplaced = await consumeAddressedProjectHandoff(workID, handoffID, receiveContext, transport)
-    expect(unplaced.consumed).toBe(false)
-    expect(unplaced.message).toContain("no verified placement")
-    expect(consumedProjectHandoff(RECEIVE_SESSION)).toBeNull()
-    const untouched = dbValue(dbPath, `SELECT state, COALESCE(consumed_by_session_ref,'') AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
-    expect(untouched.state).toBe("recorded")
-    expect(untouched.consumer).toBe("")
-
-    // The real claim-landing verb records the verified placement: the host
-    // readback is the core's own /proc identity, and the occupancy row is
-    // the placement evidence the consume binds against.
-    const landing = await runJSON("claim-landing", { work_id: workID, session_ref: RECEIVE_SESSION, landed_directory: receiveWorktree, host_pid: process.pid })
-    expect(landing.work_id).toBe(workID)
-
-    const consumed = await consumeAddressedProjectHandoff(workID, handoffID, receiveContext, transport)
-    expect(consumed.consumed).toBe(true)
-    expect(consumed.handoffID).toBe(handoffID)
-    expect(consumedProjectHandoff(RECEIVE_SESSION)?.handoffID).toBe(handoffID)
     // The real authenticated call envelope: the consume rode the transport
     // the boot flow resolved, named the receiving session and Project, and
     // carried the handoff identity the boot route rendered.
@@ -344,11 +398,40 @@ routeDeclaration("consumes the addressed handoff through the real core on the re
     const bind = dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
     expect(bind.state).toBe("consumed")
     expect(bind.consumer).toBe(RECEIVE_SESSION)
-    // The receiving bind touches neither the shared work's lifecycle nor
-    // the source session's half: retirement stays the source session's own
-    // verified path.
-    const sourceState = dbValue(dbPath, `SELECT lifecycle FROM work_items WHERE id='${workID}'`)
-    expect(sourceState.lifecycle).toBe("in_progress")
+
+    // The source session retires through the real owning routes: the
+    // session_vacate mutation records the relocation request toward the
+    // derived registered main checkout, the adapter's host mover performs
+    // the relocation, and the readback-verified landing records itself
+    // through the adapter-only vacate-landing verb, releasing the source
+    // session's occupancy rows.
+    const vacated = parseToolResult(await work_transition.execute({ request: { operation: "session_vacate", input: { idempotency_key: "handoff-e2e-vacate" } } } as any, contextFor(SOURCE_SESSION, sourceWorktree)))
+    expect(vacated.outcome, JSON.stringify(vacated)).toBe("ok")
+    const destination = (vacated.result as JSONRecord).destination_directory as string
+    expect(destination).toBeTruthy()
+    const landings = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id='${workID}'`).n as number
+    expect(landings).toBe(1)
+    expect(occupantOf(SOURCE_PROJECT)).toBe("")
+
+    // The retirement read derives READY_TO_CLOSE_OR_REPLACE from the
+    // verified facts only: the recorded addressed handoff, the preserved
+    // source worktree, the stopped session-owned execution, and the
+    // verified vacate landing.
+    const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, destination))
+    expect(retirement.outcome, JSON.stringify(retirement)).toBe("ok")
+    const readiness = retirement.result as JSONRecord
+    expect(readiness.state).toBe("ready_to_close_or_replace")
+    expect(readiness.recorded_handoff).toBe(true)
+    expect(readiness.artifacts_preserved).toBe(true)
+    expect(readiness.workers_stopped).toBe(true)
+    expect(readiness.vacate_landed).toBe(true)
+    expect(readiness.blockers).toEqual([])
+
+    // Retirement derives from facts; the shared work's lifecycle and the
+    // receiving session's bind stand untouched, and the retiring session
+    // completes or cancels nothing.
+    expect(dbValue(dbPath, `SELECT lifecycle FROM work_items WHERE id='${workID}'`).lifecycle).toBe("in_progress")
+    expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("consumed")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -517,20 +517,85 @@ func TestManagedExecutionRefusesUntilHandoffConsumed(t *testing.T) {
 	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
 		t.Fatalf("post-consume gate refused %v", err)
 	}
-	// A contract replacement leaves the consumed handoff consumed: the bind
-	// already admitted this session once, so a historical admission
-	// requirement never resurrects, and the fresh-handoff recovery stays
-	// reachable.
+	// A contract replacement holds the gate closed on the consumed bind: a
+	// bind authorizes execution only under the contract it was made under,
+	// so the stale bind refuses closed and the fresh-handoff recovery is
+	// the route back to admission.
 	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "was consumed under contract version 1") || !strings.Contains(fmt.Sprint(err), "active contract is version 2") {
+		t.Fatalf("err=%v, want the stale-bind gate refusal", err)
+	}
+	// The source-side recovery: a fresh addressed handoff under the active
+	// contract supersedes the stale frontier, and consuming it reopens
+	// admission for this session.
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "fresh successor job"
+	req.Now = time.Unix(40, 0).UTC()
+	successor, recordErr := runRecordProjectHandoffTx(f, req)
+	if recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "stands unconsumed") {
+		t.Fatalf("err=%v, want the fresh frontier to hold the gate while unconsumed", err)
+	}
+	consumeHandoff(t, f, successor.HandoffID)
 	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
-		t.Fatalf("post-replacement gate refused %v", err)
+		t.Fatalf("post-recovery gate refused %v", err)
 	}
 }
 
-// The review-probe regression: a consumed handoff under a superseded
-// contract never gates, so a fresh successor handoff recorded and consumed
-// under the renewed contract leaves the receiving session admitted.
-func TestManagedExecutionGateIgnoresConsumedHandoffsAfterContractReplacement(t *testing.T) {
+// The consuming session's own replay is a bind check under the active
+// contract, never a bypass: after a contract replacement the stale bind
+// refuses closed, and the fresh successor handoff is the route back.
+func TestProjectHandoffConsumeReplayRefusesAfterContractReplacement(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
+	first := recordHandoff(t, f, f.sourceTree)
+	consumeHandoff(t, f, first.HandoffID)
+	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	_, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{
+		WorkID: f.workID, HandoffID: first.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(32, 0).UTC(),
+	})
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "recorded under contract version 1") || !strings.Contains(fmt.Sprint(err), "active contract is version 2") {
+		t.Fatalf("err=%v, want the stale-bind replay refusal", err)
+	}
+	// The addressed-resolution form refuses the same way: the stale bind
+	// cannot replay under the renewed contract.
+	_, err = runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{
+		WorkID: f.workID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(33, 0).UTC(),
+	})
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "active contract is version 2") {
+		t.Fatalf("err=%v, want the addressed stale-bind replay refusal", err)
+	}
+	// Recovery: a fresh successor handoff under the active contract records,
+	// consumes, and replays as AlreadyConsumed under the live contract.
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "fresh successor job"
+	req.Now = time.Unix(40, 0).UTC()
+	second, recordErr := runRecordProjectHandoffTx(f, req)
+	if recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	consumed := consumeHandoff(t, f, second.HandoffID)
+	if consumed.AlreadyConsumed {
+		t.Fatalf("fresh consume replayed: %+v", consumed)
+	}
+	replay, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{
+		WorkID: f.workID, HandoffID: second.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(41, 0).UTC(),
+	})
+	if err != nil || !replay.AlreadyConsumed || replay.HandoffID != second.HandoffID {
+		t.Fatalf("replay=%+v err=%v, want the live-bind replay", replay, err)
+	}
+}
+
+// The review-probe regression: after a contract replacement, the fresh
+// successor handoff recorded and consumed under the renewed contract is the
+// current frontier, and its live bind admits the receiving session — the
+// superseded bind behind it never has to resurrect.
+func TestManagedExecutionGateAdmitsAFreshConsumedFrontierAfterContractReplacement(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
@@ -1076,6 +1141,37 @@ func TestBootResumeSeesOnlyTheHandoffAddressedToTheProject(t *testing.T) {
 
 func storeReadPendingForProject(f projectHandoffFixture, projectID string) (*ProjectHandoff, error) {
 	return ReadPendingProjectHandoffForProject(context.Background(), f.store, f.workID, projectID)
+}
+
+// TestBootResumeOmitsStaleHandoffsAfterContractReplacement pins the resume
+// frontier: a handoff recorded under a superseded contract can never be
+// consumed, so resume renders nothing for it — not before, not after a
+// fresh successor handoff's bind consumed the current frontier.
+func TestBootResumeOmitsStaleHandoffsAfterContractReplacement(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	first := recordHandoff(t, f, f.sourceTree)
+	seedReplacementProjectHandoffContract(t, f.store, f.workID, f.finalWorkVersion)
+	if handoff, err := storeReadPendingForProject(f, f.targetProject); err != nil || handoff != nil {
+		t.Fatalf("handoff=%+v err=%v, want the stale handoff to stop rendering after the replacement", handoff, err)
+	}
+	// The fresh successor renders as the current frontier, and once its bind
+	// consumes it, the stale superseded record does not resurface.
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "fresh successor job"
+	req.Now = time.Unix(40, 0).UTC()
+	second, err := runRecordProjectHandoffTx(f, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := mustReadPendingHandoffForProject(t, f, f.targetProject)
+	if handoff.HandoffID != second.HandoffID {
+		t.Fatalf("handoff=%+v, want the fresh successor %q as the resume frontier", handoff, second.HandoffID)
+	}
+	consumeHandoff(t, f, second.HandoffID)
+	if handoff, err := storeReadPendingForProject(f, f.targetProject); err != nil || handoff != nil {
+		t.Fatalf("handoff=%+v err=%v, want the stale %q to stay omitted after the fresh bind", handoff, err, first.HandoffID)
+	}
 }
 
 // TestConsumeResolvesTheAddressedHandoffWithoutAnIdentity pins the

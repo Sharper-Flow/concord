@@ -2935,6 +2935,10 @@
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"
             },
+            "pending_project_handoff": {
+              "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work.",
+              "$ref": "#/$defs/continuity_pending_project_handoff"
+            },
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
               "type": "array",
@@ -14040,6 +14044,118 @@
         },
         "incomparable_with_approved": {
           "type": "boolean"
+        }
+      }
+    },
+    "continuity_pending_project_handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoff_id",
+        "work_id",
+        "contract_version",
+        "source_project_id",
+        "target_project_id",
+        "source_session_ref",
+        "bounded_job",
+        "changes",
+        "verification",
+        "artifact_refs",
+        "blockers",
+        "next_action",
+        "state",
+        "recorded_at"
+      ],
+      "properties": {
+        "handoff_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "contract_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target_project_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_session_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bounded_job": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "changes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "verification": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "artifact_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^sha256:[0-9a-f]{64}:/.+$"
+          }
+        },
+        "blockers": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "next_action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "state": {
+          "const": "recorded"
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       }
     },

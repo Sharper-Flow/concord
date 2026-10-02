@@ -531,6 +531,21 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	}
 	if handoff.State == ProjectHandoffConsumed {
 		if handoff.ConsumedBySessionRef == req.ConsumerSessionRef && handoff.TargetProjectID == req.ConsumerProjectID {
+			// The replay is a bind check, not a bypass: a bind authorizes
+			// execution only under the contract it was made under. After a
+			// contract replacement the stale bind refuses closed, and the
+			// source-side recovery (a fresh addressed handoff recorded under
+			// the active contract) is the only route back to consumption.
+			version, contractErr := activeWorkflowContractVersion(ctx, tx, req.WorkID, "project_handoff")
+			if contractErr == sql.ErrNoRows {
+				return out, newFailure(KindInvalidOperation, "project_handoff", "the work holds no active workflow contract, so the recorded bind cannot authorize execution", false, "start the workflow, then have the source session record a fresh addressed handoff")
+			}
+			if contractErr != nil {
+				return out, contractErr
+			}
+			if version != handoff.ContractVersion {
+				return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the handoff was recorded under contract version %d, but the active contract is version %d", handoff.ContractVersion, version), false, "have the source session record a fresh addressed handoff under the active contract, then consume it")
+			}
 			out.HandoffID = req.HandoffID
 			out.AlreadyConsumed = true
 			return out, nil
@@ -618,13 +633,15 @@ func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID str
 // unconsumed refuses managed execution until the receiving session consumes
 // it — and a frontier recorded under a superseded contract cannot be
 // consumed, so the source session records a fresh addressed handoff whose
-// recording supersedes the stale one. A consumed frontier admits: the bind
-// already admitted this session once, so neither contract replacement nor a
-// superseded historical row resurrects a past admission requirement. A
-// session whose Project placement cannot resolve on a handoff-bearing work
-// refuses: the gate cannot bind an addressed handoff to a Project it cannot
-// prove. A work with no handoffs is unaffected. It runs inside the caller's
-// transaction so the read observes the caller's own uncommitted events.
+// recording supersedes the stale one. A consumed frontier admits only its
+// own consumer, and only under the contract the bind was made under: after
+// a contract replacement the stale bind refuses closed, and a fresh
+// addressed handoff under the active contract, consumed by this session, is
+// the route back to admission. A session whose Project placement cannot
+// resolve on a handoff-bearing work refuses: the gate cannot bind an
+// addressed handoff to a Project it cannot prove. A work with no handoffs is
+// unaffected. It runs inside the caller's transaction so the read observes
+// the caller's own uncommitted events.
 func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) error {
 	// Ordinary handoff-free work stays admitted whatever the caller's
 	// identities or placement.
@@ -671,10 +688,21 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	}
 	if frontierState != ProjectHandoffRecorded {
 		if frontierConsumer == sessionRef {
-			// The frontier carries this session's own bind: it admitted
-			// this session once, so neither contract replacement nor a
-			// superseded historical row resurrects a past admission
-			// requirement.
+			// The frontier carries this session's own bind, and a bind
+			// authorizes managed execution only under the contract it was
+			// made under. After a contract replacement the stale bind
+			// refuses closed; the source session's fresh addressed handoff
+			// under the active contract is the route back to admission.
+			version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+			if contractErr != nil && contractErr != sql.ErrNoRows {
+				return contractErr
+			}
+			if contractErr == sql.ErrNoRows {
+				return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s was consumed under contract version %d, but the work holds no active workflow contract; the stale bind no longer authorizes managed execution", frontierID, frontierSource, frontierVersion), false, "start the workflow, then have the source session record a fresh addressed handoff")
+			}
+			if version != frontierVersion {
+				return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s was consumed under contract version %d, but the active contract is version %d; the stale bind no longer authorizes managed execution, so the source session records a fresh addressed handoff that supersedes it", frontierID, frontierSource, frontierVersion, version), false, "have the source session record a fresh addressed handoff under the active contract, then consume it")
+			}
 			return nil
 		}
 		// The frontier was consumed by a different receiving session of
@@ -1014,14 +1042,27 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 	return &handoff, nil
 }
 
-// PendingProjectHandoffForProjectTx reads the newest unconsumed handoff on
-// the work addressed to one Project. The Project-selected boot/resume flow
-// renders it as the bounded repository job the receiving session must
-// consume before managed execution; visibility here never consumes or
-// authorizes. It runs inside the caller's transaction.
+// PendingProjectHandoffForProjectTx reads the boot/resume frontier: the
+// newest unconsumed handoff on the work addressed to one Project under the
+// ACTIVE contract version. A handoff recorded under a superseded contract
+// can never be consumed, so resume renders nothing for it — a stale record
+// cannot resurrect through the Project-selected boot after a fresh
+// handoff's bind consumed the current frontier. The Project-selected
+// boot/resume flow renders it as the bounded repository job the receiving
+// session must consume before managed execution; visibility here never
+// consumes or authorizes. It runs inside the caller's transaction.
 func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, projectID string) (*ProjectHandoff, error) {
+	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+	if contractErr == sql.ErrNoRows {
+		// No active workflow contract: no handoff can bind, so the boot
+		// renders no bounded job.
+		return nil, nil
+	}
+	if contractErr != nil {
+		return nil, contractErr
+	}
 	var id string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND state='recorded' ORDER BY recorded_at DESC, handoff_id LIMIT 1`, workID, projectID).Scan(&id)
+	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND state='recorded' AND contract_version=? ORDER BY recorded_at DESC, handoff_id LIMIT 1`, workID, projectID, version).Scan(&id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

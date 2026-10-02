@@ -123,6 +123,34 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
 
+// The workflow action preflight refuses once per payload, not once per
+// field: missing required fields in declared order, then undeclared fields
+// sorted by name, under one combined remedy. The undeclared walk is an
+// unordered map walk, so the test repeats the call to prove identical output
+// on every run.
+func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T) {
+	t.Parallel()
+	payload := json.RawMessage(`{"predicate_ids":["predicate:primary"],"evidence_refs":["evidence:x"],"zz_extra":true}`)
+	want := `workflow action payload field "diagnosis" is required for action "request_correction"; workflow action payload field "strategy" is required for action "request_correction"; workflow action payload field "zz_extra" is not declared for action "request_correction"`
+	wantRemedy := "supply every required registered action field and use only fields declared by the pinned definition"
+	for range 50 {
+		err := validateWorkflowActionPayload(WorkflowDefinition{}, "request_correction", payload)
+		var failure *Failure
+		if !errors.As(err, &failure) {
+			t.Fatalf("structural preflight = %v, want an invalid-payload refusal", err)
+		}
+		if failure.Kind != KindInvalidPayload {
+			t.Fatalf("failure kind = %v, want %v", failure.Kind, KindInvalidPayload)
+		}
+		if got := failure.Detail; got != want {
+			t.Fatalf("detail = %q, want %q", got, want)
+		}
+		if got := failure.RecoveryAction; got != wantRemedy {
+			t.Fatalf("recovery action = %q, want %q", got, wantRemedy)
+		}
+	}
+}
+
 func TestIssue1062PersistentMismatchReturnsImplementationAcceptanceToRefine(t *testing.T) {
 	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance")
 }

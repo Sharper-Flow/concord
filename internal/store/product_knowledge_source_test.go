@@ -345,11 +345,12 @@ func TestSourceRebuildAcceptsCrossSourceReferenceBetweenSources(t *testing.T) {
 	writeSourceRelations(t, sourceA.RepoPath, []KnowledgeRelation{{Kind: "refines", TargetID: "SRCB-LAW", SourceProjectID: "ref-src-b"}})
 	commitKnowledgeRepo(t, sourceA.RepoPath, "cross-source refinement")
 	// The target source is registered but not yet rebuilt: the declaring
-	// source's rebuild refuses the unresolved relation.
+	// source's rebuild refuses the unverified source set before any target
+	// row answers (CD-0200 D5).
 	unresolvedErr := s.RebuildKnowledgeIndex(ctx, sourceA)
 	var unresolved *Failure
-	if !errors.As(unresolvedErr, &unresolved) || unresolved.Kind != KindProjectionNotFound {
-		t.Fatalf("unresolved target error = %v, want %v", unresolvedErr, KindProjectionNotFound)
+	if !errors.As(unresolvedErr, &unresolved) || unresolved.Kind != KindIndexDegraded {
+		t.Fatalf("unverified target source error = %v, want %v", unresolvedErr, KindIndexDegraded)
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, sourceB); err != nil {
 		t.Fatal(err)

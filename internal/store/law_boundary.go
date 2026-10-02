@@ -209,8 +209,21 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
 	}
+	current := make(map[string]KnowledgeHome, len(sources))
+	for _, source := range sources {
+		current[source.HomeProjectID+"/"+source.HomeLocatorID] = source
+	}
 	for _, source := range proof.sources {
 		key := source.HomeProjectID + "/" + source.HomeLocatorID
+		// The proof binds each source's resolved canonical location with its
+		// identity. A locator update between the verification and the
+		// transaction moves the canonical authority while every verified
+		// revision still matches the old repository's partition, so the
+		// admission revalidates the resolved location before it trusts the
+		// recorded revisions.
+		if live, ok := current[key]; !ok || live.RepoPath != source.RepoPath || live.HeadRef != source.HeadRef {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" resolved to a different canonical location after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
+		}
 		verified := proof.revisions[key]
 		scanned, err := knowledgeIndexWatermark(ctx, q, source.HomeProjectID, source.HomeLocatorID, source.HeadRef)
 		if err != nil {
@@ -520,8 +533,8 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the endpoint law states: "+edge.sourceLaw+" and "+edge.targetProject+"/"+edge.targetLaw, false, "supersede the target law and declare the accepted superseding edge in the Git manifests")
 			}
 			var successor sql.NullString
-			if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&successor); err == sql.ErrNoRows || (err == nil && (!successor.Valid || successor.String != edge.sourceLaw)) {
-				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the target successor declaration: "+edge.targetProject+"/"+edge.targetLaw, false, "declare the exact superseding law as the target's successor in the Git manifest")
+			if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&successor); err == sql.ErrNoRows || (err == nil && (!successor.Valid || successor.String != edge.declaringHome+"/"+edge.sourceLaw)) {
+				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the target successor declaration: "+edge.targetProject+"/"+edge.targetLaw, false, "declare the exact superseding law, qualified with its source Project, as the target's successor in the Git manifest")
 			} else if err != nil {
 				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source supersession successor", true, "retry once the knowledge projection is readable", err)
 			}

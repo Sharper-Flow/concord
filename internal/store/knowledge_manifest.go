@@ -1019,6 +1019,15 @@ func validateManifestRelations(manifest KnowledgeManifest) error {
 		if record.Successor == "" {
 			continue
 		}
+		if external, err := externalKnowledgeSuccessor("parse_knowledge_manifest", record.Successor); err != nil {
+			return err
+		} else if external {
+			// CD-0200 source-qualified identity: an external successor is
+			// declared in its own source's manifest, and its supersedes edge
+			// validates over the verified source set at the rebuild boundary
+			// and at every consequential law boundary.
+			continue
+		}
 		found := false
 		for _, relation := range byID[record.Successor].LawRelations {
 			if relation.Kind == "supersedes" && relation.TargetID == record.ID {
@@ -1100,6 +1109,14 @@ func validateManifestDispositions(dispositions []KnowledgeDisposition, recordPat
 	return nil
 }
 
+// externalKnowledgeSuccessor reports whether a successor declaration names
+// another registered source through the qualified project_id/law_id form
+// (CD-0200). A malformed qualified form is the parse failure.
+func externalKnowledgeSuccessor(op, successor string) (bool, error) {
+	_, _, qualified, err := parseQualifiedKnowledgeID(op, successor)
+	return qualified, err
+}
+
 func validateManifestSuccessors(records []KnowledgeRecord) error {
 	byID := make(map[string]KnowledgeRecord, len(records))
 	for _, record := range records {
@@ -1111,6 +1128,16 @@ func validateManifestSuccessors(records []KnowledgeRecord) error {
 		}
 		if record.Successor == record.ID {
 			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "superseded record cannot succeed itself", false, "reference a distinct canonical successor")
+		}
+		if external, err := externalKnowledgeSuccessor("parse_knowledge_manifest", record.Successor); err != nil {
+			return err
+		} else if external {
+			// CD-0200: the external successor's kind, status, and matching
+			// supersedes edge live in its own source's manifest, so the
+			// declaring manifest validates only the qualified form here; the
+			// agreement validates over the verified source set at the
+			// supersession boundaries.
+			continue
 		}
 		successor, ok := byID[record.Successor]
 		if !ok {

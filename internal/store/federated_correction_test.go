@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,6 +86,86 @@ func TestCrossSourceSupersedesRefusesBareLocalSuccessorCapture(t *testing.T) {
 	}
 	if err := s.CheckMandatedLawsAtHome(ctx, home.HomeProjectID, home.HomeLocatorID, []string{home.HomeProjectID + "/HOME-LAW"}, nil, false); err == nil {
 		t.Fatal("the mandated-law boundary answered for a law whose manifest declares a refused cross-source supersedes edge")
+	}
+}
+
+// A shared-home rebuild resolves an unprojected peer's relation endpoint
+// from the peer's verified git head, and verification means the manifest's
+// declaration plus its blob proof: the named law blob must exist at that
+// head and match its authored sha256 (CD-0200 verified-Git reconstruction),
+// exactly as the peer's own rebuild verifies every record. An absent,
+// mutated, or undeclared law refuses the admission instead of entering the
+// rebuild as verified Git evidence.
+func TestPeerEndpointBlobProofAtUnprojectedGitHead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, mode := range []string{"valid", "missing-blob", "hash-mismatch", "missing-manifest"} {
+		t.Run(mode, func(t *testing.T) {
+			_, home, source := seedCrossSourceBoundaryProduct(t, "peer-proof")
+			shards, err := readKnowledgeShardsWorkingTree(home.RepoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := composeKnowledgeManifest(shards, manifestSharedHomeRole)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "refines", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
+			writeManifestShards(t, home.RepoPath, manifest)
+			commitKnowledgeRepo(t, home.RepoPath, "reference peer law")
+			switch mode {
+			case "missing-blob":
+				if err := os.Remove(filepath.Join(source.RepoPath, ".concord/docs/decisions/CD-0902-src.md")); err != nil {
+					t.Fatal(err)
+				}
+			case "hash-mismatch":
+				writeKnowledgeFile(t, source.RepoPath, ".concord/docs/decisions/CD-0902-src.md", "different body without updated manifest hash\n")
+			case "missing-manifest":
+				if err := os.RemoveAll(filepath.Join(source.RepoPath, ".concord/docs/knowledge")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode != "valid" {
+				commitKnowledgeRepo(t, source.RepoPath, "invalidate peer evidence")
+			}
+			// A clean store leaves both homes unprojected, so the shared
+			// home's rebuild resolves the peer endpoint from the peer's git
+			// head rather than from projected rows.
+			restored := openTemp(t)
+			authorizeKnowledgeProductHome(t, restored, "peer-proof-product", home, home.HomeProjectID, source.HomeProjectID)
+			authorizeSourceLocator(t, restored, source)
+			if _, err := restored.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{ProductID: "peer-proof-product", ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, ExpectedVersion: 1, Reason: "restore sources"}); err != nil {
+				t.Fatal(err)
+			}
+			err = restored.RebuildKnowledgeIndex(ctx, home)
+			if mode == "valid" {
+				if err != nil {
+					t.Fatalf("valid peer law refused: %v", err)
+				}
+				return
+			}
+			var failure *Failure
+			if !errors.As(err, &failure) {
+				t.Fatalf("shared-home rebuild error = %v, want the typed peer-endpoint refusal", err)
+			}
+			wantDetail := map[string]string{
+				"missing-blob":     "manifest record blob is missing or not regular",
+				"hash-mismatch":    "manifest record hash does not match blob",
+				"missing-manifest": "no knowledge manifest",
+			}[mode]
+			if !strings.Contains(failure.Detail, wantDetail) {
+				t.Fatalf("shared-home rebuild refused with %q, want it to name %q", failure.Detail, wantDetail)
+			}
+			if mode == "missing-blob" || mode == "hash-mismatch" {
+				peerErr := restored.RebuildKnowledgeIndex(ctx, source)
+				if peerErr == nil {
+					t.Fatal("peer rebuild unexpectedly admitted invalid law blob")
+				}
+				if !strings.Contains(peerErr.Error(), "manifest record") {
+					t.Fatalf("unexpected peer failure: %v", peerErr)
+				}
+			}
+		})
 	}
 }
 

@@ -439,10 +439,10 @@ func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home Knowl
 			// cleared, or stamped incomplete over omitted Domain rows — has
 			// no endpoint row to query, so the endpoint resolves from that
 			// source's verified git head instead (CD-0200 reconstruction):
-			// an unreadable head, an absent manifest, or an undeclared law
-			// refuses the rebuild admission. Read degradation governs
-			// answers, never admission. A projected target must resolve the
-			// named law from its rows.
+			// an unreadable head, an absent manifest, or an undeclared or
+			// unproven law refuses the rebuild admission. Read degradation
+			// governs answers, never admission. A projected target must
+			// resolve the named law from its rows.
 			if knowledgeSourceRowsUnverified(ctx, db, target) {
 				if err := resolvePeerRelationTargetFromGitHead(ctx, db, target, relation.TargetID); err != nil {
 					return err
@@ -587,10 +587,11 @@ func knowledgeSourceRowsUnverified(ctx context.Context, db *sql.DB, home Knowled
 // relation endpoint from the target source's verified git head when that
 // source holds no usable projection (CD-0200 reconstruction). The peer's
 // manifest read at its current head is the only evidence available, so an
-// unreadable head, an absent manifest, or a manifest that does not declare
-// the named law refuses the rebuild admission instead of leaving the edge
+// unreadable head, an absent manifest, a manifest that does not declare the
+// named law, or a declared law whose blob is missing or whose sha256 does
+// not match refuses the rebuild admission instead of leaving the edge
 // unresolved. Reading the peer under its own manifest role applies the same
-// shape rules its own rebuild applies.
+// shape and blob-proof rules its own rebuild applies.
 func resolvePeerRelationTargetFromGitHead(ctx context.Context, db *sql.DB, target KnowledgeHome, lawID string) error {
 	head, err := resolveKnowledgeHead(ctx, target)
 	if err != nil {
@@ -609,6 +610,14 @@ func resolvePeerRelationTargetFromGitHead(ctx context.Context, db *sql.DB, targe
 	}
 	for _, record := range manifest.Records {
 		if record.ID == lawID && manifestLawBearingKinds[record.Kind] {
+			// The manifest's declaration is not the law itself: the record's
+			// blob must exist at this head and match its authored sha256,
+			// the same proof the peer's own rebuild applies to every record
+			// (CD-0200 verified-Git reconstruction). An absent or mutated
+			// law refuses the admission instead of entering as evidence.
+			if _, err := verifyManifestBlob(ctx, target.RepoPath, head, record); err != nil {
+				return err
+			}
 			return nil
 		}
 	}

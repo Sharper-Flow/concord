@@ -35,24 +35,33 @@ func seedLocatorAuthority(t *testing.T, s *store.Store, repo string) {
 	must(s.AddProjectLocator(ctx, "project-wl", store.ProjectLocator{ID: "path-wl", Kind: store.LocatorCanonicalPath, Value: repo}, 1))
 }
 
+// initLocatorRepo builds a working repository with a real local bare origin,
+// so the bootstrap preflight fetch and the resume freshness sample run
+// against real Git. The push and fetch leave refs/remotes/origin/main at
+// HEAD with origin/HEAD pointing at it.
 func initLocatorRepo(t *testing.T) string {
 	t.Helper()
-	repo := t.TempDir()
-	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	run := func(dir string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	run("init", "-q", "-b", "main", ".")
+	run(parent, "init", "-q", "--bare", "-b", "main", "origin.git")
+	run(parent, "init", "-q", "-b", "main", "repo")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("locator\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	run("add", ".")
-	run("commit", "-q", "-m", "base")
-	run("update-ref", "refs/remotes/origin/main", "HEAD")
-	run("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	run(repo, "add", ".")
+	run(repo, "commit", "-q", "-m", "base")
+	run(repo, "remote", "add", "origin", "https://locator.invalid/repository.git")
+	run(repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", "https://locator.invalid/repository.git")
+	run(repo, "push", "-q", "origin", "main")
+	run(repo, "fetch", "-q", "origin")
+	run(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
 

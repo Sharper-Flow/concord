@@ -63,16 +63,27 @@ func (r *branchMoveBeforeWorktreeRemovalRunner) Run(ctx context.Context, dir str
 	return (ExecGitRunner{}).Run(ctx, dir, args...)
 }
 
+// initBootstrapStoreRepo builds a working repository with a real local bare
+// origin, so the bounded preflight fetch runs against real Git. The remote
+// URL is a well-formed https value and url.<base>.insteadOf maps it onto the
+// local bare repository, so the fetch stays local while the URL stays one
+// ResolveProject accepts. The push and fetch leave refs/remotes/origin/main
+// at HEAD with origin/HEAD pointing at it.
 func initBootstrapStoreRepo(t *testing.T) string {
 	t.Helper()
-	repo := t.TempDir()
-	runBootstrapGit(t, repo, "init", "-q", "-b", "main", ".")
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	runBootstrapGit(t, parent, "init", "-q", "--bare", "-b", "main", "origin.git")
+	runBootstrapGit(t, parent, "init", "-q", "-b", "main", "repo")
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("bootstrap\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runBootstrapGit(t, repo, "add", "README.md")
 	runBootstrapGit(t, repo, "commit", "-q", "-m", "base")
-	runBootstrapGit(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runBootstrapGit(t, repo, "remote", "add", "origin", "https://bootstrap.invalid/repository.git")
+	runBootstrapGit(t, repo, "config", "url."+filepath.Join(parent, "origin.git")+".insteadOf", "https://bootstrap.invalid/repository.git")
+	runBootstrapGit(t, repo, "push", "-q", "origin", "main")
+	runBootstrapGit(t, repo, "fetch", "-q", "origin")
 	runBootstrapGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
@@ -125,7 +136,9 @@ func seedBootstrapStoreAuthority(t *testing.T, s *Store, repo string) {
 }
 
 func bootstrapStoreRequest() BootstrapRequest {
-	return BootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-bootstrap", Title: "Bootstrap", ValueStatement: "Work starts in one worktree", Kind: "task", Task: "run", IdempotencyKey: "bootstrap-store", Priority: 1, Urgency: "standard", Ref: "HEAD"}
+	// The omitted ref is the operator's common capture: default-based, so the
+	// creation pins the fetched origin default head.
+	return BootstrapRequest{ProductID: "product-bootstrap", ProjectID: "project-bootstrap", Title: "Bootstrap", ValueStatement: "Work starts in one worktree", Kind: "task", Task: "run", IdempotencyKey: "bootstrap-store", Priority: 1, Urgency: "standard"}
 }
 
 // seedBootstrapProject joins one more Project to product-bootstrap, which the

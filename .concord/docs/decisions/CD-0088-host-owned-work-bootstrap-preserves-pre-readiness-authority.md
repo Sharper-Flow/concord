@@ -9,6 +9,9 @@
   issue #611
 - **Amended by:** CD-0098 D4 at the launch clause; CD-0104 D1 at the launch
   record. `session-prepare` verifies and derives, and records no launch.
+  Amended 2026-10-02 at D2 and D3: the bounded Git-cache preflight precedes
+  every fresh creation, and the resume freshness sample reports the typed
+  lag.
 - **Preserves:** CD-0010 and the default-checkout implementation firewall
 
 ## Context
@@ -41,8 +44,23 @@ launches the child session in the claimed directory.
 ### D2. The store owns recovery identity before Git changes
 
 One idempotency key derives one operation and work identity. The store records the
-request and its state in the same transaction that captures the work item. Git changes
-start only after that durable record exists.
+request and its state in the same transaction that captures the work item. Branch,
+claim, and worktree changes start only after that durable record exists.
+
+Before that transaction, every fresh creation runs one bounded Git-cache
+preflight: a single noninteractive fetch of the registered origin default
+branch under a fixed 10-second deadline. The fresh creations are a capture,
+a missing-worktree bootstrap, a first direct claim, and a cross-Project
+claim. The deadline covers the fetch and the local probes around it. The
+preflight force-mirrors that branch into its remote-tracking ref. The fetch
+may also store objects and metadata in the shared Git cache; that cache
+update is the preflight's only effect. It never runs inside a store
+transaction (CD-0195 D2). A preflight failure refuses the operation typed
+before any work item, claim, branch, or worktree exists, so the fetch
+carries no rollback. A default-based creation pins the fetched default head.
+A caller-supplied ref or base SHA stays an exact pin; the preflight never
+moves it. An exact replay or a recovery keeps its stored base and owes no
+new fetch.
 
 The operation uses the registered Project locator and `worktree-locate` result without
 recomputing branch, base SHA, or path policy. A retry reconciles the recorded intent
@@ -58,7 +76,12 @@ It does not accept an arbitrary Concord operation and cannot grant ordinary muta
 authority to the default checkout.
 
 The default checkout stays on its default branch. Implementation writes occur only in
-the claimed linked worktree.
+the claimed linked worktree. The authority covers the D2 preflight on every fresh
+creation and the resume freshness sample. Both fetch only the registered origin
+default branch, and neither rebases nor changes a worktree's files, index, or local
+branch tips. The sample applies the same fixed deadline to its whole run, returns a
+typed unknown with no count when the fetch or a probe fails or the deadline trips,
+and never blocks the resume.
 
 ### D4. Launch authority binds to the prepared worktree and agent
 
@@ -82,7 +105,9 @@ authority.
 
 An operator can start or replay managed work with one host action. Exact replay reuses
 the work identity, canonical branch, directory, claim, and creation event, while each
-successful launch obtains fresh session continuity evidence.
+successful launch obtains fresh session continuity evidence. A new work item starts
+from the fetched default head, and a resumed session sees how far its branch sits
+behind the default branch before it builds on it.
 
 An interrupted external Git step can leave native state present. The durable operation
 state makes that state attributable and recoverable, so replay completes the same
@@ -113,6 +138,54 @@ replay. `TestWorkBootstrapConcurrentExactReplayHasOneNativeResult` proves one na
 result under concurrent requests. `TestWorkBootstrapRefusesNonDefaultMainCheckoutBeforeJournal`
 proves the default-branch scope. `TestWorkBootstrapRefusesPlantedCanonicalWorktreeWithCommits`
 proves that a fresh operation does not adopt unattributed native state.
+`TestWorkBootstrapCaptureCreatesFromRefreshedDefaultHead` proves that a capture pins
+the fetched default head. `TestWorkBootstrapCaptureRefusesWhenRefreshFails` proves the
+typed refusal with no work item, claim, branch, or worktree.
+`TestWorkBootstrapCaptureExplicitRefPreflightsAndPinsBase` proves that an explicit
+ref still preflights and stays an exact pin.
+`TestWorkBootstrapReplayKeepsPinnedBaseWithoutFetch` proves that a replay owes no
+fetch. `TestClaimWorktreeRefreshesBeforeFirstCreation` proves the first direct
+claim's preflight and its typed refusal with no effect.
+`TestClaimWorktreeReplayOwesNoFetch` proves that a claim replay or recovery owes no
+fetch. `TestCrossProjectClaimRefreshesDefaultBase` proves the cross-Project claim
+route. `TestCrossProjectCreationRunsExactlyOnePreflight` proves the cross-Project
+creation runs one preflight.
+`TestFreshnessPreflightLeavesConfiguredMappingsUnapplied` proves the preflight
+ignores configured remote fetch mappings.
+`TestFreshnessPreflightIgnoresSubmoduleOrigins` proves the preflight never
+contacts a submodule origin.
+`TestRunNoninteractiveBoundsDescendantHeldPipes` proves the runner ends a wedged
+fetch inside the deadline.
+`TestWorkBootstrapCaptureExplicitHEADStaysExactPin` proves that an explicit
+`HEAD` ref stays an exact pin while an omitted ref selects the fetched default
+head.
+`TestSampleWorktreeFreshnessReportsExactLagWithoutWorktreeChanges`
+proves the resume lag sample. `TestSampleWorktreeFreshnessCountsSampledSHAs` proves
+the lag counts between the sampled SHAs and proves a nested default branch.
+`TestSampleWorktreeFreshnessTimeoutCoversProbes` proves the deadline covers the
+whole sample. `TestExecGitRunnerNoninteractiveEnv` proves the refused-credential
+environment. `cmd/concord.TestWorkResumeReportsExactBranchLag` proves the resume
+output. `TestWorkBootstrapExistingWorktreeRefreshesDefaultBase` proves the
+missing-worktree bootstrap refreshes before it resolves its creation base.
+
+`TestClaimCreationBaseProbeSharesPreflightDeadline`,
+`TestCaptureCreationBaseProbeSharesPreflightDeadline`, and
+`TestCrossProjectClaimBaseProbeSharesPreflightDeadline` hold a wedged
+base-resolution probe against a shrunken preflight budget on each fresh
+creation route, proving the deadline covers the local probes around the fetch
+and that the refusal leaves no claim row, branch, or worktree.
+`TestFreshnessPreflightNeverMovesLocalTipThroughSymref` proves the preflight
+never moves a local branch tip through a symbolic tracking ref.
+
+`contracts/branch-freshness.v1.json` owns the closed `branch_freshness` result
+contract: statuses, typed failure reasons, sampled SHA and origin default-ref
+rules, and the exact field set each status carries.
+`TestBranchFreshnessValidatorMatchesOwningContract` holds the generated
+validator to the contract's derived fixtures,
+`TestBranchFreshnessProjectionMatchesOwningContract` holds the Go projection
+to it, `cmd/concord` validates the emitted resume sample against it, and
+`adapter/opencode/branch_freshness_contract.test.ts` holds the adapter
+validator to the same fixtures.
 
 The adapter test `work_start integrates with a real Concord binary and a fake OpenCode
 child` uses a real Git repository and the shipped adapter path. The agent contract

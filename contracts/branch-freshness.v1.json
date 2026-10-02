@@ -1,0 +1,25 @@
+{
+  "$schema": "contracts/branch-freshness.schema.json",
+  "schema_version": "1.0",
+  "summary": "The single declaration of the work_start and work_resume branch_freshness result: the closed statuses, the typed failure reasons, the sampled SHA and origin default-ref contracts, and the exact field set each status carries.",
+  "statuses": [
+    {
+      "status": "ok",
+      "fields": ["status", "head_sha", "default_ref", "default_sha", "behind_count"],
+      "sha_fields": ["head_sha", "default_sha"],
+      "count_field": "behind_count"
+    },
+    {
+      "status": "unknown",
+      "fields": ["status", "reason"],
+      "reason_field": "reason"
+    }
+  ],
+  "failure_reasons": ["timeout", "fetch_failed", "probe_failed"],
+  "sha_pattern": "^[0-9a-f]{40}$",
+  "default_ref": {
+    "prefix": "origin/",
+    "git_ref_rule": "the origin prefix plus a branch name git-check-ref-format accepts: no control character, space, ~ ^ : ? * [ or backslash anywhere, no .., no @{, no leading or trailing slash or double slash, no trailing dot, and no slash-separated component that starts with a dot or ends with .lock"
+  },
+  "behind_count_minimum": 0
+}

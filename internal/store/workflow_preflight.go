@@ -269,9 +269,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		}
 		return RegisteredDefinition{}, conflict
 	}
-	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
-		return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "terminal workflow instance is immutable", false, "start a successor workflow")
-	}
 	// One admission derivation for the preflight: the tx-scoped loader folds
 	// the instance history into the abstract admission state once, and the
 	// pure workflowAdmit decides. The refusal applies here except for the
@@ -285,8 +282,12 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, admissionErr
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) && !decision.ApprovalRequired {
-		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) && !decision.ApprovalRequired {
+		if requireTerminalConditions || !decision.ConsequentialConditions {
+			return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+		}
+		// The owning boundary resolves the open external conditions and
+		// re-preflights, where the consequential refusal applies.
 	}
 	staleRecovery := decision.RecoveryRoute
 	lateVerdictRecovery := false
@@ -298,13 +299,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		if err != nil {
 			return RegisteredDefinition{}, err
 		}
-	}
-	if request.ActionID == "request_correction" && !admission.CorrectionRequestRecovery {
-		// The shared admission names the one missing prerequisite. The
-		// refusal must carry that class here exactly as the resolver, the
-		// fold guard, and the read-only preflight state it; the generic
-		// off-step refusal below must not replace it.
-		return RegisteredDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action_preflight", admission.CorrectionRequestMissing)
 	}
 	if request.ActionID == "supersede_contract" {
 		fields, fieldsErr := workflowActionObject(request.Payload)
@@ -323,15 +317,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, newFailure(KindInvalidOperation, "workflow_action_preflight", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
 		}
 	}
-	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite && requireTerminalConditions {
-		var open int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
-			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot inspect consequential workflow conditions", true, "retry once the database is readable", err)
-		}
-		if open != 0 {
-			return RegisteredDefinition{}, newFailure(KindNotTerminal, "workflow_action_preflight", "consequential action has unresolved external conditions", false, "reread_entities")
-		}
-	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return RegisteredDefinition{}, err
 	}
@@ -348,21 +333,25 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if !staleRecovery && !lateVerdictRecovery && !admission.WorkerFailureRecovery && !admission.CorrectionRecovery && request.ActionID != "request_correction" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
-		if request.ActionID != "bind_evidence" {
-			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
-		}
+	// The folded admission owns step legality, applied here — the engine's
+	// late position, after the payload and guard checks whose specific
+	// refusals precede the generic off-step one. The payload-bound recoveries
+	// refine it first: the late-verdict recovery checks the verdict entries
+	// the request names, and the evidence-binding recovery binds the
+	// outstanding requirement the payload names.
+	if request.ActionID == "record_verdict" && !lateVerdictRecovery && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
+	}
+	if request.ActionID == "bind_evidence" {
 		recoveryBind, recoveryErr := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight")
 		if recoveryErr != nil {
 			return RegisteredDefinition{}, recoveryErr
 		}
-		if !recoveryBind {
+		if !recoveryBind && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 			return RegisteredDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action is not declared on the current step", false, "reread_entities")
 		}
-	} else if request.ActionID == "bind_evidence" {
-		if _, err := guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action_preflight"); err != nil {
-			return RegisteredDefinition{}, err
-		}
+	} else if decision.OffStep {
+		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 	}
 	if request.ActionID == "dispatch_worker" {
 		if err := validateWorkerDispatchWorktree(ctx, tx, request.WorkID, request.SessionWorktree); err != nil {

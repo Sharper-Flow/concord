@@ -79,8 +79,14 @@ type WorkflowAdmissionState struct {
 	// verdict settles (workflowReviewSettlesDebt).
 	ReadyReviewAttemptID string
 	// ReadyReviewVerdict is that attempt's typed review verdict, "" for the
-	// pre-CD-0197 reports that carry none.
+	// pre-CD-0197 reports that carry none. A no_ship verdict stands ready like
+	// any other: its acceptance binds the findings and settles nothing
+	// (ReadyReviewSettles reports that).
 	ReadyReviewVerdict string
+	// ReadyReviewSettles reports whether that ready verdict settles the debt
+	// (workflowReviewSettlesDebt): only a ship, or absent pre-CD-0197,
+	// verdict settles, so a ready no_ship review keeps the debt outstanding.
+	ReadyReviewSettles bool
 	// LateVerdictRoute reports a late record_verdict recovery route the
 	// pinned shape opens at the current step.
 	LateVerdictRoute bool
@@ -110,6 +116,12 @@ type WorkflowAdmissionState struct {
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
 	// requirement the recovery bind_evidence can settle.
 	EvidenceRecoveryRoute bool
+	// PendingOperatorDecision reports an open operator question at the
+	// current step: the checkpoint declares an approval-required action and
+	// the investigation artifact stands behind it. The question-open refusal
+	// itself stays in the operator-selection guard chain, whose checks the
+	// payload-blind admission cannot reorder.
+	PendingOperatorDecision bool
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
 	CompleteStepCorrection bool
@@ -121,14 +133,27 @@ type WorkflowAdmissionState struct {
 // WorkflowAdmissionDecision is the pure admission answer for one action over
 // one folded state: whether the advance is admitted, whether it stands only
 // behind the operator's escalated retry approval, whether a supersede
-// request classifies as contract recovery, the ready review the calling
-// guard may bind the request's attempt identity against, and the typed
-// refusal when the advance refuses.
+// request classifies as contract recovery, whether the refusal is the
+// consequential external-conditions one the owning boundary resolves and
+// rechecks, the ready review the calling guard may bind the request's
+// attempt identity against, and the typed refusal when the advance refuses.
 type WorkflowAdmissionDecision struct {
-	Admitted             bool
-	ApprovalRequired     bool
-	RecoveryRoute        bool
+	Admitted                bool
+	ApprovalRequired        bool
+	RecoveryRoute           bool
+	ConsequentialConditions bool
+	// OffStep marks the structural step-legality refusal. The callers apply
+	// it at the engine's late position — after the payload and guard checks
+	// whose specific refusals precede the generic off-step one — instead of
+	// at the admission refusal point.
+	OffStep bool
+	// AdvanceHeld marks the dispatch-hold refusal over an advancing action.
+	// The fold's own advance rule enforces it at event assembly, the
+	// position whose timing the admission fold and the read-only preflight
+	// do not own; the work pin's intent omission is its advertisement half.
+	AdvanceHeld          bool
 	ReadyReviewAttemptID string
+	ReadyReviewSettles   bool
 	Failure              *Failure
 }
 
@@ -211,11 +236,12 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 		if outstanding {
 			state.ReviewDebt = ReviewDebtOutstanding
-			readyAttemptID, readyVerdict, readyErr := workflowReadySettlingReviewAttemptTx(ctx, q, workID, definition, subject)
+			readyAttemptID, readyVerdict, readyErr := workflowReadyReviewAttemptTx(ctx, q, workID, definition, subject)
 			if readyErr != nil {
 				return WorkflowAdmissionState{}, readyErr
 			}
 			state.ReadyReviewAttemptID, state.ReadyReviewVerdict = readyAttemptID, readyVerdict
+			state.ReadyReviewSettles = workflowReviewSettlesDebt(readyVerdict)
 		}
 	}
 	lateRoute, lateErr := workflowLateVerdictRecoveryAvailable(ctx, q, workID, definition, currentStep)
@@ -282,6 +308,17 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else {
 		state.EvidenceRecoveryRoute = evidenceRecovery
 	}
+	state.PendingOperatorDecision = workflowOperatorDecisionPending(definition, currentStep)
+	if state.PendingOperatorDecision {
+		if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
+			var failure *Failure
+			if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
+				state.PendingOperatorDecision = false
+			} else {
+				return WorkflowAdmissionState{}, artifactErr
+			}
+		}
+	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
 		if completeErr != nil {
@@ -299,24 +336,37 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 
 // workflowAdmit decides one action's admission over one folded admission
 // state. It is pure and total: no store access, no clock, no request payload,
-// and a defined answer for every action the definitions declare. The folded
-// conditions hide only the advances they name — the recorded delivery at a
-// review step and the refinement-step accept under review debt, a dispatch
-// behind a stale design, the same-step wall, or an escalated correction, and
-// a consequential action behind a breaking impact notice — because each
-// condition blocks a result, not the work: dispatch, recovery, and
-// continuity actions stay admitted so a parked item always keeps a route.
-// The payload and identity checks stay in the guards; the accept guard binds
-// the request's attempt against the decision's ReadyReviewAttemptID.
+// and a defined answer for every action the definitions declare. It decides
+// the terminal immutability, the breaking-impact and consequential-condition
+// boundaries, the supersede classification, the dispatch hold behind a stale
+// design, an escalated correction, or the same-step wall, the staleness
+// classes, the review-debt advances, the recovery routes, and the step
+// legality. The folded conditions hide only the advances they name — the
+// recorded delivery at a review step and the refinement-step accept under
+// review debt, a dispatch behind a stale design, the same-step wall, or an
+// escalated correction, and a consequential action behind a breaking impact
+// notice or an open external condition — because each condition blocks a
+// result, not the work: dispatch, recovery, and continuity actions stay
+// admitted so a parked item always keeps a route. The payload and identity
+// checks stay in the guards; the accept guard binds the request's attempt
+// against the decision's ReadyReviewAttemptID.
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
-	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID}
+	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID, ReadyReviewSettles: state.ReadyReviewSettles}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision
 	}
-	if workflowImpactBoundary(actionID, workflowActionConsequence(definition, actionID)) && state.BreakingNotices != 0 {
-		decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
-		return decision
+	consequence := workflowActionConsequence(definition, actionID)
+	if workflowImpactBoundary(actionID, consequence) {
+		if state.BreakingNotices != 0 {
+			decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "breaking workflow impact notice blocks consequential execution", false, "reread_entities")
+			return decision
+		}
+		if state.ExternalConditionsOpen != 0 {
+			decision.ConsequentialConditions = true
+			decision.Failure = newFailure(KindNotTerminal, "workflow_action", "consequential action has unresolved external conditions", false, "reread_entities")
+			return decision
+		}
 	}
 	if actionID == "supersede_contract" {
 		return workflowAdmitSupersede(definition, state, decision)
@@ -354,8 +404,73 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			}
 		}
 	}
+	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
+		decision.Failure = workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
+		return decision
+	}
+	// The dispatch hold is the fold's own advance rule: while a dispatched
+	// worker holds the step's advance, every advancing action refuses except
+	// the accept that dispositions its report. Hold-moded actions — another
+	// fresh dispatch among them — keep their route. The refusal is the
+	// fold's advance-rule answer, enforced at event assembly.
+	if state.DispatchHold && actionID != "accept_worker_result" {
+		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
+			decision.AdvanceHeld = true
+			decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "a dispatched worker attempt must advance through accept_worker_result", false, "accept the exact completed worker attempt, record the failed attempt at a human checkpoint, or dispatch a fresh worker")
+			return decision
+		}
+	}
+	if !workflowAdmissionStepAllows(definition, state, actionID) {
+		decision.OffStep = true
+		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+		return decision
+	}
 	decision.Admitted = true
 	return decision
+}
+
+// workflowAdmissionStepAllows decides the structural step legality: the step
+// declares the action, or the folded state owns a recovery route that admits
+// it off-step. The payload-bound halves of the late-verdict and
+// evidence-binding recoveries stay guard checks beside the payloads they
+// read; this answer is the route the state proves.
+func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) bool {
+	if definitionStepAllows(definition, state.Step, actionID) {
+		return true
+	}
+	switch actionID {
+	case "record_verdict":
+		return state.LateVerdictRoute
+	case "bind_evidence":
+		return state.EvidenceRecoveryRoute
+	case "record_worker_failure":
+		return state.WorkerFailureRecovery
+	case "reject_worker_result":
+		return state.CorrectionRecovery
+	case "request_correction":
+		return state.CorrectionRequestRecovery
+	}
+	return false
+}
+
+// workflowOperatorDecisionPending reports whether the step's shape can carry
+// an open operator question at all: a human checkpoint declaring an
+// approval-required action. The investigation artifact's presence — the one
+// condition the shape cannot answer — is the caller's queryer read, so the
+// fold stays inside the caller's transaction.
+func workflowOperatorDecisionPending(definition WorkflowDefinition, currentStep string) bool {
+	step := workflowStep(definition, currentStep)
+	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
+		return false
+	}
+	for _, candidate := range step.Actions {
+		for _, action := range definition.ActionDefinitions {
+			if action.ID == candidate && action.Approval == ActionApprovalRequired {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // workflowAdmitSupersede classifies one supersede_contract request's recovery
@@ -448,18 +563,21 @@ func workflowAdmissionDefersToReviewGate(definition WorkflowDefinition, state Wo
 	}
 }
 
-// workflowReadySettlingReviewAttemptTx names the latest completed review
-// attempt whose dispatch postdates the debt's frontier and whose typed
-// verdict settles, with that verdict, or "" when none stands ready. It is the
-// loader's read of the ready-review predicate the work pin and the accept
-// guard share.
-func workflowReadySettlingReviewAttemptTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (string, string, error) {
+// workflowReadyReviewAttemptTx names the latest completed review attempt
+// that stands ready for acceptance: its review-class dispatch postdates the
+// debt's frontier, so it covers the rejected result, and no accept has
+// dispositioned it yet. The verdict does not qualify it — a no_ship review
+// stands ready exactly like a ship one, binds its findings on acceptance,
+// and settles nothing, because the settlement query owns that rule. It is
+// the loader's read of the ready-review predicate the work pin and the
+// accept guard share.
+func workflowReadyReviewAttemptTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (string, string, error) {
 	frontier, err := workflowPostRejectionFrontier(ctx, q, workID, definition, subject)
 	if err != nil || frontier == 0 {
 		return "", "", err
 	}
 	var attemptID, verdict string
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(wc.payload,'$.attempt_id'),''), COALESCE(json_extract(wc.payload,'$.review.verdict'),'') FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>? AND `+workflowReviewSettlesDebtSQL+` ORDER BY wc.seq DESC LIMIT 1`, WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, frontier).Scan(&attemptID, &verdict); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(wc.payload,'$.attempt_id'),''), COALESCE(json_extract(wc.payload,'$.review.verdict'),'') FROM domain_events wc JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=? AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND json_extract(wd.payload,'$.capability_class')='review' AND wd.seq>? WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND wc.seq>? AND NOT EXISTS(SELECT 1 FROM domain_events ax WHERE ax.subject_type=wc.subject_type AND ax.subject_id=wc.subject_id AND ax.kind=? AND json_extract(ax.payload,'$.action_id')='accept_worker_result' AND json_extract(ax.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id') AND ax.seq>?) ORDER BY wc.seq DESC LIMIT 1`, WorkerDispatched, frontier, string(SubjectWorkItem), workID, WorkerCompleted, frontier, WorkflowActionCompleted, frontier).Scan(&attemptID, &verdict); err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", nil
 		}

@@ -134,7 +134,15 @@ func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, registry De
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
 	}
-	return workflowFailedWorkerRetryBinding(ctx, s.db, registry, workID)
+	// The admission fold runs in the caller's transaction, so the pool-backed
+	// read opens its own short read transaction around the same single
+	// implementation (the store connection invariant).
+	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot open the binding read transaction", true, "retry once the store is readable", err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	return workflowFailedWorkerRetryBinding(ctx, readTx, registry, workID)
 }
 
 // WorkflowFailedWorkerRetryBindingTx is the transaction-scoped form used by
@@ -158,6 +166,21 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		}
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the current workflow step", true, "retry once the workflow projection is readable", err)
 	}
+	pin := WorkflowDefinitionPin{Ref: pinRef, Version: pinVersion, Digest: pinDigest}
+	definition, err := workflowPinnedDefinitionForBinding(registry, pin)
+	if err != nil {
+		return nil, err
+	}
+	// The wall and escalation admission is the shared derivation: the fold
+	// carries the correction escalation and the same-step wall count, and the
+	// pure workflowAdmit decides whether a dispatch stands behind the
+	// operator's approval. The identity reads below bind that admission to
+	// the attempt the approval must name.
+	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
+	if err != nil {
+		return nil, err
+	}
+	decision := workflowAdmit(definition, state, "dispatch_worker")
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
 	if err != nil {
 		return nil, err
@@ -166,9 +189,13 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		// No correction record stands behind the current refusal — a later
 		// dispatch whose attempt materialized consumed the record — but the
 		// same-step wall can still refuse: CD-0164 keeps that wall operator
-		// approvable, so the binding keys to the latest counted failed
-		// attempt instead of a consumed correction.
-		return workflowSameStepWallRetryBinding(ctx, q, registry, WorkflowDefinitionPin{Ref: pinRef, Version: pinVersion, Digest: pinDigest}, workID, stepID)
+		// approvable, so when the folded admission arms the wall the binding
+		// keys to the latest counted failed attempt instead of a consumed
+		// correction.
+		if !decision.ApprovalRequired {
+			return nil, nil
+		}
+		return workflowSameStepWallRetryBinding(ctx, q, definition, workID, stepID)
 	}
 	verification := correction.Escalated && correction.Disposition == "verification" && correction.FailedAttemptID == ""
 	switch {
@@ -178,9 +205,13 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	default:
 		// The record behind the current refusal admits no approval-free
 		// dispatch, but the same-step wall can still refuse: CD-0164 keeps
-		// that wall operator approvable, so the binding keys to the latest
-		// counted failed attempt instead of this correction.
-		return workflowSameStepWallRetryBinding(ctx, q, registry, WorkflowDefinitionPin{Ref: pinRef, Version: pinVersion, Digest: pinDigest}, workID, stepID)
+		// that wall operator approvable, so when the folded admission arms
+		// the wall the binding keys to the latest counted failed attempt
+		// instead of this correction.
+		if !decision.ApprovalRequired {
+			return nil, nil
+		}
+		return workflowSameStepWallRetryBinding(ctx, q, definition, workID, stepID)
 	}
 	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
 	if err != nil {
@@ -197,17 +228,13 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 }
 
 // workflowSameStepWallRetryBinding binds the same-step wall's approval when
-// no correction record stands behind it. The binding keys to the latest
-// counted failed attempt at the step — the attempt id plus the attempt epoch
-// its dispatch completion recorded — and the active contract version, so the
-// approval challenge the boundary mints and the consumption fence reread one
-// durable identity. Below the limit, or with no counted failed attempt, the
-// wall is not armed and no binding exists.
-func workflowSameStepWallRetryBinding(ctx context.Context, q queryer, registry DefinitionRegistry, pin WorkflowDefinitionPin, workID, currentStep string) (*WorkflowRetryApprovalBinding, error) {
-	definition, err := workflowPinnedDefinitionForBinding(registry, pin)
-	if err != nil {
-		return nil, err
-	}
+// no correction record stands behind it. The caller's folded admission owns
+// the arming decision; this read names the durable identity the approval
+// must bind — the latest counted failed attempt's id plus the attempt epoch
+// its dispatch completion recorded — and the active contract version. Below
+// the limit, or with no counted failed attempt, the wall is not armed and no
+// binding exists.
+func workflowSameStepWallRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (*WorkflowRetryApprovalBinding, error) {
 	count, attemptID, attemptEpoch, err := workflowSameStepWallState(ctx, q, definition, workID, currentStep, "workflow_correction")
 	if err != nil {
 		return nil, err
@@ -1000,7 +1027,7 @@ const (
 // workflowCorrectionRequestUnavailableFailure is the one refusal a closed
 // correction request produces. The class decides the message, so a refusal
 // names the actual missing prerequisite instead of a generic verdict claim.
-func workflowCorrectionRequestUnavailableFailure(subject, missing string) error {
+func workflowCorrectionRequestUnavailableFailure(subject, missing string) *Failure {
 	switch missing {
 	case workflowCorrectionMissingVerdict:
 		return newFailure(KindInvalidOperation, subject, "request_correction requires a current non-ok verification verdict under the active workflow contract", false, "record the current verification verdict or reread the work pin")

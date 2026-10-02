@@ -2263,22 +2263,36 @@ func workflowDispatchHoldsStepAdvance(ctx context.Context, q queryer, definition
 // checkpoint holds it until an accept or a checkpoint failure record
 // dispositions it, or a later worker actually dispatches there. A window no
 // worker used appears nowhere in that history, so it releases nothing.
+// beforeSeq bounds every search; zero reads the whole recorded history, so
+// the disposition checks bind only when the caller carries a position.
 func workflowCheckpointDispatchHoldsStepAdvance(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (bool, error) {
 	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, stepID, beforeSeq)
 	if err != nil || !found {
 		return false, err
 	}
 	if lifecycle == "completed" {
+		acceptBound := ""
+		args := []any{workID, WorkflowActionCompleted, attemptID}
+		if beforeSeq > 0 {
+			acceptBound = " AND seq<?"
+			args = append(args, beforeSeq)
+		}
 		var accepted int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&accepted); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(payload,'$.worker_attempt_id')=?`+acceptBound, args...).Scan(&accepted); err != nil {
 			return false, workflowProjectionError(err, "cannot inspect worker attempt accepts for the current workflow attempt")
 		}
 		if accepted != 0 {
 			return false, nil
 		}
 	}
+	recordBound := ""
+	args := []any{workID, WorkflowActionCompleted, attemptID}
+	if beforeSeq > 0 {
+		recordBound = " AND seq<?"
+		args = append(args, beforeSeq)
+	}
 	var recorded int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=? AND seq<?`, workID, WorkflowActionCompleted, attemptID, beforeSeq).Scan(&recorded); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`+recordBound, args...).Scan(&recorded); err != nil {
 		return false, workflowProjectionError(err, "cannot inspect recorded worker failures for the current workflow attempt")
 	}
 	return recorded == 0, nil

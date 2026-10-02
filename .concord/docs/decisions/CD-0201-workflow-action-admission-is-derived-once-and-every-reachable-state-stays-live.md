@@ -177,7 +177,7 @@ Scenario: A parked gate keeps the corrective return behind a no_ship review
   Then the gate admits request_correction and the item returns to repair
 ```
 
-- `go test ./internal/store/ -run TestWellFormedAdmissionStateHasNonContinuityExit` proves the first and third scenarios.
+- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
 - `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
 - `go test ./internal/store/ -run TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept` proves the fourth scenario.
 - `go test ./internal/store/ -run 'TestNoShipReviewKeepsRefineExitAndGateCorrectionHonest|TestNoShipReviewLeavesParkedGateCorrectionAdmitted'` proves the fifth and sixth scenarios.

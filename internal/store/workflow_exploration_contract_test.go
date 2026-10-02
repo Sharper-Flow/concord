@@ -88,55 +88,6 @@ func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
 	}
 }
 
-func TestLivenessConclusionDoesNotConflateIncompleteAndSuccessful(t *testing.T) {
-	for _, result := range []livenessExploration{{}, {terminalStates: 1, depthBoundStates: 1}, {terminalStates: 1, omittedVariants: []string{"route"}}} {
-		if result.conclusion() != "inconclusive" {
-			t.Fatalf("false completion: %+v", result)
-		}
-	}
-	if (livenessExploration{terminalStates: 1}).conclusion() != "complete-within-model" {
-		t.Fatal("closed model lost its result")
-	}
-	if (livenessExploration{reports: []livenessReport{{}}}).conclusion() != "candidate-found" {
-		t.Fatal("closed exploration lost its candidate finding")
-	}
-}
-
-func TestLivenessTruncationNeverBecomesConclusive(t *testing.T) {
-	for _, result := range []livenessExploration{
-		{reports: []livenessReport{{}}, depthBoundStates: 1},
-		{reports: []livenessReport{{}}, omittedVariants: []string{"unexamined-exit"}},
-	} {
-		if result.conclusion() != "inconclusive" {
-			t.Fatalf("candidate report overrode incomplete exploration: %s", result.conclusion())
-		}
-		if len(result.reports) != 1 {
-			t.Fatal("inconclusive result lost its candidate finding")
-		}
-	}
-}
-
-func TestLivenessDetectsSeededMissingExit(t *testing.T) {
-	d := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	d.Ref = "workflow.seed_missing_exit"
-	d.Version = 1
-	for i := range d.StepGraph.Steps {
-		if d.StepGraph.Steps[i].ID == d.StepGraph.StartStep {
-			d.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
-		}
-	}
-	result := livenessExplore(t, d)
-	if len(result.reports) == 0 {
-		t.Fatalf("missing exit not detected: %+v", result)
-	}
-	if result.testedTransitions != 0 {
-		t.Fatalf("refused probes counted as admitted transitions: %d", result.testedTransitions)
-	}
-	if result.testedProbes == 0 {
-		t.Fatal("missing-exit fixture exercised no probes")
-	}
-}
-
 func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 	const workID = "liveness-generated-correction"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
@@ -188,32 +139,6 @@ func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
 		if fields.Version != scenario.want {
 			t.Errorf("%s version=%d, want %d", scenario.action, fields.Version, scenario.want)
 		}
-	}
-}
-
-func TestLivenessDoesNotTreatHoldLoopAsCompletion(t *testing.T) {
-	d := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	d.Ref = "workflow.seed_hold_loop"
-	d.Version = 1
-	for i := range d.ActionDefinitions {
-		if d.ActionDefinitions[i].ID == "record_proposal" {
-			d.ActionDefinitions[i].ExecutionMode = ActionHold
-		}
-	}
-	result := livenessExplore(t, d)
-	if result.conclusion() != "inconclusive" || result.terminalStates != 0 {
-		t.Fatalf("loop became completion: %+v", result)
-	}
-}
-
-func TestLivenessExecutesAndRejectsUnapprovedCompletion(t *testing.T) {
-	d := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	d.Ref = "workflow.seed_rejected_completion"
-	d.Version = 1
-	d.StepGraph = graph([]WorkflowStep{step("discovery", WorkflowStepInternalSQLite, "record_discovery"), step("release", WorkflowStepInternalSQLite, "complete")}, forward("discovery", "release"), "release")
-	result := livenessExplore(t, d)
-	if result.terminalStates != 0 || len(result.reports) == 0 {
-		t.Fatalf("terminal step hid rejected completion: %+v", result)
 	}
 }
 

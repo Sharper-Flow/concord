@@ -791,21 +791,21 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
 		}
+		// The availability half is the shared derivation: the fold's state
+		// carries the correction-request and contract-correction routes, so
+		// this guard consumes it instead of re-deriving the conditions. The
+		// operator identity requirement stays a guard check.
+		state, err := g.foldedAdmissionState()
+		if err != nil {
+			return err
+		}
 		if g.request.ActionID == "request_correction" {
-			available, missing, correctionErr := workflowCorrectionRequestAdmissionState(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", 0)
-			if correctionErr != nil {
-				return correctionErr
-			}
-			if !available {
-				return workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
+			if !state.CorrectionRequestRecovery {
+				return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 			}
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
-		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-		if correctionErr != nil {
-			return correctionErr
-		}
-		if correction {
+		if state.ContractCorrectionAvailable {
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil
@@ -1174,19 +1174,49 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	if decision.Admitted {
 		return nil
 	}
-	// The attempt identity stays a guard check: the request's attempt_id
-	// must name the ready settling review the decision folded, so an accept
-	// of a different attempt cannot ride its admission.
+	// The attempt identity and the delivery assertion stay guard checks: the
+	// request's attempt_id must name the ready review the decision folded, so
+	// an accept of a different attempt cannot ride its admission, and the
+	// ready review's acceptance carries the delivery assertion only when its
+	// verdict settles — a no_ship review binds its findings and leaves the
+	// debt outstanding, so the advance waits for a settling review (CD-0201
+	// D3).
 	if g.request.ActionID == "accept_worker_result" && decision.ReadyReviewAttemptID != "" {
 		fields, fieldsErr := workflowActionObject(g.request.Payload)
 		if fieldsErr != nil {
 			return fieldsErr
 		}
 		if workflowFieldStringDefault(fields, "attempt_id", "") == decision.ReadyReviewAttemptID {
+			if !decision.ReadyReviewSettles && workflowAcceptCarriesDeliveryAssertion(fields) {
+				return decision.Failure
+			}
 			return nil
 		}
 	}
 	return decision.Failure
+}
+
+// foldedAdmissionState returns the fold's admission state, folding it on the
+// guard's transaction when the caller did not carry one. The dispatch fold
+// always folds before the guard phases run; the fallback keeps a directly
+// constructed guard context on the same single derivation.
+func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionState, error) {
+	if g.admissionState != nil {
+		return g.admissionState, nil
+	}
+	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	if err != nil {
+		return nil, err
+	}
+	g.admissionState = &state
+	return &state, nil
+}
+
+// workflowAcceptCarriesDeliveryAssertion reports whether one accept payload
+// carries the CD-0198 D4 delivery fields, the shape whose acceptance advances
+// the refinement step.
+func workflowAcceptCarriesDeliveryAssertion(fields map[string]json.RawMessage) bool {
+	return workflowFieldStringDefault(fields, "delivery_artifact", "") != "" || workflowFieldStringDefault(fields, "delivery_state", "") != ""
 }
 
 // defaultedPayload returns the action payload with an empty payload

@@ -295,9 +295,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 		return result, conflict
 	}
-	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
-	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
 	// One admission derivation for the fold: the tx-scoped loader folds the
 	// instance history into the abstract admission state once, the request's
@@ -312,7 +309,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	}
 	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !workflowAdmissionDefersToReviewGate(entry.Definition, admission, request.ActionID) {
 		return result, decision.Failure
 	}
 	guards.admissionState = &admission
@@ -378,17 +375,23 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || guards.correctionRecovery || guards.correctionRequestRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	// The folded admission owns step legality (workflowAdmissionStepAllows),
+	// applied here — the engine's late position, after the payload and guard
+	// checks whose specific refusals precede the generic off-step one. The
+	// payload-bound recoveries refine it first: the late-verdict guard ran
+	// above for an off-step record_verdict, and the evidence-binding recovery
+	// binds the outstanding requirement the request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
 		if recoveryErr != nil {
 			return result, recoveryErr
 		}
-		stepAllowed = stepAllowed || guards.recoveryBind
-	}
-	if !stepAllowed {
-		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+		if !guards.recoveryBind && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+		}
+	} else if decision.OffStep {
+		return result, decision.Failure
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {

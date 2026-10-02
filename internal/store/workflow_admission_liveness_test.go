@@ -96,7 +96,8 @@ func admissionStateActions(definition WorkflowDefinition, state admissionModelSt
 // definition version: every step crossed with the debt and ready-review
 // combinations the loader can fold. The loader leaves the debt none outside a
 // correction workflow's review steps, and a ready review implies outstanding
-// debt; a no-ship ready review is never folded, so it is not well-formed.
+// debt. A ready review carries any typed verdict — a no_ship review stands
+// ready like a ship one, and its acceptance settles nothing.
 func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelState {
 	correction := workflowCorrectionWorkflow(definition)
 	var states []admissionModelState
@@ -110,21 +111,32 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding},
 			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "ship"},
 			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "absent"},
+			admissionModelState{step: step.ID, debt: ReviewDebtOutstanding, ready: "no_ship"},
 		)
 	}
 	return states
 }
 
 // admissionWorkflowState lifts the abstract model state into the folded
-// WorkflowAdmissionState workflowAdmit decides over.
+// WorkflowAdmissionState workflowAdmit decides over. The lift names the
+// conditions the engine proves for the well-formed states: a correction
+// workflow's gate under outstanding debt admits the evidence-bearing
+// corrective return, and a state whose step carries the premise confirmation
+// stands behind the operator question — the well-formed checkpoint carries
+// the investigation artifact the question requires. The artifact's own
+// presence is outside the folded dimensions; CON-809 owns widening the model
+// to the full fold.
 func admissionWorkflowState(definition WorkflowDefinition, state admissionModelState) WorkflowAdmissionState {
 	return WorkflowAdmissionState{
-		Step:                 state.step,
-		CorrectionWorkflow:   workflowCorrectionWorkflow(definition),
-		ReviewStep:           workflowPostRejectionReviewStep(definition, state.step),
-		ReviewDebt:           state.debt,
-		ReadyReviewAttemptID: admissionReadyAttemptID(state),
-		ReadyReviewVerdict:   state.ready,
+		Step:                      state.step,
+		CorrectionWorkflow:        workflowCorrectionWorkflow(definition),
+		ReviewStep:                workflowPostRejectionReviewStep(definition, state.step),
+		ReviewDebt:                state.debt,
+		ReadyReviewAttemptID:      admissionReadyAttemptID(state),
+		ReadyReviewVerdict:        state.ready,
+		ReadyReviewSettles:        workflowReviewSettlesDebt(state.ready),
+		CorrectionRequestRecovery: workflowCorrectionWorkflow(definition) && state.debt == ReviewDebtOutstanding && workflowStepIsDeliveryGate(workflowStep(definition, state.step)),
+		PendingOperatorDecision:   workflowOperatorDecisionPending(definition, state.step) || stepDeclaresAction(definition, state.step, "confirm_premise"),
 	}
 }
 
@@ -141,9 +153,10 @@ func admissionReadyAttemptID(state admissionModelState) string {
 // one model state. The step move is definition-owned: an advance-mode action
 // follows the forward edge; a hold or fenced action keeps the step. The
 // review-family effects are the folded debt semantics: a rejection opens the
-// debt, a review dispatch completes with a settling verdict, and the
-// identity-satisfying accept of the ready review settles the debt and
-// carries the advance its mode names.
+// debt, a review dispatch completes and awaits acceptance, the settling
+// accept — ship, or absent for the pre-CD-0197 reports — clears the debt and
+// carries the advance its mode names, and the no_ship accept binds its
+// findings and holds the step with the debt still outstanding.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	next := state
 	switch actionID {
@@ -155,6 +168,12 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 		}
 	case "accept_worker_result":
 		if next.ready != "" {
+			if next.ready == "no_ship" {
+				// The no_ship accept preserves the findings and settles
+				// nothing: the debt stays outstanding and the step holds.
+				next.ready = ""
+				return next
+			}
 			next.debt, next.ready = ReviewDebtNone, ""
 		}
 	case "request_correction":
@@ -173,14 +192,16 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 }
 
 // admissionModelMoves resolves the admitted moves of one state: every action
-// of the state's universe whose workflowAdmit decision admits it. An accept
-// move stands for the identity-satisfying route the guard binds when the
-// state carries a ready review.
+// of the state's universe whose workflowAdmit decision admits it, plus the
+// debt family's deferred advance — the accept whose identity the guard binds
+// against the ready review, the one payload-bound carve-out the review gate
+// owns.
 func admissionModelMoves(definition WorkflowDefinition, state admissionModelState) []string {
 	folded := admissionWorkflowState(definition, state)
 	var moves []string
 	for _, actionID := range admissionStateActions(definition, state) {
-		if workflowAdmit(definition, folded, actionID).Admitted {
+		decision := workflowAdmit(definition, folded, actionID)
+		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(definition, folded, actionID) && folded.ReadyReviewAttemptID != "") {
 			moves = append(moves, actionID)
 		}
 	}
@@ -189,6 +210,29 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 
 func admissionTerminalStep(definition WorkflowDefinition, step string) bool {
 	return containsString(definition.StepGraph.TerminalSteps, step)
+}
+
+// wellFormedAdmissionExitWitnesses walks one definition version's well-formed
+// nonterminal abstract states and returns a witness line for each state that
+// admits no non-continuity exit.
+func wellFormedAdmissionExitWitnesses(definition WorkflowDefinition) []string {
+	var witnesses []string
+	for _, state := range wellFormedAdmissionStates(definition) {
+		if admissionTerminalStep(definition, state.step) {
+			continue
+		}
+		exits := []string{}
+		for _, actionID := range admissionModelMoves(definition, state) {
+			if admissionExitAction(definition, state, actionID) {
+				exits = append(exits, actionID)
+			}
+		}
+		if len(exits) == 0 {
+			witnesses = append(witnesses, fmt.Sprintf("well-formed nonterminal state (step %q debt %q ready %q) admits no non-continuity action; admitted: %s",
+				state.step, state.debt, state.ready, strings.Join(admissionModelMoves(definition, state), ", ")))
+		}
+	}
+	return witnesses
 }
 
 // TestWellFormedAdmissionStateHasNonContinuityExit proves liveness clause
@@ -200,21 +244,35 @@ func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
-		for _, state := range wellFormedAdmissionStates(definition) {
-			if admissionTerminalStep(definition, state.step) {
-				continue
-			}
-			exits := []string{}
-			for _, actionID := range admissionModelMoves(definition, state) {
-				if admissionExitAction(definition, state, actionID) {
-					exits = append(exits, actionID)
-				}
-			}
-			if len(exits) == 0 {
-				t.Fatalf("%s v%d: well-formed nonterminal state (step %q debt %q ready %q) admits no non-continuity action; admitted: %s",
-					definition.Ref, definition.Version, state.step, state.debt, state.ready, strings.Join(admissionModelMoves(definition, state), ", "))
-			}
+		for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
+			t.Fatalf("%s v%d: %s", definition.Ref, definition.Version, witness)
 		}
+	}
+}
+
+// TestWellFormedExitCheckNamesSeededStrandedState proves the seeded-strand
+// half of the exit check: a definition whose step declares only hold actions
+// produces a witness that names the stranded state, so the check fails rather
+// than assumes.
+func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
+	builtins := builtinWorkflowDefinitionsWithHistory()
+	if len(builtins) == 0 {
+		t.Fatal("no built-in workflow definitions are registered")
+	}
+	seeded := cloneWorkflowDefinition(builtins[0])
+	seeded.Ref = "workflow.seed_missing_exit"
+	seeded.Version = 1
+	for i := range seeded.StepGraph.Steps {
+		if seeded.StepGraph.Steps[i].ID == seeded.StepGraph.StartStep {
+			seeded.StepGraph.Steps[i].Actions = []string{"checkpoint_context"}
+		}
+	}
+	witnesses := wellFormedAdmissionExitWitnesses(seeded)
+	if len(witnesses) == 0 {
+		t.Fatal("the seeded hold-only step produced no stranded witness")
+	}
+	if !strings.Contains(witnesses[0], seeded.StepGraph.StartStep) {
+		t.Fatalf("witness does not name the stranded step: %s", witnesses[0])
 	}
 }
 
@@ -255,10 +313,20 @@ func admissionReachableStates(definition WorkflowDefinition, start admissionMode
 		for _, state := range frontier {
 			reachable = append(reachable, state)
 			for _, actionID := range admissionModelMoves(definition, state) {
-				successor := admissionSuccessor(definition, state, actionID)
-				if !seen[successor] {
-					seen[successor] = true
-					next = append(next, successor)
+				successors := []admissionModelState{admissionSuccessor(definition, state, actionID)}
+				if actionID == "dispatch_worker" && state.debt == ReviewDebtOutstanding && state.ready == "" {
+					// A fresh review completes with any typed verdict; the
+					// no_ship completion is the twin the well-formed space
+					// carries.
+					twin := successors[0]
+					twin.ready = "no_ship"
+					successors = append(successors, twin)
+				}
+				for _, successor := range successors {
+					if !seen[successor] {
+						seen[successor] = true
+						next = append(next, successor)
+					}
 				}
 			}
 		}

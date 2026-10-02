@@ -23,17 +23,13 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// livenessDepth bounds the explored path length. A frontier that reaches this
-// bound before a terminal step makes the result inconclusive.
-const livenessDepth = 12
-
-const livenessStateBudget = 64
-
 // errLivenessProbe forces the probe transaction to roll back after the action
 // applied successfully. Its presence in the returned error means the engine
 // admitted the action.
 var errLivenessProbe = errors.New("liveness probe rollback")
 
+// livenessMove is one explored action: the action ID, the payload variant
+// label, and the synthesized payload.
 type livenessMove struct {
 	action  string
 	variant string
@@ -47,62 +43,11 @@ func (m livenessMove) String() string {
 	return m.action + "[" + m.variant + "]"
 }
 
-// livenessProbe is one action's observed admissibility in one state.
-type livenessProbe struct {
-	move     livenessMove
-	failure  string
-	failKind string
-}
-
-// livenessReport is a non-terminal state whose admitted actions all hold.
 // livenessDigest is the one digest value the explorer uses everywhere: in the
 // fixture's Domain registry and in every synthesized payload. The engine joins
 // some payload digests against recorded state, so a second value would refuse
 // on the join and read as a stranding that no agent would meet.
 var livenessDigest = "sha256:" + strings.Repeat("d", 64)
-
-type livenessReport struct {
-	definition string
-	step       string
-	path       []livenessMove
-	probes     []livenessProbe
-}
-
-type livenessExploration struct {
-	reports            []livenessReport
-	testedStates       int
-	testedTransitions  int
-	testedProbes       int
-	terminalStates     int
-	depthBoundStates   int
-	depthBoundStepHits map[string]int
-	omittedVariants    []string
-}
-
-func (result livenessExploration) conclusion() string {
-	if result.depthBoundStates != 0 || len(result.omittedVariants) != 0 {
-		return "inconclusive"
-	}
-	if len(result.reports) != 0 {
-		return "candidate-found"
-	}
-	if result.terminalStates == 0 {
-		return "inconclusive"
-	}
-	return "complete-within-model"
-}
-
-func (r livenessReport) String() string {
-	path := make([]string, 0, len(r.path))
-	for _, move := range r.path {
-		path = append(path, move.String())
-	}
-	lines := []string{fmt.Sprintf("%s has no sampled admissible transition at step %q after %s", r.definition, r.step, strings.Join(path, " -> "))}
-	for _, probe := range r.probes {
-		lines = append(lines, fmt.Sprintf("    %-28s refused (%s): %s", probe.move.String(), probe.failKind, probe.failure))
-	}
-	return strings.Join(lines, "\n")
-}
 
 // livenessActionDefinition resolves the registered payload contract for an
 // action, including the two recovery actions the registry holds outside the
@@ -1150,110 +1095,6 @@ func livenessSeedInvestigation(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// livenessExplore walks one definition and returns every stranded state it
-// reaches. It keeps action order in the state key because the engine does not
-// declare that independently recorded actions commute.
-func livenessExplore(t *testing.T, definition WorkflowDefinition) livenessExploration {
-	t.Helper()
-	ctx := context.Background()
-	terminal := map[string]bool{}
-	for _, step := range definition.StepGraph.TerminalSteps {
-		terminal[step] = true
-	}
-	reports := []livenessReport{}
-	depthBoundStepHits := map[string]int{}
-	omittedVariants := livenessOmittedVariants(definition)
-	omittedVariants = append(omittedVariants, "host-dispatch", "context-continuity", "external-environment-transitions")
-	testedStates := 0
-	testedTransitions := 0
-	testedProbes := 0
-	terminalStates := 0
-	seen := map[string]bool{}
-	cache := livenessReplayCache{}
-	initial, _ := cache.replay(t, definition, nil)
-	cache.retain(t, initial, nil)
-	queue := [][]livenessMove{{}}
-	for len(queue) > 0 {
-		if testedStates >= livenessStateBudget {
-			depthBoundStepHits["state-budget"] += len(queue)
-			break
-		}
-		path := queue[0]
-		queue = queue[1:]
-		key := livenessPathKey(path)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		s, workID := cache.replay(t, definition, path)
-		step, err := livenessStep(ctx, s, workID)
-		if err != nil {
-			t.Fatalf("%s read step: %v", definition.Ref, err)
-		}
-		testedStates++
-		if testedStates == 1 || testedStates%16 == 0 {
-			t.Logf("exploration progress: states=%d probes=%d transitions=%d frontier=%d", testedStates, testedProbes, testedTransitions, len(queue))
-		}
-		state, completions, completionErr := livenessCompletion(ctx, s, workID)
-		if completionErr != nil {
-			t.Fatalf("%s read durable completion: %v", definition.Ref, completionErr)
-		}
-		if terminal[step] && state == "completed" {
-			terminalStates++
-			if state != "completed" || completions != 1 {
-				t.Errorf("%s terminal step %q lacks one durable workflow.completed record: state=%q completions=%d", definition.Ref, step, state, completions)
-			}
-			s.Close()
-			continue
-		}
-		if len(path) >= livenessDepth {
-			depthBoundStepHits[step]++
-			s.Close()
-			continue
-		}
-		moves := livenessStateMoves(t, definition, step)
-		probes := make([]livenessProbe, 0, len(moves))
-		advancing := []livenessMove{}
-		for _, move := range moves {
-			if livenessContinuityAction(move.action) || move.action == "dispatch_worker" {
-				continue
-			}
-			testedProbes++
-			probeErr := livenessApply(ctx, s, workID, move, len(path), false)
-			kind := ""
-			detail := ""
-			if probeErr != nil {
-				kind = livenessFailureKind(probeErr)
-				detail = probeErr.Error()
-				if kind == string(KindInvalidPayload) {
-					t.Fatalf("%s harness defect: %s payload rejected by its own registered contract: %v", definition.Ref, move.String(), probeErr)
-				}
-			}
-			probes = append(probes, livenessProbe{move: move, failure: detail, failKind: kind})
-			if probeErr == nil {
-				testedTransitions++
-				advancing = append(advancing, move)
-			}
-		}
-		cache.retain(t, s, path)
-
-		if len(advancing) == 0 {
-			reports = append(reports, livenessReport{definition: definition.Ref, step: step, path: path, probes: probes})
-			continue
-		}
-		for _, move := range advancing {
-			next := make([]livenessMove, len(path), len(path)+1)
-			copy(next, path)
-			queue = append(queue, append(next, move))
-		}
-	}
-	depthBoundStates := 0
-	for _, count := range depthBoundStepHits {
-		depthBoundStates += count
-	}
-	return livenessExploration{reports: reports, testedStates: testedStates, testedTransitions: testedTransitions, testedProbes: testedProbes, terminalStates: terminalStates, depthBoundStates: depthBoundStates, depthBoundStepHits: depthBoundStepHits, omittedVariants: omittedVariants}
-}
-
 // livenessStateMoves builds every action variant the step declares.
 func livenessStateMoves(t *testing.T, definition WorkflowDefinition, stepID string) []livenessMove {
 	t.Helper()
@@ -1272,10 +1113,6 @@ func livenessStateMoves(t *testing.T, definition WorkflowDefinition, stepID stri
 		}
 	}
 	return moves
-}
-
-func livenessContinuityAction(actionID string) bool {
-	return actionID == "checkpoint_context" || actionID == "cross_context_boundary"
 }
 
 func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []string {

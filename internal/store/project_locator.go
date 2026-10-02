@@ -8,12 +8,14 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -68,12 +70,51 @@ type ExecGitRunner struct{}
 
 var _ StdinGitRunner = ExecGitRunner{}
 
+// boundedGitWaitDelay bounds how long Wait may keep draining a command's
+// output pipes after the deadline has cancelled it, so a descendant that
+// outlives the killed git cannot hold the caller past its deadline.
+const boundedGitWaitDelay = 100 * time.Millisecond
+
+// runBoundedGitOutput is the one bounded execution policy every ExecGitRunner
+// command shares. The command runs in its own process group: when the
+// caller's context ends, the runner SIGKILLs that whole group, because
+// Process.Kill reaches only the git process itself. WaitDelay bounds the
+// remaining pipe drainage after cancellation, because with the zero delay
+// Wait reads the pipes until EOF, which a descendant holding them never
+// reaches. Output capture matches exec.Cmd.Output: a non-zero exit returns
+// the collected stdout and an *exec.ExitError whose Stderr carries the
+// command's stderr.
+func runBoundedGitOutput(cmd *exec.Cmd) ([]byte, []byte, error) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	cmd.WaitDelay = boundedGitWaitDelay
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitErr.Stderr = stderr.Bytes()
+		}
+		return stdout.Bytes(), stderr.Bytes(), err
+	}
+	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
 func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	return exec.CommandContext(ctx, "git", command...).Output() //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	stdout, _, err := runBoundedGitOutput(cmd)
+	return stdout, err
 }
 
 func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
@@ -83,7 +124,8 @@ func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, arg
 	command := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
 	cmd.Stdin = bytes.NewReader(stdin)
-	return cmd.Output()
+	stdout, _, err := runBoundedGitOutput(cmd)
+	return stdout, err
 }
 
 type ProjectResolution struct {
@@ -318,7 +360,12 @@ func (s *Store) locateWorktreeWithRunner(ctx context.Context, projectID, workID,
 }
 
 // locateWorktree reads the Project's canonical locator and probes the
-// repository for the pinned base commit. It takes *sql.DB because the git
+// repository for the pinned base commit. It owns the creation base
+// resolution: an omitted ref is default-based and resolves through the local
+// refs/remotes/origin/<default> tracking ref — the cache every fresh
+// creation refreshes before it resolves its base — while a caller-supplied
+// ref, including HEAD, stays an exact pin resolved as given. The read is
+// network-free. It takes *sql.DB because the git
 // probes must never run inside an open transaction (CD-0195 D2): the type
 // makes a transaction caller a compile-time error. Callers pass the store's
 // own connection, and each read completes before the probes run.
@@ -327,7 +374,8 @@ func locateWorktree(ctx context.Context, db *sql.DB, dataDir, projectID, workID,
 	if projectID == "" || workID == "" {
 		return out, newFailure(KindInvalidOperation, "worktree_locate", "project and work IDs are required", false, "supply one Project and one work item")
 	}
-	if ref == "" {
+	omitted := ref == ""
+	if omitted {
 		ref = "HEAD"
 	}
 	var repo string
@@ -339,13 +387,12 @@ func locateWorktree(ctx context.Context, db *sql.DB, dataDir, projectID, workID,
 		return out, wrapFailure(KindUnavailable, "worktree_locate", "cannot read Project locators", true, "retry once the database is readable", err)
 	}
 	baseRef := ref
-	if ref == "HEAD" {
+	if omitted {
 		defaultRef, err := bootstrapDefaultBranchRef(ctx, runner, repo)
 		if err != nil {
 			return out, err
 		}
-		defaultBranch := strings.TrimPrefix(defaultRef, "origin/")
-		baseRef = "refs/remotes/origin/" + defaultBranch
+		baseRef = "refs/remotes/origin/" + strings.TrimPrefix(defaultRef, "origin/")
 	}
 	sha, err := resolveCommitSHARunner(ctx, runner, repo, baseRef)
 	if err != nil {

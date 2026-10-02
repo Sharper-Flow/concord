@@ -61,6 +61,123 @@ func TestWorkResumeDerivesActiveEntryFromDefaultCheckout(t *testing.T) {
 	}
 }
 
+// locatorOriginPath reads the local bare repository the fixture's insteadOf
+// mapping hides behind the well-formed remote URL. Git reports the config
+// key's section and name lowercased, so the suffix parse is case-insensitive.
+func locatorOriginPath(t *testing.T, repo string) string {
+	t.Helper()
+	mapped := gitOutput(t, repo, "config", "--get-regexp", `^url\..*\.insteadOf$`)
+	fields := strings.Fields(mapped)
+	if len(fields) != 2 || !strings.HasPrefix(strings.ToLower(fields[0]), "url.") || !strings.HasSuffix(strings.ToLower(fields[0]), ".insteadof") {
+		t.Fatalf("fixture origin mapping missing: %q", mapped)
+	}
+	return fields[0][len("url.") : len(fields[0])-len(".insteadof")]
+}
+
+// pushLocatorOriginCommit advances the real origin by one commit from a
+// throwaway clone and returns its SHA, leaving the working repository's
+// remote-tracking cache stale until a fetch runs.
+func pushLocatorOriginCommit(t *testing.T, repo, message string) string {
+	t.Helper()
+	origin := locatorOriginPath(t, repo)
+	seedParent := t.TempDir()
+	seed := filepath.Join(seedParent, "seed")
+	gitOutput(t, seedParent, "clone", "-q", origin, "seed")
+	if err := os.WriteFile(filepath.Join(seed, message), []byte(message+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, seed, "add", ".")
+	gitOutput(t, seed, "commit", "-q", "-m", message)
+	gitOutput(t, seed, "push", "-q", "origin", "main")
+	head := strings.TrimSpace(gitOutput(t, seed, "rev-parse", "HEAD"))
+	return head
+}
+
+// goOfflineLocatorOrigin swaps the insteadOf mapping onto a removed local
+// path, so every fetch fails the same way an unreachable remote does, with
+// no network dependency.
+func goOfflineLocatorOrigin(t *testing.T, repo string) {
+	t.Helper()
+	mapped := gitOutput(t, repo, "config", "--get-regexp", `^url\..*\.insteadOf$`)
+	fields := strings.Fields(mapped)
+	if len(fields) != 2 {
+		t.Fatalf("fixture origin mapping missing: %q", mapped)
+	}
+	gitOutput(t, repo, "config", "--unset", fields[0])
+	gitOutput(t, repo, "config", "url."+filepath.Join(t.TempDir(), "gone.git")+".insteadOf", fields[1])
+}
+
+// validateBranchFreshnessContract proves one emitted freshness sample against
+// the owning branch-freshness contract projection.
+func validateBranchFreshnessContract(t *testing.T, freshness *store.BranchFreshness) {
+	t.Helper()
+	if freshness == nil {
+		t.Fatal("resume carried no branch_freshness section")
+	}
+	raw, err := json.Marshal(freshness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ValidateBranchFreshnessObject(decoded); err != nil {
+		t.Fatalf("emitted branch_freshness diverges from the owning contract: %v", err)
+	}
+}
+
+// The resume reports the exact lag between the worktree's branch and the
+// refreshed origin default branch, so the agent rebases deliberately.
+func TestWorkResumeReportsExactBranchLag(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pushLocatorOriginCommit(t, repo, "origin commit one")
+	second := pushLocatorOriginCommit(t, repo, "origin commit two")
+	code, output, stderr := resumeCLI(t, s, repo, origin.WorkID)
+	if code != 0 {
+		t.Fatalf("resume code=%d stderr=%q", code, stderr)
+	}
+	freshness := output.BranchFreshness
+	validateBranchFreshnessContract(t, freshness)
+	if freshness == nil || freshness.Status != "ok" || freshness.BehindCount == nil || *freshness.BehindCount != 2 {
+		t.Fatalf("branch freshness=%+v want ok with behind=2", freshness)
+	}
+	if freshness.DefaultRef != "origin/main" || freshness.DefaultSHA != second {
+		t.Fatalf("branch freshness default=%q %s want origin/main at %s", freshness.DefaultRef, freshness.DefaultSHA, second)
+	}
+	if head := gitOutput(t, origin.Entry.Path, "rev-parse", "HEAD"); freshness.HeadSHA != strings.TrimSpace(head) {
+		t.Fatalf("branch freshness head=%s want the worktree HEAD %s", freshness.HeadSHA, head)
+	}
+}
+
+// A failed refresh degrades the freshness section to the typed unknown with
+// no count, and the resume itself still succeeds.
+func TestWorkResumeFreshnessDegradesOfflineWithoutBlocking(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goOfflineLocatorOrigin(t, repo)
+	code, output, stderr := resumeCLI(t, s, repo, origin.WorkID)
+	if code != 0 {
+		t.Fatalf("resume code=%d stderr=%q", code, stderr)
+	}
+	freshness := output.BranchFreshness
+	validateBranchFreshnessContract(t, freshness)
+	if freshness == nil || freshness.Status != "unknown" || freshness.BehindCount != nil || freshness.Reason != "fetch_failed" {
+		t.Fatalf("branch freshness=%+v want unknown fetch_failed with no count", freshness)
+	}
+}
+
 func TestWorkResumeRefusesTerminalAndUnknownButBootstrapsUnclaimedWork(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))

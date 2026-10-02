@@ -218,9 +218,9 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 	if err := validateExistingBootstrapRequest(req); err != nil {
 		return BootstrapResult{}, err
 	}
-	if req.Ref == "" {
-		req.Ref = "HEAD"
-	}
+	// An omitted ref stays omitted: the base resolution treats it as
+	// default-based and pins the fetched origin default head, while a
+	// caller-supplied ref, including HEAD, stays an exact pin.
 	entry, err := s.ResumeWorktreeLocation(ctx, req.ProductID, req.ProjectID, req.WorkID)
 	if err == nil {
 		var version int64
@@ -244,7 +244,7 @@ func (s *Store) BootstrapExistingWorktree(ctx context.Context, req ExistingBoots
 		}, identity.OperationID, req.WorkID, identity.Digest, true, req, phaseHook, ExecGitRunner{})
 	}
 	if crossProject {
-		return s.claimCrossProjectWorktree(ctx, req, identity.GoverningRequirements)
+		return s.claimCrossProjectWorktree(ctx, req, identity.GoverningRequirements, ExecGitRunner{})
 	}
 	operationID, workID, digest, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
@@ -299,23 +299,54 @@ func (s *Store) existingBootstrapIdentity(ctx context.Context, workID, productID
 // bootstrap_operations pins one journal row per work identity, and the second
 // claim needs no journal row, because migration 93 scopes the branch slot to
 // one repository and the work-derived branch name holds in each Project's own
-// repository. The route pins location and base from the requested ref through
-// LocateWorktree, requires the target Project checkout on its default branch,
-// applies the same scope semantics as a first bootstrap with the stored
-// governing requirements as the declared set, and derives the operation
-// identity from the Product, Project, and work identities alone, so a retry
-// reconciles the same claim.
-func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBootstrapRequest, declared []string) (BootstrapResult, error) {
+// repository. The route owns exactly one bounded preflight for its fresh
+// creation: it refreshes the origin default branch and resolves location and
+// base under the same fixed window through resolveFreshCreationBase, and pins
+// that prepared intent durably, so the claim below reconciles the pinned row
+// instead of running a second preflight. It requires the target Project
+// checkout on its default branch, applies the same scope semantics as a first
+// bootstrap with the stored governing requirements as the declared set, and
+// derives the operation identity from the Product, Project, and work
+// identities alone, so a retry reconciles the same claim.
+func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBootstrapRequest, declared []string, runner GitRunner) (BootstrapResult, error) {
 	operationID, _, _, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive existing bootstrap identity", false, "supply bounded work identity", err)
 	}
-	location, err := s.LocateWorktree(ctx, req.ProjectID, req.WorkID, req.Ref)
-	if err != nil {
-		return BootstrapResult{}, err
-	}
-	if err := validateBootstrapDefaultBranch(ctx, ExecGitRunner{}, location.Repo); err != nil {
-		return BootstrapResult{}, err
+	// The direct claim is a fresh creation: the shared Git preflight refreshes
+	// the origin default branch and resolves the base under one bounded
+	// window, so the first claim in this Project pins the fetched default
+	// head. A refresh failure refuses before any claim row, branch, or
+	// worktree exists (CD-0195 D2 keeps the fetch outside transactions). A
+	// claim row this operation already pinned is an exact replay or recovery:
+	// it keeps its stored base and owes no new fetch.
+	var location WorktreeLocation
+	var pinnedBase string
+	rowErr := s.db.QueryRowContext(ctx, `SELECT pinned_base_sha FROM worktree_claims WHERE op_id=?`, operationID).Scan(&pinnedBase)
+	switch {
+	case rowErr == sql.ErrNoRows:
+		location, err = s.resolveFreshCreationBase(ctx, runner, req.ProjectID, req.WorkID, req.Ref)
+		if err != nil {
+			return BootstrapResult{}, err
+		}
+	case rowErr != nil:
+		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the existing claim intent", true, "retry once the database is readable", rowErr)
+	default:
+		// Recovery: the claim row survives with its pinned intent. Re-pin the
+		// stored base so the recovery does not move onto a newer tracking
+		// head, and skip the preflight a fresh creation owes.
+		var branch, path string
+		if err := s.db.QueryRowContext(ctx, `SELECT pinned_branch,pinned_path FROM worktree_claims WHERE op_id=?`, operationID).Scan(&branch, &path); err != nil {
+			return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the existing claim intent", true, "retry once the database is readable", err)
+		}
+		repo, repoErr := s.ProjectCanonicalPath(ctx, req.ProjectID)
+		if repoErr != nil {
+			return BootstrapResult{}, repoErr
+		}
+		location = WorktreeLocation{Branch: branch, BaseSHA: pinnedBase, Path: path, Repo: repo, Ref: req.Ref}
+		if err := validateBootstrapDefaultBranch(ctx, ExecGitRunner{}, location.Repo); err != nil {
+			return BootstrapResult{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -334,9 +365,24 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 	}
 	// The scope read closes before the claim opens its own transaction: the
 	// store pools one connection, and an open transaction would park the
-	// claim on the pool forever.
-	if err := tx.Rollback(); err != nil {
-		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot close the resume scope read", true, "retry the same operation", err)
+	// claim on the pool forever. A fresh creation pins its prepared intent
+	// in this same read: the claim below reconciles this row instead of
+	// treating the operation as another first creation, so the route runs
+	// exactly one bounded preflight — the one above that resolved the base —
+	// and a retry after an interruption takes the recovery branch with the
+	// stored base and owes no new fetch.
+	if rowErr == sql.ErrNoRows {
+		if err := pinBootstrapClaimTx(ctx, tx, operationID, req.WorkID, req.ProjectID, location, s.now()); err != nil {
+			return BootstrapResult{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot record the resume claim intent", true, "retry the same operation", err)
+	}
+	if rowErr == sql.ErrNoRows {
+		if err := s.SyncDurable(ctx); err != nil {
+			return BootstrapResult{}, err
+		}
 	}
 	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 		OpID: operationID, WorkID: req.WorkID, ProjectID: req.ProjectID, BaseSHA: location.BaseSHA,
@@ -350,6 +396,39 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 		return BootstrapResult{}, err
 	}
 	return BootstrapResult{OperationID: operationID, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: req.WorkID, WorkVersion: version + 1, Entry: claim.Entry}, nil
+}
+
+// resolveFreshCreationBase resolves a fresh creation's base under one
+// coherent bounded preflight: the origin default-branch refresh, the
+// default-ref read, the pinned-base probe, and the default-branch checkout
+// check share the preflight's fixed deadline (CD-0088 D2). The window closes
+// once the base is resolved, before any durable or native creation effect, so
+// a refusal here leaves no work item, claim, branch, or worktree behind. An
+// omitted ref is default-based and resolves through the tracking ref the
+// preflight just refreshed; every caller-supplied ref, including HEAD, stays
+// an exact pin.
+func (s *Store) resolveFreshCreationBase(ctx context.Context, runner GitRunner, projectID, workID, ref string) (WorktreeLocation, error) {
+	repo, err := s.ProjectCanonicalPath(ctx, projectID)
+	if err != nil {
+		return WorktreeLocation{}, err
+	}
+	preflight, err := startCreationPreflight(ctx, runner, repo)
+	if err != nil {
+		return WorktreeLocation{}, wrapFailure(KindGitUnreachable, "work_bootstrap", "origin default branch refresh failed before creation; no work item, claim, branch, or worktree was created", true, "restore access to the origin remote and replay the same request", err)
+	}
+	location, locateErr := locateWorktree(preflight.ctx, s.db, filepath.Dir(s.Path()), projectID, workID, ref, runner)
+	if locateErr == nil {
+		locateErr = validateBootstrapDefaultBranch(preflight.ctx, runner, repo)
+	}
+	deadlineTripped := preflight.tripped(ctx)
+	preflight.close()
+	if locateErr != nil {
+		if deadlineTripped {
+			return WorktreeLocation{}, freshnessDeadlineRefusal("work_bootstrap")
+		}
+		return WorktreeLocation{}, locateErr
+	}
+	return location, nil
 }
 
 func bootstrapOriginHasOpenDispatchWindow(ctx context.Context, tx *sql.Tx, workID string) (bool, error) {
@@ -552,9 +631,10 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 	if req.Urgency == "" {
 		req.Urgency = "standard"
 	}
-	if req.Ref == "" {
-		req.Ref = "HEAD"
-	}
+	// An omitted ref stays omitted through the location read: locateWorktree
+	// resolves it as default-based — the fetched origin default head on a
+	// fresh creation, whose preflight just refreshed the tracking cache —
+	// and every caller-supplied ref, including HEAD, stays an exact pin.
 	location, existingState, dbExisting, err := s.pinnedBootstrapLocation(ctx, req.IdempotencyKey, digest, operationID)
 	if err != nil {
 		return BootstrapResult{}, err
@@ -566,12 +646,18 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 		return BootstrapResult{}, newFailure(KindInvalidOperation, "work_bootstrap", "bootstrap operation was rolled back", false, "use a new idempotency key")
 	}
 	if !dbExisting {
-		location, err = s.LocateWorktree(ctx, req.ProjectID, workID, req.Ref)
+		// The fresh creation owes its base the shared Git preflight: the
+		// bounded, noninteractive fetch of the registered origin default
+		// branch and the base-resolution probes run under one fixed deadline,
+		// outside every transaction (CD-0195 D2) and before the capture, so a
+		// refusal leaves no work item, claim, branch, or worktree. A
+		// caller-pinned ref stays an exact pin: the fetch refreshes the
+		// cache, the pin does not move.
+		location, err = s.resolveFreshCreationBase(ctx, runner, req.ProjectID, workID, req.Ref)
 		if err != nil {
 			return BootstrapResult{}, err
 		}
-	}
-	if err := validateBootstrapDefaultBranch(ctx, runner, location.Repo); err != nil {
+	} else if err := validateBootstrapDefaultBranch(ctx, runner, location.Repo); err != nil {
 		return BootstrapResult{}, err
 	}
 	prepared, err := s.prepareBootstrapMode(ctx, req, operationID, workID, digest, existing, journalRequest, location, runner)

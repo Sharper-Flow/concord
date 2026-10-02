@@ -37,8 +37,7 @@ func worktreeReclamationRepo(t *testing.T) (string, string) {
 	}
 	gitRun(t, repoRoot, "add", "README.md")
 	gitRun(t, repoRoot, "commit", "-m", "reclamation base")
-	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedClaimOrigin(t, repoRoot)
 	return repoRoot, gitRun(t, repoRoot, "rev-parse", "HEAD")
 }
 

@@ -1952,6 +1952,7 @@ const resumeSuccess = () => ({
   project_id: "project-1",
   work_id: "work-1",
   worktree: { set_id: "worktree-set-1", path: WORKTREE, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
+  branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 2 },
 })
 
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
@@ -2126,6 +2127,82 @@ test("work start resume refuses a malformed linear_remote section", async () => 
   const shaped: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(shaped.outcome).toBe("error")
   expect(shaped.error.kind).toBe("malformed_response")
+})
+
+// The branch freshness sample rides the work-resume result into the envelope,
+// so the resuming session sees how far its branch sits behind the origin
+// default branch before it builds on it. The strict validator admits the
+// exact sampled shape and the typed unknown, and refuses anything outside
+// the contract.
+test("work start resume passes the branch freshness sample through to the envelope", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 3 } }), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.branch_freshness).toEqual({ status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 3 })
+
+  // A failed refresh degrades to the typed unknown with no count, and the
+  // start still succeeds.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "fetch_failed" } }), stderr: "" }),
+  }) })
+  const degraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(degraded.outcome).toBe("ok")
+  expect(degraded.branch_freshness).toEqual({ status: "unknown", reason: "fetch_failed" })
+
+  // A nested default branch is a valid Git ref name: the sample passes
+  // through the strict validator unchanged.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/release/stable", default_sha: "c".repeat(40), behind_count: 1 } }), stderr: "" }),
+  }) })
+  const nested: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(nested.outcome).toBe("ok")
+  expect(nested.branch_freshness.default_ref).toBe("origin/release/stable")
+})
+
+test("work start resume refuses a malformed branch freshness sample", async () => {
+  bindRetargetRoute()
+  const malformed = [
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: -1 } },
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "short", default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 0 } },
+    { ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "invented_reason" } },
+    { ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "timeout", behind_count: 4 } },
+    { ...resumeSuccess(), branch_freshness: { status: "degraded" } },
+    // A sampled SHA is a string field: an array wrapping the hex must fail
+    // the strict contract, not coerce through String() into a passing test.
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: ["b".repeat(40)], default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 0 } },
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: ["c".repeat(40)], behind_count: 0 } },
+    // The worktree base SHA is likewise a string field in the same contract.
+    { ...resumeSuccess(), worktree: { set_id: "worktree-set-1", path: WORKTREE, branch: "work/work-1", base_sha: ["a".repeat(40)], state: "active" } },
+  ]
+  const malformedDefaultRefs = ["origin/..", "origin/main.lock", "origin/.hidden", "origin/sp ace", "origin/x.", "origin/a..b", "origin//double", "origin/", "refs/heads/main", "origin/tilde~x"]
+  for (const default_ref of malformedDefaultRefs) {
+    malformed.push({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref, default_sha: "c".repeat(40), behind_count: 2 } })
+  }
+  for (const stdout of malformed) {
+    adapter.configureConcordAdapter({ runner: resumeRunner([], {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify(stdout), stderr: "" }),
+    }) })
+    const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+    expect(refused.outcome).toBe("error")
+    expect(refused.error.kind).toBe("malformed_response")
+    expect(refused.error.message).toContain("strict resume contract")
+  }
+
+  // A resume that omits the freshness section fails the strict contract:
+  // the core always samples it, and a missing section hides the lag.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => {
+      const { branch_freshness: _omitted, ...without } = resumeSuccess()
+      return { exitCode: 0, stdout: JSON.stringify(without), stderr: "" }
+    },
+  }) })
+  const missing: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(missing.outcome).toBe("error")
+  expect(missing.error.kind).toBe("malformed_response")
 })
 
 // CD-0182: a resume whose named member Project lives in another repository

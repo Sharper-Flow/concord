@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+// fakeWorktreeOriginURL is the remote URL the fixture repositories report
+// for remote.origin.url: the bounded preflight fetches that URL directly, so
+// the fake's fetch case matches on it.
+const fakeWorktreeOriginURL = "https://freshness.invalid/repository.git"
+
 // fakeWorktreeGit models one primary repository plus any further roots a test
 // registers: branches with heads, existing linked worktrees keyed by path,
 // ancestry, durability, dirtiness, and the default ref. It records every
@@ -38,6 +43,9 @@ type fakeWorktreeGit struct {
 	commitPatchIDs map[string]string
 	mergeConflict  bool
 	failAdd        bool
+	// failFetch models an unreachable origin: the bounded preflight fetch
+	// fails the way a transport failure does.
+	failFetch bool
 	// partialAdd models git leaving the tree directory and the requested new
 	// branch behind before it reports a failed `worktree add`.
 	partialAdd bool
@@ -269,6 +277,14 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("no origin HEAD")
 		}
 		return []byte("refs/remotes/" + g.defaultRef + "\n"), nil
+	case strings.HasPrefix(join, "fetch --no-tags --no-recurse-submodules --refmap= origin +refs/heads/"):
+		if g.failFetch {
+			return nil, fmt.Errorf("unreachable origin")
+		}
+		// The bounded preflight refresh: the fake's default ref already
+		// names the fetched head, so the fetch only confirms the shared
+		// cache the fake models as current.
+		return nil, nil
 	case strings.HasPrefix(join, "show-ref --verify --quiet refs/heads/"):
 		branch := strings.TrimPrefix(join, "show-ref --verify --quiet refs/heads/")
 		if _, exists := g.branches[branch]; !exists {

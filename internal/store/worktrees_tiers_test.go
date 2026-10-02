@@ -316,8 +316,7 @@ func realGitTiersFixture(t *testing.T) (*Store, string) {
 	}
 	gitRunStore(t, repoRoot, "add", "tracked.txt")
 	gitRunStore(t, repoRoot, "commit", "-m", "base")
-	gitRunStore(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRunStore(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedRealGitOrigin(t, repoRoot)
 	if err := s.AddProjectLocator(ctx, "project-w", ProjectLocator{ID: "path-w", Kind: LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -344,6 +343,20 @@ func gitRunStore(t *testing.T, dir string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v: %v", args, err)
 	}
+}
+
+// seedRealGitOrigin registers a local bare origin and mirrors the default
+// branch into it, so the fixture repository exercises the shared preflight
+// the way a real Project repository does: origin/HEAD names the fetched
+// default branch and the tracking ref answers the claim's base resolution.
+func seedRealGitOrigin(t *testing.T, repoRoot string) {
+	t.Helper()
+	origin := filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-origin.git")
+	gitRunStore(t, filepath.Dir(repoRoot), "init", "-q", "--bare", "-b", "main", origin)
+	gitRunStore(t, repoRoot, "remote", "add", "origin", origin)
+	gitRunStore(t, repoRoot, "push", "-q", "origin", "main")
+	gitRunStore(t, repoRoot, "fetch", "-q", "origin")
+	gitRunStore(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 }
 
 func TestTiersAgainstRealGitInspectFileAndVerifyCommand(t *testing.T) {

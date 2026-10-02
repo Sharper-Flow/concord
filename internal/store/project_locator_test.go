@@ -518,12 +518,18 @@ func TestLocateWorktreeDefaultUsesRemoteTrackingRefWithoutNetwork(t *testing.T) 
 	sha := strings.Repeat("a", 40)
 	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", sha: sha}
 
-	location, err := s.locateWorktreeWithRunner(ctx, "project-locate", "work-locate", "HEAD", runner)
+	// An omitted ref is default-based: the base resolves through the local
+	// remote-tracking ref alone, with no network call, and the location
+	// records HEAD as the selected provenance.
+	location, err := s.locateWorktreeWithRunner(ctx, "project-locate", "work-locate", "", runner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if location.BaseSHA != sha {
 		t.Fatalf("base SHA=%q want %q", location.BaseSHA, sha)
+	}
+	if location.Ref != "HEAD" {
+		t.Fatalf("recorded ref=%q want HEAD", location.Ref)
 	}
 	if len(runner.args) != 2 || strings.Join(runner.args[1][1:], " ") != "rev-parse --verify refs/remotes/origin/main^{commit}" {
 		t.Fatalf("git calls=%q", runner.args)
@@ -540,7 +546,9 @@ func TestLocateWorktreeRefusalDoesNotFallBackToHEAD(t *testing.T) {
 	}
 	runner := &locateWorktreeGitStub{defaultRef: "refs/remotes/origin/main", failResolve: true}
 
-	if _, err := s.locateWorktreeWithRunner(ctx, "project-refusal", "work-refusal", "HEAD", runner); err == nil {
+	// The default-based read refuses when its tracking ref does not resolve:
+	// it never falls back to the repository's local HEAD.
+	if _, err := s.locateWorktreeWithRunner(ctx, "project-refusal", "work-refusal", "", runner); err == nil {
 		t.Fatal("unresolvable tracking ref unexpectedly fell back to HEAD")
 	} else {
 		assertFailureKind(t, err, KindGitUnreachable)
@@ -565,7 +573,10 @@ func TestLocateWorktreeReturnedBaseCreatesNativeWorktree(t *testing.T) {
 	runBootstrapGit(t, repo, "add", "local-only.txt")
 	runBootstrapGit(t, repo, "commit", "-q", "-m", "local-only")
 	worktreePath := filepath.Join(t.TempDir(), "native-worktree")
-	location, err := s.LocateWorktree(ctx, "project-native", "work-native", "HEAD")
+	// The default-based selection pins the remote-tracking ref, so a
+	// local-only commit on the default branch never leaks into the base a
+	// fresh creation builds on.
+	location, err := s.LocateWorktree(ctx, "project-native", "work-native", "")
 	if err != nil {
 		t.Fatal(err)
 	}

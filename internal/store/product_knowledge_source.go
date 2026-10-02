@@ -344,19 +344,31 @@ func knowledgeSourceSetDigest(sources []KnowledgeHome) string {
 // (CD-0200). It runs for both federated roles: a registered source, and the
 // designated shared-law home. A relation target outside the declaring
 // manifest names its source Project; the rebuild refuses a target Project
-// outside the source set, an unresolved target law, a conflicts_with pair
-// across sources, a cross-source supersedes edge that disagrees with the
-// target's superseded status or exact successor declaration (CD-0015), and —
-// from a non-home source only — any supersedes/refines/subordinate_to edge
-// toward the shared home's law: no inferred precedence, and conflicts block
-// until an accepted relation or amendment resolves them. The shared home may
-// declare precedence toward member source law; the reverse refuses at the
-// source's own rebuild. CD-0015's acyclic directed-graph invariant extends
-// over the federated graph: the declaring manifest's own edges plus every
-// other verified source's persisted hierarchical relations form one graph
-// over source-qualified nodes, and a cycle refuses the rebuild.
-func validateFederatedSourceManifest(ctx context.Context, q queryer, home KnowledgeHome, manifest KnowledgeManifest) error {
-	productID, designated, err := resolveKnowledgeSourceRole(ctx, q, home)
+// outside the source set, a target law a projected peer does not hold, a
+// conflicts_with pair across sources, any cross-source supersedes edge
+// (fail closed: supersede within the declaring source or amend through the
+// shared home), and — from a non-home source only — any
+// supersedes/refines/subordinate_to edge toward the shared home's law: no
+// inferred precedence, and conflicts block until an accepted relation or
+// amendment resolves them. The shared home may declare precedence toward
+// member source law; the reverse refuses at the source's own rebuild.
+// CD-0015's acyclic directed-graph invariant extends over the federated
+// graph: the declaring manifest's own edges plus every other verified
+// source's persisted hierarchical relations form one graph over
+// source-qualified nodes, and a cycle refuses the rebuild. CD-0200 D5: a
+// declared cross-source relation validates over the verified source set, so
+// before its target rows answer, every projected peer source's watermark
+// verifies against the peer's git head, and a projected but stale peer
+// still refuses. A peer with no usable projection — never rebuilt, cleared,
+// or stamped incomplete over the law Domain rows the shared home's absent
+// registry forced it to omit — has no rows to read as evidence, so the
+// declaring rebuild resolves that peer's endpoints from the peer's verified
+// git head instead: an unreadable head, an absent manifest, or an
+// undeclared target law refuses the rebuild admission. Reconstruction
+// succeeds in either order, and read degradation never admits an
+// unresolvable edge.
+func validateFederatedSourceManifest(ctx context.Context, db *sql.DB, home KnowledgeHome, manifest KnowledgeManifest) error {
+	productID, designated, err := resolveKnowledgeSourceRole(ctx, db, home)
 	if err != nil {
 		return err
 	}
@@ -364,9 +376,34 @@ func validateFederatedSourceManifest(ctx context.Context, q queryer, home Knowle
 	if sourceRole && productID == "" {
 		return newFailure(KindInvariantViolation, "rebuild_knowledge_index", "a registered source manifest validated outside a registered source role", false, "rebuild the source through the Product's registered source set")
 	}
-	sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "rebuild_knowledge_index")
+	sources, err := resolveKnowledgeQuerySources(ctx, db, productID, "rebuild_knowledge_index")
 	if err != nil {
 		return err
+	}
+	// CD-0200 D5: reading a peer's projected rows to validate a declared
+	// cross-source relation proves only what that peer's watermark verifies.
+	// Each peer verifies fresh before its rows answer the validation, so a
+	// target law removed at the peer's git head without a rebuild refuses
+	// here instead of admitting an edge against a vanished target. The home
+	// under rebuild verifies through its own rebuild admission, a peer with
+	// no usable projection is an omitted source for the declaring shared
+	// home (see knowledgeSourceRowsUnverified) whose endpoints resolve from
+	// its verified git head below, and a registered source still refuses an
+	// unverified set, which is why the verification runs only when the
+	// manifest declares cross-source relations and the seed ordering
+	// (shared home first) stays valid.
+	if manifestDeclaresCrossSourceRelations(manifest) {
+		for _, peer := range sources {
+			if peer.HomeProjectID == home.HomeProjectID && peer.HomeLocatorID == home.HomeLocatorID {
+				continue
+			}
+			if !sourceRole && knowledgeSourceRowsUnverified(ctx, db, peer) {
+				continue
+			}
+			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, peer, false, "rebuild_knowledge_index"); err != nil {
+				return err
+			}
+		}
 	}
 	sourceByProject := make(map[string]KnowledgeHome, len(sources))
 	for _, source := range sources {
@@ -387,35 +424,36 @@ func validateFederatedSourceManifest(ctx context.Context, q queryer, home Knowle
 			if relation.Kind == "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "cross-source conflicts_with between "+record.ID+" and "+relation.SourceProjectID+"/"+relation.TargetID+" blocks the rebuild", false, "resolve the conflict through an accepted amendment before indexing either side")
 			}
-			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, q, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
+			// A cross-source supersedes edge is refused fail closed (CD-0200):
+			// a supersession is one source's own law change, so the successor
+			// and its supersedes edge live in the target's declaring source,
+			// and shared-law amendment runs through the shared home. No
+			// agreement check can admit the edge.
+			if relation.Kind == "supersedes" {
+				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "supersede within the declaring source or amend through the shared home: "+record.ID+" declares supersedes toward "+relation.SourceProjectID+"/"+relation.TargetID, false, "supersede the law inside its own source's manifest, or amend the shared law through its authoring home")
+			}
+			if sourceRole && target.HomeLocatorID == sharedLawHomeLocator(ctx, db, productID) && lawRelationKinds[relation.Kind] && relation.Kind != "conflicts_with" {
 				return newFailure(KindRelationConflict, "rebuild_knowledge_index", "a non-home source may not declare "+relation.Kind+" toward shared-home law: "+relation.SourceProjectID+"/"+relation.TargetID, false, "amend the shared law through its authoring home, or remove the precedence declaration")
 			}
-			var targetStatus string
-			if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&targetStatus); err == sql.ErrNoRows {
+			// A target source with no usable projection — never rebuilt,
+			// cleared, or stamped incomplete over omitted Domain rows — has
+			// no endpoint row to query, so the endpoint resolves from that
+			// source's verified git head instead (CD-0200 reconstruction):
+			// an unreadable head, an absent manifest, or an undeclared or
+			// unproven law refuses the rebuild admission. Read degradation
+			// governs answers, never admission. A projected target must
+			// resolve the named law from its rows.
+			if knowledgeSourceRowsUnverified(ctx, db, target) {
+				if err := resolvePeerRelationTargetFromGitHead(ctx, db, target, relation.TargetID); err != nil {
+					return err
+				}
+				continue
+			}
+			var present int
+			if err := db.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&present); err == sql.ErrNoRows {
 				return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target is unresolved: "+relation.SourceProjectID+"/"+relation.TargetID, false, "publish and rebuild the target source before declaring the relation")
 			} else if err != nil {
 				return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source relation target", true, "retry once the database is readable", err)
-			}
-			if relation.Kind == "supersedes" {
-				// CD-0015's exact supersession agreement holds across sources:
-				// the declaring record is accepted, the target law is
-				// superseded, and the target's own successor declaration
-				// names exactly the declaring record.
-				if record.Status != "accepted" {
-					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation does not declare an accepted source: "+record.ID, false, "declare the supersedes edge on the accepted successor")
-				}
-				if targetStatus != "superseded" {
-					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation targets a law that is not superseded: "+relation.SourceProjectID+"/"+relation.TargetID, false, "supersede the target law in its own manifest before declaring the edge")
-				}
-				var successor sql.NullString
-				if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, relation.TargetID).Scan(&successor); err == sql.ErrNoRows {
-					return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source supersedes target declares no successor record: "+relation.SourceProjectID+"/"+relation.TargetID, false, "declare the superseding law as the target's successor in its own manifest")
-				} else if err != nil {
-					return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the cross-source supersession successor", true, "retry once the database is readable", err)
-				}
-				if !successor.Valid || successor.String != record.ID {
-					return newFailure(KindInvalidNoteProof, "rebuild_knowledge_index", "cross-source supersedes relation disagrees with the target successor declaration: "+relation.SourceProjectID+"/"+relation.TargetID, false, "declare the exact superseding law as the target's successor")
-				}
 			}
 		}
 	}
@@ -437,13 +475,28 @@ func validateFederatedSourceManifest(ctx context.Context, q queryer, home Knowle
 			graph[declared] = append(graph[declared], targetNode)
 		}
 	}
-	if err := appendFederatedPersistedRelationEdges(ctx, q, sources, home, graph); err != nil {
+	if err := appendFederatedPersistedRelationEdges(ctx, db, sources, home, graph); err != nil {
 		return err
 	}
 	if relationGraphHasCycle(graph) {
 		return newFailure(KindCycleDetected, "rebuild_knowledge_index", "federated law relations contain a cycle across the registered source set", false, "remove the cycle from the authored law graphs")
 	}
 	return nil
+}
+
+// manifestDeclaresCrossSourceRelations reports whether any authored law
+// relation names its target source explicitly (CD-0200). It is the gate for
+// the peer watermark verification: relation validation is the only rebuild
+// work that reads another source's projected rows as evidence.
+func manifestDeclaresCrossSourceRelations(manifest KnowledgeManifest) bool {
+	for _, record := range manifest.Records {
+		for _, relation := range record.LawRelations {
+			if relation.SourceProjectID != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // appendFederatedPersistedRelationEdges adds verified sources' persisted
@@ -510,6 +563,67 @@ func scanFederatedRelationEdges(rows *sql.Rows, projectID, targetProjectColumn s
 	return rows.Close()
 }
 
+// knowledgeSourceRowsUnverified reports whether a registered source holds
+// no watermark a declaring rebuild can read endpoints from: it has never
+// rebuilt (or its projection was cleared), or its watermark is stamped
+// incomplete over the law Domain rows the shared home's absent registry
+// forced it to omit (CD-0200 reconstruction). Such a peer contributes no
+// rows as validation evidence; the declaring shared home resolves its
+// endpoints from its verified git head instead. A read error counts as
+// verified and surfaces through the verification that follows.
+func knowledgeSourceRowsUnverified(ctx context.Context, db *sql.DB, home KnowledgeHome) bool {
+	var complete int
+	err := db.QueryRowContext(ctx, `SELECT complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=?`, home.HomeProjectID, home.HomeLocatorID).Scan(&complete)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return complete == 0
+}
+
+// resolvePeerRelationTargetFromGitHead resolves a declared cross-source
+// relation endpoint from the target source's verified git head when that
+// source holds no usable projection (CD-0200 reconstruction). The peer's
+// manifest read at its current head is the only evidence available, so an
+// unreadable head, an absent manifest, a manifest that does not declare the
+// named law, or a declared law whose blob is missing or whose sha256 does
+// not match refuses the rebuild admission instead of leaving the edge
+// unresolved. Reading the peer under its own manifest role applies the same
+// shape and blob-proof rules its own rebuild applies.
+func resolvePeerRelationTargetFromGitHead(ctx context.Context, db *sql.DB, target KnowledgeHome, lawID string) error {
+	head, err := resolveKnowledgeHead(ctx, target)
+	if err != nil {
+		return err
+	}
+	role, err := resolveKnowledgeManifestRole(ctx, db, target)
+	if err != nil {
+		return err
+	}
+	manifest, manifestMissing, err := readKnowledgeManifest(ctx, target.RepoPath, head, role)
+	if err != nil {
+		return err
+	}
+	if manifestMissing {
+		return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target names an unprojected source with no knowledge manifest: "+target.HomeProjectID+"/"+lawID, false, "publish the target law in its source and rebuild that source before declaring the relation")
+	}
+	for _, record := range manifest.Records {
+		if record.ID == lawID && manifestLawBearingKinds[record.Kind] {
+			// The manifest's declaration is not the law itself: the record's
+			// blob must exist at this head and match its authored sha256,
+			// the same proof the peer's own rebuild applies to every record
+			// (CD-0200 verified-Git reconstruction). An absent or mutated
+			// law refuses the admission instead of entering as evidence.
+			if _, err := verifyManifestBlob(ctx, target.RepoPath, head, record); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+	return newFailure(KindProjectionNotFound, "rebuild_knowledge_index", "cross-source relation target does not exist at the unprojected source's git head: "+target.HomeProjectID+"/"+lawID, false, "publish the target law in its source and rebuild that source before declaring the relation")
+}
+
 // sharedLawHomeLocator reads the locator of the Product's designated shared
 // home. The designation rule guarantees exactly one row; an absent row means
 // no source can declare precedence toward a home that does not exist, so the
@@ -524,13 +638,21 @@ func sharedLawHomeLocator(ctx context.Context, q queryer, productID string) stri
 // registered source writes from the shared home's registry (CD-0200). Only
 // the shared home carries the registry, so a source's Domain references
 // validate against the registry the shared home projected, and the source
-// writes only its law Domain homes and applicability rows.
+// writes only its law Domain homes and applicability rows. When the shared
+// home has projected no registry yet, the source's first rebuild proceeds
+// without Domain rows and stamps its watermark incomplete instead of
+// blocking the federation's only reconstruction order (CD-0200
+// reconstruction); the watermark never reads fresh, so a demand-freshness
+// rebuild backfills the omitted rows once the home projects, and that
+// rebuild validates its law Domains against the registry.
 func prepareFederatedSourceDomainProjection(ctx context.Context, q queryer, productID string, manifest KnowledgeManifest) (domainProjection, error) {
 	result := domainProjection{ProductID: productID, SourceRole: true}
 	var productKey, rootDomain, registryHash string
 	err := q.QueryRowContext(ctx, `SELECT product_key,root_domain_id,content_hash FROM domain_registries WHERE product_id=?`, productID).Scan(&productKey, &rootDomain, &registryHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return result, newFailure(KindDomainRegistryAbsent, "rebuild_knowledge_index", "the shared-law home has no Domain registry projection", false, "rebuild the Product knowledge home before rebuilding a registered source")
+		result.LawHomes, result.LawApplicability = map[string]string{}, map[string][]string{}
+		result.DomainRowsOmitted = true
+		return result, nil
 	}
 	if err != nil {
 		return result, wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot read the shared Domain registry", true, "retry once the database is readable", err)

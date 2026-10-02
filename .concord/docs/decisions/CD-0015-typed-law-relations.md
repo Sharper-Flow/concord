@@ -30,19 +30,29 @@ declaring manifest names the target's source Project in a structured field,
 never by packing the qualified form into the target ID. The relation
 validates over the Product's verified source set at the declaring source's
 rebuild and again at every consequential boundary: an unregistered target
-Project or an unprojected target law refuses, and a cross-source
-`conflicts_with` pair blocks the rebuild and every consequential check
-until an accepted relation or amendment resolves it. A non-home source may
-not declare `supersedes`, `refines`, or `subordinate_to` toward shared-home
-law; no precedence between sources is ever inferred. Cross-source relations
+Project refuses, and a cross-source `conflicts_with` pair blocks the
+rebuild and every consequential check until an accepted relation or
+amendment resolves it. Every cross-source `supersedes` edge refuses fail
+closed: supersede within the declaring source, or amend the shared law
+through its authoring home. No agreement check admits the edge. A non-home
+source may not declare `refines` or `subordinate_to` toward shared-home
+law; no precedence between sources is ever inferred. The target law must
+resolve. A peer with a usable projection answers from its verified
+projected rows; a peer with no usable projection (never rebuilt, cleared,
+or stamped incomplete over law Domain rows the shared home's absent
+registry forced it to omit) resolves the endpoint from its verified Git
+head, where an unreadable head, an absent manifest, or an undeclared target
+law refuses the rebuild admission. A source-first rebuild stamps its
+watermark incomplete over the omitted Domain rows, and a demand-freshness
+rebuild backfills them once the registry exists. Cross-source relations
 project no `law_relations` row — the same-home foreign keys cannot
 reference another source — and project instead into
 `law_cross_source_relations` with their target source; the consequential
 boundary, not the rebuild alone, is the enforcement point.
 
-The derived projection contains `law_subjects` and `law_relations` only. A
-knowledge-index rebuild replaces those rows transactionally for one Git home;
-invalid input or rollback preserves the prior projection byte-for-byte.
+A knowledge-index rebuild replaces the derived law rows transactionally for
+one Git home; invalid input or rollback preserves the prior projection
+byte-for-byte.
 
 Workflow contracts reuse `spec_mandate` for referenced law IDs and add bounded
 `law_modifies`. The latter must be a subset of the mandate and explicitly

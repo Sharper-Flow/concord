@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -42,12 +44,10 @@ func TestDerivedSourceLawResolvesForLawModifies(t *testing.T) {
 	}
 }
 
-// A cross-source supersedes edge carries CD-0015's exact supersession
-// agreement across sources: the target source's law must be superseded, and
-// the target's own successor declaration must name the declaring record. A
-// shared-home supersedes edge toward a still-accepted source law refuses the
-// declaring home's rebuild.
-func TestCrossSourceSupersedesRequiresSupersededTargetWithSuccessorAgreement(t *testing.T) {
+// Cross-source supersedes is refused fail closed (CD-0200): whatever the
+// target law's own state, the declaring rebuild refuses the edge, so no
+// agreement check ever admits a supersession between sources.
+func TestCrossSourceSupersedesRefusesFailClosed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, home, source := seedCrossSourceBoundaryProduct(t, "cross-supersedes")
@@ -62,8 +62,10 @@ func TestCrossSourceSupersedesRequiresSupersededTargetWithSuccessorAgreement(t *
 	manifest.Records[0].LawRelations = []KnowledgeRelation{{Kind: "supersedes", TargetID: "SRC-LAW", SourceProjectID: source.HomeProjectID}}
 	writeManifestShards(t, home.RepoPath, manifest)
 	commitKnowledgeRepo(t, home.RepoPath, "inconsistent supersession")
-	if err := s.RebuildKnowledgeIndex(ctx, home); err == nil {
-		t.Error("rebuild accepted supersedes edge toward still-accepted source law with no successor declaration")
+	err = s.RebuildKnowledgeIndex(ctx, home)
+	var failure *Failure
+	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "supersede within the declaring source or amend through the shared home") {
+		t.Fatalf("cross-source supersedes rebuild error = %v, want the fail-closed refusal", err)
 	}
 }
 

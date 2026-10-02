@@ -363,6 +363,12 @@ type domainProjection struct {
 	// registry rows belong to the shared home, so the write path records
 	// only this source's law Domain homes and applicability.
 	SourceRole bool
+	// DomainRowsOmitted marks a source projection that omitted its law
+	// Domain rows because the shared home had projected no registry yet
+	// (CD-0200 reconstruction). The rebuild stamps that watermark
+	// incomplete, so it never reads fresh, and the demand-freshness rebuild
+	// backfills the omitted rows once the registry exists.
+	DomainRowsOmitted bool
 }
 
 type domainProjectionDomain struct {
@@ -724,8 +730,16 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	// is what freshness compares: it names the projected objects, so a later
 	// commit that changes none of them leaves this row authoritative. The
 	// projection version is what admission compares: a binary older than the
-	// one that stamped this row refuses to rebuild over it.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,1,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, knowledgeProjectionVersion); err != nil {
+	// one that stamped this row refuses to rebuild over it. A source
+	// projection that omitted its law Domain rows over the shared home's
+	// absent registry stamps complete=0 (CD-0200 reconstruction): the
+	// watermark never reads fresh, and the demand-freshness rebuild backfills
+	// the omitted rows once the registry exists.
+	complete := 1
+	if domainProjectionData.DomainRowsOmitted {
+		complete = 0
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, complete, knowledgeProjectionVersion); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
 	if err := leaveFold(ctx, tx); err != nil {

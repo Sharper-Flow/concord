@@ -209,8 +209,21 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	if proof.productID != productID || knowledgeSourceSetDigest(proof.sources) != knowledgeSourceSetDigest(sources) {
 		return newFailure(KindInvalidOperation, "check_mandated_laws", "the registered knowledge source set changed after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
 	}
+	current := make(map[string]KnowledgeHome, len(sources))
+	for _, source := range sources {
+		current[source.HomeProjectID+"/"+source.HomeLocatorID] = source
+	}
 	for _, source := range proof.sources {
 		key := source.HomeProjectID + "/" + source.HomeLocatorID
+		// The proof binds each source's resolved canonical location with its
+		// identity. A locator update between the verification and the
+		// transaction moves the canonical authority while every verified
+		// revision still matches the old repository's partition, so the
+		// admission revalidates the resolved location before it trusts the
+		// recorded revisions.
+		if live, ok := current[key]; !ok || live.RepoPath != source.RepoPath || live.HeadRef != source.HeadRef {
+			return newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" resolved to a different canonical location after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
+		}
 		verified := proof.revisions[key]
 		scanned, err := knowledgeIndexWatermark(ctx, q, source.HomeProjectID, source.HomeLocatorID, source.HeadRef)
 		if err != nil {
@@ -435,15 +448,15 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 // revalidateKnowledgeCrossSourceRelations refuses a mandated law whose
 // persisted cross-source relation endpoints no longer resolve over the
 // verified current source set (CD-0200 D5): a conflicts_with pair, a target
-// source or endpoint law that left the set or its projection, a
-// supersedes edge whose endpoint states or successor declaration no longer
-// agree (CD-0015), or a non-home source declaring supersedes, refines, or
-// subordinate_to toward shared-home law. The declaring home keeps the only
-// row, so the scan runs over the verified set's partitions and both edge
-// directions refuse. The persisted hierarchical graph over source-qualified
-// nodes must also stay acyclic (CD-0015): the rebuild refusal and source-set
-// freshness keep a cycle from persisting, and this read refuses one that
-// somehow reached the rows instead of answering from it.
+// source or endpoint law that left the set or its projection, a cross-source
+// supersedes edge (refused fail closed — the rebuild never persists one), or
+// a non-home source declaring supersedes, refines, or subordinate_to toward
+// shared-home law. The declaring home keeps the only row, so the scan runs
+// over the verified set's partitions and both edge directions refuse. The
+// persisted hierarchical graph over source-qualified nodes must also stay
+// acyclic (CD-0015): the rebuild refusal and source-set freshness keep a
+// cycle from persisting, and this read refuses one that somehow reached the
+// rows instead of answering from it.
 func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sources []KnowledgeHome, lawIDs []string) error {
 	if len(lawIDs) == 0 {
 		return nil
@@ -496,8 +509,8 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 		if edge.kind == "conflicts_with" {
 			return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved cross-source conflict: %s and %s/%s", edge.sourceLaw, edge.targetProject, edge.targetLaw), false, "resolve the Git law conflict through an accepted amendment before the consequential boundary")
 		}
-		var declaredStatus string
-		if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, edge.declaringHome, edge.declaringLocator, edge.sourceLaw).Scan(&declaredStatus); err == sql.ErrNoRows {
+		var declaredPresent int
+		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, edge.declaringHome, edge.declaringLocator, edge.sourceLaw).Scan(&declaredPresent); err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation declaring law is unresolved: "+edge.sourceLaw, false, "publish and rebuild the declaring source before the consequential boundary")
 		} else if err != nil {
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source declaring law", true, "retry once the knowledge projection is readable", err)
@@ -506,25 +519,18 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 		if !known {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target source left the registered source set: "+edge.targetProject+"/"+edge.targetLaw, false, "register the target Project again, or remove the relation from the declaring manifest")
 		}
-		var targetStatus string
-		if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&targetStatus); err == sql.ErrNoRows {
+		var targetPresent int
+		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&targetPresent); err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target law is unresolved: "+edge.targetProject+"/"+edge.targetLaw, false, "publish and rebuild the target source before the consequential boundary")
 		} else if err != nil {
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source target law", true, "retry once the knowledge projection is readable", err)
 		}
 		if edge.kind == "supersedes" {
-			// CD-0015's exact supersession agreement holds across sources at
-			// every consequential boundary: a target that un-superseded in its
-			// own manifest after the declaring edge projected refuses here.
-			if declaredStatus != "accepted" || targetStatus != "superseded" {
-				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the endpoint law states: "+edge.sourceLaw+" and "+edge.targetProject+"/"+edge.targetLaw, false, "supersede the target law and declare the accepted superseding edge in the Git manifests")
-			}
-			var successor sql.NullString
-			if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&successor); err == sql.ErrNoRows || (err == nil && (!successor.Valid || successor.String != edge.sourceLaw)) {
-				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the target successor declaration: "+edge.targetProject+"/"+edge.targetLaw, false, "declare the exact superseding law as the target's successor in the Git manifest")
-			} else if err != nil {
-				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source supersession successor", true, "retry once the knowledge projection is readable", err)
-			}
+			// Cross-source supersedes is refused fail closed (CD-0200): the
+			// rebuild refuses the edge, so no such row can legitimately
+			// persist, and this read refuses one that somehow reached the
+			// rows instead of checking an agreement no edge can carry.
+			return newFailure(KindRelationConflict, "check_mandated_laws", "supersede within the declaring source or amend through the shared home: cross-source supersedes edge "+edge.sourceLaw+" toward "+edge.targetProject+"/"+edge.targetLaw, false, "remove the cross-source supersedes edge from the declaring manifest")
 		}
 		declaringKey := edge.declaringHome + "/" + edge.declaringLocator
 		if _, seen := declaredRole[declaringKey]; !seen {

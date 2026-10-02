@@ -415,8 +415,6 @@ func TestQualifiedAndAmbiguousLawIdentity(t *testing.T) {
 	}
 }
 
-// writeSourceRelations rewrites the source fixture manifest so lawID carries
-// exactly the given law relations, and leaves the tree uncommitted.
 // writeSourceRelations rewrites the fixture manifest so SRC-LAW, the law every
 // federated source fixture carries, declares exactly the given relations, and
 // leaves the tree uncommitted.

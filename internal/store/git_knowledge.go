@@ -401,14 +401,15 @@ func knowledgeGitDir(repoPath string) (string, error) {
 
 // resolveGitRefCheap resolves one fully qualified ref through the loose ref
 // file, then the packed-refs file, in the worktree git directory and its
-// common directory. Only refs under `refs/` resolve, which bounds every
-// path to a fixed subtree of the git directory.
+// common directory. Only refs under `refs/` whose every path component is a
+// plain name resolve, which bounds every path to a fixed subtree of the git
+// directory and refuses a ref that would traverse out of it.
 func resolveGitRefCheap(gitDir, ref string) (string, error) {
-	if !strings.HasPrefix(ref, "refs/") {
+	if !strings.HasPrefix(ref, "refs/") || !safeGitRefPath(ref) {
 		return "", fmt.Errorf("git ref stays outside the refs/ tree")
 	}
 	dirs := []string{gitDir}
-	if raw, err := os.ReadFile(path.Join(gitDir, "commondir")); err == nil {
+	if raw, err := os.ReadFile(path.Join(gitDir, "commondir")); err == nil { //nolint:gosec // commondir is a fixed name under the operator-selected git authority.
 		common := strings.TrimSpace(string(raw))
 		if !path.IsAbs(common) {
 			common = path.Join(gitDir, common)
@@ -416,7 +417,7 @@ func resolveGitRefCheap(gitDir, ref string) (string, error) {
 		dirs = append(dirs, common)
 	}
 	for _, dir := range dirs {
-		if raw, err := os.ReadFile(path.Join(dir, ref)); err == nil {
+		if raw, err := os.ReadFile(path.Join(dir, ref)); err == nil { //nolint:gosec // safeGitRefPath bounds ref to plain components under the fixed refs/ subtree.
 			if oid, ok := commitOIDFromRefLine(strings.TrimSpace(string(raw))); ok {
 				return oid, nil
 			}
@@ -429,6 +430,19 @@ func resolveGitRefCheap(gitDir, ref string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("git ref cannot be resolved with a cheap read")
+}
+
+// safeGitRefPath reports whether a ref path carries only plain components:
+// no empty, dot, or dot-dot segment. A ref that fails it could make the
+// loose-ref read below escape the git directory, so the caller refuses it
+// before touching the filesystem.
+func safeGitRefPath(ref string) bool {
+	for _, part := range strings.Split(ref, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // packedGitRef reads one ref out of a git directory's packed-refs file.

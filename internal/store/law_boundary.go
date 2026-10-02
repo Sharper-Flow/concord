@@ -76,13 +76,26 @@ func (s *Store) CheckMandatedLawsAtHome(ctx context.Context, homeProjectID, home
 // call's context instead of re-probing: the transaction-scoped check refuses
 // a mandated-law read over a registered source set that carries no proof,
 // and it re-validates the proof against the set and the per-source verified
-// revisions it records. A source whose head moved, or whose projection moved
-// off the verified revision, between the verification and the transaction
-// invalidates the proof.
+// revisions it records. A source whose projection moved off the verified
+// revision, or whose head moved past the verified head, between the
+// verification and the transaction invalidates the proof.
 type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
-	revisions map[string]string
+	revisions map[string]knowledgeSourceVerifiedRevision
+}
+
+// knowledgeSourceVerifiedRevision keeps PM1 §3.3's two revisions apart. The
+// scanned revision is the projection watermark the verified rows were read
+// from; the verified head is the git head whose projected content the
+// freshness probe matched at verification time. The head is allowed to have
+// moved past the scanned revision by a commit that touches no projected
+// content — that commit is itself part of the verified state, and the
+// transaction admission compares each later read against the value verified
+// here, not against the scanned revision alone.
+type knowledgeSourceVerifiedRevision struct {
+	scanned string
+	head    string
 }
 
 type knowledgeSourceSetProofKey struct{}
@@ -125,7 +138,7 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 	if err != nil || len(sources) <= 1 {
 		return ctx, nil
 	}
-	revisions := make(map[string]string, len(sources))
+	revisions := make(map[string]knowledgeSourceVerifiedRevision, len(sources))
 	for _, source := range sources {
 		// Freshen first: a stale source rebuilds from its own head, and only
 		// then does the strict verification decide. An unreachable source
@@ -138,19 +151,32 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 		if err != nil {
 			return ctx, err
 		}
-		revisions[source.HomeProjectID+"/"+source.HomeLocatorID] = verified
+		// PM1 §3.3 separates the projection revision from the head: capture
+		// both at verification time, so the admission below can admit a
+		// content-fresh head that moved past the scanned revision and still
+		// refuse a head that moved after this verification.
+		verifiedHead, err := resolveKnowledgeHead(ctx, source)
+		if err != nil {
+			return ctx, err
+		}
+		revisions[source.HomeProjectID+"/"+source.HomeLocatorID] = knowledgeSourceVerifiedRevision{scanned: verified, head: verifiedHead}
 	}
 	return withKnowledgeSourceSetProof(ctx, &knowledgeSourceSetProof{productID: productID, sources: sources, revisions: revisions}), nil
 }
 
 // requireKnowledgeSourceSetProof refuses a transaction-scoped mandated-law
 // read over a registered source set that carries no proof, or a proof that no
-// longer matches the transaction's facts: the source set digest, the
+// longer matches the transaction's facts: the source set digest, the scanned
 // projection watermark each verified revision was read from, and each
-// source's git head. The head re-read uses only small file reads
-// (resolveKnowledgeHeadCheap), so the re-validation stays inside CD-0195 D2.
-// The refusal is the completion gate's answer when the caller skipped the
-// pre-transaction verification, or when a source changed after it.
+// source's git head compared against the head the verification itself
+// verified (PM1 §3.3). A commit that touched no projected content before the
+// verification is part of the verified head and admits the transaction; a
+// source that rebuilt onto another revision, or committed again after the
+// verification, invalidates the proof. The head re-read uses only small file
+// reads (resolveKnowledgeHeadCheap), so the re-validation stays inside
+// CD-0195 D2. The refusal is the completion gate's answer when the caller
+// skipped the pre-transaction verification, or when a source changed after
+// it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
 	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil || productID == "" {
@@ -169,19 +195,19 @@ func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectI
 	}
 	for _, source := range proof.sources {
 		key := source.HomeProjectID + "/" + source.HomeLocatorID
-		revision := proof.revisions[key]
+		verified := proof.revisions[key]
 		scanned, err := knowledgeIndexWatermark(ctx, q, source.HomeProjectID, source.HomeLocatorID, source.HeadRef)
 		if err != nil {
 			return err
 		}
-		if scanned != revision {
+		if scanned != verified.scanned {
 			return newFailure(KindInvalidOperation, "check_mandated_laws", "the verified knowledge revision of registered source "+key+" is no longer the projection this transaction reads", false, "verify the Product's registered sources again before the consequential transaction opens")
 		}
 		current, headErr := resolveKnowledgeHeadCheap(source.RepoPath, source.HeadRef)
 		if headErr != nil {
 			return wrapFailure(KindInvalidOperation, "check_mandated_laws", "the git head of registered source "+key+" cannot be re-validated inside the transaction", false, "verify the Product's registered sources again before the consequential transaction opens", headErr)
 		}
-		if current != revision {
+		if current != verified.head {
 			return newFailure(KindInvalidOperation, "check_mandated_laws", "registered source "+key+" moved to a new commit after its verification", false, "verify the Product's registered sources again before the consequential transaction opens")
 		}
 	}
@@ -393,10 +419,15 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 // revalidateKnowledgeCrossSourceRelations refuses a mandated law whose
 // persisted cross-source relation endpoints no longer resolve over the
 // verified current source set (CD-0200 D5): a conflicts_with pair, a target
-// source or endpoint law that left the set or its projection, or a non-home
-// source declaring supersedes, refines, or subordinate_to toward shared-home
-// law. The declaring home keeps the only row, so the scan runs over the
-// verified set's partitions and both edge directions refuse.
+// source or endpoint law that left the set or its projection, a
+// supersedes edge whose endpoint states or successor declaration no longer
+// agree (CD-0015), or a non-home source declaring supersedes, refines, or
+// subordinate_to toward shared-home law. The declaring home keeps the only
+// row, so the scan runs over the verified set's partitions and both edge
+// directions refuse. The persisted hierarchical graph over source-qualified
+// nodes must also stay acyclic (CD-0015): the rebuild refusal and source-set
+// freshness keep a cycle from persisting, and this read refuses one that
+// somehow reached the rows instead of answering from it.
 func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sources []KnowledgeHome, lawIDs []string) error {
 	if len(lawIDs) == 0 {
 		return nil
@@ -449,8 +480,8 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 		if edge.kind == "conflicts_with" {
 			return newFailure(KindRelationConflict, "check_mandated_laws", fmt.Sprintf("mandated laws have an unresolved cross-source conflict: %s and %s/%s", edge.sourceLaw, edge.targetProject, edge.targetLaw), false, "resolve the Git law conflict through an accepted amendment before the consequential boundary")
 		}
-		var declaredPresent int
-		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, edge.declaringHome, edge.declaringLocator, edge.sourceLaw).Scan(&declaredPresent); err == sql.ErrNoRows {
+		var declaredStatus string
+		if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, edge.declaringHome, edge.declaringLocator, edge.sourceLaw).Scan(&declaredStatus); err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation declaring law is unresolved: "+edge.sourceLaw, false, "publish and rebuild the declaring source before the consequential boundary")
 		} else if err != nil {
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source declaring law", true, "retry once the knowledge projection is readable", err)
@@ -459,11 +490,25 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 		if !known {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target source left the registered source set: "+edge.targetProject+"/"+edge.targetLaw, false, "register the target Project again, or remove the relation from the declaring manifest")
 		}
-		var targetPresent int
-		if err := q.QueryRowContext(ctx, `SELECT 1 FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&targetPresent); err == sql.ErrNoRows {
+		var targetStatus string
+		if err := q.QueryRowContext(ctx, `SELECT status FROM law_subjects WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&targetStatus); err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "check_mandated_laws", "cross-source relation target law is unresolved: "+edge.targetProject+"/"+edge.targetLaw, false, "publish and rebuild the target source before the consequential boundary")
 		} else if err != nil {
 			return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source target law", true, "retry once the knowledge projection is readable", err)
+		}
+		if edge.kind == "supersedes" {
+			// CD-0015's exact supersession agreement holds across sources at
+			// every consequential boundary: a target that un-superseded in its
+			// own manifest after the declaring edge projected refuses here.
+			if declaredStatus != "accepted" || targetStatus != "superseded" {
+				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the endpoint law states: "+edge.sourceLaw+" and "+edge.targetProject+"/"+edge.targetLaw, false, "supersede the target law and declare the accepted superseding edge in the Git manifests")
+			}
+			var successor sql.NullString
+			if err := q.QueryRowContext(ctx, `SELECT successor_work_id FROM archived_work WHERE home_project_id=? AND home_locator_id=? AND id=?`, target.HomeProjectID, target.HomeLocatorID, edge.targetLaw).Scan(&successor); err == sql.ErrNoRows || (err == nil && (!successor.Valid || successor.String != edge.sourceLaw)) {
+				return newFailure(KindInvalidNoteProof, "check_mandated_laws", "cross-source supersedes relation disagrees with the target successor declaration: "+edge.targetProject+"/"+edge.targetLaw, false, "declare the exact superseding law as the target's successor in the Git manifest")
+			} else if err != nil {
+				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the cross-source supersession successor", true, "retry once the knowledge projection is readable", err)
+			}
 		}
 		declaringKey := edge.declaringHome + "/" + edge.declaringLocator
 		if _, seen := declaredRole[declaringKey]; !seen {
@@ -486,6 +531,17 @@ func revalidateKnowledgeCrossSourceRelations(ctx context.Context, q queryer, sou
 			}
 		}
 	}
+	// CD-0015's acyclic invariant over source-qualified nodes also holds on
+	// the persisted rows this boundary answers from: the rebuild refusal and
+	// source-set freshness keep a cycle from persisting, and this read
+	// refuses one that somehow reached the rows instead of answering from it.
+	graph := map[string][]string{}
+	if err := appendFederatedPersistedRelationEdges(ctx, q, sources, KnowledgeHome{}, graph); err != nil {
+		return err
+	}
+	if relationGraphHasCycle(graph) {
+		return newFailure(KindCycleDetected, "check_mandated_laws", "persisted law relations contain a cycle across the registered source set", false, "rebuild the registered sources and remove the cycle from the authored law graphs")
+	}
 	return nil
 }
 
@@ -503,15 +559,70 @@ func stringArgs(values []string) []any {
 // truth may revise derived law in-contract, and nothing else. It reads each
 // modified law's authority_tier from the accepted Git law projection through
 // the work's canonical law home, so the approve path and the fold answer with
-// one query and cannot drift. A missing name or a non-derived tier is a
-// refusal; the caller's recovery hint names the Product-changing route.
+// one query and cannot drift. Over a registered source set the modified
+// references resolve through the same source-qualified federated identity as
+// the mandated-law boundary (CD-0200 D6), so a derived law a registered
+// source holds is revisable by its bare or qualified reference. A missing
+// name or a non-derived tier is a refusal; the caller's recovery hint names
+// the Product-changing route.
 func validateDerivedLawModification(ctx context.Context, q queryer, workID string, modified []string) error {
 	if len(modified) == 0 {
 		return nil
 	}
+	if len(modified) > 32 {
+		return newFailure(KindInvalidPayload, "check_derived_law_modification", "law_modifies exceeds the bounded list size", false, "supply at most 32 law IDs")
+	}
 	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, q, workID)
 	if err != nil {
 		return err
+	}
+	productID, _, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+	if err != nil {
+		return err
+	}
+	anyQualified := false
+	for _, id := range modified {
+		if _, _, qualified, parseErr := parseQualifiedKnowledgeID("check_derived_law_modification", id); parseErr != nil {
+			return parseErr
+		} else if qualified {
+			anyQualified = true
+		}
+	}
+	if productID != "" {
+		sources, err := resolveKnowledgeQuerySources(ctx, q, productID, "check_derived_law_modification")
+		if err != nil {
+			return err
+		}
+		if len(sources) > 1 || anyQualified {
+			return validateDerivedLawModificationAcrossSources(ctx, q, sources, modified)
+		}
+	} else if anyQualified {
+		// A qualified reference outside every registered source set resolves
+		// through the named Project's own canonical locator, beside the
+		// resolved home the boundary was called with.
+		sources := []KnowledgeHome{{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}}
+		seenProjects := map[string]bool{homeProjectID: true}
+		for _, id := range modified {
+			projectID, _, qualified, parseErr := parseQualifiedKnowledgeID("check_derived_law_modification", id)
+			if parseErr != nil {
+				return parseErr
+			}
+			if !qualified || seenProjects[projectID] {
+				continue
+			}
+			candidates, err := projectCanonicalHomeCandidates(ctx, q, projectID)
+			if err != nil {
+				return err
+			}
+			if len(candidates) == 0 {
+				failure := newFailure(KindProjectionNotFound, "check_derived_law_modification", "qualified modification names a Project with no canonical-path knowledge locator: "+projectID, false, "designate the Project's canonical-path locator before modifying through it")
+				failure.CandidateIDs = []string{id}
+				return failure
+			}
+			seenProjects[projectID] = true
+			sources = append(sources, candidates[0])
+		}
+		return validateDerivedLawModificationAcrossSources(ctx, q, sources, modified)
 	}
 	placeholders := strings.TrimRight(strings.Repeat("?,", len(modified)), ",")
 	args := []any{homeProjectID, homeLocatorID}
@@ -538,6 +649,30 @@ func validateDerivedLawModification(ctx context.Context, q queryer, workID strin
 	if err := rows.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "check_derived_law_modification", "cannot finish reading law authority tiers", true, "retry once the law projection is readable", err)
 	}
+	return refuseNonDerivedLawModification(modified, tiers)
+}
+
+// validateDerivedLawModificationAcrossSources resolves each modified
+// reference through the shared federated identity resolver and refuses a
+// non-derived tier. The tier is read from the projection of the source the
+// reference resolved through, so a registered source's derived law answers
+// from that source's rows.
+func validateDerivedLawModificationAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, modified []string) error {
+	resolutions, missing, err := resolveFederatedLawReferences(ctx, q, "check_derived_law_modification", sources, modified)
+	if err != nil {
+		return err
+	}
+	if len(missing) != 0 {
+		return newFailure(KindProjectionNotFound, "check_derived_law_modification", "a modified law is unknown to the accepted Git law projection: "+strings.Join(missing, ","), false, "publish and rebuild the accepted Git law projection")
+	}
+	tiers := make(map[string]string, len(modified))
+	for reference, r := range resolutions {
+		tiers[reference] = r.tier
+	}
+	return refuseNonDerivedLawModification(modified, tiers)
+}
+
+func refuseNonDerivedLawModification(modified []string, tiers map[string]string) error {
 	nonDerived := make([]string, 0)
 	for _, id := range modified {
 		tier, ok := tiers[id]
@@ -572,29 +707,31 @@ func validateLawModificationSubset(mandated, modified []string) error {
 	return nil
 }
 
-// checkMandatedLawsAcrossSources is the federated mandated-law boundary check
-// (CD-0200). Each mandated reference — a bare ID, or the qualified
-// project_id/law_id form — must resolve to exactly one accepted law subject
-// over the verified source set: a bare ID held by two sources refuses as
-// ambiguous instead of picking one, and a qualified reference resolves only
-// through its named source. Conflicts read per source over the bare law IDs
-// that resolved there, because a cross-source conflicts_with pair refuses at
-// the declaring source's rebuild and can never project.
-func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {
-	type resolution struct {
-		source KnowledgeHome
-		status string
-		tier   string
-		lawID  string
-	}
-	resolved := make(map[string]resolution, len(mandated))
+// federatedLawResolution is one reference's resolved law over the verified
+// source set: the source that holds it, the bare law ID that resolved there,
+// and the derived projection status and authority tier that resolution read.
+type federatedLawResolution struct {
+	source KnowledgeHome
+	status string
+	tier   string
+	lawID  string
+}
+
+// resolveFederatedLawReferences resolves each reference — a bare ID, or the
+// qualified project_id/law_id form (CD-0200 D4) — over the verified source
+// set: a bare ID held by two sources refuses as ambiguous instead of picking
+// one, and a qualified reference resolves only through its named source. A
+// reference with no row in any source's projection returns in the missing
+// list; each caller owns the status-dependent refusals its boundary states.
+func resolveFederatedLawReferences(ctx context.Context, q queryer, op string, sources []KnowledgeHome, references []string) (map[string]federatedLawResolution, []string, error) {
+	resolved := make(map[string]federatedLawResolution, len(references))
 	missing := make([]string, 0)
-	for _, reference := range mandated {
-		projectID, lawID, qualified, err := parseQualifiedKnowledgeID("check_mandated_laws", reference)
+	for _, reference := range references {
+		projectID, lawID, qualified, err := parseQualifiedKnowledgeID(op, reference)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		var match *resolution
+		var match *federatedLawResolution
 		for _, source := range sources {
 			if qualified && source.HomeProjectID != projectID {
 				continue
@@ -605,19 +742,40 @@ func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []Kn
 				continue
 			}
 			if scanErr != nil {
-				return wrapFailure(KindUnavailable, "check_mandated_laws", "cannot read the derived law subjects of source "+source.HomeProjectID, true, "retry once the knowledge projection is readable", scanErr)
+				return nil, nil, wrapFailure(KindUnavailable, op, "cannot read the derived law subjects of source "+source.HomeProjectID, true, "retry once the knowledge projection is readable", scanErr)
 			}
 			if match != nil {
-				failure := newFailure(KindKnowledgeAmbiguous, "check_mandated_laws", "mandated law is held by more than one registered source: "+lawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
+				failure := newFailure(KindKnowledgeAmbiguous, op, "law reference is held by more than one registered source: "+lawID, false, "qualify the reference as project_id/law_id or remove the duplicate law")
 				failure.CandidateIDs = []string{source.HomeProjectID + "/" + lawID}
-				return failure
+				return nil, nil, failure
 			}
-			match = &resolution{source: source, status: status, tier: tier, lawID: lawID}
+			match = &federatedLawResolution{source: source, status: status, tier: tier, lawID: lawID}
 		}
-		if match == nil || match.status != "accepted" {
+		if match == nil {
 			missing = append(missing, reference)
 		} else {
 			resolved[reference] = *match
+		}
+	}
+	return resolved, missing, nil
+}
+
+// checkMandatedLawsAcrossSources is the federated mandated-law boundary check
+// (CD-0200). Each mandated reference must resolve to exactly one accepted law
+// subject over the verified source set. Conflicts read per source over the
+// bare law IDs that resolved there, because a cross-source conflicts_with
+// pair refuses at the declaring source's rebuild and can never project.
+func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {
+	resolutions, missing, err := resolveFederatedLawReferences(ctx, q, "check_mandated_laws", sources, mandated)
+	if err != nil {
+		return err
+	}
+	resolved := make(map[string]federatedLawResolution, len(mandated))
+	for _, reference := range mandated {
+		if r, ok := resolutions[reference]; ok && r.status == "accepted" {
+			resolved[reference] = r
+		} else {
+			missing = append(missing, reference)
 		}
 	}
 	if len(missing) != 0 {

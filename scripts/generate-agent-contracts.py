@@ -248,6 +248,13 @@ def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
     )
 
 
+# A workflow action field whose value an author writes against a shared
+# contract takes that contract's guidance from the owning $def, so the
+# published field and the def cannot drift apart. The approval premise is the
+# objective every worker packet carries, and its def states the count units.
+FIELD_GUIDANCE_DEFS = {"premise": "workflow_premise"}
+
+
 def workflow_payload_field_schema(field: dict, defs: dict) -> dict:
     value_type = field["value_type"]
     schema_ref = field.get("schema_ref")
@@ -300,6 +307,12 @@ def workflow_payload_field_schema(field: dict, defs: dict) -> dict:
         schema["pattern"] = r"\S"
     if field.get("forbidden_values"):
         schema["not"] = {"type": "string", "enum": field["forbidden_values"]}
+    guidance = FIELD_GUIDANCE_DEFS.get(field["name"])
+    if guidance is not None and "$ref" not in schema:
+        description = defs.get(guidance, {}).get("description")
+        if not isinstance(description, str) or not description:
+            fail(f"workflow action field {field['name']} names guidance def {guidance}, which carries no description")
+        schema["description"] = description
     return schema
 
 

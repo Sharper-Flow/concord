@@ -17,7 +17,7 @@ import (
 
 func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID string, laneVersion int64, laneDigest string) map[string]any {
 	t.Helper()
-	task, binding := recordedPacketInputs(t, s, workID, laneID, "lane-step dispatch join probe")
+	task, binding := recordedPacketInputs(t, s, workID, laneID)
 	return map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,

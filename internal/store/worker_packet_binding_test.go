@@ -12,11 +12,15 @@ import (
 // recordedPacketInputs returns the task and inputs.binding a truthful lane
 // packet carries for the work item and lane from recorded state: the active
 // contract premise and its version when a contract is active, otherwise the
-// supplied recorded question with a null contract version. The work version
-// is the one the dispatch is admitted at, and the assigned result is the
-// lane's worker-scope assignment.
-func recordedPacketInputs(t *testing.T, s *Store, workID, laneID, question string) (string, map[string]any) {
+// recorded question with a null contract version. The work version is the
+// one the dispatch is admitted at, and the assigned result is the lane's
+// worker-scope assignment.
+func recordedPacketInputs(t *testing.T, s *Store, workID, laneID string) (string, map[string]any) {
 	t.Helper()
+	question, err := readRecordedWorkQuestion(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	assigned, ok := WorkerScopeAssignedResult(laneID)
 	if !ok {
 		t.Fatalf("lane %s carries no worker-scope assignment", laneID)
@@ -24,7 +28,7 @@ func recordedPacketInputs(t *testing.T, s *Store, workID, laneID, question strin
 	binding := map[string]any{"objective_source": "work_question", "work_version": readWorkVersion(t, s, workID), "contract_version": nil, "assigned_result": assigned}
 	var contractVersion int64
 	var premise string
-	err := s.DatabaseForTesting().QueryRow(`SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contractVersion, &premise)
+	err = s.DatabaseForTesting().QueryRow(`SELECT contract_version,premise FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contractVersion, &premise)
 	if errors.Is(err, sql.ErrNoRows) {
 		return question, binding
 	}
@@ -42,8 +46,7 @@ func recordedPacketInputs(t *testing.T, s *Store, workID, laneID, question strin
 func bindPacketToRecordedState(t *testing.T, s *Store, packet map[string]any) map[string]any {
 	t.Helper()
 	inputs := packet["inputs"].(map[string]any)
-	question, _ := inputs["task"].(string)
-	task, binding := recordedPacketInputs(t, s, packet["work_id"].(string), packet["lane_id"].(string), question)
+	task, binding := recordedPacketInputs(t, s, packet["work_id"].(string), packet["lane_id"].(string))
 	inputs["task"] = task
 	inputs["binding"] = binding
 	return packet
@@ -117,6 +120,7 @@ func TestDispatchRefusesBindingThatContradictsRecordedState(t *testing.T) {
 			b["objective_source"] = "work_question"
 			b["contract_version"] = nil
 		}, want: "contract_premise"},
+		{name: "task differs from the recorded question", mutate: func(i, _ map[string]any) { i["task"] = "an invented question" }, want: "differs from the work item's recorded question"},
 		{name: "superseded contract version", contract: true, mutate: func(_, b map[string]any) { b["contract_version"] = 1 }, want: "active contract version is 2"},
 		{name: "task differs from the approved premise", contract: true, mutate: func(i, _ map[string]any) { i["task"] = "an objective the operator never approved" }, want: "differs from the approved premise"},
 	}
@@ -166,5 +170,23 @@ func TestDispatchAdmitsBindingThatMatchesRecordedState(t *testing.T) {
 			t.Fatalf("contract=%t truthful binding refused: %v", contract, err)
 		}
 		_ = s.Close()
+	}
+}
+
+// TestRecordedWorkQuestionMatchesTheAdapterSelection pins the store's
+// read-only question selection to the adapter's: the recorded task wins when
+// it holds visible text, then the title, then the narrative, and the chosen
+// text keeps its bytes.
+func TestRecordedWorkQuestionMatchesTheAdapterSelection(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ task, title, narrative, want string }{
+		{"  Compare 𝕏 and é.\n", "Title", "Narrative", "  Compare 𝕏 and é.\n"},
+		{" \t\u00a0\ufeff\u2028", "Title", "Narrative", "Title"},
+		{"", " \u3000", "Narrative body", "Narrative body"},
+	}
+	for _, tc := range cases {
+		if got := recordedWorkQuestion(tc.task, tc.title, tc.narrative); got != tc.want {
+			t.Errorf("recordedWorkQuestion(%q, %q, %q) = %q, want %q", tc.task, tc.title, tc.narrative, got, tc.want)
+		}
 	}
 }

@@ -112,6 +112,15 @@ test("published tool arguments expose a host-safe request shape", () => {
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
   const payloadVariants = transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // The approval premise an author writes is the published action field, so
+  // it carries the unit guidance: code points, the UTF-8 byte admission, and
+  // its distinction from packet and model-token limits.
+  const premise = transition.properties.input.properties.fields.properties.premise
+  expect(premise.maxLength).toBe(4_096)
+  expect(premise.description).toContain("Unicode code points")
+  expect(premise.description).toContain("UTF-8 bytes")
+  expect(premise.description).toContain("model-token limit")
+  expect(premise.description).toContain("Do not truncate an approved objective")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   // project_id is the CD-0182 resume selector: resume-only, never capture.

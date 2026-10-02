@@ -8144,6 +8144,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "minItems": 1
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11234,6 +11235,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11426,6 +11428,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {

@@ -9980,7 +9980,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -13013,7 +13014,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -13195,7 +13197,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",

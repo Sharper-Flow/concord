@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -452,10 +453,10 @@ func matchesPattern(patterns map[string]any, key string) bool {
 
 func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
 	if n, ok := schema["minItems"].(json.Number); ok && len(array) < numberInt(n) {
-		return fmt.Errorf("minItems at %s", path)
+		return fmt.Errorf("minItems at %s: carries %d item(s) against a minimum of %d", path, len(array), numberInt(n))
 	}
 	if n, ok := schema["maxItems"].(json.Number); ok && len(array) > numberInt(n) {
-		return fmt.Errorf("maxItems at %s", path)
+		return fmt.Errorf("maxItems at %s: carries %d item(s) against a limit of %d", path, len(array), numberInt(n))
 	}
 	if unique, ok := schema["uniqueItems"].(bool); ok && unique {
 		seen := map[string]bool{}
@@ -486,11 +487,13 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 			return fmt.Errorf("date-time at %s: %w", path, err)
 		}
 	}
-	if n, ok := schema["minLength"].(json.Number); ok && len([]rune(text)) < numberInt(n) {
-		return fmt.Errorf("minLength at %s", path)
+	// JSON Schema string lengths count Unicode code points.
+	codePoints := utf8.RuneCountInString(text)
+	if n, ok := schema["minLength"].(json.Number); ok && codePoints < numberInt(n) {
+		return fmt.Errorf("minLength at %s: carries %d Unicode code points against a minimum of %d", path, codePoints, numberInt(n))
 	}
-	if n, ok := schema["maxLength"].(json.Number); ok && len([]rune(text)) > numberInt(n) {
-		return fmt.Errorf("maxLength at %s", path)
+	if n, ok := schema["maxLength"].(json.Number); ok && codePoints > numberInt(n) {
+		return fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n))
 	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		matched, _ := regexp.MatchString(pattern, text)

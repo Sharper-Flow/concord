@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 )
 
 // WorkerScopeAssignedResult returns the one assigned result a worker attempt
@@ -74,6 +75,13 @@ func validateWorkerPacketBinding(ctx context.Context, q queryer, workID string, 
 		if *binding.ObjectiveSource != "work_question" || string(binding.ContractVersion) != "null" {
 			return refuse("must name objective_source work_question with a null contract_version while the work holds no active contract")
 		}
+		question, err := readRecordedWorkQuestion(ctx, q, workID)
+		if err != nil {
+			return err
+		}
+		if *packet.Inputs.Task != question {
+			return refuse("claims the recorded question, but inputs.task differs from the work item's recorded question")
+		}
 		return nil
 	}
 	if *binding.ObjectiveSource != "contract_premise" {
@@ -91,4 +99,42 @@ func validateWorkerPacketBinding(ctx context.Context, q queryer, workID string, 
 		return refuse("claims the contract premise, but inputs.task differs from the approved premise")
 	}
 	return nil
+}
+
+// readRecordedWorkQuestion reads the work item's recorded question: the
+// read-only objective a packet carries before a contract is approved.
+func readRecordedWorkQuestion(ctx context.Context, q queryer, workID string) (string, error) {
+	var title, narrative, task string
+	if err := q.QueryRowContext(ctx, `SELECT title, narrative, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id=?`, workID).Scan(&title, &narrative, &task); err != nil {
+		return "", wrapFailure(KindUnavailable, "workflow_action", "cannot read the work item's recorded question", true, "retry once the database is readable", err)
+	}
+	return recordedWorkQuestion(task, title, narrative), nil
+}
+
+// recordedWorkQuestion selects the question the adapter projects as a
+// read-only task: the recorded task when it holds visible text, else the
+// title when it does, else the narrative. The selected text is returned
+// byte-for-byte; whitespace only decides emptiness.
+func recordedWorkQuestion(task, title, narrative string) string {
+	switch {
+	case !blankECMAScript(task):
+		return task
+	case !blankECMAScript(title):
+		return title
+	default:
+		return narrative
+	}
+}
+
+// blankECMAScript reports whether text is empty after the ECMAScript
+// String.prototype.trim whitespace set the adapter applies, so the store
+// and the adapter select the same question.
+func blankECMAScript(text string) bool {
+	return strings.TrimFunc(text, func(r rune) bool {
+		switch r {
+		case '\t', '\n', '\v', '\f', '\r', ' ', '\u00a0', '\u1680', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff':
+			return true
+		}
+		return r >= '\u2000' && r <= '\u200a'
+	}) == ""
 }

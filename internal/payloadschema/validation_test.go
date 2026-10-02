@@ -132,3 +132,25 @@ func TestWorkerPacketBindingFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// Length and item-count refusals name the field, the count unit, the actual
+// count, and the limit, so a caller can correct an oversize value without
+// guessing how it was measured. String lengths count Unicode code points.
+func TestBoundRefusalsNameUnitActualAndLimit(t *testing.T) {
+	cases := []struct {
+		value  any
+		schema map[string]any
+		want   string
+	}{
+		{"é🙂x", map[string]any{"type": "string", "maxLength": json.Number("2")}, "maxLength at $.task: carries 3 Unicode code points against a limit of 2"},
+		{"", map[string]any{"type": "string", "minLength": json.Number("1")}, "minLength at $.task: carries 0 Unicode code points against a minimum of 1"},
+		{[]any{"a", "b", "c"}, map[string]any{"type": "array", "maxItems": json.Number("2")}, "maxItems at $.task: carries 3 item(s) against a limit of 2"},
+		{[]any{}, map[string]any{"type": "array", "minItems": json.Number("1")}, "minItems at $.task: carries 0 item(s) against a minimum of 1"},
+	}
+	for _, tc := range cases {
+		err := ValidateValue(tc.value, tc.schema, nil, "$.task")
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("refusal = %v, want %q", err, tc.want)
+		}
+	}
+}

@@ -679,7 +679,7 @@ type cd0059DispatchSeed struct {
 func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID string) map[string]any {
 	t.Helper()
 	laneVersion, laneDigest := mustLaneIdentity("implement")
-	task, binding := recordedPacketInputs(t, s, workID, "implement", "cd0065 dispatch packet")
+	task, binding := recordedPacketInputs(t, s, workID, "implement")
 	return map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,

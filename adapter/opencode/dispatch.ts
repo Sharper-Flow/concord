@@ -58,6 +58,13 @@ export interface DispatchRunner {
   run(argv: string[], input: string, signal: AbortSignal): Promise<DispatchRunnerResult>
 }
 
+export interface AgentLanePacketBinding {
+  objective_source: "contract_premise" | "work_question"
+  work_version: number
+  contract_version: number | null
+  assigned_result: string
+}
+
 export interface AgentLanePacket {
   schema_version: AgentLanePacketSchemaVersion
   attempt_id: string
@@ -66,7 +73,7 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
 }
 
 // AgentLanePacketOutcomePredicate is one typed outcome predicate the packet
@@ -491,12 +498,17 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   }
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
-    const valid = types.some((type: string) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : typeof value === type)
+    const valid = types.some((type: string) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : type === "null" ? value === null : typeof value === type)
     if (!valid) return fail(`is not of type ${types.join(" | ")}`)
   }
   if (typeof value === "string") {
-    if (schema.minLength !== undefined && value.length < schema.minLength) return fail(`is shorter than ${schema.minLength} characters`)
-    if (schema.maxLength !== undefined && value.length > schema.maxLength) return fail(`is longer than ${schema.maxLength} characters`)
+    // JSON Schema counts string length in Unicode code points, the unit the
+    // Go payload-schema validator counts with utf8.RuneCountInString. A
+    // UTF-16 .length would count an astral code point twice and refuse a
+    // packet the closed contract admits, so the count walks code points.
+    const length = [...value].length
+    if (schema.minLength !== undefined && length < schema.minLength) return fail(`carries ${length} Unicode code points against a minimum of ${schema.minLength}`)
+    if (schema.maxLength !== undefined && length > schema.maxLength) return fail(`carries ${length} Unicode code points against a limit of ${schema.maxLength}`)
     if (schema["x-maxBytes"] !== undefined && Buffer.byteLength(value) > schema["x-maxBytes"]) return fail(`exceeds ${schema["x-maxBytes"]} UTF-8 bytes`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
@@ -1483,6 +1495,13 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
+  // The binding's assigned result is the one obligation the worker-scope
+  // contract derives from the lane, so a packet that names any other result
+  // is a contract or registry drift the schema alone cannot see. It fails
+  // closed here, before the authorization window can open.
+  if (packet.inputs.binding.assigned_result !== workerScopeAssignedResult(lane.id)) {
+    return errorEnvelope(null, packet, "error", "invalid_input", `packet binding names assigned result ${packet.inputs.binding.assigned_result}, but the ${lane.id} lane's worker-scope assignment is ${workerScopeAssignedResult(lane.id)}`, "retry_same_request")
+  }
   const sessionID = options.sessionID
   if (sessionID && dispatchRequiresNextTurn(sessionID)) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })

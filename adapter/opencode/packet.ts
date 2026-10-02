@@ -65,6 +65,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
+// codePoints counts Unicode code points, the unit JSON Schema maxLength and
+// minLength are defined in and the unit the Go payload-schema validator
+// counts with utf8.RuneCountInString. A JavaScript .length counts UTF-16
+// code units, so an astral code point would count twice and a packet the
+// contract admits would be refused here with a false overflow.
+function codePoints(value: string): number {
+  return [...value].length
+}
+
 function renderDesignRecord(value: unknown): string {
   if (!isRecord(value)) return ""
   const approach = typeof value.approach === "string" ? value.approach : ""
@@ -265,12 +274,18 @@ async function readOperation(
 // from recorded state, which is the point — a dispatched worker's goal must not
 // be retyped prose.
 //
-// The pinned contract is the mandate's authority whenever one is present
-// (#903): its premise is the approved objective the worker must deliver, its
+// The pinned contract is the mandate's authority whenever one is present:
+// its premise is the approved objective the worker must deliver, its
 // typed outcome predicates ride inputs.outcome_predicates, and its version
 // plus the work item version bind the packet to the exact recorded state it
-// projected. Read-only classes without a contract use the recorded work
-// question and narrative at a joined step instead.
+// projected. inputs.task is that premise verbatim — the builder adds no
+// header, trailer, or duplicate copy, so the full approval premise capacity
+// reaches the worker instead of being spent on adapter framing. Read-only
+// classes without a contract carry the recorded work question verbatim at a
+// joined step instead. inputs.binding is the closed typed authority that
+// names the objective source, the recorded work and contract versions, and
+// the one assigned result the worker-scope contract derives from the lane;
+// the step and lane identity stay packet root fields.
 export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps: AgentLanePacketDeps): Promise<AgentLanePacketBuild> {
   const lane: AgentLane | undefined = agentLanes.find((candidate) => candidate.id === request.laneId)
   if (!lane) {
@@ -315,9 +330,15 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const readOnly = isReadOnlyCapabilityClass(lane.capability_class)
   let outcomePredicates: unknown[] = []
   let task: string
+  let contractVersion: number | null
+  let objectiveSource: "contract_premise" | "work_question"
+  // contextRecordedTask is false when the recorded task already IS the task —
+  // the read-only question prefers it — so the context never carries the
+  // duplicate copy.
+  let contextRecordedTask = true
   if (isRecord(contract)) {
     const premise = typeof contract.premise === "string" ? contract.premise : ""
-    const contractVersion = typeof contract.version === "number" ? contract.version : null
+    const pinnedContractVersion = typeof contract.version === "number" ? contract.version : null
     outcomePredicates = contract.outcome_predicates as unknown[]
     if (!Array.isArray(outcomePredicates) || outcomePredicates.length === 0) {
       return failure("transport_failure", `work ${request.workId} pinned contract did not carry typed outcome_predicates`)
@@ -325,15 +346,12 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     if (premise.trim().length === 0) {
       return failure("mandate_unapproved", `work ${request.workId} pinned contract carries no approved objective, so there is no recorded change to dispatch against`)
     }
-    if (workVersion === null || contractVersion === null) {
+    if (workVersion === null || pinnedContractVersion === null) {
       return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work and contract versions the packet must bind to`)
     }
-    task = [
-      `Deliver the approved objective for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}, contract v${contractVersion}).`,
-      "",
-      "Approved objective:",
-      premise,
-    ].join("\n")
+    task = premise
+    contractVersion = pinnedContractVersion
+    objectiveSource = "contract_premise"
   } else if (readOnly) {
     if (workVersion === null) {
       return failure("transport_failure", `work ${request.workId} pinned state did not carry the typed work version the packet must bind to`)
@@ -341,30 +359,25 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     if (title.trim().length === 0 && narrative.trim().length === 0) {
       return failure("mandate_unapproved", `work ${request.workId} carries no recorded question or narrative for the read-only dispatch`)
     }
-    const question = recordedTask.length > 0 ? recordedTask : title.trim().length > 0 ? title : narrative
-    task = [
-      `Answer the recorded question for work ${request.workId}, at workflow step "${workflowStep}" (work v${workVersion}).`,
-      "",
-      "Step question:",
-      question,
-      ...(narrative.trim().length > 0 && narrative !== question ? ["", "Work narrative:", narrative] : []),
-    ].join("\n")
+    task = recordedTask.length > 0 ? recordedTask : title.trim().length > 0 ? title : narrative
+    contractVersion = null
+    objectiveSource = "work_question"
+    // The question already carries the recorded task or narrative text
+    // verbatim, so neither rides the context a second time.
+    contextRecordedTask = false
   } else {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
   // The assigned result bounds the attempt to the one obligation whose
-  // discharge completes it. Completion disposes only that result: every other
-  // required result stays explicit with the parent workflow, which dispatches
-  // one further bounded attempt per remaining result.
-  task = [
-    task,
-    "",
-    "Assigned result:",
-    `${assignedResult} — the one evidence obligation whose discharge completes this attempt.`,
-    "Complete only this assigned result. The parent workflow keeps every other required result explicit and dispatches one further bounded attempt per remaining result.",
-  ].join("\n")
-  if (task.length > TASK_MAX_LENGTH) {
-    return failure("projection_overflow", `the approved objective does not fit inputs.task: ${task.length} characters against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: task.length })
+  // discharge completes it, and the binding records it as typed data: the
+  // objective source, the recorded versions, and that result. Completion
+  // disposes only that result: every other required result stays explicit
+  // with the parent workflow, which dispatches one further bounded attempt
+  // per remaining result.
+  const binding = { objective_source: objectiveSource, work_version: workVersion, contract_version: contractVersion, assigned_result: assignedResult }
+  const taskCodePoints = codePoints(task)
+  if (taskCodePoints > TASK_MAX_LENGTH) {
+    return failure("projection_overflow", `inputs.task carries ${taskCodePoints} Unicode code points against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: taskCodePoints })
   }
 
   const design = renderDesignRecord(pinned.design_record)
@@ -385,20 +398,28 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
   // The persisted work task is the operator's recorded instruction for the
-  // worker. The premise stays the approved objective in inputs.task; the
-  // recorded task rides context ahead of the narrative so a contract-mandated
-  // worker receives the concrete instructions too, not only the premise.
-  const context = valueLine + design + lawContext + proposal + (recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") + narrative
-  if (context.length > CONTEXT_MAX_LENGTH) {
-    return failure("projection_overflow", `the value statement, pinned design, law context, proposal, and work item narrative do not fit inputs.context: ${context.length} characters against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: context.length })
+  // worker. Under a pinned contract the premise stays the approved objective
+  // in inputs.task and the recorded task rides context ahead of the narrative,
+  // so a contract-mandated worker receives the concrete instructions too. On
+  // the read-only path the question IS the task or narrative verbatim, so the
+  // duplicate copy stays out of the context.
+  const readOnlyQuestion = objectiveSource === "work_question" ? task : null
+  const context =
+    valueLine +
+    design +
+    lawContext +
+    proposal +
+    (contextRecordedTask && recordedTask.length > 0 ? `Recorded task:\n${recordedTask}\n\n` : "") +
+    (readOnlyQuestion !== null && narrative === readOnlyQuestion ? "" : narrative)
+  const contextCodePoints = codePoints(context)
+  if (contextCodePoints > CONTEXT_MAX_LENGTH) {
+    return failure("projection_overflow", `inputs.context carries ${contextCodePoints} Unicode code points against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: contextCodePoints })
   }
 
   // The typed outcome predicates ride inputs.outcome_predicates as validated
   // predicate objects, decoded from the continuity read's serialized
-  // payloads. The spliced mandate strings are gone: the packet is produced
-  // and consumed within one release, so no cross-version reader needs the
-  // splice, and the validated structure the fold keys its discharge
-  // requirement on survives the boundary verbatim.
+  // payloads. The packet preserves the structure the fold uses to bind each
+  // predicate's discharge requirement rather than flattening it into prose.
   const decoded = decodeOutcomePredicates(request.workId, outcomePredicates)
   if (decoded.failure) return { failure: decoded.failure }
   // Fail-closed bound on the serialized typed field. The field inherits the
@@ -407,8 +428,9 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // than shipping an unbounded packet.
   const serializedPredicates = JSON.stringify(decoded.predicates)
   const predicatesBound = CONSTRAINTS_MAX_ITEMS * CONSTRAINT_MAX_LENGTH
-  if (serializedPredicates.length > predicatesBound) {
-    return failure("projection_overflow", `the pinned contract's typed outcome predicates do not fit the serialized packet bound: ${serializedPredicates.length} characters against a limit of ${predicatesBound}`, { field: "outcome_predicates", limit: predicatesBound, actual: serializedPredicates.length })
+  const serializedCodePoints = codePoints(serializedPredicates)
+  if (serializedCodePoints > predicatesBound) {
+    return failure("projection_overflow", `inputs.outcome_predicates serializes to ${serializedCodePoints} Unicode code points against a limit of ${predicatesBound}`, { field: "outcome_predicates", limit: predicatesBound, actual: serializedCodePoints })
   }
 
   const packet = {
@@ -419,7 +441,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

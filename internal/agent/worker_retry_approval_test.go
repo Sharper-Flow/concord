@@ -181,7 +181,7 @@ func retryJSON(value any) json.RawMessage {
 func retryMutationPacket(t *testing.T, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := retryLane(t)
-	inputs := map[string]any{"task": "retry the approved objective", "constraints": []string{"preserve the approved contract"}}
+	inputs := map[string]any{"task": "retry the approved objective", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "files_touched"}, "constraints": []string{"preserve the approved contract"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}

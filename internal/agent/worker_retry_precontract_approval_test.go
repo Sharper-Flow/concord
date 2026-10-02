@@ -177,7 +177,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 func preContractRetryPacket(t *testing.T, workID, stepID, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := preContractResearchLane(t)
-	inputs := map[string]any{"task": "retry the recorded discovery question", "constraints": []string{"cite primary sources"}}
+	inputs := map[string]any{"task": "retry the recorded discovery question", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "bounded_findings"}, "constraints": []string{"cite primary sources"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}

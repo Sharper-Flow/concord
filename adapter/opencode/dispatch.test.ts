@@ -52,7 +52,7 @@ const packet = (): AgentLanePacket => ({
   lane_digest: lane.digest,
   work_id: "work-1",
   step_id: "step-1",
-  inputs: { task: "Run the bounded worker fixture." },
+  inputs: { task: "Run the bounded worker fixture.", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
 })
 
 // The worker's agent-lane-report.v1 report travels as the text of a `text` host
@@ -157,12 +157,39 @@ const complete = (body: string, options: Partial<CompleteOptions> = {}, dispatch
 
 test("packet validation is closed before any runner call", async () => {
   let calls = 0
-  const invalid = { ...packet(), inputs: { task: "" } }
+  const invalid = { ...packet(), inputs: { task: "", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } } }
   expect(validateAgentLanePacket(invalid)).toBe(false)
   const result = await dispatchWorker(invalid, { credentials: testCredentials, runner: { async run() { calls++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }, authorize: permissiveAuthorizer(), packetDigest: PACKET_DIGEST, sessionID: SESSION, windows: new DispatchWindows() })
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(calls).toBe(0)
+})
+
+// The binding's assigned result must be the one the worker-scope contract
+// derives from the packet's lane. A packet that names another lane's result
+// is contract or registry drift the closed schema alone cannot see, so it
+// refuses before authorization and no window opens.
+test("a mismatched binding assigned result refuses before authorization", async () => {
+  let authorizeCalls = 0
+  let runnerCalls = 0
+  const mismatched = { ...packet(), inputs: { ...packet().inputs, binding: { ...packet().inputs.binding, assigned_result: "files_touched" } } }
+  expect(validateAgentLanePacket(mismatched)).toBe(true)
+  const windows = new DispatchWindows()
+  const result = await dispatchWorker(mismatched, {
+    credentials: testCredentials,
+    runner: { async run() { runnerCalls++; return { exitCode: 0, stdout: "", stderr: "" } } },
+    authorize: async () => { authorizeCalls++; return coreOk() },
+    packetDigest: PACKET_DIGEST,
+    sessionID: SESSION,
+    windows,
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("invalid_input")
+  expect(result.error?.message).toContain("assigned result")
+  expect(result.error?.message).toContain("files_touched")
+  expect(authorizeCalls).toBe(0)
+  expect(runnerCalls).toBe(0)
+  expect(windows.has(SESSION)).toBe(false)
 })
 
 test("an omitted or nonexistent worker directory refuses before authorization", async () => {
@@ -1771,7 +1798,13 @@ const laneOf = (id: string) => agentLanes.find((entry) => entry.id === id)!
 
 const lanePacketFor = (laneID: string): AgentLanePacket => {
   const target = laneOf(laneID)
-  return { ...packet(), lane_id: target.id, lane_version: target.version, lane_digest: target.digest }
+  return {
+    ...packet(),
+    lane_id: target.id,
+    lane_version: target.version,
+    lane_digest: target.digest,
+    inputs: { ...packet().inputs, binding: { ...packet().inputs.binding, assigned_result: workerScopeAssignedResult(target.id)! } },
+  }
 }
 
 const dischargingEvidence = (laneID: string): LaneEvidence[] =>

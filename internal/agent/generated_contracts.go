@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:cb6dab5297efd9874355effd7434da7972e2249a55a095166a7683894ae0d36c"
+const ManifestDigest = "sha256:e492a69f4067b9d1dfb5e30195b85469cb2dadf4bfebf5d6da0f34688fd595cd"
 
 type OperationKind string
 
@@ -290,6 +290,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_worktree_reclaim_input":         {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_transition_worktree_verify_input":          {Required: []string{"work_id", "command", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"worker_packet":                                  {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
+	"worker_packet_binding":                          {Required: []string{"objective_source", "work_version", "contract_version", "assigned_result"}, Properties: []string{"objective_source", "work_version", "contract_version", "assigned_result"}},
 	"workflow_completion_payload":                    {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                              {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair"}},
 	"workflow_correction_context":                    {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch"}},

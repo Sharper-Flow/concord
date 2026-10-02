@@ -53,13 +53,17 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "task"
+        "task",
+        "binding"
       ],
       "properties": {
         "task": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "binding": {
+          "$ref": "#/$defs/lane_packet_binding"
         },
         "context": {
           "type": "string",
@@ -158,6 +162,85 @@
     }
   },
   "$defs": {
+    "lane_packet_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective_source",
+        "work_version",
+        "contract_version",
+        "assigned_result"
+      ],
+      "properties": {
+        "objective_source": {
+          "type": "string",
+          "enum": [
+            "contract_premise",
+            "work_question"
+          ],
+          "description": "Where inputs.task came from: contract_premise is the approved contract premise carried verbatim; work_question is the recorded work question carried before contract approval."
+        },
+        "work_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contract_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The applicable contract version, or null when no contract applies."
+        },
+        "assigned_result": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "The one evidence obligation whose discharge completes this attempt, derived from the registered lane."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "contract_premise"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "work_question"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
     "lane_outcome_predicates": {
       "type": "array",
       "minItems": 1,

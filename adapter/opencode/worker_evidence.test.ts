@@ -22,7 +22,7 @@ const testCredentials: CredentialStore = { async getPrivateKey() { return new Ui
 function packet(): AgentLanePacket {
   return {
     schema_version: "1.0", attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
-    lane_digest: lane.digest, work_id: "work-1", step_id: "step-1", inputs: { task: "bounded task" },
+    lane_digest: lane.digest, work_id: "work-1", step_id: "step-1", inputs: { task: "bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
   }
 }
 

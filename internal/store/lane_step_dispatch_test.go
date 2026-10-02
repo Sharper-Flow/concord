@@ -25,7 +25,13 @@ func joinPacketFor(workID, stepID, attemptID, laneID string, laneVersion int64, 
 		"work_id":        workID,
 		"step_id":        stepID,
 		"inputs": map[string]any{
-			"task":        "lane-step dispatch join probe",
+			"task": "lane-step dispatch join probe",
+			"binding": map[string]any{
+				"objective_source": "contract_premise",
+				"work_version":     1,
+				"contract_version": 1,
+				"assigned_result":  "files_touched",
+			},
 			"constraints": []string{"do-not-modify-product-truth"},
 		},
 	}

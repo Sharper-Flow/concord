@@ -8,6 +8,12 @@
   "step_id": "execution",
   "inputs": {
     "task": "Run the repository JSON validators and report commands, exit codes, and failure classification.",
+    "binding": {
+      "objective_source": "contract_premise",
+      "work_version": 1,
+      "contract_version": 1,
+      "assigned_result": "exit_codes"
+    },
     "context": "Verification runs against a clean checkout.",
     "constraints": [
       "Report exit codes verbatim.",

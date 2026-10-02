@@ -34,7 +34,7 @@ func deliveryRecoveryLane(t *testing.T, capabilityClass string) store.LaneDefini
 func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemptID, capabilityClass string) map[string]any {
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
-	inputs := map[string]any{"task": "advance the approved gate objective", "constraints": []string{"preserve the approved contract"}}
+	inputs := map[string]any{"task": "advance the approved gate objective", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "exit_codes"}, "constraints": []string{"preserve the approved contract"}}
 	pin, err := store.ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)

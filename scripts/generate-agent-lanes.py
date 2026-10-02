@@ -16,6 +16,7 @@ MANIFEST = ROOT / "contracts/agent-lanes.v1.json"
 SCHEMA = ROOT / "contracts/agent-lanes.schema.json"
 PACKET_SCHEMA = ROOT / "contracts/agent-lane-packet.schema.json"
 REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
+PAYLOAD_SCHEMA = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 
@@ -465,7 +466,50 @@ return `status` `failed` when the missing context blocks the assigned result.
 """
 
 
-def agent_projection(lane: dict, report_schema: dict) -> str:
+def objective_binding_instructions(packet_schema: dict, premise_max_bytes: int) -> str:
+    # The packet task is the objective verbatim and inputs.binding is the typed
+    # authority for it, so the guidance teaches both and keeps the three count
+    # units apart: the store's approval premise bound (UTF-8 bytes), the packet
+    # field bounds (JSON Schema Unicode code points), and the lane budget (model
+    # tokens). The numbers are read off the owning contracts, never restated.
+    # The guidance directs no truncation of approved content and names no host
+    # Task prompt cap.
+    task_max = packet_schema["properties"]["inputs"]["properties"]["task"]["maxLength"]
+    paragraph = textwrap.fill(
+        "The store admits an approved contract premise of at most "
+        f"{premise_max_bytes} UTF-8 bytes; that approval limit counts bytes. "
+        f"Packet field limits such as `inputs.task` `maxLength={task_max}` count "
+        "JSON Schema Unicode code points, a different unit. The lane budget "
+        "`context_tokens_max` is a model token limit and is separate from both. "
+        "Concord's CLI bootstrap and output guards are transport bounds of its "
+        "own tools, not a prompt cap on any host Task surface. An oversize or "
+        "invalid projection is refused as a typed failure before authorization; "
+        "do not truncate approved content, and do not ask to reapprove unchanged "
+        "scope to fit a limit.",
+        width=80,
+        break_on_hyphens=False,
+        break_long_words=False,
+    )
+    return f"""## Objective and binding
+
+`inputs.task` is the canonical objective, carried verbatim: the approved
+contract premise when `inputs.binding.objective_source` is `contract_premise`,
+or the recorded work question when it is `work_question`. The packet adds no
+header or trailer, so the whole task text is the objective. The workflow step
+and lane identity are packet root fields, not task text.
+
+`inputs.binding` is the typed authority for the objective: `objective_source`
+names where the task text came from, `work_version` and `contract_version`
+record the versions the packet binds (`contract_version` is null before a
+contract is approved), and `assigned_result` names the one evidence obligation
+whose discharge completes this attempt. Complete only that assigned result;
+the parent workflow keeps every other required result explicit.
+
+{paragraph}
+"""
+
+
+def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premise_max_bytes: int) -> str:
     agent_name = f"concord-{lane['id']}"
     boundary_clause = (
         "Edits only files inside the approved contract scope."
@@ -544,6 +588,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
+{objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}
 {command_duration_instructions(lane)}
@@ -777,13 +822,18 @@ def main() -> int:
         worker_scope = load_worker_scope(manifest)
         packet_schema = json.loads(PACKET_SCHEMA.read_text(encoding="utf-8"))
         report_schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
+        # The approval premise bound the guidance states: the store's
+        # WorkflowPremiseMaxLength, mirrored in the payload contract the
+        # generator reads rather than restated here.
+        payload_schema = json.loads(PAYLOAD_SCHEMA.read_text(encoding="utf-8"))
+        premise_max_bytes = payload_schema["$defs"]["workflow_premise"]["maxLength"]
         expected = {
             ROOT / "internal/store/generated_agent_lanes.go": go_projection(manifest, manifest_digest),
             ROOT / "adapter/opencode/generated-agent-lanes.ts": ts_projection(manifest, manifest_digest, packet_schema, report_schema, worker_scope),
             ROOT / "contracts/agent-lanes.digest": manifest_digest + "\n",
             ROOT / ".concord/docs/agent-lanes-contract.md": docs_projection(manifest, manifest_digest),
         }
-        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema) for lane in manifest["lanes"]})
+        expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema, premise_max_bytes) for lane in manifest["lanes"]})
         expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
         lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
         if EVAL_PACKETS.is_dir():

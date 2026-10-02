@@ -13,6 +13,12 @@ if spec is None or spec.loader is None:
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
 REPORT_SCHEMA = json.loads((ROOT / "contracts/agent-lane-report.schema.json").read_text(encoding="utf-8"))
+PACKET_SCHEMA = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text(encoding="utf-8"))
+PREMISE_MAX_BYTES = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text(encoding="utf-8"))["$defs"]["workflow_premise"]["maxLength"]
+
+
+def lane_projection(lane, report=None):
+    return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA, PREMISE_MAX_BYTES)
 
 
 class AgentProjectionTests(unittest.TestCase):
@@ -27,16 +33,16 @@ class AgentProjectionTests(unittest.TestCase):
         # CD-0070 D1. The host cycles every agent whose mode is not subagent
         # and whose hidden flag is unset, so mode alone cannot keep a worker
         # lane out of the operator's session-agent cycle.
-        self.assertIn("\nhidden: true\n", generator.agent_projection(self.LANE, REPORT_SCHEMA))
+        self.assertIn("\nhidden: true\n", lane_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_stays_selectable_by_run_mode(self):
         # CD-0070 D2. Run mode refuses a subagent-mode target and substitutes
         # the default agent, so CD-0064 D1's mode survives the hidden flag.
-        self.assertIn("\nmode: all\n", generator.agent_projection(self.LANE, REPORT_SCHEMA))
+        self.assertIn("\nmode: all\n", lane_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_denies_task_dispatch(self):
         # CD-0070 Invariant 3, carrying CD-0064 Invariant 3 forward.
-        self.assertIn('"*": deny', generator.agent_projection(self.LANE, REPORT_SCHEMA))
+        self.assertIn('"*": deny', lane_projection(self.LANE, REPORT_SCHEMA))
 
     def test_projection_denies_every_concord_tool(self):
         # CD-0017 D4, extended by CD-0196. The tool ids come from the two
@@ -44,7 +50,7 @@ class AgentProjectionTests(unittest.TestCase):
         ids = generator.concord_tool_ids()
         self.assertIn("concord_work_start", ids)
         self.assertIn("concord_work_transition", ids)
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         for tool_id in ids:
             self.assertIn(f"\n  {tool_id}: false\n", projection)
         self.assertIn("## Concord context boundary", projection)
@@ -64,17 +70,71 @@ class AgentProjectionTests(unittest.TestCase):
         changed["properties"]["readback_model"]["maxLength"] = 77
         changed["properties"]["evidence"]["maxItems"] = 11
         changed["$defs"]["evidence_entry"]["properties"]["detail"]["maxLength"] = 23
-        projection = generator.agent_projection(self.LANE, changed)
+        projection = lane_projection(self.LANE, changed)
         self.assertIn("maxLength=77", projection)
         self.assertIn("maxItems=11", projection)
         self.assertIn("maxLength=23", projection)
+
+    def test_projection_teaches_the_canonical_task_and_binding_authority(self):
+        # The packet task is the objective verbatim and the binding
+        # is its typed authority, so the guidance names both and the one-result
+        # completion rule.
+        normalized = " ".join(lane_projection(self.LANE).split())
+        self.assertIn("## Objective and binding", normalized)
+        self.assertIn("`inputs.task` is the canonical objective, carried verbatim", normalized)
+        self.assertIn("The packet adds no header or trailer", normalized)
+        self.assertIn("`inputs.binding` is the typed authority", normalized)
+        self.assertIn("`objective_source`", normalized)
+        self.assertIn("`work_version` and `contract_version`", normalized)
+        self.assertIn("`contract_version` is null before a contract is approved", normalized)
+        self.assertIn("`assigned_result` names the one evidence obligation whose discharge completes this attempt", normalized)
+        self.assertIn("Complete only that assigned result", normalized)
+
+    def test_projection_states_the_premise_limit_in_bytes_apart_from_other_units(self):
+        # The approval premise bound is UTF-8 bytes; the packet field
+        # bounds are JSON Schema Unicode code points; the lane budget is model
+        # tokens. The guidance reads each number off its owning contract and
+        # keeps the three apart.
+        normalized = " ".join(lane_projection(self.LANE).split())
+        self.assertIn(f"at most {PREMISE_MAX_BYTES} UTF-8 bytes", normalized)
+        self.assertIn("that approval limit counts bytes", normalized)
+        self.assertIn("count JSON Schema Unicode code points", normalized)
+        self.assertIn("`maxLength=4096`", normalized)
+        self.assertIn("`context_tokens_max` is a model token limit", normalized)
+
+    def test_projection_reads_the_task_bound_from_the_packet_schema(self):
+        changed = copy.deepcopy(PACKET_SCHEMA)
+        changed["properties"]["inputs"]["properties"]["task"]["maxLength"] = 77
+        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
+        self.assertIn("`maxLength=77`", normalized)
+        self.assertNotIn("`maxLength=4096`", normalized)
+
+    def test_projection_directs_no_truncation_or_reapproval_and_names_no_task_cap(self):
+        # Oversize projections refuse as typed failures; the guidance
+        # must not tell a lane to cut approved content or to seek reapproval of
+        # unchanged scope, and must not claim a host Task prompt cap.
+        normalized = " ".join(lane_projection(self.LANE).split())
+        self.assertIn("do not truncate approved content", normalized)
+        self.assertIn("do not ask to reapprove unchanged scope", normalized)
+        self.assertIn("not a prompt cap on any host Task surface", normalized)
+        self.assertNotIn("truncate the premise", normalized)
+        self.assertNotIn("truncate the objective", normalized)
+        self.assertNotIn("premise to fit", normalized)
+
+    def test_projection_premise_bound_tracks_the_payload_contract(self):
+        # The byte count the guidance states is a parameter fed from the
+        # payload contract's workflow_premise bound, not a literal in the
+        # generator body.
+        text = " ".join(generator.objective_binding_instructions(PACKET_SCHEMA, 77).split())
+        self.assertIn("at most 77 UTF-8 bytes", text)
+        self.assertNotIn(f"at most {PREMISE_MAX_BYTES} UTF-8 bytes", text)
 
     def test_projection_instructs_the_lane_to_refuse_a_non_packet_first_message(self):
         # CD-0102 heuristic control: with no adapter plugin nothing
         # adapter-side runs, so every generated lane definition must itself
         # refuse a first message that is not a well-formed packet and return
         # the report with status failed.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("verify the first message you received", projection)
         self.assertIn("`agent-lane-packet.v1` packet", projection)
         for field in ("schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"):
@@ -89,7 +149,7 @@ class AgentProjectionTests(unittest.TestCase):
         # (CD-0180). The generated contract text is the only place a lane
         # agent learns that rule, so every lane definition must state it
         # while predicate_ids stays schema-optional.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("evidence_entry.predicate_ids: optional array", normalized)
         self.assertIn("omit it on an entry that proves no declared predicate", normalized)
@@ -103,7 +163,7 @@ class AgentProjectionTests(unittest.TestCase):
         # project it: a verify attempt that widens to a full Go package suite
         # runs for minutes, and a worker left to guess shell timeouts loses
         # the run at the host's 120-second default.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("## Command duration", projection)
         self.assertIn("1200 seconds", projection)
         self.assertIn("`timeout`", projection)
@@ -111,12 +171,12 @@ class AgentProjectionTests(unittest.TestCase):
 
     def test_projection_budget_tracks_the_declared_time_seconds_max(self):
         lane = dict(self.LANE, budgets={"time_seconds_max": 777})
-        projection = generator.agent_projection(lane, REPORT_SCHEMA)
+        projection = lane_projection(lane, REPORT_SCHEMA)
         self.assertIn("777 seconds", projection)
         self.assertNotIn("1200 seconds", projection)
 
     def test_projection_treats_full_go_suites_as_able_to_exceed_400_seconds(self):
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertIn("full Go package suites", projection)
         self.assertIn("exceed 400 seconds", projection)
         self.assertIn("go test ./...", projection)
@@ -125,7 +185,7 @@ class AgentProjectionTests(unittest.TestCase):
         # The dispatch window pins the worker directory, and the adapter
         # composes the admitted report from the authorized packet, so the
         # lane definition must not ask the worker for a `pwd` readback.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         self.assertNotIn("pwd", projection)
         self.assertNotIn("cwd", projection)
 
@@ -133,7 +193,7 @@ class AgentProjectionTests(unittest.TestCase):
         # Every lane must attempt one real Context7 or Exa call per bounded
         # technical task through `execute`, discover signatures first, and
         # report an unconnected service instead of inventing a result.
-        projection = generator.agent_projection(self.LANE, REPORT_SCHEMA)
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("Source lookup through `execute`", projection)
         self.assertIn("one real source lookup", normalized)
@@ -151,7 +211,7 @@ class AgentProjectionTests(unittest.TestCase):
         # files, conform to it, and edit a law document only when the block
         # lists it as modified or added.
         lane = dict(self.LANE, capabilities=["read_repository", "edit_scoped_files", "run_tests", "report_evidence"])
-        projection = generator.agent_projection(lane, REPORT_SCHEMA)
+        projection = lane_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("Approved law and architecture block", projection)
         self.assertIn("Read each named law document before you change files", normalized)
@@ -165,7 +225,7 @@ class AgentProjectionTests(unittest.TestCase):
         # assesses the result, and receives no file-change rule, so the block
         # never implies edit authority the lane does not hold.
         lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
-        projection = generator.agent_projection(lane, REPORT_SCHEMA)
+        projection = lane_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
         self.assertIn("Approved law and architecture block", projection)
         self.assertIn("Read each named law document before you assess the result", normalized)
@@ -348,14 +408,14 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
             (self.lane(id="verify"), "Does not edit repository source.", "do not create, change, or delete repository source files"),
         )
         for lane, clause, boundary_text in cases:
-            projection = generator.agent_projection(lane, REPORT_SCHEMA)
+            projection = lane_projection(lane, REPORT_SCHEMA)
             description = next(line for line in projection.splitlines() if line.startswith("description:"))
             self.assertIn(clause, description, lane["id"])
             self.assertIn("## Repository edit boundary", projection, lane["id"])
             self.assertIn(boundary_text, " ".join(projection.split()), lane["id"])
 
     def test_boundary_section_sits_between_the_intro_and_the_packet_rule(self):
-        projection = generator.agent_projection(self.lane(), REPORT_SCHEMA)
+        projection = lane_projection(self.lane(), REPORT_SCHEMA)
         self.assertLess(projection.index("spawn nested workers."), projection.index("## Repository edit boundary"))
         self.assertLess(
             projection.index("## Repository edit boundary"),
@@ -377,7 +437,7 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
     def test_every_manifest_lane_renders_the_boundary_matching_its_capability(self):
         manifest, _ = generator.load_manifest()
         for lane in manifest["lanes"]:
-            projection = generator.agent_projection(lane, REPORT_SCHEMA)
+            projection = lane_projection(lane, REPORT_SCHEMA)
             self.assertIn("## Repository edit boundary", projection, lane["id"])
             if "edit_scoped_files" in lane["capabilities"]:
                 self.assertIn("Edits only files inside the approved contract scope.", projection, lane["id"])

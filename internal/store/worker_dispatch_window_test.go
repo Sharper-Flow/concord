@@ -686,7 +686,13 @@ func dispatchWorkerPacket(workID, stepID, attemptID string) map[string]any {
 		"work_id":        workID,
 		"step_id":        stepID,
 		"inputs": map[string]any{
-			"task":        "cd0065 dispatch packet",
+			"task": "cd0065 dispatch packet",
+			"binding": map[string]any{
+				"objective_source": "contract_premise",
+				"work_version":     1,
+				"contract_version": 1,
+				"assigned_result":  "files_touched",
+			},
 			"constraints": []string{"do-not-modify-product-truth"},
 		},
 	}

@@ -54,7 +54,7 @@ func TestSameStepWallBindingAfterACompletedAttempt(t *testing.T) {
 		"schema_version": "1.0", "attempt_id": "attempt:" + workID + ":same:5",
 		"lane_id": "review", "lane_version": reviewVersion, "lane_digest": reviewDigest,
 		"work_id": workID, "step_id": "repair",
-		"inputs": map[string]any{"task": "review the bounded change", "constraints": []string{"preserve the approved contract"}},
+		"inputs": map[string]any{"task": "review the bounded change", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "contract_findings"}, "constraints": []string{"preserve the approved contract"}},
 	})
 	if err != nil {
 		t.Fatal(err)

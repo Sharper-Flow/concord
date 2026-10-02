@@ -128,7 +128,7 @@ func verifyWallReviewLane(t *testing.T) store.LaneDefinition {
 func verifyWallPacket(t *testing.T, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
 	lane := verifyWallReviewLane(t)
-	inputs := map[string]any{"task": "review the bounded change", "constraints": []string{"preserve the approved contract"}}
+	inputs := map[string]any{"task": "review the bounded change", "binding": map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "contract_findings"}, "constraints": []string{"preserve the approved contract"}}
 	if correction != nil {
 		inputs["correction"] = correction
 	}

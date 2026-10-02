@@ -1174,6 +1174,34 @@ func TestBootResumeOmitsStaleHandoffsAfterContractReplacement(t *testing.T) {
 	}
 }
 
+// TestBootResumeRendersNoJobBehindAConsumedFrontier pins the frontier
+// ordinal: once the newest addressed handoff's bind is consumed, an older
+// recorded handoff behind it is superseded — the boot renders no bounded job
+// for it, and the consuming session stays admitted.
+func TestBootResumeRendersNoJobBehindAConsumedFrontier(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	first := recordHandoff(t, f, f.sourceTree)
+	req := f.recordRequest(f.sourceTree)
+	req.BoundedJob = "successor repository job"
+	req.Now = time.Unix(40, 0).UTC()
+	second, err := runRecordProjectHandoffTx(f, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumeHandoff(t, f, second.HandoffID)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("gate refused the consuming session %v", err)
+	}
+	rendered, err := storeReadPendingForProject(f, f.targetProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered != nil {
+		t.Fatalf("boot resurrected older handoff %s after the current frontier %s was consumed", first.HandoffID, second.HandoffID)
+	}
+}
+
 // TestConsumeResolvesTheAddressedHandoffWithoutAnIdentity pins the
 // addressed-resolution consume: an empty handoff id binds the newest
 // unconsumed handoff addressed to the consumer's own Project, from recorded
@@ -1231,6 +1259,60 @@ func TestProjectHandoffConsumeRefusesUnplacedReceiver(t *testing.T) {
 		t.Fatalf("state=%q, want the refused consume to record nothing", state)
 	}
 	consumeHandoff(t, f, recorded.HandoffID)
+}
+
+// TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding pins the
+// receiver-admission boundary: claim admission records the session's
+// occupancy row but no verified landing, so a consume bound on claim
+// occupancy alone would authorize an unlanded session. The admission gate
+// refuses the same session, and the real landing reopens the bind.
+func TestConsumeRefusesClaimOccupancyWithoutTheVerifiedLanding(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	ctx := context.Background()
+	work := "work-review-placement"
+	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{
+		workCreatedEvent(work, "review-create"),
+		operationEvent("review-member-source", "work_project.added", SubjectWorkItem, work, map[string]any{"work_id": work, "project_id": f.sourceProject, "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2}),
+		operationEvent("review-member-target", "work_project.added", SubjectWorkItem, work, map[string]any{"work_id": work, "project_id": f.targetProject, "role": "secondary", "reason": "fixture", "expected_version": 2, "resulting_version": 3}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, work): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	seedProjectHandoffContract(t, f.store, work, 3)
+	base, err := (ExecGitRunner{}).Run(ctx, f.targetTree, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := f.store.ClaimWorktree(ctx, WorktreeClaimRequest{OpID: "review-claim", WorkID: work, ProjectID: f.targetProject, BaseSHA: strings.TrimSpace(string(base)), PrincipalRef: "principal-2", RequestID: "review-claim", SessionRef: f.targetSession, HostPID: os.Getpid(), ExpectedVersion: 7, Now: time.Unix(50, 0).UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var landings int
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=?`, work).Scan(&landings); err != nil {
+		t.Fatal(err)
+	}
+	if landings != 0 {
+		t.Fatal("unexpected placement evidence")
+	}
+	req := f.recordRequest(f.sourceTree)
+	req.WorkID = work
+	recorded, err := runRecordProjectHandoffTx(f, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{WorkID: work, HandoffID: recorded.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(60, 0).UTC()})
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
+		t.Fatalf("err=%v, want the claim-occupancy consume to refuse without the verified landing", err)
+	}
+	if err := runHandoffGate(t, f.store, work, f.targetSession); failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
+		t.Fatalf("gate err=%v, want claim occupancy alone to fail admission closed", err)
+	}
+	// The real verified claim landing records this session's occupancy on
+	// the claimed worktree, and the bind then lands.
+	bindSessionToProjectWorktree(t, f.store, claim.Entry.Path, f.targetSession)
+	if _, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{WorkID: work, HandoffID: recorded.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: f.targetSession, Now: time.Unix(61, 0).UTC()}); err != nil {
+		t.Fatalf("post-landing consume refused: %v", err)
+	}
 }
 
 // A consumed frontier admits only its own consumer: another receiving

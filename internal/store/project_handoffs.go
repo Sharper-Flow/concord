@@ -514,9 +514,10 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		// The addressed resolution reads the newest handoff addressed to the
 		// consumer's Project in any state, so a standing bind replays as
 		// AlreadyConsumed and a foreign bind refuses with the bound session
-		// named.
+		// named. The ordering matches the admission gate and the boot
+		// frontier, so the three reads of "the current handoff" agree.
 		var id string
-		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY recorded_at DESC, handoff_id LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
+		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
 		if idErr == sql.ErrNoRows {
 			return ProjectHandoff{}, newFailure(KindProjectionNotFound, "project_handoff", "no recorded project handoff addresses this Project", false, "wait for the source session to record the addressed handoff")
 		}
@@ -556,21 +557,20 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the handoff addresses Project %s, not %s", handoff.TargetProjectID, req.ConsumerProjectID), false, "consume the handoff addressed to the session's Project")
 	}
 	// The bind requires the verified receiver placement: the consuming
-	// session must hold the occupancy row a verified claim landing recorded
-	// on this work for the addressed Project (CD-0178 D3). A fresh bind
-	// without that placement refuses inside this transaction, so
-	// consumption can never precede the verified landing.
-	var placed int
-	if placeErr := tx.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM worktree_occupancy o
-		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
-		JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		WHERE o.session_ref=? AND c.work_id=? AND c.project_id=?)`,
-		req.ConsumerSessionRef, req.WorkID, req.ConsumerProjectID).Scan(&placed); placeErr != nil {
-		return out, wrapFailure(KindUnavailable, "project_handoff", "cannot read the receiving session's verified placement", true, "retry once the database is readable", placeErr)
+	// session must hold the occupancy row a recorded claim landing
+	// established on this work for the addressed Project (CD-0178 D3).
+	// Claim admission records an occupancy row without a landing, so
+	// occupancy alone is not placement, and consumption can never precede
+	// the verified landing.
+	placedProject, placeErr := verifiedSessionPlacementTx(ctx, tx, req.WorkID, req.ConsumerSessionRef)
+	if placeErr != nil {
+		return out, placeErr
 	}
-	if placed == 0 {
+	if placedProject == "" {
 		return out, newFailure(KindInvalidOperation, "project_handoff", "the receiving session holds no verified placement on this work for the addressed Project; the consume binds only after a verified claim landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement, then consume")
+	}
+	if placedProject != req.ConsumerProjectID {
+		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the receiving session's verified placement names Project %s, not %s", placedProject, req.ConsumerProjectID), false, "consume from the session's own landed Project context")
 	}
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, req.WorkID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
@@ -627,6 +627,34 @@ func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID str
 	return h, nil
 }
 
+// verifiedSessionPlacementTx resolves the Project of the session's verified
+// placement on one work: an occupancy row a recorded claim landing
+// established (CD-0178 D3) that still stands. Claim admission records an
+// occupancy row without a landing, and a vacate landing releases the row, so
+// neither state alone proves the session was placed and has not left. It
+// returns an empty Project when no verified placement stands. It runs inside
+// the caller's transaction.
+func verifiedSessionPlacementTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (string, error) {
+	var projectID string
+	err := tx.QueryRowContext(ctx, `SELECT c.project_id
+		FROM worktree_occupancy o
+		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
+		JOIN worktree_claims c ON c.op_id=e.claim_op_id
+		WHERE o.session_ref=? AND c.work_id=?
+		  AND EXISTS (SELECT 1 FROM domain_events l
+		              WHERE l.kind='work.session_claim_landed' AND l.subject_id=c.work_id
+		                AND json_extract(l.payload,'$.session_ref')=o.session_ref
+		                AND json_extract(l.payload,'$.project_id')=c.project_id)`,
+		sessionRef, workID).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "project_handoff", "cannot read the session's verified placement", true, "retry once the database is readable", err)
+	}
+	return projectID, nil
+}
+
 // RefuseUnconsumedProjectHandoffTx is the core managed-execution admission
 // gate. It reads the current addressed frontier: the newest handoff another
 // session recorded for the acting session's Project. A frontier that stands
@@ -653,23 +681,19 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 		return nil
 	}
 	// The acting session's Project resolves from the core's own placement
-	// evidence: the occupancy row the verified landing recorded (CD-0178
-	// D3) joined to the claimed worktree. A caller-supplied Project never
-	// decides admission. On a handoff-bearing work an unresolvable placement
+	// evidence: the occupancy row a recorded claim landing established
+	// (CD-0178 D3) joined to the claimed worktree. A caller-supplied Project
+	// never decides admission, and claim occupancy without its landing is
+	// not placement. On a handoff-bearing work an unresolvable placement
 	// refuses: the session could be the addressed receiver skipping its
 	// consume, so admission fails closed until a verified landing records
 	// its occupancy.
-	var projectID string
-	projectErr := tx.QueryRowContext(ctx, `SELECT c.project_id
-		FROM worktree_occupancy o
-		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
-		JOIN worktree_claims c ON c.op_id=e.claim_op_id
-		WHERE o.session_ref=? AND c.work_id=?`, sessionRef, workID).Scan(&projectID)
-	if projectErr == sql.ErrNoRows {
-		return newFailure(KindInvalidOperation, "project_handoff", "the work carries Project handoffs, but this session holds no verified placement on it; managed execution refuses until a verified landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement")
+	projectID, placeErr := verifiedSessionPlacementTx(ctx, tx, workID, sessionRef)
+	if placeErr != nil {
+		return placeErr
 	}
-	if projectErr != nil {
-		return wrapFailure(KindUnavailable, "project_handoff", "cannot resolve the acting session's Project placement", true, "retry once the database is readable", projectErr)
+	if projectID == "" {
+		return newFailure(KindInvalidOperation, "project_handoff", "the work carries Project handoffs, but this session holds no verified placement on it; managed execution refuses until a verified landing records this session's occupancy", false, "replay work_start so the verified landing records this session's placement")
 	}
 	var frontierID, frontierSource string
 	var frontierVersion int64
@@ -1043,14 +1067,15 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 }
 
 // PendingProjectHandoffForProjectTx reads the boot/resume frontier: the
-// newest unconsumed handoff on the work addressed to one Project under the
-// ACTIVE contract version. A handoff recorded under a superseded contract
-// can never be consumed, so resume renders nothing for it — a stale record
-// cannot resurrect through the Project-selected boot after a fresh
-// handoff's bind consumed the current frontier. The Project-selected
-// boot/resume flow renders it as the bounded repository job the receiving
-// session must consume before managed execution; visibility here never
-// consumes or authorizes. It runs inside the caller's transaction.
+// newest handoff on the work addressed to one Project under the ACTIVE
+// contract version, whatever its state. A consumed frontier's bind stands and
+// renders no job, and an older recorded handoff behind the consumed frontier
+// is superseded by ordinal — the boot never resurrects it. Only a frontier
+// that still stands recorded renders as the bounded repository job the
+// receiving session must consume before managed execution; a handoff
+// recorded under a superseded contract can never be consumed, so resume
+// renders nothing for it. Visibility here never consumes or authorizes. It
+// runs inside the caller's transaction.
 func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, projectID string) (*ProjectHandoff, error) {
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
@@ -1062,7 +1087,7 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 		return nil, contractErr
 	}
 	var id string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND state='recorded' AND contract_version=? ORDER BY recorded_at DESC, handoff_id LIMIT 1`, workID, projectID, version).Scan(&id)
+	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, version).Scan(&id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1072,6 +1097,9 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 	handoff, err := readProjectHandoffTx(ctx, tx, workID, id)
 	if err != nil {
 		return nil, err
+	}
+	if handoff.State != ProjectHandoffRecorded {
+		return nil, nil
 	}
 	return &handoff, nil
 }

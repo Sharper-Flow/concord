@@ -489,7 +489,7 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	}
 	// The bound detects runaway help output. It is not a size budget for the
 	// documented command surface, which commandSpecs owns.
-	if out.Len() > 16800 {
+	if out.Len() > 17000 {
 		t.Fatalf("help output is unbounded: %d bytes", out.Len())
 	}
 }

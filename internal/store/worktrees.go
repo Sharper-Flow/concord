@@ -1586,10 +1586,18 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	// the replay for the work item's whole life, and after a reclaim and a
 	// new claim at the same derived path a real second transfer would be
 	// skipped while the session's sources stay occupied under a success
-	// report. When this session already holds the destination row and no
-	// other row of this work item, the projection already holds the landing
-	// and the same landing replays idempotently with no event.
-	if held && len(sources) == 0 {
+	// report. The replay is a recorded landing, never a bare occupancy row:
+	// a claim carries its session's row from creation (CD-0179), and that
+	// row proves nothing about where the session runs until this landing
+	// verifies it. When this session already holds the destination row, no
+	// other row of this work item, and a recorded landing stands, the
+	// projection already holds the landing and the same landing replays
+	// idempotently with no event.
+	recorded, err := countSessionClaimLandingsTx(ctx, tx, req.WorkID, req.SessionRef)
+	if err != nil {
+		return out, err
+	}
+	if held && len(sources) == 0 && recorded > 0 {
 		out.AlreadyRecorded = true
 		return out, nil
 	}
@@ -1599,10 +1607,6 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	// landing at the same derived path records its own transfer. The count
 	// runs inside this transaction, mirroring the vacate ordinal in
 	// CD-0120 D4.
-	recorded, err := countSessionClaimLandingsTx(ctx, tx, req.WorkID, req.SessionRef)
-	if err != nil {
-		return out, err
-	}
 	eventID := fmt.Sprintf("%s:session-claim-landed:%s:%d", req.WorkID, req.SessionRef, recorded+1)
 	now := req.Now
 	if now.IsZero() {

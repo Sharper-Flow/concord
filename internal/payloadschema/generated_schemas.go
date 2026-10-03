@@ -9971,6 +9971,15 @@ const GeneratedPayloadSchemaDocument = `{
                         "type": "array",
                         "uniqueItems": true
                       },
+                      "out_of_scope": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
                       "problem": {
                         "maxLength": 4096,
                         "minLength": 1,

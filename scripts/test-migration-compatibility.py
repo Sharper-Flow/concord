@@ -3178,6 +3178,313 @@ rebuild_roundtrip(
     ),
 )
 
+
+# --- CON-488 retry-11: view and quoted-token regressions ---------------------
+# Three unsafe additive admissions the earlier proof carried, each with the
+# SQLite fact that convicted it: a view created before its table vanished
+# from the replay, DROP TABLE removed surviving views so a conditional
+# CREATE VIEW pretended restoration, and whitespace inside double-quoted
+# CHECK tokens collapsed, so a narrowed string constraint proved equal.
+
+# SQLite stores CREATE VIEW as text and parses it at query time, so a view
+# may precede its table. Nothing attaches such a view to the table, so the
+# rename strands it on the scratch name and the scratch drop leaves it
+# broken: the rebuild owes it a drop and a restoration.
+FORWARD_VIEW_BASE = (
+    "CREATE VIEW v AS SELECT id FROM t;"
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+)
+expect_world(
+    "a view born before its table keeps an unrestored rebuild breaking",
+    FORWARD_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a view born before its table, dropped and restored, stays additive",
+    FORWARD_VIEW_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "CREATE VIEW v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: the unrestored forward view reads the dropped scratch
+# name after the rebuild.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(FORWARD_VIEW_BASE)
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the forward view survived the rebuild unbroken")
+finally:
+    connection.close()
+
+# DROP TABLE leaves surviving views standing, so a conditional CREATE VIEW
+# over the stranded view is the no-op SQLite runs: even when it repeats the
+# view's exact old text it restores nothing.
+CONDITIONAL_REBUILD_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;"
+)
+CONDITIONAL_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+        "DROP TABLE scratch;",
+        "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;",
+    )
+)
+expect_world(
+    "a conditional re-creation over a stranded view stays breaking",
+    CONDITIONAL_REBUILD_BASE,
+    CONDITIONAL_REBUILD,
+    breaking=True,
+)
+expect_world(
+    "a stranded view dropped after the scratch drop stays additive",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: after the conditional no-op the view still names the
+# dropped scratch name.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_REBUILD_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+    connection.executescript(CONDITIONAL_REBUILD)
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the conditional re-creation revived the stranded view")
+finally:
+    connection.close()
+
+# A restored view must repeat its definition byte for byte: a difference
+# inside a double-quoted token is a different view text in sqlite_master.
+expect_world(
+    "a restored view differing inside a quoted token is no restoration",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            'CREATE VIEW IF NOT EXISTS v AS SELECT "id" FROM t;',
+        )
+    ),
+    breaking=True,
+)
+
+# A view naming nothing the rebuild touched must survive untouched.
+OTHER_TABLE_VIEW_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE TABLE other (id INTEGER PRIMARY KEY);"
+    "CREATE VIEW other_open AS SELECT id FROM other;"
+)
+expect_world(
+    "an untouched view on another table survives the rebuild additively",
+    OTHER_TABLE_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a dropped-and-unrestored unrelated view keeps the rebuild breaking",
+    OTHER_TABLE_VIEW_BASE,
+    "DROP VIEW other_open;\n"
+    + small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+
+# SQLite's one namespace holds tables and dependent names together: a
+# rename cannot land on a surviving view's name, and a view cannot take
+# the rebuilt table's own name.
+expect_world(
+    "a rename onto a surviving view's name keeps the rebuild breaking",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE VIEW reserved AS SELECT id FROM t;",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO reserved;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM reserved;",
+            "DROP TABLE reserved;",
+        )
+    ),
+    breaking=True,
+)
+expect_world(
+    "a view over the rebuilt table's own name is no restoration",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            "CREATE VIEW t AS SELECT id FROM v;",
+        )
+    ),
+    breaking=True,
+)
+# A conditional table creation over a view's name is the no-op SQLite runs,
+# so it builds no table a later rename-rebuild can prove against: the view
+# survives as a view, and the rebuild of a nonexistent table is refused.
+expect_world(
+    "a conditional table creation over a view's name proves no rebuild",
+    "CREATE VIEW t AS SELECT id FROM base;"
+    "CREATE TABLE base (id INTEGER PRIMARY KEY);",
+    "\n".join(
+        (
+            "CREATE TABLE IF NOT EXISTS t "
+            "(id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=True,
+)
+
+# Whitespace inside a double-quoted token is data. SQLite reads a
+# double-quoted token that names no identifier as the string it spells, so
+# "a  b" and "a b" are different constraints and neither proves the other.
+QUOTED_TOKEN_BASE = small_base(
+    'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")'
+)
+expect_world(
+    'a double-quoted CHECK token narrowed inside its quotes stays breaking',
+    QUOTED_TOKEN_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a b")',
+    ),
+    breaking=True,
+)
+expect_world(
+    "an identical double-quoted CHECK token still proves equal",
+    QUOTED_TOKEN_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+    ),
+    breaking=False,
+)
+# SQLite conviction: the narrowed rebuild cannot even copy the old row,
+# because 'a  b' fails CHECK(n = "a b") under the string fallback.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(QUOTED_TOKEN_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 'a  b')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+                'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a b")',
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append('the narrowed quoted-token rebuild copied "a  b"')
+finally:
+    connection.close()
+
+# The restored forward view survives real SQLite: rows are preserved in
+# their old shape, old-shaped reads and writes keep working, the widened
+# CHECK admits the new state, and the view reads again.
+FORWARD_ROUNDTRIP_BASE = (
+    "CREATE VIEW attempts_open AS SELECT id FROM attempts WHERE state = 'open';"
+    + REBUILD_ROUNDTRIP_BASE
+)
+
+
+def forward_view_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+        return
+    if connection.execute(
+        "SELECT id FROM attempts_open ORDER BY id;"
+    ).fetchall() != [("a",)]:
+        FAILURES.append(f"{name}: restored forward view does not read")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', 2);"
+    )
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('d', 'archived', 3);"
+        )
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(f"{name}: widened CHECK refused the new state: {err}")
+
+
+rebuild_roundtrip(
+    "a restored forward view reads and old-shaped writes keep working",
+    rebuild="\n".join(
+        (
+            "DROP VIEW IF EXISTS attempts_open;",
+            "DROP TRIGGER IF EXISTS attempts_guard;",
+            "ALTER TABLE attempts RENAME TO attempts_v108;",
+            REBUILD_CREATE_TEMPLATE.format(
+                state="CHECK(state IN ('open','closed','archived'))",
+                n="CHECK(n >= 0)",
+            ),
+            REBUILD_COPY,
+            "DROP TABLE attempts_v108;",
+            "CREATE INDEX attempts_state ON attempts(state);",
+            REBUILD_TRIGGER_SQL,
+            "CREATE VIEW attempts_open AS "
+            "SELECT id FROM attempts WHERE state = 'open';",
+        )
+    ),
+    probes=forward_view_probes,
+    base=FORWARD_ROUNDTRIP_BASE,
+)
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

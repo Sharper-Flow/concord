@@ -45,8 +45,14 @@ migration's schema effect into a World, and a rebuild stays additive only
 when the proof holds against the world its predecessors produced: the
 prior schema is known, every column keeps its name, type, and constraints,
 the copy is lossless and carries the table's identity state, the
-dependents return with their old definitions,
-no other table's foreign keys, triggers, or views name the rebuilt table
+dependents return with their old definitions, and every view the schema
+carried returns stale-free with its exact old definition: a rename
+rewrites the definition of every view naming the old table onto the
+scratch name, DROP TABLE leaves surviving views in place, and a
+conditional CREATE over a stranded view is the no-op SQLite runs, so a
+stranded view proves restored only when the migration drops it and
+re-creates it byte for byte,
+no other table's foreign keys or triggers name the rebuilt table
 (a rename rewrites every inbound reference onto the scratch name, and an
 earlier migration's rename has already rewritten such a reference onto
 another name that the replay cannot carry, so that world poisons), and the
@@ -83,11 +89,13 @@ inequality, and text bounds have acceptance sets the proof cannot order:
 a changed one must repeat its old text or the pairing refuses. The
 migration may carry
 nothing beside the rebuild shape: dependent drops before the rename, the
-rename, the recreation, one lossless copy, the scratch drop, and the
-restorations - a write anywhere else can erase the rows the copy claims
+rename, the recreation, one lossless copy, the scratch drop, the
+restorations, and the drop-and-recreation of every stranded view - a
+write anywhere else can erase the rows the copy claims
 to move, so an unproved write keeps the migration breaking. An unknown
 baseline, a narrowed or novel CHECK, an altered column, default, key, or
-foreign-key shape, unsupported SQL, a lossy copy, or a dependent that
+foreign-key shape, unsupported SQL, a lossy copy, or a dependent or
+stranded view that
 does not return all keep the migration breaking. A conditional migration,
 an unreadable entry, or one statement the replay cannot interpret
 poisons the world, and poisoned worlds prove nothing: a proof read from
@@ -525,27 +533,35 @@ def bare_name(ref: str) -> str | None:
 
 
 def collapse_ws(text: str) -> str:
-    """Collapse whitespace runs to single spaces, outside string literals.
+    """Collapse whitespace runs to single spaces, outside quoted tokens.
 
-    Literal contents keep every character: two CHECK bodies that differ
-    inside a value are different checks, and a comparison that equated
-    them would widen against values SQLite never saw.
+    A quoted token keeps every byte: a string, a double-quoted identifier,
+    a backticked or bracketed name, and its doubled escapes all survive
+    verbatim, whatever whitespace they carry. SQLite reads a double-quoted
+    token that names no identifier as the string it spells, so two CHECK
+    bodies that differ inside a quoted token are different checks, and a
+    normalization that equated them would widen against values SQLite
+    never saw.
     """
     out: list[str] = []
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
-        if ch == "'":
+        if ch in ('"', "'", "`", "["):
+            close = "]" if ch == "[" else ch
             j = i + 1
             while j < n:
-                if text[j] == "'" and j + 1 < n and text[j + 1] == "'":
-                    j += 2
-                    continue
-                if text[j] == "'":
+                k = text.find(close, j)
+                if k < 0:
+                    j = n
                     break
-                j += 1
-            out.append(text[i : min(j + 1, n)])
-            i = j + 1
+                if close != "]" and k + 1 < n and text[k + 1] == close:
+                    j = k + 2
+                    continue
+                j = k + 1
+                break
+            out.append(text[i : min(j, n)])
+            i = min(j, n)
             continue
         if ch in SQL_TRIM:
             j = i
@@ -1256,7 +1272,7 @@ def dependent_decl(statement: str):
 
 
 class Dependent(NamedTuple):
-    """One index, trigger, or view attached to a replayed table."""
+    """One index or trigger attached to a replayed table."""
 
     kind: str
     name: str
@@ -1264,7 +1280,9 @@ class Dependent(NamedTuple):
 
 
 class TableState:
-    """One replayed table: its declared shape and its dependents."""
+    """One replayed table: its declared shape and its attached indexes and
+    triggers. Views live schema-level on the World and attach to nothing.
+    """
 
     __slots__ = ("shape", "dependents")
 
@@ -1329,24 +1347,32 @@ def shape_references(shape: TableShape, name: str) -> bool:
 class World:
     """The replayed schema state a rebuild proof reads its baseline from.
 
-    tables carries each known table's shape and dependents. objects carries
-    every dependent object's name under SQLite's one namespace, so a
-    conditional CREATE over an existing name replays as the no-op SQLite
-    runs and an unconditional one as the error SQLite raises. poisoned
-    marks a state the replay can no longer vouch for, and a poisoned world
-    proves nothing: a proof read from an uncertain before-state would
-    admit a shape an older binary never saw.
+    tables carries each known table's shape and its attached indexes and
+    triggers. objects carries every dependent object's name under SQLite's
+    one namespace, so a conditional CREATE over an existing name replays as
+    the no-op SQLite runs and an unconditional one as the error SQLite
+    raises. views carries every schema-level view's definition: DROP TABLE
+    leaves views standing, and a rename rewrites the definition of every
+    view naming the old table - a rewrite the replay cannot carry, so the
+    view's name lands in stale until the migration itself drops and
+    re-creates it. poisoned marks a state the replay can no longer vouch
+    for, and a poisoned world proves nothing: a proof read from an
+    uncertain before-state would admit a shape an older binary never saw.
     """
 
     def __init__(self) -> None:
         self.tables: dict[tuple[str, str], TableState] = {}
         self.objects: dict[str, str] = {}
+        self.views: dict[str, str] = {}
+        self.stale: set[str] = set()
         self.poisoned = False
 
     def clone(self) -> "World":
         copy = World()
         copy.poisoned = self.poisoned
         copy.objects = dict(self.objects)
+        copy.views = dict(self.views)
+        copy.stale = set(self.stale)
         copy.tables = {key: state.clone() for key, state in self.tables.items()}
         return copy
 
@@ -1386,6 +1412,13 @@ class World:
                 if not conditional:
                     self.poisoned = True
                 return
+            if key[0] == "main" and key[1] in self.objects:
+                # SQLite's one namespace: a table cannot take a dependent
+                # object's name, so the conditional form is the no-op and
+                # the bare form the error. Either way no table is created.
+                if not conditional:
+                    self.poisoned = True
+                return
             self.tables[key] = TableState(shape)
             return
         match = DROP_TABLE_MAYBE.match(statement)
@@ -1418,17 +1451,28 @@ class World:
                     self.poisoned = True
                     return
                 moved = (key[0], sql_table_key(rename.group(1))[1])
-                if moved in self.tables:
+                if moved in self.tables or (
+                    moved[0] == "main" and moved[1] in self.objects
+                ):
+                    # The new name is taken by a table or by a dependent
+                    # object, the error SQLite raises.
                     self.poisoned = True
                     return
                 if self._inbound_references(key):
-                    # SQLite rewrites every inbound foreign-key clause,
-                    # trigger body, and view definition onto the new name,
-                    # and the replay carries such a reference only as stale
-                    # text: a rename a foreign reference can see leaves the
-                    # replayed world behind the real one.
+                    # SQLite rewrites every inbound foreign-key clause and
+                    # trigger body onto the new name, and the replay
+                    # carries such a reference only as stale text: a rename
+                    # a foreign reference can see leaves the replayed world
+                    # behind the real one.
                     self.poisoned = True
                 self.tables[moved] = self.tables.pop(key)
+                for name in self.views:
+                    if references_table(self.views[name], key[1]):
+                        # The rename rewrote this view's definition onto
+                        # the scratch name. The replay cannot carry the
+                        # rewritten text, so the view stands stale until
+                        # the migration drops and re-creates it.
+                        self.stale.add(name)
                 return
             add = ADD_COLUMN_DEF.match(match.group(2).strip(SQL_TRIM))
             if add:
@@ -1461,8 +1505,21 @@ class World:
                 if not conditional:
                     self.poisoned = True
                 return
+            if ("main", name) in self.tables:
+                # A dependent object cannot take a live table's name, the
+                # error SQLite raises; the conditional form is the no-op
+                # and no dependent is created.
+                if not conditional:
+                    self.poisoned = True
+                return
             if kind == "view":
-                self._apply_view(name, text, on)
+                # A view is schema-level state: DROP TABLE leaves it
+                # standing, so it attaches to no table. Its definition
+                # enters the world exactly as spelled, which also clears
+                # any rename-driven staleness.
+                self.objects[name] = kind
+                self.views[name] = text
+                self.stale.discard(name)
                 return
             key = self.resolve(on)
             if key is None:
@@ -1477,9 +1534,14 @@ class World:
         self.poisoned = True
 
     def _drop_dependent(self, name: str, kind: str) -> bool:
+        """Drop one dependent object, or False when the name holds no such
+        object. A view drops from the schema-level registry too; a rename's
+        staleness marks go with it."""
         if self.objects.get(name) != kind:
             return False
         del self.objects[name]
+        self.views.pop(name, None)
+        self.stale.discard(name)
         for state in self.tables.values():
             state.dependents.pop(name, None)
         return True
@@ -1522,9 +1584,10 @@ def rebuild_scan(stmts: list[str], world: World):
 
     The proof admits one shape and nothing beside it: dependent drops
     before the rename, the rename, the recreation, one lossless copy, the
-    scratch drop, and the dependent restorations. A write anywhere else
-    in the migration can erase the rows the copy claims to move, and any
-    other statement carries no proof, so both refuse.
+    scratch drop, the dependent restorations, and the drop-and-recreation
+    of every view the rename stranded. A write anywhere else in the
+    migration can erase the rows the copy claims to move, and any other
+    statement carries no proof, so both refuse.
     """
     if world.poisoned:
         return None
@@ -1596,9 +1659,21 @@ def rebuild_scan(stmts: list[str], world: World):
         declared = dependent_decl(statement)
         if declared is not None and at_drop is not None:
             kind, name, text, on, _ = declared
+            if kind == "view":
+                # A view is schema-level state, not the table's dependent:
+                # the rename stranded every view naming the old table on
+                # the scratch name, and the proof below holds each one to
+                # actual restoration against the world's views.
+                continue
             if name is None or name in restores:
                 return (set(), reborn)
             restores[name] = Dependent(kind, name, text)
+            continue
+        if DROP_DEPENDENT.match(statement) is not None and at_drop is not None:
+            # The scratch drop strands surviving views on the scratch name,
+            # and dropping one before re-creating it is the documented
+            # procedure; whether every stranded view truly returns is the
+            # trial comparison below.
             continue
         return (set(), reborn)
     if at_copy is None or at_drop is None:
@@ -1666,6 +1741,23 @@ def rebuild_scan(stmts: list[str], world: World):
         if trial.tables[name].shape != state.shape or trial.tables[
             name
         ].dependents != state.dependents:
+            return (set(), reborn)
+    # Every view the before-world carried must come back unstale with its
+    # exact old definition. The rename rewrote the definition of every view
+    # naming the old table onto the scratch name, and DROP TABLE leaves
+    # surviving views standing, so a view proves restored only when the
+    # migration drops it and re-creates it; a conditional CREATE over the
+    # stranded view is the no-op SQLite runs and restores nothing. A view
+    # naming nothing the rebuild touched must survive untouched, so a
+    # dropped-and-unrestored one refuses too.
+    for name, text in world.views.items():
+        if trial.views.get(name) != text or name in trial.stale:
+            return (set(), reborn)
+    for name, text in trial.views.items():
+        if name not in world.views and references_table(text, moved[1]):
+            # A new view naming the dropped scratch name is broken the
+            # moment it is created, and it names nothing an older binary
+            # can serve.
             return (set(), reborn)
     return set(range(len(stmts))), reborn
 
@@ -1859,7 +1951,26 @@ def classify(sql: str, world: World | None = None) -> list[str]:
         if event and event[0] == "preexisting_drop":
             reasons.append(f"drops the pre-existing table {event[1]}")
             continue
-        if event is not None or CREATE_TABLE.match(statement) or DROP_TABLE.match(statement):
+        if CREATE_TABLE.match(statement):
+            created = create_table_shape(statement)
+            if (
+                created is not None
+                and world is not None
+                and not world.poisoned
+                and created[0][0] == "main"
+                and created[0][1] in world.objects
+            ):
+                # SQLite's one namespace: a conditional CREATE over the
+                # dependent object's name is the no-op SQLite runs and an
+                # unconditional one the error it raises. Either way the
+                # name an older binary knows stays a dependent object, and
+                # no table can be proved under it.
+                ref = CREATE_TABLE.match(statement).group(1)
+                reasons.append(
+                    f"re-creates the pre-existing dependent object {ref} as a table"
+                )
+            continue
+        if event is not None or DROP_TABLE.match(statement):
             continue
         match = DROP_INDEX.match(statement)
         if match:

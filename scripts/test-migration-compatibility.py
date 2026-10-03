@@ -2203,6 +2203,129 @@ expect_evaluate(
     breaking=[],
 )
 
+
+# --- CON-488 numeric-literal regressions --------------------------------------
+# A numeric bound is proved at its SQLite runtime value, not its decimal
+# spelling: an integer literal that fits int64 is exact, and every other
+# numeric literal is the IEEE-754 double SQLite reads it as. Past 2**53 the
+# spelling and the double part company - 9007199254740995.0 rounds up to
+# 9007199254740996 - so a spelling-level comparison calls a narrowing an
+# equality and admits a rebuild that kills an old-valid row. Membership has
+# the same trap through affinity: a TEXT-affinity column renders each literal
+# as its own text, so 9 and 9.0 are different members there whatever their
+# numeric equality.
+
+expect_evaluate(
+    "a REAL-to-INTEGER bound move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+TABLE_REAL_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), CHECK(n <= 9007199254740995.0));",
+)
+TABLE_REAL_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), {n});",
+)
+expect_evaluate(
+    "a REAL-to-INTEGER table CHECK move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=TABLE_REAL_BASE,
+        rebuild=rebuild_sql(
+            create=TABLE_REAL_TEMPLATE, n_check="CHECK(n <= 9007199254740995)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a REAL-to-INTEGER strictness move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n < 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a REAL-to-INTEGER membership move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n IN (9007199254740995.0, 5))"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n IN (9007199254740995, 5, 6))"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a same-value REAL re-spelling on a TEXT column stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE,
+        rebuild=rebuild_sql(create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 9.0)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a same-value REAL re-spelling in a TEXT membership stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n IN (9))"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n IN (9.0, 10))"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# The sound directions stay provable: widening the INTEGER spelling to the
+# REAL one admits only values the old bound refused, and a REAL bound may
+# move to the INTEGER spelling its double equals.
+expect_evaluate(
+    "an INTEGER-to-REAL bound widening at the precision boundary stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995.0)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a runtime-equal REAL-to-INTEGER bound move stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740996)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a runtime-equal membership move at the precision boundary stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n IN (9007199254740995.0, 5))"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n IN (9007199254740996, 5, 6))"),
+    ),
+    failures=0,
+    breaking=[],
+)
+
 # A write anywhere beside the rebuild shape is unproved: before the rename
 # it erases the rows the copy will claim to move losslessly.
 expect_evaluate(
@@ -2577,6 +2700,103 @@ rebuild_roundtrip(
     insert=(
         "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', '2'), "
         "('b', 'closed', '8');"),
+)
+
+# The precision trap is a database fact, not a parser quirk: the old REAL
+# bound rounds up to the double 9007199254740996, so 9007199254740996 is
+# old-valid, and a rebuild to the INTEGER spelling 9007199254740995 cannot
+# even copy that row. The classifier refuses exactly this pair.
+PRECISION_NARROW_BASE = REBUILD_ROUNDTRIP_BASE.replace(
+    "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(PRECISION_NARROW_BASE)
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('a', 'open', 9007199254740996);"
+        )
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(
+            "the REAL bound refused the value its double admits "
+            f"(9007199254740996): {err}"
+        )
+    else:
+        try:
+            connection.executescript(
+                rebuild_sql(n_check="CHECK(n <= 9007199254740995)")
+            )
+        except sqlite3.IntegrityError as err:
+            if "check" not in str(err).lower():
+                FAILURES.append(
+                    "the precision-narrowed rebuild failed for the wrong "
+                    f"reason: {err}"
+                )
+        else:
+            FAILURES.append(
+                "the refused REAL-to-INTEGER rebuild copied the old-valid "
+                "row 9007199254740996 in SQLite"
+            )
+finally:
+    connection.close()
+
+
+# The sound direction survives SQLite: widening the INTEGER spelling to the
+# REAL double admits only values the old bound refused, old-shaped rows and
+# writes keep working, the boundary value 9007199254740996 is the new
+# acceptance, and the restored index and trigger still hold.
+def precision_widen_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 9007199254740995)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+        return
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('b', 'open', 9007199254740995);"
+    )
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('c', 'closed', 9007199254740996);"
+    )
+    if connection.execute(
+        "SELECT 1 FROM pragma_index_list('attempts') "
+        "WHERE name = 'attempts_state'"
+    ).fetchone() is None:
+        FAILURES.append(f"{name}: index not restored")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('forbidden', 'open', 1);"
+        )
+    except sqlite3.IntegrityError as err:
+        if "fold-only" not in str(err):
+            FAILURES.append(f"{name}: trigger error changed: {err}")
+    else:
+        FAILURES.append(f"{name}: restored trigger did not guard")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('d', 'open', 9007199254740997);"
+        )
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(f"{name}: widened CHECK admitted past its bound")
+
+
+rebuild_roundtrip(
+    "a precision-boundary widening preserves rows and dependents in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995.0)"),
+    probes=precision_widen_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('a', 'open', 9007199254740995);"
+    ),
+    base=REBUILD_ROUNDTRIP_BASE.replace(
+        "CHECK(n >= 0)", "CHECK(n <= 9007199254740995)"
+    ),
 )
 
 # The shipped manifest keeps its recorded compatibility floor: migration 111

@@ -83,15 +83,15 @@ and the entries are unique.
 column `workflow_proposal_records.out_of_scope` is additive and defaulted to
 an empty array, and the migration is recorded as non-breaking. Every released
 definition version keeps its digest, and a pinned instance that submits the
-field still refuses it as undeclared. The generated agent contracts project
-the new payload for the current version and keep the released payloads for
-the pinned versions.
+field still refuses it as undeclared. The generated agent contracts publish
+one `record_proposal` payload shape that admits the field, and the store
+refuses it for an instance pinned to a released version.
 
 ### D5. Follow-ups are the direct raised_from successors
 
 The receipt lists each work item whose `raised_from` relation targets the
 closed item. The relation is not transitive, so the depth stays at one. Any
-lifecycle counts, and the rows follow creation order. A confirmed Linear
+lifecycle counts, and the rows follow the successor work items' creation order. A confirmed Linear
 issue key renders before the work ID fallback.
 
 ### D6. Content law

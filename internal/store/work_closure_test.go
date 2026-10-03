@@ -41,13 +41,15 @@ func TestReadWorkClosureCarriesTheClosureFacts(t *testing.T) {
 	const secondFollowUp = "work-closure-follow-2"
 	seedWork(t, s, firstFollowUp)
 	seedWork(t, s, secondFollowUp)
-	firstVersion := deliveryWorkVersion(t, s, firstFollowUp)
-	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-1", "raised_from", firstFollowUp, workID, firstVersion, firstVersion+1), workVersion(firstFollowUp, firstVersion)); err != nil {
-		t.Fatalf("first raised_from refused: %v", err)
-	}
+	// The second item's relation lands first: rows follow work-item creation,
+	// not relation creation.
 	secondVersion := deliveryWorkVersion(t, s, secondFollowUp)
 	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-2", "raised_from", secondFollowUp, workID, secondVersion, secondVersion+1), workVersion(secondFollowUp, secondVersion)); err != nil {
 		t.Fatalf("second raised_from refused: %v", err)
+	}
+	firstVersion := deliveryWorkVersion(t, s, firstFollowUp)
+	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-1", "raised_from", firstFollowUp, workID, firstVersion, firstVersion+1), workVersion(firstFollowUp, firstVersion)); err != nil {
+		t.Fatalf("first raised_from refused: %v", err)
 	}
 	if err := s.RecordLinearLink(ctx, firstFollowUp, "remote-closure-1", "CON-777", "", "", "", LinearLinkPending); err != nil {
 		t.Fatalf("pending link refused: %v", err)

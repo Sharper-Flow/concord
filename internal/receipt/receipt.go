@@ -265,11 +265,15 @@ func criterionLabel(criterion store.WorkPinVerifiedCriterion) string {
 }
 
 // sanitize drops control characters and pipes, the two byte classes that
-// would corrupt either the header line or a table cell.
+// would corrupt either the header line or a table cell. A line break or tab
+// becomes one space, so multi-line prose keeps its word boundaries.
 func sanitize(value string) string {
 	clean := make([]rune, 0, len(value))
 	for _, r := range value {
-		if r > 0x1f && r != 0x7f && r != '|' {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			clean = append(clean, ' ')
+		case r > 0x1f && r != 0x7f && r != '|':
 			clean = append(clean, r)
 		}
 	}

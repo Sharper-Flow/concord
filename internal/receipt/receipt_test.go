@@ -241,13 +241,14 @@ func TestRenderSanitizesHeaderFields(t *testing.T) {
 	value.Pin.VerifiedCriteria = []store.WorkPinVerifiedCriterion{
 		criterion("predicate:piped", 0, "outcome", `{"kind":"outcome","allowed":["com|pleted\u0000"]}`, "ok"),
 	}
-	value.OutOfScope = []string{"excluded | scope\u0000"}
+	value.OutOfScope = []string{"excluded | scope\u0000", "first line.\nsecond\tline"}
 	value.DeliveryArtifact = "commit:ab|c"
 	want := "| 🛫 work-1 Complete |\n" +
 		"| :-- |\n" +
 		"| 📦 commit:abc |\n" +
 		"| ✓ outcome completed |\n" +
-		"| ➖ excluded  scope |"
+		"| ➖ excluded  scope |\n" +
+		"| ➖ first line. second line |"
 	if got := Render(value); got != want {
 		t.Fatalf("sanitized cell receipt =\n%s\nwant:\n%s", got, want)
 	}

@@ -15,7 +15,7 @@
     "internal/store/workflow_definition_version_pins_test.go",
     "internal/store/schema.go"
   ],
-  "home_domain_id": "workflow-engine",
+  "home_domain_id": "operator-surface",
   "id": "CD-0202",
   "kind": "decision",
   "law_relations": [
@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c854c084dc7866d1ddb75fa5c616666622a277230bfc1d11fcfaa2ccc8945730",
+  "sha256": "sha256:59174f87fbe9258d15cc200ceebdafdf015849fbd06fb4c41ba4a845dcf3ff76",
   "status": "accepted",
   "summary": "The closure receipt restates the closure facts beside the verified predicates. One store read, ReadWorkClosure, opens one read-only transaction and returns the pin beside the latest proposal problem, the proposal's excluded scope, the effective delivery artifact with the correction overlay applied, and the direct raised_from successors with their confirmed Linear keys. The single-column table gains four optional sections in a fixed order: problem, shipped artifact, one left-out row per excluded-scope entry, and one follow-up row per raised item; an empty section renders no row, so an old item keeps the pin-alone bytes. Prose rows hold one hundred twenty code points with the visible ellipsis while criterion labels keep sixty-four. record_proposal gains the optional out_of_scope prose list of zero to sixteen entries on workflow.implementation v22 with a defaulted additive column on workflow_proposal_records, and every released pin keeps its digest and refuses the field. The adapter keeps zero formatting logic.",
   "tags": [

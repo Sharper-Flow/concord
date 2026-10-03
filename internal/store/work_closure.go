@@ -99,7 +99,7 @@ func decodeWorkClosureOutOfScope(raw string) ([]string, error) {
 // successors in creation order with each confirmed Linear key (CD-0202).
 // raised_from is not transitive, so depth stays at one.
 func workClosureFollowUpsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkClosureFollowUp, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_from,w.title,COALESCE(l.human_key,'') FROM relations r JOIN work_items w ON w.id=r.work_id_from LEFT JOIN linear_issue_links l ON l.work_id=r.work_id_from AND l.link_state='confirmed' WHERE r.work_id_to=? AND r.kind='raised_from' ORDER BY r.id,r.work_id_from`, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_from,w.title,COALESCE(l.human_key,'') FROM relations r JOIN work_items w ON w.id=r.work_id_from LEFT JOIN linear_issue_links l ON l.work_id=r.work_id_from AND l.link_state='confirmed' WHERE r.work_id_to=? AND r.kind='raised_from' ORDER BY w.created_at,w.id`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_closure", "cannot read the raised follow-up items", true, "retry once the database is readable", err)
 	}

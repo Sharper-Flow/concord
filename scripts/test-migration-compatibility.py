@@ -1653,7 +1653,12 @@ expect_entries(
 # recreate it under its old name, copy the rows losslessly, drop the scratch
 # copy, and recreate every index, trigger, and view the table carried. The
 # classifier admits that shape as additive only against a structurally proved
-# before-world; everything it cannot prove stays breaking.
+# before-world; everything it cannot prove stays breaking. The fixture table
+# is WITHOUT ROWID because a plain rowid table's implicit rowids are identity
+# the column copy does not carry: rows the old shape addressed at their
+# rowids would answer at fresh ones, so only a rowid-alias column or a
+# WITHOUT ROWID shape proves the copy lossless (pinned in the identity
+# regressions below).
 
 REBUILD_TRIGGER_SQL = (
     "CREATE TRIGGER attempts_guard BEFORE INSERT ON attempts FOR EACH ROW "
@@ -1665,7 +1670,7 @@ REBUILD_BASE_SQL = (
     "CREATE TABLE attempts ("
     "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
     "CHECK(state IN ('open','closed')), "
-    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;"
     "CREATE INDEX attempts_state ON attempts(state);"
     + REBUILD_TRIGGER_SQL
 )
@@ -1673,7 +1678,7 @@ REBUILD_BASE_SQL = (
 REBUILD_CREATE_TEMPLATE = (
     "CREATE TABLE attempts ("
     "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' {state}, "
-    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));"
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;"
 )
 
 REBUILD_COPY = (
@@ -1809,8 +1814,8 @@ expect_evaluate(
     rebuild_entries(
         rebuild=rebuild_sql(
             create=REBUILD_CREATE_TEMPLATE.replace(
-                "PRIMARY KEY(id));",
-                "probe TEXT NOT NULL DEFAULT '', PRIMARY KEY(id));",
+                "PRIMARY KEY(id)) WITHOUT ROWID;",
+                "probe TEXT NOT NULL DEFAULT '', PRIMARY KEY(id)) WITHOUT ROWID;",
             ),
             copy=(
                 "INSERT INTO attempts (id, state, n, probe) "
@@ -1830,7 +1835,7 @@ expect_evaluate(
                 "n INTEGER NOT NULL CHECK(n >= 0), id TEXT NOT NULL, "
                 "state TEXT NOT NULL DEFAULT 'open' "
                 "CHECK(state IN ('open','closed','archived')), "
-                "PRIMARY KEY(id));"
+                "PRIMARY KEY(id)) WITHOUT ROWID;"
             ),
             copy=(
                 "INSERT INTO attempts (n, id, state) "
@@ -2131,12 +2136,12 @@ expect_evaluate(
 )
 # Table-level CHECKs bind through the same column lookup.
 TABLE_N_BASE = REBUILD_BASE_SQL.replace(
-    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));",
-    "n TEXT NOT NULL, PRIMARY KEY(id), CHECK(n <= 9));",
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n TEXT NOT NULL, PRIMARY KEY(id), CHECK(n <= 9)) WITHOUT ROWID;",
 )
 TABLE_N_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
-    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));",
-    "n TEXT NOT NULL, PRIMARY KEY(id), {n});",
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n TEXT NOT NULL, PRIMARY KEY(id), {n}) WITHOUT ROWID;",
 )
 expect_evaluate(
     "a numeric bound widening on a TEXT table CHECK stays breaking",
@@ -2170,7 +2175,7 @@ expect_evaluate(
 CROSS_CREATE = (
     "CREATE TABLE attempts ("
     "id TEXT NOT NULL {id}, state TEXT NOT NULL DEFAULT 'open' {state}, "
-    "{n}, PRIMARY KEY(id));"
+    "{n}, PRIMARY KEY(id)) WITHOUT ROWID;"
 )
 expect_evaluate(
     "a cross-column widening over a TEXT column stays breaking",
@@ -2228,12 +2233,13 @@ expect_evaluate(
 )
 
 TABLE_REAL_BASE = REBUILD_BASE_SQL.replace(
-    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));",
-    "n INTEGER NOT NULL, PRIMARY KEY(id), CHECK(n <= 9007199254740995.0));",
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), CHECK(n <= 9007199254740995.0)) "
+    "WITHOUT ROWID;",
 )
 TABLE_REAL_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
-    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));",
-    "n INTEGER NOT NULL, PRIMARY KEY(id), {n});",
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), {n}) WITHOUT ROWID;",
 )
 expect_evaluate(
     "a REAL-to-INTEGER table CHECK move at the precision boundary stays breaking",
@@ -2504,6 +2510,379 @@ expect_evaluate(
 )
 
 
+# --- CON-488 identity and replay regressions ---------------------------------
+# Five counterexamples the first proof admitted and SQLite convicted. Each
+# names an identity or replay fact the shape comparison cannot see: a quoted
+# type word changes which comparisons a bound orders, a rename rewrites
+# inbound references onto the scratch name, a conditional CREATE over an
+# existing dependent is the no-op SQLite runs, an AUTOINCREMENT high-water
+# mark lives outside the copied rows, and a rowid table without a rowid
+# alias answers copied rows at fresh implicit rowids.
+
+def expect_world(name: str, base: str, sql: str, breaking: bool) -> None:
+    world = check.World()
+    for statement in check.statements(base):
+        world.apply(statement)
+    reasons = check.classify(sql, world)
+    if bool(reasons) != breaking:
+        want = "breaking" if breaking else "additive"
+        FAILURES.append(f"{name}: classified {reasons or 'additive'}, want {want}")
+
+
+def small_rebuild(old_columns: str, new_columns: str) -> str:
+    return (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({new_columns}); "
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch; "
+        "DROP TABLE scratch;"
+    )
+
+
+def small_base(columns: str) -> str:
+    return f"CREATE TABLE t ({columns});"
+
+
+# A quoted type word is the name it quotes: SQLite applies TEXT affinity to
+# n "TEXT", so n <= 9 reads against '9' lexicographically and the numeric
+# order 9 < 10 proves nothing. The moved bound refuses; the unchanged one
+# still admits, which is what ties the refusal to the affinity and not to
+# the quoting.
+QUOTED_TYPE_BASE = small_base('id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)')
+expect_world(
+    "a quoted type name applies its affinity: a moved bound stays breaking",
+    QUOTED_TYPE_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 10)',
+    ),
+    breaking=True,
+)
+expect_world(
+    "a quoted type name with an unchanged bound stays additive",
+    QUOTED_TYPE_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+    ),
+    breaking=False,
+)
+# A quoted column name rides the same rule: the affinity reads the name the
+# quotes carry, not the quoting.
+expect_world(
+    "a quoted column name applies its affinity: a moved bound stays breaking",
+    small_base('id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 9)'),
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 10)',
+    ),
+    breaking=True,
+)
+# SQLite conviction: the copy itself dies, because '5' <= '10' is false
+# under the TEXT affinity the quoted spelling applies.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(QUOTED_TYPE_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, '5')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+                'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 10)',
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append(
+            "the quoted-type rebuild copied a row SQLite refuses "
+            "('5' <= '10' is false as text)"
+        )
+finally:
+    connection.close()
+
+# A rename rewrites every inbound foreign key onto the new name. The replay
+# carries a foreign reference only as stale text, so a rename an inbound
+# foreign key can see poisons the world: the rebuild loses its baseline and
+# keeps the breaking classification.
+RENAMED_FK_BASE = (
+    "CREATE TABLE parent (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE child (pid INTEGER REFERENCES parent(id)); "
+    "ALTER TABLE parent RENAME TO t;"
+)
+expect_world(
+    "a rename under an inbound foreign key keeps the rebuild breaking",
+    RENAMED_FK_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: child's reference followed parent to t, the rebuild's
+# rename drove it onto scratch, and the scratch drop stranded it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(RENAMED_FK_BASE)
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (1, 0);"
+        "INSERT INTO child (pid) VALUES (1);"
+    )
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    stranded = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if not stranded:
+        FAILURES.append("the renamed-FK rebuild left no stranded reference")
+finally:
+    connection.close()
+
+# A conditional CREATE over an existing dependent is the no-op SQLite runs:
+# the old definition survives, so a view that reads t keeps reading t even
+# after a conditional re-declaration over other. The rebuild must restore
+# the definition SQLite kept, and one that does not stays breaking.
+CONDITIONAL_VIEW_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE other (id INTEGER PRIMARY KEY); "
+    "CREATE VIEW v AS SELECT id FROM t; "
+    "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM other;"
+)
+expect_world(
+    "a conditional view no-op keeps the old definition the rebuild must restore",
+    CONDITIONAL_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a rebuild that drops and restores the no-op view stays additive",
+    CONDITIONAL_VIEW_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "CREATE VIEW v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: without the restore, v still names the table the
+# rename drove onto scratch, and the drop killed it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_VIEW_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the conditional no-op view survived the rebuild")
+finally:
+    connection.close()
+
+# The same namespace rule holds a trigger: a conditional re-declaration over
+# a trigger that exists on another table is the no-op SQLite runs, so the
+# guard never lands on the rebuilt table and no restore is owed.
+CONDITIONAL_TRIGGER_BASE = (
+    "CREATE TABLE a (id INTEGER PRIMARY KEY); "
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TRIGGER guard AFTER INSERT ON a BEGIN SELECT RAISE(ABORT, 'no'); END; "
+    "CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON t "
+    "BEGIN SELECT RAISE(ABORT, 'no'); END;"
+)
+expect_world(
+    "a conditional trigger no-op lands on neither table",
+    CONDITIONAL_TRIGGER_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_TRIGGER_BASE)
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'guard'"
+    ).fetchone() is None:
+        FAILURES.append("the no-op trigger vanished")
+    try:
+        connection.execute("INSERT INTO a (id) VALUES (2)")
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the no-op trigger stopped guarding its own table")
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+finally:
+    connection.close()
+
+# An AUTOINCREMENT column's high-water mark lives in sqlite_sequence, not
+# in the rows: the rename moves the sequence entry onto the scratch name
+# and the scratch drop deletes it. The copy restores every row and still
+# resets the next implicit id, so the column refuses the proof.
+AUTOINCREMENT_BASE = small_base(
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)"
+)
+expect_world(
+    "an AUTOINCREMENT column keeps the rebuild breaking",
+    AUTOINCREMENT_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: rows 1 and 100 in, 100 deleted, the sequence holds
+# 100; after the proved-shape copy it holds 1 and the next id is 2, not
+# 101 - the reuse the refusal prevents.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(AUTOINCREMENT_BASE)
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (1, 0);"
+        "INSERT INTO t (id, n) VALUES (100, 0);"
+        "DELETE FROM t WHERE id = 100;"
+    )
+    before = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 't'"
+    ).fetchone()[0]
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    after = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 't'"
+    ).fetchone()[0]
+    connection.execute("INSERT INTO t (n) VALUES (0)")
+    next_id = connection.execute("SELECT max(id) FROM t").fetchone()[0]
+    if not (before == 100 and after == 1 and next_id == 2):
+        FAILURES.append(
+            "AUTOINCREMENT state: "
+            f"before {before}, after {after}, next id {next_id}"
+        )
+finally:
+    connection.close()
+
+# A rowid table without a rowid alias answers copied rows at fresh implicit
+# rowids: a row the old shape addressed as 42 the new shape answers at 1.
+# Only an alias column the copy writes by name proves the copy lossless.
+ROWID_BASE = small_base("id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+expect_world(
+    "a rowid table without an alias keeps the rebuild breaking",
+    ROWID_BASE,
+    small_rebuild(
+        "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: rowid 42 comes back as 1.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ROWID_BASE)
+    connection.execute("INSERT INTO t (rowid, id, n) VALUES (42, 'old', 0)")
+    connection.executescript(
+        small_rebuild(
+            "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    rowid = connection.execute("SELECT rowid FROM t").fetchone()[0]
+    if rowid != 1:
+        FAILURES.append(f"implicit rowid moved to {rowid}, expected 1")
+finally:
+    connection.close()
+
+# The documented alias spellings prove the copy lossless. Inline
+# INTEGER PRIMARY KEY and INTEGER PRIMARY KEY ASC alias the rowid, and a
+# single-column table-level PRIMARY KEY over the INTEGER column aliases it
+# with ASC, DESC, or neither; the inline DESC spelling is the documented
+# exception and aliases nothing, so it refuses.
+expect_world(
+    "an inline rowid-alias widening stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "an inline ASC alias widening stays additive",
+    small_base("id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a table-level DESC alias widening stays additive",
+    small_base("id INTEGER, n INTEGER CHECK(n >= 0), PRIMARY KEY(id DESC)"),
+    small_rebuild(
+        "id INTEGER, n INTEGER CHECK(n >= 0), PRIMARY KEY(id DESC)",
+        "id INTEGER, n INTEGER CHECK(n >= -1), PRIMARY KEY(id DESC)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "an inline DESC alias is no alias: the rebuild stays breaking",
+    small_base("id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction for the admitted alias shape: rowids the operator chose
+# survive the copy, and old-shaped writes keep working.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+    )
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (5, 0); INSERT INTO t (id, n) VALUES (42, 0);"
+    )
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    rows = connection.execute("SELECT rowid, id FROM t ORDER BY rowid").fetchall()
+    if rows != [(5, 5), (42, 42)]:
+        FAILURES.append(f"alias rowids not preserved: {rows}")
+    connection.execute("INSERT INTO t (n) VALUES (0)")
+    next_id = connection.execute("SELECT max(id) FROM t").fetchone()[0]
+    if next_id != 43:
+        FAILURES.append(f"alias next id {next_id}, expected 43")
+finally:
+    connection.close()
+
+
 # The rebuild shape must survive real SQLite: rows are preserved, old-shaped
 # reads and writes keep working, the widened CHECK accepts what the old one
 # refused, and the restored trigger still guards writes.
@@ -2511,7 +2890,7 @@ REBUILD_ROUNDTRIP_BASE = (
     "CREATE TABLE attempts ("
     "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
     "CHECK(state IN ('open','closed')), "
-    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;"
     "CREATE INDEX attempts_state ON attempts(state);"
     + REBUILD_TRIGGER_SQL
 )
@@ -2637,7 +3016,7 @@ TEXT_ROUNDTRIP_BASE = (
     "CREATE TABLE attempts ("
     "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
     "CHECK(state IN ('open','closed')), "
-    "n TEXT NOT NULL CHECK(n <= 9), PRIMARY KEY(id));"
+    "n TEXT NOT NULL CHECK(n <= 9), PRIMARY KEY(id)) WITHOUT ROWID;"
     "CREATE INDEX attempts_state ON attempts(state);"
     + REBUILD_TRIGGER_SQL
 )

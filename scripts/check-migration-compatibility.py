@@ -1764,6 +1764,14 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
     exact, before_sql = before_row
     trial = sqlite3.connect(":memory:")
     world.db.backup(trial)
+    # The backup copies only the main schema. TEMP objects and attached
+    # databases stay behind, so a dependent living there would be absent
+    # from both trial snapshots and its loss invisible to the comparison
+    # below. The proof holds only over a clone whose catalog equals the
+    # replayed world's whole schema universe.
+    attached = {row[1] for row in world.db.execute("PRAGMA database_list")}
+    if attached - {"main", "temp"} or catalog(trial) != catalog(world.db):
+        return False
     try:
         # Probe rows carry identity and losslessness, never validity: the
         # textual family below owns CHECK widening, so the trial reads

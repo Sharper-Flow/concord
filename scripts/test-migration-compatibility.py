@@ -4442,6 +4442,62 @@ finally:
     connection.close()
 
 
+# --- CON-488: the trial clone covers the whole schema universe ----------------
+# The trial database is a backup of the replayed world, and a backup copies
+# only the main schema. A TEMP dependent of the rebuilt table was absent from
+# both trial snapshots, so a TEMP view left reading the scratch name and a
+# TEMP guard trigger dropped with the scratch table both classified additive.
+# The proof now refuses unless the clone's catalog equals the world's.
+
+TEMP_BASE = "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)"
+TEMP_REBUILD = small_rebuild(TEMP_BASE, "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)")
+expect_world(
+    "the TEMP-free control rebuild stays additive",
+    small_base(TEMP_BASE),
+    TEMP_REBUILD,
+    breaking=False,
+)
+expect_world(
+    "a TEMP view on the rebuilt table stays breaking",
+    small_base(TEMP_BASE) + " CREATE TEMP VIEW v AS SELECT id, n FROM main.t;",
+    TEMP_REBUILD,
+    breaking=True,
+)
+expect_world(
+    "a TEMP trigger on the rebuilt table stays breaking",
+    small_base(TEMP_BASE)
+    + " CREATE TEMP TRIGGER g BEFORE INSERT ON main.t"
+    " BEGIN SELECT RAISE(ABORT, 'guard'); END;",
+    TEMP_REBUILD,
+    breaking=True,
+)
+
+# SQLite conviction: the rebuild strands the TEMP view on the dropped scratch
+# name and drops the TEMP guard trigger, the losses the refusal above guards.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base(TEMP_BASE)
+        + " CREATE TEMP VIEW v AS SELECT id, n FROM main.t;"
+        " CREATE TEMP TRIGGER g BEFORE INSERT ON main.t"
+        " BEGIN SELECT RAISE(ABORT, 'guard'); END;"
+    )
+    connection.executescript(TEMP_REBUILD)
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the TEMP view survived the rebuild it should strand")
+    triggers = connection.execute(
+        "SELECT name FROM sqlite_temp_master WHERE type = 'trigger'"
+    ).fetchall()
+    if triggers:
+        FAILURES.append(f"the TEMP trigger survived the rebuild: {triggers}")
+finally:
+    connection.close()
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

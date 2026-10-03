@@ -53,6 +53,14 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err == nil && existingKind == WorkflowCompleted {
 		return nil
 	}
+	// CD-0200: the completion's law boundary verifies the Product's complete
+	// registered source set before this transaction opens. The verification
+	// probes git and rebuilds through the pool, and the transaction-scoped
+	// boundary clause proves it from the returned context.
+	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
@@ -198,7 +206,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	}
 	// Completion never treats an amendment declaration as permission to leave a
 	// conflict unresolved. The Git-derived projection must actually be clear.
-	if contract.LawBoundaryVersion == 1 {
+	// The boundary consults the current registered source set, which the log
+	// never carried; replay owes only the projection folds, exactly as the
+	// staleness boundary above.
+	if contract.LawBoundaryVersion == 1 && !isWorkflowReplay(ctx) {
 		mandated, mandateErr := currentWorkflowLawMandate(contract.SpecMandate, contract.ArchitectureBinding)
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
@@ -629,6 +640,12 @@ func workflowEvidenceRequirementDeclared(kind, reference string, required, manda
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
 	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
+		// A work item whose workflow runs without an approved contract carries
+		// no contract evidence requirements, so the admission surfaces that
+		// fold this read stay total instead of refusing the route.
+		if workflowMissingContractProjection(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)

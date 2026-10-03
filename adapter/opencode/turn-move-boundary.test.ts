@@ -212,7 +212,7 @@ describe("same-turn session move boundary", () => {
       lane_digest: lane.digest,
       work_id: "work-unlanded",
       step_id: "step-unlanded",
-      inputs: { task: "dispatch after a metadata-only move" },
+      inputs: { task: "dispatch after a metadata-only move", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
     }
     const windows = new DispatchWindows()
     const authorize = async () => ({ outcome: "ok" })
@@ -314,7 +314,7 @@ describe("same-turn session move boundary", () => {
       lane_digest: lane.digest,
       work_id: "work-turn-move",
       step_id: "step-turn-move",
-      inputs: { task: "dispatch after the move" },
+      inputs: { task: "dispatch after the move", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
     }
     const windows = new DispatchWindows()
     let authorizeCalls = 0

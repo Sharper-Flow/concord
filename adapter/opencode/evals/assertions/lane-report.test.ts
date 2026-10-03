@@ -19,8 +19,8 @@ const run = (report: Record<string, unknown>, packet: Record<string, unknown> = 
 const stream = (report: Record<string, unknown>) =>
   `${JSON.stringify({ type: "text", part: { type: "text", text: JSON.stringify(report) } })}\n`
 
-const REVIEW_DIGEST = "sha256:139ba516f8744a6bfc9d1b26bda766dd270d12625a7bcc4610894141d216c5a6"
-const IMPLEMENT_DIGEST = "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa"
+const REVIEW_DIGEST = "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d"
+const IMPLEMENT_DIGEST = "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5"
 
 const reviewPacket = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   schema_version: "1.0",

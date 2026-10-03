@@ -97,122 +97,110 @@ func effectiveLimit(topLevel int, page pageInput) int {
 	return page.Limit
 }
 
+// budgetInput carries the only agent-facing operation budget: the CD-0038 D1
+// caller deadline parsed from the input top level. The result-size budget
+// object is retired (CD-0038 amendment, 2026-10-02): time is bounded only by
+// requested_budget_seconds and size only by limit/page. SupportedSeconds is
+// the operation's declared ceiling from the contract registry, never
+// caller-controlled. CeilingRefused marks requested-above-supported; the
+// refusal itself is minted by the caller's admission point, because reads
+// refuse at dispatch while mutations refuse only after their idempotency
+// lookup (CD-0038 D3).
 type budgetInput struct {
-	MaxBytes  int `json:"max_bytes"`
-	MaxItems  int `json:"max_items"`
-	MaxMillis int `json:"max_millis"`
-	// RequestedSeconds is the CD-0038 D1 caller budget, parsed from the input
-	// top level. SupportedSeconds is the operation's declared ceiling from the
-	// contract registry, never caller-controlled. CeilingRefused marks
-	// requested-above-supported; the refusal itself is minted by the caller's
-	// admission point, because reads refuse at dispatch while mutations refuse
-	// only after their idempotency lookup (CD-0038 D3).
 	RequestedSeconds int  `json:"-"`
 	SupportedSeconds int  `json:"-"`
 	CeilingRefused   bool `json:"-"`
 }
 type productResolveInput struct {
-	ProductID string      `json:"product_id"`
-	ProjectID string      `json:"project_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	ProjectID string    `json:"project_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 type productSnapshotInput struct {
-	ProductID    string      `json:"product_id"`
-	ProjectIDs   []string    `json:"project_ids"`
-	PreviewLimit int         `json:"preview_limit"`
-	Page         pageInput   `json:"page"`
-	Limit        int         `json:"limit,omitempty"`
-	Budget       budgetInput `json:"budget"`
+	ProductID    string    `json:"product_id"`
+	ProjectIDs   []string  `json:"project_ids"`
+	PreviewLimit int       `json:"preview_limit"`
+	Page         pageInput `json:"page"`
+	Limit        int       `json:"limit,omitempty"`
 }
 type resourcesInput struct {
-	ProductID   string      `json:"product_id"`
-	ResourceID  string      `json:"resource_id"`
-	Class       string      `json:"class"`
-	Kind        string      `json:"kind"`
-	Environment string      `json:"environment"`
-	Page        pageInput   `json:"page"`
-	Limit       int         `json:"limit,omitempty"`
-	Budget      budgetInput `json:"budget"`
+	ProductID   string    `json:"product_id"`
+	ResourceID  string    `json:"resource_id"`
+	Class       string    `json:"class"`
+	Kind        string    `json:"kind"`
+	Environment string    `json:"environment"`
+	Page        pageInput `json:"page"`
+	Limit       int       `json:"limit,omitempty"`
 }
 type blockedSessionsInput struct {
-	ProductID string      `json:"product_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 type productRowPortfolioInput struct {
 	ProductID string                         `json:"product_id"`
 	Page      pageInput                      `json:"page"`
 	Limit     int                            `json:"limit,omitempty"`
-	Budget    budgetInput                    `json:"budget"`
 	Source    *store.ProductRowRelianceInput `json:"source"`
 }
 type workListInput struct {
-	ProductID     string      `json:"product_id"`
-	ProjectIDs    []string    `json:"project_ids"`
-	WorkIDs       []string    `json:"work_ids"`
-	Lifecycle     string      `json:"lifecycle"`
-	Kind          string      `json:"kind"`
-	TagIDs        []string    `json:"tag_ids"`
-	PriorityMin   *int64      `json:"priority_min"`
-	PriorityMax   *int64      `json:"priority_max"`
-	Detail        string      `json:"detail"`
-	TerminalSince *string     `json:"terminal_since"`
-	Page          pageInput   `json:"page"`
-	Limit         int         `json:"limit,omitempty"`
-	Budget        budgetInput `json:"budget"`
+	ProductID     string    `json:"product_id"`
+	ProjectIDs    []string  `json:"project_ids"`
+	WorkIDs       []string  `json:"work_ids"`
+	Lifecycle     string    `json:"lifecycle"`
+	Kind          string    `json:"kind"`
+	TagIDs        []string  `json:"tag_ids"`
+	PriorityMin   *int64    `json:"priority_min"`
+	PriorityMax   *int64    `json:"priority_max"`
+	Detail        string    `json:"detail"`
+	TerminalSince *string   `json:"terminal_since"`
+	Page          pageInput `json:"page"`
+	Limit         int       `json:"limit,omitempty"`
 }
 type workReadyInput struct {
-	ProductID string      `json:"product_id"`
-	ProjectID string      `json:"project_id"`
-	Kind      string      `json:"kind"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	ProjectID string    `json:"project_id"`
+	Kind      string    `json:"kind"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 type workBlockedInput struct {
-	ProductID string      `json:"product_id"`
-	ProjectID string      `json:"project_id"`
-	WorkID    string      `json:"work_id"`
-	Kind      string      `json:"kind"`
-	Depth     int         `json:"depth"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	ProjectID string    `json:"project_id"`
+	WorkID    string    `json:"work_id"`
+	Kind      string    `json:"kind"`
+	Depth     int       `json:"depth"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 type workScopeInput struct {
-	ProductID string      `json:"product_id"`
-	ProjectID string      `json:"project_id"`
-	WorkID    string      `json:"work_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	OneOf     string      `json:"one_of"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	ProjectID string    `json:"project_id"`
+	WorkID    string    `json:"work_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
+	OneOf     string    `json:"one_of"`
 }
 type messagesInput struct {
-	ProductID string      `json:"product_id"`
-	WorkID    string      `json:"work_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	WorkID    string    `json:"work_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 type resourceClaimsInput struct {
-	ProductID   string      `json:"product_id"`
-	ResourceKey string      `json:"resource_key"`
-	Page        pageInput   `json:"page"`
-	Limit       int         `json:"limit,omitempty"`
-	Budget      budgetInput `json:"budget"`
+	ProductID   string    `json:"product_id"`
+	ResourceKey string    `json:"resource_key"`
+	Page        pageInput `json:"page"`
+	Limit       int       `json:"limit,omitempty"`
 }
 
 type worktreeAuditInput struct {
-	ProductID string      `json:"product_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 
 type worktreeInspectInput struct {
@@ -232,12 +220,11 @@ type researchReadInput struct {
 }
 
 type historyInput struct {
-	WorkID     string      `json:"work_id"`
-	Direction  string      `json:"direction"`
-	EventKinds []string    `json:"event_kinds"`
-	Page       pageInput   `json:"page"`
-	Limit      int         `json:"limit,omitempty"`
-	Budget     budgetInput `json:"budget"`
+	WorkID     string    `json:"work_id"`
+	Direction  string    `json:"direction"`
+	EventKinds []string  `json:"event_kinds"`
+	Page       pageInput `json:"page"`
+	Limit      int       `json:"limit,omitempty"`
 }
 type observationReadInput struct {
 	WorkID string    `json:"work_id"`
@@ -252,32 +239,28 @@ type externalObservationReadInput struct {
 	Limit int `json:"limit,omitempty"`
 }
 type continuityInput struct {
-	WorkID string      `json:"work_id"`
-	Page   pageInput   `json:"page"`
-	Limit  int         `json:"limit,omitempty"`
-	Budget budgetInput `json:"budget"`
+	WorkID string    `json:"work_id"`
+	Page   pageInput `json:"page"`
+	Limit  int       `json:"limit,omitempty"`
 }
 type relationInput struct {
-	WorkID        string      `json:"work_id"`
-	RelationKinds []string    `json:"relation_kinds"`
-	Direction     string      `json:"direction"`
-	Depth         int         `json:"depth"`
-	Budget        budgetInput `json:"budget"`
+	WorkID        string   `json:"work_id"`
+	RelationKinds []string `json:"relation_kinds"`
+	Direction     string   `json:"direction"`
+	Depth         int      `json:"depth"`
 }
 type workIDInput struct {
 	WorkID string      `json:"work_id"`
 	Budget budgetInput `json:"budget"`
 }
 type initiativeEntriesInput struct {
-	InitiativeWorkID string      `json:"initiative_work_id"`
-	Budget           budgetInput `json:"budget"`
+	InitiativeWorkID string `json:"initiative_work_id"`
 }
 type domainReadInput struct {
-	ProductID string      `json:"product_id"`
-	DomainID  string      `json:"domain_id"`
-	Page      pageInput   `json:"page"`
-	Limit     int         `json:"limit,omitempty"`
-	Budget    budgetInput `json:"budget"`
+	ProductID string    `json:"product_id"`
+	DomainID  string    `json:"domain_id"`
+	Page      pageInput `json:"page"`
+	Limit     int       `json:"limit,omitempty"`
 }
 type knowledgeSearchInput struct {
 	ProductID string   `json:"product_id"`
@@ -292,10 +275,9 @@ type knowledgeSearchInput struct {
 	// knowledge index behind the git head answers with authority "degraded" plus
 	// omissions instead of failing closed. Default false keeps the fail-closed
 	// path, so a caller never receives a silently incomplete answer.
-	AllowDegraded bool        `json:"allow_degraded"`
-	Page          pageInput   `json:"page"`
-	Limit         int         `json:"limit,omitempty"`
-	Budget        budgetInput `json:"budget"`
+	AllowDegraded bool      `json:"allow_degraded"`
+	Page          pageInput `json:"page"`
+	Limit         int       `json:"limit,omitempty"`
 }
 type knowledgeResolveInput struct {
 	WorkID      string `json:"work_id"`
@@ -466,33 +448,19 @@ type budgetFailure struct {
 
 func applyBudget(ctx context.Context, op ContractOperation, raw []byte) (context.Context, context.CancelFunc, budgetInput, *budgetFailure) {
 	var envelope struct {
-		Budget           budgetInput `json:"budget"`
-		RequestedSeconds int         `json:"requested_budget_seconds"`
+		RequestedSeconds int `json:"requested_budget_seconds"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return ctx, func() {}, budgetInput{}, &budgetFailure{kind: "invalid_input", message: "budget fields are not valid"}
 	}
-	budget := envelope.Budget
+	var budget budgetInput
 	budget.RequestedSeconds = envelope.RequestedSeconds
 	budget.SupportedSeconds = op.SupportedBudgetSeconds
 	if budget.RequestedSeconds < 0 {
 		return ctx, func() {}, budget, &budgetFailure{kind: "invalid_input", message: "requested_budget_seconds must be at least 1"}
 	}
-	if budget.MaxMillis > 300000 {
-		return ctx, func() {}, budget, &budgetFailure{kind: "budget_refused", message: "max_millis exceeds supported bound"}
-	}
-	// CD-0038 D6: during the compatibility window both denominations may be
-	// sent, but only if they express one exact duration. A preference or
-	// rounding rule would silently pick a budget the caller did not request.
-	if budget.RequestedSeconds > 0 && budget.MaxMillis > 0 && budget.RequestedSeconds*1000 != budget.MaxMillis {
-		return ctx, func() {}, budget, &budgetFailure{kind: "invalid_input", message: "requested_budget_seconds and budget.max_millis must express the same duration"}
-	}
 	if budget.RequestedSeconds > budget.SupportedSeconds {
 		budget.CeilingRefused = true
-	}
-	if budget.MaxMillis > 0 {
-		child, cancel := context.WithTimeout(ctx, time.Duration(budget.MaxMillis)*time.Millisecond)
-		return child, cancel, budget, nil
 	}
 	if budget.RequestedSeconds > 0 {
 		child, cancel := context.WithTimeout(ctx, time.Duration(budget.RequestedSeconds)*time.Second)
@@ -516,20 +484,6 @@ func (r runtime) budgetRefusal(base Envelope, message string) Envelope {
 	out := coreError(base, "budget_refused", message, "adjust_budget", false)
 	out.Error.SupportedBudgetSeconds = supported
 	return out
-}
-
-func (r runtime) boundedLimit(limit int) int {
-	if r.Budget.MaxItems > 0 && (limit == 0 || limit > r.Budget.MaxItems) {
-		return r.Budget.MaxItems
-	}
-	return limit
-}
-
-func (r runtime) boundedPreview(limit int) int {
-	if r.Budget.MaxItems > 0 && (limit == 0 || limit > r.Budget.MaxItems) {
-		return r.Budget.MaxItems
-	}
-	return limit
 }
 
 // validateRequestedScope checks every Product-scoped reference the request
@@ -1384,12 +1338,6 @@ func (r runtime) resultEnvelope(base Envelope, meta store.ResultMeta, scope *Sco
 	if err != nil {
 		return base, err
 	}
-	if r.Budget.MaxBytes > 0 && len(raw) > r.Budget.MaxBytes {
-		return r.budgetRefusal(base, "result exceeds requested max_bytes budget"), nil
-	}
-	if r.Budget.MaxItems > 0 && maxArrayLength(raw) > r.Budget.MaxItems {
-		return r.budgetRefusal(base, "result exceeds requested max_items budget"), nil
-	}
 	base = applyMeta(base, meta, scope)
 	base.Outcome = OutcomeOK
 	base.Result = raw
@@ -1397,34 +1345,6 @@ func (r runtime) resultEnvelope(base Envelope, meta store.ResultMeta, scope *Sco
 		return base, err
 	}
 	return base, nil
-}
-
-func maxArrayLength(raw []byte) int {
-	var value any
-	if json.Unmarshal(raw, &value) != nil {
-		return 0
-	}
-	var visit func(any) int
-	visit = func(value any) int {
-		longest := 0
-		switch value := value.(type) {
-		case []any:
-			longest = len(value)
-			for _, child := range value {
-				if childMax := visit(child); childMax > longest {
-					longest = childMax
-				}
-			}
-		case map[string]any:
-			for _, child := range value {
-				if childMax := visit(child); childMax > longest {
-					longest = childMax
-				}
-			}
-		}
-		return longest
-	}
-	return visit(value)
 }
 
 type workSummary struct {
@@ -1803,6 +1723,11 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		HomeLocatorID string `json:"home_locator_id,omitempty"`
 	}
 	items := []item{}
+	// CD-0200: only a federated answer names each item's source Project and
+	// locator. A single-source answer keeps the wire shape it always had:
+	// every record resolves against the one source, so the fields would
+	// carry no information the envelope watermark does not already prove.
+	federated := len(q.SourceWatermarks) > 0
 	for _, v := range q.Items {
 		kind := v.Kind
 		if kind == "work_note" {
@@ -1811,7 +1736,12 @@ func (r runtime) q9(base Envelope, q store.Q9Result) (Envelope, error) {
 		if kind == "spec" {
 			kind = "specification"
 		}
-		items = append(items, item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID, HomeProjectID: v.HomeProjectID, HomeLocatorID: v.HomeLocatorID})
+		wire := item{ID: v.ID, Kind: kind, Locator: v.NotePath, Commit: v.CommitOID, Hash: v.ContentHash, Status: store.KnowledgeLawStatus(v.Kind, v.OutcomeTag), SuccessorID: v.SuccessorID}
+		if federated {
+			wire.HomeProjectID = v.HomeProjectID
+			wire.HomeLocatorID = v.HomeLocatorID
+		}
+		items = append(items, wire)
 	}
 	payload := map[string]any{"items": items, "watermark": q.IndexWatermark}
 	// CD-0200: a federated answer carries its per-source watermarks in the

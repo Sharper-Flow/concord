@@ -6,67 +6,154 @@
     {
       "id": "research",
       "version": 1,
-      "purpose": "Investigate bounded questions and return source-backed findings.",
+      "purpose": "Investigate bounded questions and return source-backed findings. Dispatch through dispatch_worker when a workflow step owes recorded research findings the contract can bind.",
       "capability_class": "research",
-      "capabilities": ["read_repository", "search_public_sources", "cite_evidence"],
+      "capabilities": [
+        "read_repository",
+        "search_public_sources",
+        "cite_evidence"
+      ],
       "packet_schema_ref": "agent-lane-packet.v1",
       "report_schema_ref": "agent-lane-report.v1",
-      "budgets": {"cost_usd_max": 2, "context_tokens_max": 32000, "time_seconds_max": 900},
-      "evidence_obligations": ["source_citations", "bounded_findings", "uncertainties"],
+      "budgets": {
+        "cost_usd_max": 2,
+        "context_tokens_max": 32000,
+        "time_seconds_max": 900
+      },
+      "evidence_obligations": [
+        "source_citations",
+        "bounded_findings",
+        "uncertainties"
+      ],
       "required_report_blocks": [],
-      "lifecycle_states": ["dispatched", "completed", "failed"]
+      "lifecycle_states": [
+        "dispatched",
+        "completed",
+        "failed"
+      ]
     },
     {
       "id": "implement",
       "version": 1,
-      "purpose": "Implement one approved bounded engineering task and report verification.",
+      "purpose": "Implement one approved bounded engineering task and report verification. Dispatch through dispatch_worker when an approved contract premise needs an isolated worktree change with evidence.",
       "capability_class": "implementation",
-      "capabilities": ["read_repository", "edit_scoped_files", "run_tests", "report_evidence"],
+      "capabilities": [
+        "read_repository",
+        "edit_scoped_files",
+        "run_tests",
+        "report_evidence"
+      ],
       "packet_schema_ref": "agent-lane-packet.v1",
       "report_schema_ref": "agent-lane-report.v1",
-      "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
-      "evidence_obligations": ["files_touched", "verification_commands", "unresolved_issues"],
+      "budgets": {
+        "cost_usd_max": 4,
+        "context_tokens_max": 48000,
+        "time_seconds_max": 1800
+      },
+      "evidence_obligations": [
+        "files_touched",
+        "verification_commands",
+        "unresolved_issues"
+      ],
       "required_report_blocks": [],
-      "lifecycle_states": ["dispatched", "completed", "failed"]
+      "lifecycle_states": [
+        "dispatched",
+        "completed",
+        "failed"
+      ]
     },
     {
       "id": "design",
       "version": 1,
-      "purpose": "Implement visual UI and UX changes for one approved bounded task and report design evidence.",
+      "purpose": "Implement visual UI and UX changes for one approved bounded task and report design evidence. Dispatch through dispatch_worker when an approved contract premise names a visual surface change.",
       "capability_class": "design",
-      "capabilities": ["read_repository", "edit_scoped_files", "run_targeted_checks", "report_evidence"],
+      "capabilities": [
+        "read_repository",
+        "edit_scoped_files",
+        "run_targeted_checks",
+        "report_evidence"
+      ],
       "packet_schema_ref": "agent-lane-packet.v1",
       "report_schema_ref": "agent-lane-report.v1",
-      "budgets": {"cost_usd_max": 4, "context_tokens_max": 48000, "time_seconds_max": 1800},
-      "evidence_obligations": ["files_touched", "verification_commands", "visual_artifacts", "unresolved_issues"],
+      "budgets": {
+        "cost_usd_max": 4,
+        "context_tokens_max": 48000,
+        "time_seconds_max": 1800
+      },
+      "evidence_obligations": [
+        "files_touched",
+        "verification_commands",
+        "visual_artifacts",
+        "unresolved_issues"
+      ],
       "required_report_blocks": [],
-      "lifecycle_states": ["dispatched", "completed", "failed"]
+      "lifecycle_states": [
+        "dispatched",
+        "completed",
+        "failed"
+      ]
     },
     {
       "id": "review",
       "version": 1,
-      "purpose": "Review a bounded change against its contract and acceptance evidence.",
+      "purpose": "Review a bounded change against its contract and acceptance evidence. Dispatch through dispatch_worker when a delivered change owes a severity-rated review before completion.",
       "capability_class": "review",
-      "capabilities": ["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"],
+      "capabilities": [
+        "read_repository",
+        "inspect_diff",
+        "run_targeted_checks",
+        "report_findings"
+      ],
       "packet_schema_ref": "agent-lane-packet.v1",
       "report_schema_ref": "agent-lane-report.v1",
-      "budgets": {"cost_usd_max": 2.5, "context_tokens_max": 40000, "time_seconds_max": 1200},
-      "evidence_obligations": ["contract_findings", "severity", "verification_commands"],
-      "required_report_blocks": ["review"],
-      "lifecycle_states": ["dispatched", "completed", "failed"]
+      "budgets": {
+        "cost_usd_max": 2.5,
+        "context_tokens_max": 40000,
+        "time_seconds_max": 1200
+      },
+      "evidence_obligations": [
+        "contract_findings",
+        "severity",
+        "verification_commands"
+      ],
+      "required_report_blocks": [
+        "review"
+      ],
+      "lifecycle_states": [
+        "dispatched",
+        "completed",
+        "failed"
+      ]
     },
     {
       "id": "verify",
       "version": 1,
-      "purpose": "Run independent verification and return deterministic pass or failure evidence.",
+      "purpose": "Run independent verification and return deterministic pass or failure evidence. Dispatch through dispatch_worker when a contract's outcome predicates need execution evidence a non-author produced.",
       "capability_class": "verification",
-      "capabilities": ["read_repository", "run_tests", "run_validators", "report_evidence"],
+      "capabilities": [
+        "read_repository",
+        "run_tests",
+        "run_validators",
+        "report_evidence"
+      ],
       "packet_schema_ref": "agent-lane-packet.v1",
       "report_schema_ref": "agent-lane-report.v1",
-      "budgets": {"cost_usd_max": 3, "context_tokens_max": 40000, "time_seconds_max": 1500},
-      "evidence_obligations": ["commands", "exit_codes", "failure_classification"],
+      "budgets": {
+        "cost_usd_max": 3,
+        "context_tokens_max": 40000,
+        "time_seconds_max": 1500
+      },
+      "evidence_obligations": [
+        "commands",
+        "exit_codes",
+        "failure_classification"
+      ],
       "required_report_blocks": [],
-      "lifecycle_states": ["dispatched", "completed", "failed"]
+      "lifecycle_states": [
+        "dispatched",
+        "completed",
+        "failed"
+      ]
     }
   ],
   "legacy_lane_digests": {
@@ -94,8 +181,14 @@
     {
       "id": "explore",
       "version": 1,
-      "purpose": "Inspect a repository and return bounded source-backed findings.",
-      "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+      "purpose": "Inspect a repository and answer one bounded question with source-backed findings. Use proactively for repository scans, inventories, and where-is-it questions; never for external facts.",
+      "allowed_tools": [
+        "bash",
+        "read",
+        "glob",
+        "grep",
+        "execute"
+      ],
       "allowed_commands": [
         "git diff *",
         "git log *",
@@ -109,16 +202,25 @@
     {
       "id": "lookup",
       "version": 1,
-      "purpose": "Research bounded external questions and return source-backed findings.",
-      "allowed_tools": ["webfetch", "execute"],
+      "purpose": "Research bounded external questions and return source-backed findings. Use when a claim about a library, platform, or current public information needs a reachable source; never for repository-internal questions.",
+      "allowed_tools": [
+        "webfetch",
+        "execute"
+      ],
       "allowed_commands": [],
       "time_seconds_max": 600
     },
     {
       "id": "advisor",
       "version": 1,
-      "purpose": "Give an independent reasoned opinion on a bounded problem and cite the evidence for it.",
-      "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+      "purpose": "Give an independent reasoned opinion on a bounded problem and cite the evidence for it. Use when a coordinator wants a second opinion reached without seeing the caller's own conclusion.",
+      "allowed_tools": [
+        "bash",
+        "read",
+        "glob",
+        "grep",
+        "execute"
+      ],
       "allowed_commands": [
         "git diff *",
         "git log *",

@@ -41,11 +41,17 @@ type workflowActionGuardContext struct {
 	correctionRecovery        bool
 	correctionRequestRecovery bool
 	correctionRequestMissing  string
-	actorRef                  string
-	eventActor                string
-	operatorRef               string
-	actorNeedsRecord          bool
-	operatorNeedsRecord       bool
+	// admissionState and admissionDecision carry the fold's one admission
+	// derivation: the tx-scoped loader's folded state and workflowAdmit's
+	// decision over it. Guards consume them instead of re-deriving the
+	// conditions per site.
+	admissionState      *WorkflowAdmissionState
+	admissionDecision   *WorkflowAdmissionDecision
+	actorRef            string
+	eventActor          string
+	operatorRef         string
+	actorNeedsRecord    bool
+	operatorNeedsRecord bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -63,7 +69,6 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
-	"dispatch_worker":        {guardPhaseBoundary, guardCurrentDesignBeforeDispatch},
 	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
@@ -82,7 +87,16 @@ func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRequestRecovery {
 		return workflowCorrectionRequestUnavailableFailure("workflow_action", g.correctionRequestMissing)
 	}
-	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, g.request.Payload, "workflow_action", 0)
+	// The payload check binds against the folded state's one correction
+	// request derivation; it never re-enters the loader.
+	state, err := g.foldedAdmissionState()
+	if err != nil {
+		return err
+	}
+	if state.CorrectionRequestContext == nil {
+		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
+	}
+	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext)
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -508,33 +522,12 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
-// workflowSupersedeRecoveryAtCompleteStep is the complete-step supersede_contract
-// admission every surface shares before any effect: duplicate-contract
-// recovery stays on its declared earlier steps, the successor must declare the
-// reserved convention, and the shared state gate decides. staleRecovery
-// reports that the supersession may proceed as recovery.
-func workflowSupersedeRecoveryAtCompleteStep(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, declaresRoute bool, activeContracts int64) (bool, error) {
-	if activeContracts > 1 {
-		return false, newFailure(KindInvariantViolation, subject, "duplicate contract recovery is unavailable at the pinned complete step", false, "run duplicate recovery on a declared earlier step")
-	}
-	if !declaresRoute {
-		// The payload satisfies its own declaration; what refuses is the step
-		// state, so the refusal is an operation refusal, not a payload one.
-		return false, newFailure(KindInvalidOperation, subject, "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
-	}
-	available, err := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
-	if err != nil {
-		return false, err
-	}
-	if !available {
-		return false, newFailure(KindInvalidOperation, subject, "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-	}
-	return true, nil
-}
-
-// guardSupersedeContractRecovery admits contract recovery only for a workflow
-// contract whose law revision is stale or domain-overlapped, and records that
-// recovery for the later validation stages.
+// guardSupersedeContractRecovery keeps the supersede payload checks the
+// recovery classification needs: the reserved route convention is payload
+// state, and the recovery classification itself is the folded admission
+// decision the dispatch fold already ran, so the guard records it for the
+// later validation stages instead of re-deriving the stale-law and duplicate
+// conditions.
 func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
 	if fieldsErr != nil {
@@ -545,46 +538,13 @@ func guardSupersedeContractRecovery(g *workflowActionGuardContext) error {
 	if declaresRoute && !atCompleteStep {
 		return newFailure(KindInvalidPayload, "workflow_action", "route convention complete_step_correction is reserved for correction at the pinned complete step", false, "drop the reserved route convention")
 	}
-	if workflowCompletedInstanceSupersedeOffShape(g.instanceState, g.entry.Definition, g.currentStep) {
-		return workflowCompletedInstanceOffShapeFailure("workflow_action")
+	if atCompleteStep && !declaresRoute {
+		// The payload satisfies its own declaration; what refuses is the step
+		// state, so the refusal is an operation refusal, not a payload one.
+		return newFailure(KindInvalidOperation, "workflow_action", "complete-step correction requires the reserved route convention complete_step_correction", false, "declare complete_step_correction in the successor route conventions")
 	}
-	activeContracts, countErr := activeWorkflowContractCount(g.ctx, g.tx, g.request.WorkID, "workflow_action")
-	if countErr != nil {
-		return countErr
-	}
-	if atCompleteStep {
-		// Every correction path at the pinned complete step — duplicate,
-		// stale-law, or ordinary — passes through the shared complete-step
-		// admission before any effect.
-		recovery, recoveryErr := workflowSupersedeRecoveryAtCompleteStep(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", declaresRoute, activeContracts)
-		if recoveryErr != nil {
-			return recoveryErr
-		}
-		g.staleRecovery = recovery
-		return nil
-	}
-	if activeContracts > 1 {
-		// Recovery owns the ambiguous projection. The normal authority check
-		// cannot run first because it deliberately refuses duplicate state.
-		g.staleRecovery = true
-		return nil
-	}
-	if err := checkWorkflowLawRevisionStalenessTx(g.ctx, g.tx, g.request.WorkID); err != nil {
-		if !workflowContractRecoveryStaleness(err, g.request.WorkID) {
-			return err
-		}
-		g.staleRecovery = true
-		return nil
-	}
-	correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-	if correctionErr != nil {
-		return correctionErr
-	}
-	if correction {
-		g.staleRecovery = true
-		return nil
-	}
-	return newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+	g.staleRecovery = g.admissionDecision != nil && g.admissionDecision.RecoveryRoute
+	return nil
 }
 
 func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, currentStep string) bool {
@@ -840,21 +800,21 @@ func guardOperatorPremiseActor(g *workflowActionGuardContext) error {
 		if g.request.ActionID != "supersede_contract" && g.request.ActionID != "request_correction" {
 			return nil
 		}
+		// The availability half is the shared derivation: the fold's state
+		// carries the correction-request and contract-correction routes, so
+		// this guard consumes it instead of re-deriving the conditions. The
+		// operator identity requirement stays a guard check.
+		state, err := g.foldedAdmissionState()
+		if err != nil {
+			return err
+		}
 		if g.request.ActionID == "request_correction" {
-			available, missing, correctionErr := workflowCorrectionRequestAdmissionState(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action", 0)
-			if correctionErr != nil {
-				return correctionErr
-			}
-			if !available {
-				return workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
+			if !state.CorrectionRequestRecovery {
+				return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 			}
 			return newFailure(KindApprovalRequired, "workflow_action", "correction request requires the verified operator approval identity", false, "request_approval")
 		}
-		correction, correctionErr := workflowContractCorrectionAvailable(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-		if correctionErr != nil {
-			return correctionErr
-		}
-		if correction {
+		if state.ContractCorrectionAvailable {
 			return newFailure(KindApprovalRequired, "workflow_action", "contract correction requires the verified operator approval identity", false, "request_approval")
 		}
 		return nil
@@ -980,6 +940,16 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 	artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 	state := workflowFieldStringDefault(fields, "delivery_state", "")
 	if workflowAcceptDeliveryAdmissionActive(g.entry.Definition, g.currentStep) {
+		// The accepted disposition of a ready non-settling review is the one
+		// non-delivery accept the delivery-admitting refinement step takes:
+		// the review refused the result, so its acceptance binds the findings
+		// and leaves the debt outstanding, carries no delivery assertion, and
+		// rides the review gate's identity binding (CD-0201 D3). The gate
+		// owns both halves — it refuses the identity-satisfying accept that
+		// does carry the assertion, and admits the one that does not.
+		if workflowAcceptBindsReadyUnsettledReview(g.admissionState, fields) {
+			return guardPostRejectionReviewGate(g)
+		}
 		if artifact == "" || state == "" {
 			return newFailure(KindInvalidOperation, "workflow_action",
 				"the refine step exits only through an admitted delivery assertion: record_delivery, or an accept_worker_result carrying delivery_artifact and delivery_state asserted",
@@ -1181,12 +1151,15 @@ func workflowActionOccurredAt(ctx context.Context, q queryer, workID string, seq
 
 // guardPostRejectionReviewGate refuses an advance toward delivery whose
 // refinement history carries a rejected result no fresh accepted review has
-// covered. Accepting a review-lane attempt whose dispatch postdates the
-// debt's frontier — the rejection and every later non-review worker activity
-// at the refinement step — is itself the fresh review, so the guard admits
-// it; any other accept, and either delivery exit, waits for one. The refusal
-// leaves the evidence-bearing corrective return as the only route off a
-// parked, unreviewed gate.
+// covered. The admission is the shared derivation: the tx-scoped loader folds
+// the refinement history into the abstract admission state once, and the pure
+// workflowAdmit decides, so this guard, the work pin intents, and the
+// delivery-gate correction binding answer identically for the same state.
+// Accepting the ready settling review is itself the fresh review, so the
+// guard admits the accept whose attempt identity the decision names; any
+// other accept, and either delivery exit, waits for one. The refusal leaves
+// the evidence-bearing corrective return as the only route off a parked,
+// unreviewed gate.
 func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	if !workflowCorrectionWorkflow(g.entry.Definition) {
 		return nil
@@ -1203,56 +1176,86 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	default:
 		return nil
 	}
-	rejectSeq, err := workflowPostRejectionRejectSeq(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
-	if err != nil {
-		return err
+	// The dispatch fold already folded and decided this request's admission;
+	// the guard consumes that derivation. A caller without the fold's state
+	// (no other production caller exists) falls back to its own fold.
+	decision := g.admissionDecision
+	if decision == nil {
+		state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+		if err != nil {
+			return err
+		}
+		decided := workflowAdmit(g.entry.Definition, state, g.request.ActionID)
+		decision = &decided
+		g.admissionState = &state
+		g.admissionDecision = decision
 	}
-	if rejectSeq == 0 {
+	if decision.Admitted {
 		return nil
 	}
-	outstanding, err := workflowPostRejectionReviewMissing(g.ctx, g.tx, g.request.WorkID, workflowRefinementStepID(g.entry.Definition), rejectSeq, "workflow_action")
-	if err != nil {
-		return err
+	// A refusal whose cause is not the review gate's own — staleness, an
+	// impact notice, the wall — applies here unchanged; the ready-review
+	// carve-out below is the acceptance route of the fresh-review refusal
+	// alone, so no unrelated cause can ride it.
+	if !decision.FreshReviewRequired {
+		return decision.Failure
 	}
-	if !outstanding {
-		return nil
-	}
-	if g.request.ActionID == "accept_worker_result" {
+	// The attempt identity and the delivery assertion stay guard checks: the
+	// request's attempt_id must name the ready review the decision folded, so
+	// an accept of a different attempt cannot ride its admission, and the
+	// ready review's acceptance carries the delivery assertion only when its
+	// verdict settles — a no_ship review binds its findings and leaves the
+	// debt outstanding, so the advance waits for a settling review (CD-0201
+	// D3).
+	if g.request.ActionID == "accept_worker_result" && decision.ReadyReviewAttemptID != "" {
 		fields, fieldsErr := workflowActionObject(g.request.Payload)
 		if fieldsErr != nil {
 			return fieldsErr
 		}
-		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
-		class, dispatchSeq, dispatchErr := workflowAttemptDispatch(g.ctx, g.tx, g.request.WorkID, attemptID, "workflow_action")
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		if class == "review" {
-			frontier, frontierErr := workflowPostRejectionFrontier(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, "workflow_action")
-			if frontierErr != nil {
-				return frontierErr
+		if workflowFieldStringDefault(fields, "attempt_id", "") == decision.ReadyReviewAttemptID {
+			if !decision.ReadyReviewSettles && workflowAcceptCarriesDeliveryAssertion(fields) {
+				return decision.Failure
 			}
-			if workflowReviewDispatchSettlesDebt(dispatchSeq, frontier) {
-				return nil
-			}
+			return nil
 		}
 	}
-	return newFailure(KindInvalidOperation, "workflow_action", "the advance toward delivery requires a fresh accepted review of the repaired result", false, "dispatch a review attempt at the refinement step, accept its result, then advance")
+	return decision.Failure
 }
 
-// workflowAttemptDispatch returns the capability class and seq of the lane
-// dispatch that produced the worker attempt, or "" and 0 when the attempt has
-// no dispatch event.
-func workflowAttemptDispatch(ctx context.Context, q queryer, workID, attemptID, subject string) (string, int64, error) {
-	var class string
-	var dispatchSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.capability_class'),''), seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerDispatched, attemptID).Scan(&class, &dispatchSeq); err != nil {
-		if err == sql.ErrNoRows {
-			return "", 0, nil
-		}
-		return "", 0, wrapFailure(KindUnavailable, subject, "cannot read the worker attempt dispatch", true, "retry once the worker dispatch projection is readable", err)
+// foldedAdmissionState returns the fold's admission state, folding it on the
+// guard's transaction when the caller did not carry one. The dispatch fold
+// always folds before the guard phases run; the fallback keeps a directly
+// constructed guard context on the same single derivation.
+func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionState, error) {
+	if g.admissionState != nil {
+		return g.admissionState, nil
 	}
-	return class, dispatchSeq, nil
+	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	if err != nil {
+		return nil, err
+	}
+	g.admissionState = &state
+	return &state, nil
+}
+
+// workflowAcceptCarriesDeliveryAssertion reports whether one accept payload
+// carries the CD-0198 D4 delivery fields, the shape whose acceptance advances
+// the refinement step.
+func workflowAcceptCarriesDeliveryAssertion(fields map[string]json.RawMessage) bool {
+	return workflowFieldStringDefault(fields, "delivery_artifact", "") != "" || workflowFieldStringDefault(fields, "delivery_state", "") != ""
+}
+
+// workflowAcceptBindsReadyUnsettledReview reports whether one accept payload
+// names the folded ready review whose verdict does not settle the
+// post-rejection review debt: the accepted non-delivery disposition the claim
+// guard admits and the delivery-fields backstop exempts (CD-0201 D3). A ready
+// attempt folds only under outstanding debt at a review step, so the identity
+// match alone names the guard-approved shape.
+func workflowAcceptBindsReadyUnsettledReview(state *WorkflowAdmissionState, fields map[string]json.RawMessage) bool {
+	if state == nil || state.ReadyReviewAttemptID == "" || state.ReadyReviewSettles {
+		return false
+	}
+	return workflowFieldStringDefault(fields, "attempt_id", "") == state.ReadyReviewAttemptID
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -1359,6 +1362,9 @@ type workflowActionAssemblyInput struct {
 	defaultVerdictEvidence bool
 	lateVerdictRecovery    bool
 	envelopeEvidenceRefs   []string
+	// admission carries the fold's derived admission state, so the assembly's
+	// payload checks read the folded conditions instead of re-deriving them.
+	admission *WorkflowAdmissionState
 }
 
 type workflowActionEventAssembly struct {
@@ -1498,15 +1504,27 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// same completion event a record_delivery appends, so delivery readers
 	// identify the assertion by its asserted fields rather than by action_id.
 	// The guard already required the fields; this refuses closed if the
-	// route ever runs without them.
+	// route ever runs without them. The accepted non-delivery disposition of
+	// a ready non-settling review is the one exempt shape: the guard admitted
+	// it and a refused result carries no delivery assertion (CD-0201 D3).
 	if in.request.ActionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
-		if artifact == "" || state == "" {
+		if (artifact == "" || state == "") && !workflowAcceptBindsReadyUnsettledReview(in.admission, fields) {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
-		completionValues["delivery_artifact"] = artifact
-		completionValues["delivery_state"] = state
+		if artifact != "" && state != "" {
+			completionValues["delivery_artifact"] = artifact
+			completionValues["delivery_state"] = state
+		}
+	}
+	// CD-0201 D3: the accept guard's admission decision rides the completion
+	// it authors. The accepted non-delivery disposition of a ready
+	// non-settling review holds the step's advance — the debt waits for a
+	// settling review — so the guard records the hold from the folded
+	// admission state, and the fold honors the recorded field only.
+	if in.request.ActionID == "accept_worker_result" && workflowAcceptBindsReadyUnsettledReview(in.admission, fields) {
+		completionValues["review_advance_held"] = true
 	}
 	var workerPacketDigest string
 	if in.request.ActionID == "accept_worker_result" || in.request.ActionID == "accept_worker_evidence" || in.request.ActionID == "record_worker_failure" || in.request.ActionID == "reject_worker_result" {
@@ -1573,7 +1591,10 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
-			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, in.currentStep, packetRaw, in.request.EscalatedRetryApproved); err != nil {
+			if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
+				return events, "", err
+			}
+			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
 				return events, "", err
 			}
 		}

@@ -58,6 +58,13 @@ export interface DispatchRunner {
   run(argv: string[], input: string, signal: AbortSignal): Promise<DispatchRunnerResult>
 }
 
+export interface AgentLanePacketBinding {
+  objective_source: "contract_premise" | "work_question"
+  work_version: number
+  contract_version: number | null
+  assigned_result: string
+}
+
 export interface AgentLanePacket {
   schema_version: AgentLanePacketSchemaVersion
   attempt_id: string
@@ -66,7 +73,7 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
 }
 
 // AgentLanePacketOutcomePredicate is one typed outcome predicate the packet
@@ -491,13 +498,19 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   }
   if (schema.type) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
-    const valid = types.some((type: string) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : typeof value === type)
+    const valid = types.some((type: string) => type === "object" ? isRecord(value) : type === "array" ? Array.isArray(value) : type === "integer" ? typeof value === "number" && Number.isInteger(value) : type === "number" ? typeof value === "number" : type === "null" ? value === null : typeof value === type)
     if (!valid) return fail(`is not of type ${types.join(" | ")}`)
   }
   if (typeof value === "string") {
-    if (schema.minLength !== undefined && value.length < schema.minLength) return fail(`is shorter than ${schema.minLength} characters`)
-    if (schema.maxLength !== undefined && value.length > schema.maxLength) return fail(`is longer than ${schema.maxLength} characters`)
-    if (schema["x-maxBytes"] !== undefined && Buffer.byteLength(value) > schema["x-maxBytes"]) return fail(`exceeds ${schema["x-maxBytes"]} UTF-8 bytes`)
+    // JSON Schema counts string length in Unicode code points, the unit the
+    // Go payload-schema validator counts with utf8.RuneCountInString. A
+    // UTF-16 .length would count an astral code point twice and refuse a
+    // packet the closed contract admits, so the count walks code points.
+    const length = [...value].length
+    if (schema.minLength !== undefined && length < schema.minLength) return fail(`carries ${length} Unicode code points against a minimum of ${schema.minLength}`)
+    if (schema.maxLength !== undefined && length > schema.maxLength) return fail(`carries ${length} Unicode code points against a limit of ${schema.maxLength}`)
+    const bytes = Buffer.byteLength(value)
+    if (schema["x-maxBytes"] !== undefined && bytes > schema["x-maxBytes"]) return fail(`carries ${bytes} UTF-8 bytes against a limit of ${schema["x-maxBytes"]}`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
   if (typeof value === "number") {
@@ -515,8 +528,8 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
     }
   }
   if (Array.isArray(value)) {
-    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries fewer than ${schema.minItems} item(s)`)
-    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries more than ${schema.maxItems} item(s)`)
+    if (schema.minItems !== undefined && value.length < schema.minItems) return fail(`carries ${value.length} item(s) against a minimum of ${schema.minItems}`)
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) return fail(`carries ${value.length} item(s) against a limit of ${schema.maxItems}`)
     if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) return fail("carries duplicate items")
     if (schema.items) {
       for (let index = 0; index < value.length; index++) {
@@ -531,6 +544,24 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   if (Array.isArray(schema.allOf)) {
     for (const branch of schema.allOf) {
       if (!validateSchema(branch, value, root, path, failures)) return false
+    }
+  }
+  // oneOf admits exactly one branch, mirroring the store's payload validator.
+  // The published tool request schema discriminates its per-operation branches
+  // by operation const, so an input matching zero or several branches is a
+  // call the published contract cannot name. Zero-match failures carry the
+  // branches' own reasons, so a caller learns what to repair.
+  if (Array.isArray(schema.oneOf)) {
+    const branchFailures: string[][] = []
+    const matched: number[] = []
+    for (const [index, branch] of schema.oneOf.entries()) {
+      const branchFailure: string[] = []
+      if (validateSchema(branch, value, root, path, branchFailure)) matched.push(index)
+      branchFailures.push(branchFailure)
+    }
+    if (matched.length !== 1) {
+      const reasons = branchFailures.flatMap((reasons_, index) => reasons_.map((reason) => `branch ${index}: ${reason}`))
+      return fail(`matches ${matched.length} oneOf branches ([${matched.join(", ")}]); exactly one is required${reasons.length > 0 ? `: ${reasons.slice(0, 8).join("; ")}` : ""}`)
     }
   }
   // if/then/else applies exactly one branch: then when the condition holds,
@@ -1483,6 +1514,13 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
+  // The binding's assigned result is the one obligation the worker-scope
+  // contract derives from the lane, so a packet that names any other result
+  // is a contract or registry drift the schema alone cannot see. It fails
+  // closed here, before the authorization window can open.
+  if (packet.inputs.binding.assigned_result !== workerScopeAssignedResult(lane.id)) {
+    return errorEnvelope(null, packet, "error", "invalid_input", `packet binding names assigned result ${packet.inputs.binding.assigned_result}, but the ${lane.id} lane's worker-scope assignment is ${workerScopeAssignedResult(lane.id)}`, "retry_same_request")
+  }
   const sessionID = options.sessionID
   if (sessionID && dispatchRequiresNextTurn(sessionID)) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })

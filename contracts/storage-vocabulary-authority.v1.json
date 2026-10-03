@@ -165,6 +165,11 @@
       "authority": "check"
     },
     {
+      "table": "law_cross_source_relations",
+      "column": "kind",
+      "authority": "check"
+    },
+    {
       "table": "law_relations",
       "column": "kind",
       "authority": "check"

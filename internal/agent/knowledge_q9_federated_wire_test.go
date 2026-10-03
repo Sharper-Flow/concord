@@ -69,3 +69,35 @@ func TestSingleSourceQ9WireKeepsOneWatermark(t *testing.T) {
 		t.Fatalf("single-source answer carries a federated payload key: %s", result.Result)
 	}
 }
+
+// A single-source answer keeps the wire shape it always had (CD-0200
+// single-source rule): no source_watermarks payload key, one envelope
+// watermark entry, and no per-item source fields, because every record
+// resolves against the one source the envelope watermark already proves.
+func TestSingleSourceQ9WireOmitsSourceFields(t *testing.T) {
+	meta := store.ResultMeta{QueryID: "PM1.Q9", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	q := store.Q9Result{
+		ResultMeta:     meta,
+		IndexWatermark: "home-commit",
+		Items: []store.KnowledgeItem{{
+			ID: "HOME-LAW", Kind: "decision", NotePath: ".concord/docs/decisions/CD-0998.md",
+			HomeProjectID: "home", HomeLocatorID: "home-loc", CommitOID: "home-commit",
+			ContentHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		}},
+	}
+	result, err := (runtime{Tool: "concord_knowledge", Operation: "search"}).q9(NewBase("solo-q9-wire", "concord_knowledge", "search"), q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(result.Result, &payload); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"home_project_id", "home_locator_id"} {
+		if _, present := payload.Items[0][field]; present {
+			t.Fatalf("single-source output adds the previously absent %s field: %s", field, result.Result)
+		}
+	}
+}

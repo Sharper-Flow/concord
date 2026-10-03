@@ -64,12 +64,18 @@ test("an unmanaged native Task preserves arguments and creates no Concord eviden
 test("managed scope refuses ordinary and Concord Tasks without a window", async () => {
   const fixture = host([session("scope-managed", true)])
   const plugin = await fixture.plugin()
-  for (const subagent_type of ["general", "explore", "concord-implement"]) {
+  for (const subagent_type of ["general", "explore"]) {
     const output = { args: { ...args(), subagent_type } }
     const original = structuredClone(output.args)
     await expect(plugin["tool.execute.before"](task("scope-managed"), output)).rejects.toThrow("no authorized dispatch window")
     expect(output.args).toEqual(original)
   }
+  // A lane Task without a window is refused by the dispatch-only lane rule,
+  // which names the correcting route: dispatch_worker opens the window.
+  const laneOutput = { args: { ...args(), subagent_type: "concord-implement" } }
+  const laneOriginal = structuredClone(laneOutput.args)
+  await expect(plugin["tool.execute.before"](task("scope-managed"), laneOutput)).rejects.toThrow("dispatch_worker")
+  expect(laneOutput.args).toEqual(laneOriginal)
 })
 
 test("managed participation survives agent changes and plugin recreation", async () => {
@@ -122,7 +128,7 @@ test("unmanaged sessions cannot invoke Concord lanes without authorization", asy
   const fixture = host([session("scope-direct")])
   const plugin = await fixture.plugin()
   const output = { args: { ...args(), subagent_type: "concord-research" } }
-  await expect(plugin["tool.execute.before"](task("scope-direct"), output)).rejects.toThrow("no authorized dispatch window")
+  await expect(plugin["tool.execute.before"](task("scope-direct"), output)).rejects.toThrow("dispatch_worker")
   expect(fixture.writes).toEqual([])
 })
 
@@ -151,7 +157,7 @@ test("unmanaged resume targets and absent targets retain native Task behavior", 
 test("an authorized Task binds once and the managed session stays protected", async () => {
   const fixture = host([session("scope-window", true), session("scope-other", true)])
   const plugin = await fixture.plugin()
-  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task" } }
+  const packet = { schema_version: "1.0" as const, attempt_id: "scope-attempt", lane_id: "implement", lane_version: 1, lane_digest: "sha256:" + "a".repeat(64), work_id: "scope-work", step_id: "repair", inputs: { task: "Approved task", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" } } }
   dispatchWindows().open("scope-window", packet, "", process.cwd())
   await expect(plugin["tool.execute.before"](task("scope-other"), { args: args() })).rejects.toThrow("no authorized dispatch window")
   expect(dispatchWindows().has("scope-window")).toBe(true)

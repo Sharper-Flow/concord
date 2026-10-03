@@ -77,6 +77,15 @@ func foldProductKnowledgeHomeDesignated(ctx context.Context, tx *sql.Tx, event E
 	if err := verifyKnowledgeHomeEligibility(ctx, tx, payload); err != nil {
 		return err
 	}
+	// CD-0200 D1 keeps the source roles disjoint: the designated home is
+	// always a source and never a registration row. Promoting a registered
+	// source reconciles the registration table in the same fold, so the
+	// effective source set never names the same locator twice.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM product_knowledge_sources WHERE product_id = ? AND project_id = ? AND locator_id = ?`,
+		payload.ProductID, payload.ProjectID, payload.LocatorID); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot reconcile the registered knowledge source", true,
+			"retry once the database is writable", err)
+	}
 	// One designation per Product (primary key) and one Product per locator
 	// (unique pair). A replacement keeps a single row; a contested locator is
 	// a typed conflict, never a silent takeover.

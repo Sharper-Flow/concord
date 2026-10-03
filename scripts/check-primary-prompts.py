@@ -22,6 +22,7 @@ not package or install them. This check proves the example contract in CD-0154:
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +65,10 @@ DELEGATION_ANCHOR_MARKERS = (
     "Size is not an exemption",
     "steps the core does not admit for dispatch",
 )
+# The generated agent ids under contracts/agent-lanes.v1.json. A portable
+# example that names one routes per agent in prose; the registry descriptions
+# own that routing.
+GENERATED_AGENT_ID = re.compile(r"concord-(?:explore|lookup|advisor|research|implement|design|review|verify)\b")
 # CD-0178 D2 and its Verification entry 7: the coordinators that carry the
 # Projects guidance must state the cross-repository boundary. The rule is a
 # deterministic presence check over the required phrases. CD-0055 D4 forbids
@@ -232,6 +237,15 @@ def check_primary_prompts(root: Path) -> list[str]:
     coordinator_frontmatter = split_frontmatter(shaping)
     if 'task:\n    "*": deny\n    "concord-*": allow' not in coordinator_frontmatter:
         findings.append("concord-1.md frontmatter lost the Concord-lane-only task boundary")
+    # Registry routing: the registry descriptions state what and when, so the
+    # portable examples route by need and never hard-code a generated agent id.
+    # An id here would fork the registry's routing authority into prose.
+    findings.extend(
+        f"{name} routes by generated agent id {match.group(0)!r}; route by need and let the registry descriptions name the agent"
+        for name, text in texts.items()
+        for match in [GENERATED_AGENT_ID.search(text)]
+        if match is not None
+    )
     return findings
 
 

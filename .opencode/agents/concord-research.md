@@ -1,5 +1,5 @@
 ---
-description: Concord research lane — Investigate bounded questions and return source-backed findings. Does not edit repository source.
+description: Concord research lane — Investigate bounded questions and return source-backed findings. Dispatch through dispatch_worker when a workflow step owes recorded research findings the contract can bind. Does not edit repository source.
 mode: all
 hidden: true
 tools:
@@ -24,7 +24,7 @@ permission:
 
 # concord-research
 
-Investigate bounded questions and return source-backed findings.
+Investigate bounded questions and return source-backed findings. Dispatch through dispatch_worker when a workflow step owes recorded research findings the contract can bind.
 
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not
@@ -52,6 +52,30 @@ law)" block, it names the Product law and Domains the approved contract binds.
 Read each named law document before you assess the result. Conform to it. Report
 any conflict between that law and the assigned result in your evidence. Return
 `status` `failed` when a conflict blocks the assigned result.
+
+## Objective and binding
+
+`inputs.task` is the canonical objective, carried verbatim: the approved
+contract premise when `inputs.binding.objective_source` is `contract_premise`,
+or the recorded work question when it is `work_question`. The packet adds no
+header or trailer, so the whole task text is the objective. The workflow step
+and lane identity are packet root fields, not task text.
+
+`inputs.binding` is the typed authority for the objective: `objective_source`
+names where the task text came from, `work_version` and `contract_version`
+record the versions the packet binds (`contract_version` is null before a
+contract is approved), and `assigned_result` names the one evidence obligation
+whose discharge completes this attempt. Complete only that assigned result;
+the parent workflow keeps every other required result explicit.
+
+The store admits an approved contract premise of at most 4096 UTF-8 bytes; that
+approval limit counts bytes. Packet field limits such as `inputs.task`
+`maxLength=4096` count JSON Schema Unicode code points, a different unit. The
+lane budget `context_tokens_max` is a model token limit and is separate from
+both. Concord's CLI bootstrap and output guards are transport bounds of its own
+tools, not a prompt cap on any host Task surface. An oversize or invalid
+projection is refused as a typed failure before authorization; do not truncate
+approved content, and do not ask to reapprove unchanged scope to fit a limit.
 
 ## Concord context boundary
 

@@ -3,11 +3,17 @@
   "attempt_id": "attempt:eval-research-bounded-question",
   "lane_id": "research",
   "lane_version": 1,
-  "lane_digest": "sha256:69f0271ffb9e14808aaf5d420e19f49928fe660a7336ad254f4f19486e90e2c3",
+  "lane_digest": "sha256:4091e91c9c095b96be54aba40d9704d97ab025238663409768fcf205c171102f",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {
     "task": "Report which files under contracts/ define the agent lane registry.",
+    "binding": {
+      "objective_source": "contract_premise",
+      "work_version": 1,
+      "contract_version": 1,
+      "assigned_result": "bounded_findings"
+    },
     "context": "The reader has no prior knowledge of this repository.",
     "constraints": [
       "Cite every claim with a repository path.",

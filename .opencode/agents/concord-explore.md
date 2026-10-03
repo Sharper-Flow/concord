@@ -1,6 +1,6 @@
 ---
-description: Concord explore utility — Inspect a repository and return bounded source-backed findings.
-mode: all
+description: Concord explore utility — Inspect a repository and answer one bounded question with source-backed findings. Use proactively for repository scans, inventories, and where-is-it questions; never for external facts.
+mode: subagent
 hidden: true
 tools:
   bash: true
@@ -43,7 +43,7 @@ permission:
 
 # concord-explore
 
-Inspect a repository and return bounded source-backed findings.
+Inspect a repository and answer one bounded question with source-backed findings. Use proactively for repository scans, inventories, and where-is-it questions; never for external facts.
 
 This is a read-only repository exploration utility. Return plain text findings
 for the parent. Do not edit files, write files, patch files, mutate Concord

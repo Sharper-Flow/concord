@@ -42,17 +42,6 @@ func workflowDesignRecordedEvents(request WorkflowActionExecutionRequest, actor 
 	})}, nil
 }
 
-func guardCurrentDesignBeforeDispatch(g *workflowActionGuardContext) error {
-	_, stale, err := readCurrentWorkflowDesign(g.ctx, g.tx, g.request.WorkID)
-	if err != nil {
-		return err
-	}
-	if stale {
-		return newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
-	}
-	return nil
-}
-
 func appendWorkflowDesignCorrection(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64, events []Event) ([]Event, error) {
 	if raw == nil {
 		return events, nil

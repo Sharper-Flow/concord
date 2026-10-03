@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -202,6 +204,149 @@ func attemptD7BoundaryAction(ctx context.Context, s *Store, workID, actionID str
 		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), execution)
 		return err
 	})
+}
+
+// supersedeRecoveryPayload is the typed successor contract the recovery
+// payload checks require, shaped for the non-Product-changing fixture family.
+// A Product-changing pinned definition requires the successor architecture
+// binding, and a duplicated active-contract projection must name the exact
+// active versions the supersession retires; the successor version follows the
+// highest one.
+func supersedeRecoveryPayload(t *testing.T, workID string, successor int64, binding map[string]any, predecessors ...int64) json.RawMessage {
+	t.Helper()
+	fields := map[string]any{
+		"contract_version": successor,
+		"premise":          "The successor contract carries the work past the refused state.",
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		}},
+		"required_evidence": []string{"verification"},
+		"route_conventions": []string{},
+		"spec_mandate":      []string{},
+		"law_modifies":      []string{},
+		"rigor_class":       "prototype_internal",
+		"supersede_reason":  "the operator recovered the refused state",
+		"audit_evidence":    []string{"evidence:" + workID},
+	}
+	if len(predecessors) != 0 {
+		fields["predecessor_contract_versions"] = predecessors
+	}
+	if binding != nil {
+		fields["architecture_binding"] = binding
+	}
+	return mustJSONValue(fields)
+}
+
+// runSupersedeRecoveryFold drives one supersede_contract request through the
+// dispatch fold the owning boundary runs. The recovery's operator approval is
+// the mutation boundary's wall, not the fold's, so the request carries the
+// work actor alone.
+func runSupersedeRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
+	t.Helper()
+	version := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	operationID := "supersede-recovery-" + workID + "-" + strconv.FormatInt(version, 10)
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: actor,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// runSupersedeDuplicateRecoveryFold drives the duplicate-contract recovery
+// through the fold with the operator approval binding the recovery's
+// operator-approved route records: the operator identity names the consumed
+// approval, and the binding fields are the ones admission verified.
+func runSupersedeDuplicateRecoveryFold(t *testing.T, s *Store, workID string, payload json.RawMessage, actor WorkflowActor) error {
+	t.Helper()
+	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:approval-duplicate-recovery", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
+	version := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	operationID := "supersede-duplicate-" + workID + "-" + strconv.FormatInt(version, 10)
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload,
+		Actor: actor, OperatorActor: &operator, OperatorApprovalRef: "approval-duplicate-recovery",
+		ApprovalOperationDigest: "sha256:" + strings.Repeat("b", 64),
+		ApprovalScopeJSON:       `{"work_ids":["` + workID + `"]}`,
+		ApprovalVersionsJSON:    `{"work":` + strconv.FormatInt(version, 10) + `}`,
+		ApprovalConsequence:     "contract_recovery",
+		AcceptedInputsDigest:    "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFold
+// holds the single admission owner at the surfaces that answer
+// supersede_contract: an unresolved Domain overlap at a step whose correction
+// checkpoint refuses admits the recovery, and discovery, the work pin, the
+// read-only preflight, and the dispatch fold answer identically for that
+// state. Discovery once re-classified the overlap through the correction
+// checkpoint and refused a recovery the fold admitted.
+func TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFold(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "d7-supersede-agreement"
+	otherID := "d7-supersede-agreement-other"
+	s, actor, _ := seedD7BoundaryOverlap(t, workID, otherID, "planning")
+
+	// The contrast first, on the seeded state: the recovery admission widened
+	// no other route, so the checkpoint advance still refuses with the typed
+	// overlap refusal (CD-0186).
+	if err := attemptD7BoundaryAction(ctx, s, workID, "approve_contract", actor, readWorkVersion(t, s, workID)); err == nil {
+		t.Fatal("approve_contract passed while the overlap stands unresolved")
+	} else {
+		assertD7TypedRefusal(t, err, workID, otherID)
+	}
+
+	payload := supersedeRecoveryPayload(t, workID, 2, nil)
+	_, action, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+	if err != nil {
+		t.Fatalf("discovery refused the overlap recovery the fold admits: %v", err)
+	}
+	if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
+		t.Fatalf("recovery action = %+v, want the approval-required contract recovery", action)
+	}
+	pin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatalf("read work pin under the overlap: %v", err)
+	}
+	if !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+		t.Fatalf("pin omits supersede_contract under the overlap; intents = %v", intentActionIDs(pin.NextValidIntents))
+	}
+	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "supersede_contract", Payload: payload, Actor: actor,
+	}); err != nil {
+		t.Fatalf("preflight refused the overlap recovery: %v", err)
+	}
+	if err := runSupersedeRecoveryFold(t, s, workID, payload, actor); err != nil {
+		t.Fatalf("dispatch fold refused the overlap recovery: %v", err)
+	}
+	var superseded, active int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND contract_version=1 AND superseded_by IS NOT NULL`, workID).Scan(&superseded); err != nil || superseded != 1 {
+		t.Fatalf("predecessor contract superseded=%d err=%v, want one", superseded, err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil || active != 1 {
+		t.Fatalf("active contracts after recovery=%d err=%v, want one", active, err)
+	}
 }
 
 // TestD7ConsequentialBoundariesRefuseUnresolvedOverlap covers the CD-0041 D7

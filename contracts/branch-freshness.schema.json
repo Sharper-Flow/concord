@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/branch-freshness.schema.json",
+  "title": "Concord branch-freshness result declaration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "summary", "statuses", "failure_reasons", "sha_pattern", "default_ref", "behind_count_minimum"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "1.0"},
+    "summary": {"type": "string", "minLength": 2, "maxLength": 1024},
+    "statuses": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/status"}
+    },
+    "failure_reasons": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/term"}
+    },
+    "sha_pattern": {"type": "string", "pattern": "\\^\\[0-9a-f\\]\\{40\\}\\$"},
+    "default_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prefix", "git_ref_rule"],
+      "properties": {
+        "prefix": {"const": "origin/"},
+        "git_ref_rule": {"type": "string", "minLength": 2}
+      }
+    },
+    "behind_count_minimum": {"const": 0}
+  },
+  "$defs": {
+    "term": {"type": "string", "minLength": 2, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"},
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "fields"],
+      "properties": {
+        "status": {"$ref": "#/$defs/term"},
+        "fields": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"}
+        },
+        "sha_fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$"}
+        },
+        "count_field": {"$ref": "#/$defs/term"},
+        "reason_field": {"$ref": "#/$defs/term"}
+      }
+    }
+  }
+}

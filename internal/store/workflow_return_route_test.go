@@ -123,6 +123,34 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
 
+// The workflow action preflight refuses once per payload, not once per
+// field: missing required fields in declared order, then undeclared fields
+// sorted by name, under one combined remedy. The undeclared walk is an
+// unordered map walk, so the test repeats the call to prove identical output
+// on every run.
+func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T) {
+	t.Parallel()
+	payload := json.RawMessage(`{"predicate_ids":["predicate:primary"],"evidence_refs":["evidence:x"],"zz_extra":true}`)
+	want := `workflow action payload field "diagnosis" is required for action "request_correction"; workflow action payload field "strategy" is required for action "request_correction"; workflow action payload field "zz_extra" is not declared for action "request_correction"`
+	wantRemedy := "supply every required registered action field and use only fields declared by the pinned definition"
+	for range 50 {
+		err := validateWorkflowActionPayload(WorkflowDefinition{}, "request_correction", payload)
+		var failure *Failure
+		if !errors.As(err, &failure) {
+			t.Fatalf("structural preflight = %v, want an invalid-payload refusal", err)
+		}
+		if failure.Kind != KindInvalidPayload {
+			t.Fatalf("failure kind = %v, want %v", failure.Kind, KindInvalidPayload)
+		}
+		if got := failure.Detail; got != want {
+			t.Fatalf("detail = %q, want %q", got, want)
+		}
+		if got := failure.RecoveryAction; got != wantRemedy {
+			t.Fatalf("recovery action = %q, want %q", got, wantRemedy)
+		}
+	}
+}
+
 func TestIssue1062PersistentMismatchReturnsImplementationAcceptanceToRefine(t *testing.T) {
 	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance")
 }
@@ -494,7 +522,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep st
 	}
 
 	lane := BuiltinLaneDefinitions()[0]
-	packet := joinPacketFor(workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
+	packet := joinPacketFor(t, fixture.store, workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
 	payload, err := json.Marshal(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet})
 	if err != nil {
 		t.Fatal(err)
@@ -544,7 +572,7 @@ func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixtur
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":verify-review"
-	packet := joinPacketFor(workID, "verify", attemptID, "review", laneVersion, laneDigest)
+	packet := joinPacketFor(t, fixture.store, workID, "verify", attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}

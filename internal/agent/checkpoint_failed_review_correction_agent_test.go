@@ -157,7 +157,7 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	// 1062 shape behind the amended admission.
 	attemptID := "attempt:work-1:failed-review"
 	lane := deliveryRecoveryLane(t, "review")
-	reviewPacket := map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "acceptance", "inputs": map[string]any{"task": "review the delivered subject at the acceptance checkpoint", "constraints": []string{"preserve the approved contract"}}}
+	reviewPacket := bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "acceptance", "inputs": map[string]any{"task": "review the delivered subject at the acceptance checkpoint", "constraints": []string{"preserve the approved contract"}}})
 	if dispatched := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": reviewPacket}, "idempotency_key": "checkpoint-review-dispatch"}); dispatched.Outcome != OutcomeOK {
 		t.Fatalf("checkpoint review dispatch: %+v", dispatched.Error)
 	}

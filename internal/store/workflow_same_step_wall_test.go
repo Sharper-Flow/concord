@@ -16,7 +16,7 @@ import (
 // so the wall journeys can classify it.
 func dispatchSameStepAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, actor WorkflowActor, escalated bool, correction *WorkflowCorrectionContext) error {
 	t.Helper()
-	packet := dispatchWorkerPacket(workID, stepID, attemptID)
+	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = map[string]any{
 			"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
@@ -273,7 +273,7 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 		t.Fatalf("workflowCorrectionAttemptCount = %d, want the CD-0164 population of three dispatches", correctionCount)
 	}
 
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", "attempt:"+workID+":4", pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", "attempt:"+workID+":4", pin.Correction)
 	_, dispatchErr := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "same-step-cmp-4", OperationID: "same-step-cmp-4",
@@ -308,7 +308,7 @@ func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
 	// The approved retry folds, then the interruption: no worker.dispatched
 	// event, no worker_attempts row.
 	interrupted := "attempt:" + workID + ":4"
-	payload := issue1013CorrectionDispatchPayload(t, workID, "repair", interrupted, pin.Correction)
+	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", interrupted, pin.Correction)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "half-dispatch-approved-" + workID, OperationID: "half-dispatch-approved-" + workID,
@@ -328,7 +328,7 @@ func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
 
 	// The wall keeps refusing the re-dispatch without the operator approval.
 	retry := "attempt:" + workID + ":5"
-	payload = issue1013CorrectionDispatchPayload(t, workID, "repair", retry, pin.Correction)
+	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", retry, pin.Correction)
 	_, dispatchErr := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "half-dispatch-retry-" + workID, OperationID: "half-dispatch-retry-" + workID,

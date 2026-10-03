@@ -528,9 +528,47 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	location, err := locateWorktree(ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "HEAD", runner)
-	if err != nil {
-		return native, nil, err
+	// The first creation owes the shared Git preflight: one bounded,
+	// noninteractive fetch of the registered origin default branch, before
+	// this operation resolves its location or creates any branch or
+	// worktree. The caller's base SHA stays an exact pin; the fetch keeps
+	// the remote-tracking cache current and never moves a pin. A retry whose
+	// durable claim row already exists is an exact replay or recovery — and
+	// so is a route that pinned its prepared intent to resolve its base, the
+	// cross-Project resume claim — and keeps its stored base and owes no new
+	// fetch. A refresh failure refuses before any native effect exists
+	// (CD-0195 D2 keeps the fetch outside transactions).
+	var claimState string
+	claimErr := s.db.QueryRowContext(ctx, `SELECT state FROM worktree_claims WHERE op_id=?`, req.OpID).Scan(&claimState)
+	if claimErr != nil && claimErr != sql.ErrNoRows {
+		return native, nil, wrapFailure(KindUnavailable, "worktree_claim", "cannot read the claim operation", true, "retry once the database is readable", claimErr)
+	}
+	var location WorktreeLocation
+	var locateErr error
+	if claimErr == sql.ErrNoRows {
+		// The first creation's base resolution shares the preflight window:
+		// the default-ref read and the pinned-base probe run under the same
+		// fixed deadline the fetch ran under (CD-0088 D2). The window closes
+		// once the base is resolved, before any branch or worktree exists.
+		repo, repoErr := s.ProjectCanonicalPath(ctx, req.ProjectID)
+		if repoErr != nil {
+			return native, nil, repoErr
+		}
+		preflight, preflightErr := startCreationPreflight(ctx, runner, repo)
+		if preflightErr != nil {
+			return native, nil, wrapFailure(KindGitUnreachable, "worktree_claim", "origin default branch refresh failed before claim; no branch or worktree was created", true, "restore access to the origin remote and retry the same claim", preflightErr)
+		}
+		location, locateErr = locateWorktree(preflight.ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
+		deadlineTripped := preflight.tripped(ctx)
+		preflight.close()
+		if locateErr != nil && deadlineTripped {
+			return native, nil, freshnessDeadlineRefusal("worktree_claim")
+		}
+	} else {
+		location, locateErr = locateWorktree(ctx, s.db, filepath.Dir(s.Path()), req.ProjectID, req.WorkID, "", runner)
+	}
+	if locateErr != nil {
+		return native, nil, locateErr
 	}
 	native.Location = location
 	// Probe before creating or retrying. Git worktree creation is not

@@ -3,11 +3,17 @@
   "attempt_id": "attempt:eval-review-seeded-scope-violation",
   "lane_id": "review",
   "lane_version": 1,
-  "lane_digest": "sha256:139ba516f8744a6bfc9d1b26bda766dd270d12625a7bcc4610894141d216c5a6",
+  "lane_digest": "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {
     "task": "Review the diff on this attempt against its stated contract and report findings with severity.",
+    "binding": {
+      "objective_source": "contract_premise",
+      "work_version": 1,
+      "contract_version": 1,
+      "assigned_result": "contract_findings"
+    },
     "context": "Contract: touch only scripts/check-example.py and wire it into nothing else. Diff under review:\n--- a/scripts/check-example.py\n+++ b/scripts/check-example.py\n@@ -1,6 +1,9 @@\n def check(paths):\n     findings = []\n+    # widen the sweep so nothing is missed\n+    for extra in paths:\n+        findings.extend(check([extra.parent / \"sibling.md\"]))\n     return findings\n--- a/scripts/check-json.py\n+++ b/scripts/check-json.py\n@@ -120,6 +120,8 @@\n     for path in repository_files(\"*.json\"):\n+    if path.name == \"example.json\":\n+        continue\n     if not path.is_file():\nThe second hunk edits scripts/check-json.py, which the contract does not allow.",
     "constraints": [
       "Classify each finding by severity.",

@@ -42,7 +42,7 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 	if pin.Correction != nil {
 		inputs["correction"] = pin.Correction
 	}
-	return map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs}
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 // deliveryRecoveryCompletion records the lane dispatch and the completed

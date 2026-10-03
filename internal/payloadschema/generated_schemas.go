@@ -241,31 +241,6 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "budget": {
-      "additionalProperties": false,
-      "properties": {
-        "max_bytes": {
-          "maximum": 65536,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "max_items": {
-          "maximum": 100,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "max_millis": {
-          "maximum": 300000,
-          "minimum": 1,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "max_bytes",
-        "max_items"
-      ],
-      "type": "object"
-    },
     "canonical_note_result": {
       "additionalProperties": false,
       "properties": {
@@ -2191,9 +2166,6 @@ const GeneratedPayloadSchemaDocument = `{
     "initiative_entries_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
@@ -2538,9 +2510,6 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "allow_degraded": {
           "type": "boolean"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "domain_id": {
           "$ref": "#/$defs/id"
@@ -3442,9 +3411,6 @@ const GeneratedPayloadSchemaDocument = `{
     "product_row_portfolio_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -3663,9 +3629,6 @@ const GeneratedPayloadSchemaDocument = `{
     "product_view_blocked_sessions_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -3725,9 +3688,6 @@ const GeneratedPayloadSchemaDocument = `{
         }
       ],
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -3749,9 +3709,6 @@ const GeneratedPayloadSchemaDocument = `{
     "product_view_resources_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "class": {
           "enum": [
             "infrastructure",
@@ -3802,9 +3759,6 @@ const GeneratedPayloadSchemaDocument = `{
     "product_view_snapshot_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -4031,7 +3985,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "requested_budget_seconds": {
-      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; the only agent-facing operation budget since the 2026-10-02 retirement of the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
       "minimum": 1,
       "type": "integer"
     },
@@ -4997,9 +4951,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_blocked_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "depth": {
           "maximum": 3,
           "minimum": 1,
@@ -5032,9 +4983,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_list_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "detail": {
           "$ref": "#/$defs/detail"
         },
@@ -5103,9 +5051,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_messages_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -5131,9 +5076,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_ready_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "kind": {
           "$ref": "#/$defs/work_kind"
         },
@@ -5158,9 +5100,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_resource_claims_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -5210,9 +5149,6 @@ const GeneratedPayloadSchemaDocument = `{
         }
       ],
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -5247,9 +5183,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_worktree_audit_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -5271,9 +5204,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_browse_worktree_inspect_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "mode": {
           "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
           "enum": [
@@ -7685,9 +7615,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_continuity_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -7709,9 +7636,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_history_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "direction": {
           "$ref": "#/$defs/direction"
         },
@@ -7762,9 +7686,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_relations_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "depth": {
           "maximum": 3,
           "minimum": 1,
@@ -7796,9 +7717,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_research_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -8421,6 +8339,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "minItems": 1
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11511,6 +11430,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -11703,6 +11623,7 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array"
                   },
                   "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
                     "maxLength": 4096,
                     "minLength": 1,
                     "not": {
@@ -12448,6 +12369,9 @@ const GeneratedPayloadSchemaDocument = `{
         "inputs": {
           "additionalProperties": false,
           "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
             "constraints": {
               "items": {
                 "maxLength": 512,
@@ -12476,7 +12400,8 @@ const GeneratedPayloadSchemaDocument = `{
             }
           },
           "required": [
-            "task"
+            "task",
+            "binding"
           ],
           "type": "object"
         },
@@ -12510,6 +12435,83 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "step_id",
         "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet_binding": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "contract_premise"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "work_question"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
+      "properties": {
+        "assigned_result": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "type": "string"
+        },
+        "contract_version": {
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "objective_source": {
+          "enum": [
+            "contract_premise",
+            "work_question"
+          ],
+          "type": "string"
+        },
+        "work_version": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "objective_source",
+        "work_version",
+        "contract_version",
+        "assigned_result"
       ],
       "type": "object"
     },
@@ -13572,7 +13574,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "workflow_premise": {
-      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength).",
+      "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
       "maxLength": 4096,
       "minLength": 1,
       "type": "string"

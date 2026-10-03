@@ -164,6 +164,11 @@ function schemaName(ref: string): string {
 
 const hostSchemaStructuralKeys = new Set(["$defs", "$ref", "additionalProperties", "allOf", "anyOf", "definitions", "else", "if", "not", "oneOf", "properties", "required", "then"])
 
+// combinationKeys are the applicators the host cannot render. `not` and `if`
+// constrain or match; they contribute nothing a calling agent can act on and
+// are dropped. `then` contributes the conditional branch's admitted fields.
+const combinationKeys = new Set(["allOf", "anyOf", "if", "not", "oneOf", "then", "else"])
+
 function sameSchema(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
@@ -202,15 +207,18 @@ function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
   return result
 }
 
-// flattenHostSchema projects an authored payload schema into the host-safe
-// view. At merged object levels the projection stays permissive so one
-// multi-operation tool stays advertisable at bounded size. Bounded nodes —
-// array items and the variant oneOf they carry — keep their authored closed
-// structure instead: the item required set and additionalProperties survive,
-// and a oneOf keeps its branches rather than merging into one property bag
-// that would falsely admit every variant's fields at once. This is what lets
-// the advertised schema teach the admission rules ValidateOperationPayload
-// enforces; the store remains the closed admission boundary.
+// flattenHostSchema projects one authored payload schema into the host-safe
+// view. The host renders neither combinators nor Boolean constraints, so an
+// unbounded combination node (allOf/anyOf/oneOf/if-then) publishes as the
+// union of what the core admits: every branch's properties join the base,
+// and an allOf member's required — the only unconditional branch required —
+// joins the base required too. Conditional branch required stays out, so the
+// projection never demands a field the core only requires under a condition
+// the published view cannot name. Bounded nodes — array items and the
+// variant oneOf they carry — keep their authored closed structure instead.
+// Per operation the result states the same required set and the same
+// admitted fields ValidateOperationPayload enforces; the store remains the
+// closed admission boundary.
 function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounded = false): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
@@ -237,12 +245,35 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
     return result
   }
 
-  const combinations = ["oneOf", "anyOf", "allOf", "then", "else"]
-    .flatMap((key) => Array.isArray(schema[key]) ? schema[key] as unknown[] : schema[key] === undefined ? [] : [schema[key]])
-  if (combinations.length > 0) {
-    const base = Object.fromEntries(Object.entries(schema).filter(([key]) => !hostSchemaStructuralKeys.has(key)))
-    const branches = [base, ...combinations].map((branch) => flattenHostSchema(branch, resolving))
-    return mergeHostSchemas(branches)
+  const members: { schema: unknown; unconditional: boolean }[] = []
+  for (const key of ["oneOf", "anyOf"] as const) {
+    if (Array.isArray(schema[key])) members.push(...(schema[key] as unknown[]).map((branch) => ({ schema: branch, unconditional: false })))
+  }
+  if (Array.isArray(schema.allOf)) members.push(...(schema.allOf as unknown[]).map((branch) => ({ schema: branch, unconditional: true })))
+  if (schema.then !== undefined && schema.then !== null && typeof schema.then === "object") members.push({ schema: schema.then, unconditional: false })
+
+  if (members.length > 0) {
+    const own = Object.fromEntries(Object.entries(schema).filter(([key]) => !combinationKeys.has(key) && key !== "$defs" && key !== "$ref" && key !== "definitions" && key !== "not"))
+    const base = flattenHostSchema(own, resolving, bounded)
+    const properties: Record<string, unknown> = { ...((base.properties ?? {}) as Record<string, unknown>) }
+    const required = new Set<string>(Array.isArray(base.required) ? base.required as string[] : [])
+    for (const member of members) {
+      const flat = flattenHostSchema(member.schema, resolving, bounded)
+      for (const [name, property] of Object.entries((flat.properties ?? {}) as Record<string, unknown>)) {
+        const previous = properties[name]
+        properties[name] = previous === undefined ? property : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
+      }
+      if (member.unconditional && Array.isArray(flat.required)) {
+        for (const name of flat.required as string[]) required.add(name)
+      }
+    }
+    const result: JSONSchema = { ...base, properties }
+    if (schema.properties !== undefined || schema.type === "object" || Object.keys(properties).length > 0) {
+      result.type = "object"
+      result.required = [...required]
+      result.additionalProperties = schema.additionalProperties === false && base.additionalProperties !== true ? false : true
+    }
+    return result
   }
 
   const result: JSONSchema = {}
@@ -259,8 +290,8 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
     result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving, bounded)]))
     const authoredRequired = Array.isArray(schema.required) ? schema.required as string[] : []
     const authoredProperties = (schema.properties ?? {}) as Record<string, unknown>
-    result.required = bounded ? authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name)) : []
-    result.additionalProperties = bounded && schema.additionalProperties === false ? false : true
+    result.required = authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name))
+    result.additionalProperties = schema.additionalProperties === false ? false : true
   }
   return result
 }
@@ -268,20 +299,33 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  // The host receives one permissive request shape. ValidateOperationPayload
-  // remains the closed operation boundary because it runs after host delivery.
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)
-  const input = mergeHostSchemas(operations.map((operation: any) => flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)])))
+  // The host receives one closed branch per operation: the branch names the
+  // operation with a const and states the required set and the admitted
+  // fields exactly as the core's admission enforces them. One branch per
+  // operation — never a merged union — so a caller reads what the chosen
+  // operation requires and refuses instead of what a sibling owns, and the
+  // operation const keeps every branch mutually exclusive.
+  const branches = operations.map((operation: any) => ({
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "input"],
+    properties: {
+      operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
+      input: flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)]),
+    },
+  }))
   return {
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
     properties: {
       operation: { type: "string", enum: operations.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1)) },
-      input,
+      input: { type: "object" },
     },
+    oneOf: branches,
   }
 }
 
@@ -961,6 +1005,7 @@ type WorkStartResume = {
   project_id: string
   work_id: string
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
+  branch_freshness: BranchFreshness
   linear_remote?: LinearRemoteSection
   project_handoff?: ProjectHandoffSection
 }
@@ -977,6 +1022,14 @@ type WorkStartBootstrap = {
 }
 
 type WorkStartPrepared = { schema_version: "1.0"; agent: string; directory: string; product_id: string; work_id: string; title: string; prompt: string }
+
+// BranchFreshness is the typed freshness the work-resume child samples for
+// the worktree the session enters: how far its checked-out branch sits
+// behind the origin default branch after one bounded refresh. The unknown
+// status carries only its typed reason and never an authoritative count.
+type BranchFreshness =
+  | { status: "ok"; head_sha: string; default_ref: string; default_sha: string; behind_count: number }
+  | { status: "unknown"; reason: string }
 
 // WorkStartLaunch is the exact second-session launch: the core launch argv
 // as separate elements, the target Project directory it lands in, and a
@@ -1001,6 +1054,7 @@ type WorkStartEnvelope = {
   output?: string
   linear_remote?: LinearRemoteSection
   project_handoff?: ProjectHandoffSection
+  branch_freshness?: BranchFreshness
   launch?: WorkStartLaunch
   opener?: { argv: string[]; exit_code: number }
   error?: { kind: string; retry_safe: boolean; recovery_action: { kind: string }; effect_state: "none"; message: string }
@@ -1053,7 +1107,7 @@ function validateWorkStartBootstrap(value: unknown): value is WorkStartBootstrap
   return exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
     && nonEmptyString(worktree.set_id)
     && typeof worktree.path === "string" && worktree.path.startsWith("/")
-    && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
+    && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
 }
 
 function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: string; work_id: string; worktree: { path: string } }, agent: string): value is WorkStartPrepared {
@@ -1074,6 +1128,8 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // nothing, while missing-entry bootstrap keeps those fields outside this
 // shared resume response. linear_remote is the optional remote Linear check
 // section: absent exactly when the resume applies no remote check.
+// branch_freshness is the typed behind-the-default sample the resume always
+// carries; a fetch or probe failure degrades it to the typed unknown.
 // project_handoff is the optional bounded addressed handoff the core renders
 // for a Project-selected resume (CD-0182 amendment): absent exactly when no
 // handoff addresses the resuming Project under the active contract and the
@@ -1082,7 +1138,7 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // recovers the bounded job — and never consumable from this rendering alone.
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value)) return false
-  const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree"]
+  const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree", "branch_freshness"]
   const optionalKeys = ["linear_remote", "project_handoff"]
   if (!baseKeys.every((key) => key in value)) return false
   const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
@@ -1092,8 +1148,9 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
   const worktreeOk = exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
     && nonEmptyString(worktree.set_id)
     && typeof worktree.path === "string" && worktree.path.startsWith("/")
-    && nonEmptyString(worktree.branch) && /^[0-9a-f]{40}$/.test(String(worktree.base_sha)) && worktree.state === "active"
+    && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
   if (!worktreeOk) return false
+  if (!validateBranchFreshness(value.branch_freshness)) return false
   if ("linear_remote" in value && !validateLinearRemoteSection(value.linear_remote)) return false
   return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
 }
@@ -1112,6 +1169,48 @@ function validateProjectHandoffSection(value: unknown): value is ProjectHandoffS
     && boundedStrings(value.changes) && boundedStrings(value.verification) && boundedStrings(value.artifact_refs) && boundedStrings(value.blockers)
     && nonEmptyString(value.next_action) && Buffer.byteLength(String(value.next_action)) <= 1000
     && nonEmptyString(value.recorded_at)
+}
+
+const branchFreshnessReasons = new Set(["timeout", "fetch_failed", "probe_failed"])
+
+// isValidOriginDefaultRef mirrors the owning Git-ref contract
+// (git-check-ref-format) for the origin default ref the core reports: the
+// origin prefix plus a branch name git itself accepts, so nested names like
+// origin/release/stable validate. The rules are the negative set git
+// imposes: no control character, space, ~ ^ : ? * [ or backslash anywhere,
+// no "..", no "@{", no leading or trailing slash or double slash, no
+// trailing dot, and no slash-separated component that starts with a dot or
+// ends with ".lock".
+function isValidOriginDefaultRef(value: unknown): value is string {
+  if (typeof value !== "string" || !value.startsWith("origin/")) return false
+  const ref = `refs/remotes/${value}`
+  if (/[\u0000-\u001f\u007f ~^:?*[\\]/.test(ref)) return false
+  if (ref.includes("..") || ref.includes("@{")) return false
+  if (ref.startsWith("/") || ref.endsWith("/") || ref.includes("//")) return false
+  if (ref.endsWith(".")) return false
+  return !ref.split("/").some((component) => component.startsWith(".") || component.endsWith(".lock"))
+}
+
+// validateBranchFreshness is the strict shape for the freshness sample. The
+// ok status carries the sampled SHAs, the default ref, and a nonnegative
+// count; the unknown status carries only its typed reason. The sampled SHAs
+// are string fields: an array or object wrapping the hex fails the contract
+// instead of coercing through String(). The owning contract is
+// contracts/branch-freshness.v1.json, whose generated fixtures this
+// validator is held to in branch_freshness_contract.test.ts.
+export function validateBranchFreshness(value: unknown): value is BranchFreshness {
+  if (!record(value)) return false
+  if (value.status === "ok") {
+    return exactKeys(value, ["status", "head_sha", "default_ref", "default_sha", "behind_count"])
+      && typeof value.head_sha === "string" && /^[0-9a-f]{40}$/.test(value.head_sha)
+      && isValidOriginDefaultRef(value.default_ref)
+      && typeof value.default_sha === "string" && /^[0-9a-f]{40}$/.test(value.default_sha)
+      && typeof value.behind_count === "number" && Number.isInteger(value.behind_count) && value.behind_count >= 0
+  }
+  if (value.status === "unknown") {
+    return exactKeys(value, ["status", "reason"]) && typeof value.reason === "string" && branchFreshnessReasons.has(value.reason)
+  }
+  return false
 }
 
 const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found", "local_unavailable"])
@@ -1532,6 +1631,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     let prepareTask: string
     let resumeRemote: LinearRemoteSection | undefined
     let renderedHandoff: ProjectHandoffSection | undefined
+    let resumeFreshness: BranchFreshness | undefined
     if (resume) {
       const workID = (args as { work_id: string }).work_id
       // An explicit project_id names the Project the resume claims in; the
@@ -1545,6 +1645,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       target = resumedValue
       resumeRemote = resumedValue.linear_remote
       renderedHandoff = resumedValue.project_handoff
+      resumeFreshness = resumedValue.branch_freshness
       prepareTask = ""
     } else {
       const capture = args as WorkStartCaptureArgs
@@ -1700,6 +1801,10 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // session holds its repository job and exact next action without the
       // operator copying context (CD-0182 amendment).
       ...(renderedHandoff ? { project_handoff: renderedHandoff } : {}),
+      // The branch freshness sample rides the resume result into the
+      // envelope so the resuming session sees how far its branch sits
+      // behind the origin default branch before it builds on it.
+      ...(resumeFreshness ? { branch_freshness: resumeFreshness } : {}),
     }
   } catch (error) {
     return workStartFailure(error, target, "work_start_failed")

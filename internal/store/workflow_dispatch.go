@@ -118,73 +118,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		}
 	}
 	if actionID == "supersede_contract" {
-		var currentStep, state string
-		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow lifecycle", true, "retry once the workflow projection is readable", err)
+		action, err := workflowSupersedeContractDiscovery(ctx, s, entry, workID)
+		if err != nil {
+			return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 		}
-		if state == "cancelled" || state == "superseded" {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is unavailable for terminal work", false, "start a successor workflow")
-		}
-		// A completed workflow instance whose work item is still nonterminal
-		// is the state the complete-step correction route recovers: completion
-		// under a contract the operator has disproved. Terminality follows the
-		// work item lifecycle, not the instance state alone.
-		var lifecycle string
-		if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot read the work item lifecycle", true, "retry once the work item is readable", err)
-		}
-		if lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is unavailable for terminal work", false, "start a successor workflow")
-		}
-		if workflowCompletedInstanceSupersedeOffShape(state, entry.Definition, currentStep) {
-			// A completed instance off the supported pinned complete-step
-			// shape keeps every recovery route closed; only the complete-step
-			// admission reopens it.
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCompletedInstanceOffShapeFailure("workflow_action")
-		}
-		var activeCount int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect active workflow contract", true, "retry once the workflow projection is readable", err)
-		}
-		if activeCount == 0 {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvariantViolation, "workflow_action", "contract recovery requires an active workflow contract", false, "rebuild the workflow contract projection")
-		}
-		if workflowCompleteStepCorrectionStep(entry.Definition, currentStep) {
-			// The pinned complete step exposes one admission: the shared
-			// complete-step state gate. Duplicate and stale-law recovery stay
-			// on their declared earlier steps.
-			available, gateErr := workflowCompleteStepCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
-			if gateErr != nil {
-				return RegisteredDefinition{}, WorkflowActionDefinition{}, gateErr
-			}
-			if !available {
-				return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
-			}
-			return entry, workflowContractRecoveryActionDefinition(), nil
-		}
-		if activeCount > 1 {
-			return entry, workflowContractRecoveryActionDefinition(), nil
-		}
-		if err := checkWorkflowLawRevisionStalenessReadTx(ctx, s.db, workID); err != nil {
-			if !workflowContractRecoveryStaleness(err, workID) {
-				return RegisteredDefinition{}, WorkflowActionDefinition{}, err
-			}
-			// A stale law revision or the subject's own stale Domain registry
-			// pin admits recovery here. An unresolved overlap still needs the
-			// correction checkpoint below.
-			var failure *Failure
-			if failureAs(err, &failure) && failure.Kind != KindDomainOverlap {
-				return entry, workflowContractRecoveryActionDefinition(), nil
-			}
-		}
-		correction, correctionErr := workflowContractCorrectionAvailable(ctx, s.db, workID, entry.Definition, currentStep, "workflow_action")
-		if correctionErr != nil {
-			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
-		}
-		if correction {
-			return entry, workflowContractRecoveryActionDefinition(), nil
-		}
-		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")
+		return entry, action, nil
 	}
 	if actionID == "record_worker_failure" && !containsString(entry.Definition.AvailableActions, actionID) {
 		var currentStep string
@@ -236,6 +174,44 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 		}
 	}
 	return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared by the pinned definition", false, "reread_entities")
+}
+
+// workflowSupersedeContractDiscovery answers supersede_contract's discovery
+// from the shared admission: one read transaction folds the instance history
+// through loadWorkflowAdmissionStateTx, and workflowAdmitSupersede — the same
+// pure decision the preflight, the guard, the work pin, and the dispatch fold
+// consume — classifies the recovery. Discovery keeps no per-site predicate of
+// its own: the shape refusal, the stale-law and duplicate classification, and
+// the complete-step gate are the fold's answer, so no surface can refuse a
+// recovery route another surface admits.
+func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {
+	var action WorkflowActionDefinition
+	if err := s.Transact(ctx, func(transaction *Transaction) error {
+		return workflowSupersedeContractDiscoveryTx(ctx, transaction.tx, entry, workID, &action)
+	}); err != nil {
+		return WorkflowActionDefinition{}, err
+	}
+	return action, nil
+}
+
+func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
+	var currentStep string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "workflow_action", "workflow instance is not recorded", false, "reread_entities")
+		}
+		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
+	}
+	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
+	if stateErr != nil {
+		return stateErr
+	}
+	decision := workflowAdmit(entry.Definition, state, "supersede_contract")
+	if decision.Admitted {
+		*action = workflowContractRecoveryActionDefinition()
+		return nil
+	}
+	return decision.Failure
 }
 
 // ApplyWorkflowActionTx records one action's durable operation and event-folded
@@ -295,54 +271,43 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		}
 		return result, conflict
 	}
-	if workflowCompletedInstanceActionImmutable(state, request.ActionID, lifecycle) {
-		return result, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
-	}
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
-	if request.ActionID == "record_worker_failure" {
-		guards.workerFailureRecovery, err = workflowWorkerFailureRecoveryAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
-		if err != nil {
-			return result, err
-		}
+	// One admission derivation for the fold: the tx-scoped loader folds the
+	// instance history into the abstract admission state once, the request's
+	// consumed operator approval fills the wall approval, and the pure
+	// workflowAdmit decides. Every refusal applies here except the review
+	// gate's own fresh-review refusal, whose ready-review carve-out is
+	// payload-bound, the operator-approval walls, and the closed-question
+	// wall whose interactive refusal the selection chain owns; a staleness,
+	// impact, wall, or step-legality refusal is never deferred, so no
+	// unrelated cause can ride the review gate's acceptance route. The
+	// recovery guards and the step-legality check read the same folded
+	// state below.
+	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+	if admissionErr != nil {
+		return result, admissionErr
 	}
-	if request.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
-		guards.correctionRecovery, err = workflowRejectedWorkerResultAvailable(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
-		if err != nil {
-			return result, err
-		}
+	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
+	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision) {
+		return result, decision.Failure
 	}
-	if request.ActionID == "request_correction" {
-		guards.correctionRequestRecovery, guards.correctionRequestMissing, err = workflowCorrectionRequestAdmissionState(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action", 0)
-		if err != nil {
-			return result, err
-		}
-	}
+	guards.admissionState = &admission
+	guards.admissionDecision = &decision
+	guards.workerFailureRecovery = admission.WorkerFailureRecovery
+	guards.correctionRecovery = admission.CorrectionRecovery
+	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery
+	guards.correctionRequestMissing = admission.CorrectionRequestMissing
 	var retryCorrection *WorkflowCorrectionContext
 	if request.ActionID == "dispatch_worker" {
+		// The completion fence reads the correction context the wall admission
+		// folded: a retry must open a fresh attempt epoch past the failed one.
 		correction, correctionErr := workflowCorrectionContext(ctx, tx, request.WorkID, currentStep)
 		if correctionErr != nil {
 			return result, correctionErr
 		}
 		retryCorrection = correction
-		if correction != nil && correction.Escalated && !request.EscalatedRetryApproved {
-			return result, newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
-		}
-		// The same-step wall mirrors the packet wall without depending on a
-		// recorded correction: failed attempts dispatched at this step since
-		// the window anchor count whatever route re-dispatched them.
-		sameStepFailed, sameStepErr := workflowSameStepFailedAttemptCount(ctx, tx, entry.Definition, request.WorkID, currentStep, "workflow_action")
-		if sameStepErr != nil {
-			return result, sameStepErr
-		}
-		if sameStepFailed >= workflowCorrectionAttemptLimit && !request.EscalatedRetryApproved {
-			return result, workflowSameStepWallRefusal(currentStep, sameStepFailed)
-		}
 		if err := validateFailedWorkerRetryIdentity(ctx, tx, request.WorkID, currentStep, request.Payload); err != nil {
-			return result, err
-		}
-	}
-	if request.ActionID == "request_correction" {
-		if err := validateCorrectionRequestPayload(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action", 0); err != nil {
 			return result, err
 		}
 	}
@@ -354,21 +319,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
 		return result, err
 	} else if request.ActionID == "record_verdict" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		// Recovery admits the late timing only, and the guard's predicate is
+		// payload-bound: it checks the verdict entries the request names. The
+		// staleness boundary already held this action through the folded
+		// admission above.
 		if err := guardLateVerdictRecovery(guards); err != nil {
-			return result, err
-		}
-		// Recovery admits the late timing only. A verdict is a consequential
-		// action (CD-0041 D7), so the stale law and Domain registry boundary
-		// holds it exactly as it holds a verdict at its own step.
-		if err := checkWorkflowLawRevisionStalenessTx(ctx, tx, request.WorkID); err != nil {
-			return result, err
-		}
-	} else if !guards.staleRecovery {
-		// CD-0041 D7: the boundary holds every advancing action. Attempt
-		// disposition records facts about attempts made under the pinned
-		// contract, so the subject's own stale pin admits it and the enclosed
-		// item settles its attempt; contract judgment keeps the refusal.
-		if err := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, tx, request.WorkID, workflowActionStalePinAdmission(request.ActionID)); err != nil {
 			return result, err
 		}
 	}
@@ -395,17 +350,23 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err := guardWorkflowActionStepMatch(request.Payload, currentStep); err != nil {
 		return result, err
 	}
-	stepAllowed := guards.staleRecovery || guards.lateVerdictRecovery || guards.workerFailureRecovery || guards.correctionRecovery || guards.correctionRequestRecovery || definitionStepAllows(entry.Definition, currentStep, request.ActionID)
+	// The folded admission owns step legality (workflowAdmissionStepAllows),
+	// applied here — the engine's late position, after the payload and guard
+	// checks whose specific refusals precede the generic off-step one. The
+	// payload-bound recoveries refine it first: the late-verdict guard ran
+	// above for an off-step record_verdict, and the evidence-binding recovery
+	// binds the outstanding requirement the request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
 		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
 		if recoveryErr != nil {
 			return result, recoveryErr
 		}
-		stepAllowed = stepAllowed || guards.recoveryBind
-	}
-	if !stepAllowed {
-		return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+		if !guards.recoveryBind && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+			return result, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
+		}
+	} else if decision.OffStep {
+		return result, decision.Failure
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {
@@ -461,6 +422,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		actorNeedsRecord: guards.actorNeedsRecord, operatorNeedsRecord: guards.operatorNeedsRecord,
 		defaultVerdictEvidence: defaultVerdictEvidence, lateVerdictRecovery: guards.lateVerdictRecovery,
 		envelopeEvidenceRefs: envelopeEvidenceRefs,
+		admission:            guards.admissionState,
 	}
 	assembly, err := assembleWorkflowActionEventsTx(ctx, tx, assemblyInput)
 	if err != nil {

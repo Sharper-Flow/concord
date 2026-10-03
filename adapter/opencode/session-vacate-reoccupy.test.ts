@@ -78,7 +78,13 @@ async function repositoryFixture(root: string, name: string): Promise<{ repo: st
   await git(repo, "add", ".")
   await git(repo, "commit", "--quiet", "-m", "fixture")
   await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+  // The resume freshness sample fetches origin's default branch, so the
+  // remote maps onto a local bare repository through insteadOf: the fetch
+  // stays hermetic while the URL stays one ResolveProject accepts.
+  await git(root, "init", "--quiet", "--bare", "--initial-branch=main", `${name}-origin.git`)
+  await git(repo, "config", `url.${join(root, `${name}-origin.git`)}.insteadOf`, "https://example.invalid/synthetic.git")
+  await git(repo, "push", "--quiet", "origin", "main")
+  await git(repo, "fetch", "--quiet", "origin")
   await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
   return { repo }
 }

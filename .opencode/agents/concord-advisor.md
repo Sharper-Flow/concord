@@ -1,6 +1,6 @@
 ---
-description: Concord advisor utility — Give an independent reasoned opinion on a bounded problem and cite the evidence for it.
-mode: all
+description: Concord advisor utility — Give an independent reasoned opinion on a bounded problem and cite the evidence for it. Use when a coordinator wants a second opinion reached without seeing the caller's own conclusion.
+mode: subagent
 hidden: true
 tools:
   bash: true
@@ -43,7 +43,7 @@ permission:
 
 # concord-advisor
 
-Give an independent reasoned opinion on a bounded problem and cite the evidence for it.
+Give an independent reasoned opinion on a bounded problem and cite the evidence for it. Use when a coordinator wants a second opinion reached without seeing the caller's own conclusion.
 
 This is an independent advisory utility. Return a reasoned opinion on the
 stated problem for the parent. Solve the problem collaboratively: no critic

@@ -215,7 +215,13 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
   await git(repo, "add", ".")
   await git(repo, "commit", "--quiet", "-m", "fixture")
   await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-  await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+  // The bootstrap preflight fetches origin's default branch, so the remote
+  // maps onto a local bare repository through insteadOf: the fetch stays
+  // hermetic while the URL stays one ResolveProject accepts.
+  await git(root, "init", "--quiet", "--bare", "--initial-branch=main", "origin.git")
+  await git(repo, "config", `url.${join(root, "origin.git")}.insteadOf`, "https://example.invalid/synthetic.git")
+  await git(repo, "push", "--quiet", "origin", "main")
+  await git(repo, "fetch", "--quiet", "origin")
   await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
   await runJSON(binary, dbPath, "product-create", {
@@ -283,11 +289,15 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
 
 // driveWorkflowToContract walks the real workflow from capture to the
 // approved-contract state that makes dispatch_worker the next action, using
-// the transition sequence every route test shares.
+// the transition sequence every route test shares. The premise and predicates
+// are parameters so capacity tests can approve a maximum-size premise with
+// eight synthetic predicates through the same real route.
 async function driveWorkflowToContract(
   workID: string,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
   context: any,
+  premise: string = APPROVED_OBJECTIVE,
+  outcomePredicates: JSONRecord[] = [WORKFLOW_PREDICATE],
 ): Promise<void> {
   const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
@@ -301,8 +311,8 @@ async function driveWorkflowToContract(
   const registry = domainList.result as JSONRecord
   const registryHash = (registry.registry as JSONRecord).content_hash as string
   response = await transition(10, "approve_contract", "e2e-approve-contract", {
-    premise: APPROVED_OBJECTIVE,
-    outcome_predicates: [WORKFLOW_PREDICATE],
+    premise,
+    outcome_predicates: outcomePredicates,
     required_evidence: [],
     route_conventions: [],
     spec_mandate: [],
@@ -409,8 +419,10 @@ routeDeclaration("dispatches a real store route through Task completion and work
     boundPacket = packet
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
-    // This non-Initiative fixture has no narrative. The task still carries
-    // the objective and version binding; the typed outcome predicates ride
+    // This non-Initiative fixture has no narrative. The task is the approved
+    // objective verbatim — no adapter header, trailer, or duplicate — and the
+    // typed binding carries the objective source, the versions, and the one
+    // assigned result. The typed outcome predicates ride
     // inputs.outcome_predicates with each serialized payload decoded. The
     // context leads with the item's value line, carries the contract's
     // resolved home Domain with the knowledge home's absolute registry
@@ -418,9 +430,8 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const registryLocator = join(repo, ".concord/docs/knowledge/domain-registry.json")
     expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: ${registryLocator}\n\nRecorded task:\nExercise the dispatch route.\n\n`)
     expect(await Bun.file(registryLocator).exists()).toBe(true)
-    expect(packet.inputs.task).toContain("Approved objective:")
-    expect(packet.inputs.task).toContain(APPROVED_OBJECTIVE)
-    expect(packet.inputs.task).toContain("(work v12, contract v1)")
+    expect(packet.inputs.task).toBe(APPROVED_OBJECTIVE)
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 12, contract_version: 1, assigned_result: "files_touched" })
     expect(packet.inputs.task).not.toContain(WORKFLOW_PREDICATE.predicate_id)
     expect(packet.inputs.outcome_predicates).toEqual([WORKFLOW_PREDICATE])
     expect(packet.inputs.constraints).toBeUndefined()
@@ -519,6 +530,126 @@ routeDeclaration("dispatches a real store route through Task completion and work
       expect(call.input.call_envelope.directory).toBe(worktree)
       expect(call.input.call_envelope.worktree).toBe(worktree)
     }
+  } finally {
+    configureConcordAdapter({ reset: true })
+    hostControlPlane().bind(undefined)
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+    else process.env.OPENCODE_CONFIG = previousConfig
+    await rm(root, { recursive: true, force: true })
+  }
+}, 120_000)
+
+// Full public dispatch capacity test: an admitted maximum premise —
+// 4096 UTF-8 bytes of ASCII, the full approval limit — approved through the
+// real store with eight synthetic predicates must dispatch through the public
+// route with the objective byte-for-byte in inputs.task. Exercising the public
+// route covers the core attempt, authorization window, and native Task binding;
+// a packet-builder-only probe cannot establish those effects.
+const MAX_PREMISE = "o".repeat(4_096)
+const EIGHT_ROUTE_PREDICATES: JSONRecord[] = Array.from({ length: 8 }, (_, ordinal) => ({
+  predicate_id: `predicate:route-e2e-eight-${ordinal}`,
+  ordinal,
+  outcome_kind: "check",
+  outcome_payload: {
+    kind: "check",
+    check_ref: `check:bun-test/adapter/opencode/dispatch_route_end_to_end.test.ts/eight-${ordinal}`,
+    expected_result: "pass",
+    immutable_subject_ref: "commit:f076cef390c13944b831b9024334b291a435588b",
+  },
+}))
+
+routeDeclaration("dispatches an admitted maximum premise with eight synthetic predicates through the real route", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-maxpremise-"))
+  const previousConfig = process.env.OPENCODE_CONFIG
+  try {
+    const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
+    process.env.OPENCODE_CONFIG = configPath
+    const context = contextFor(worktree)
+    let boundPacket: JSONRecord | null = null
+    let sessionMetadata: Record<string, unknown> = {}
+    hostControlPlane().bind({
+      get: async ({ url, path }) => {
+        if (url === SESSION_MESSAGES_ROUTE) {
+          const parsed = JSON.parse(exportedSession(boundPacket)) as { messages: unknown[] }
+          return { data: parsed.messages, response: new Response("[]", { status: 200 }) }
+        }
+        expect(url).toBe(SESSION_ROUTE)
+        const id = path?.id
+        expect(id === SESSION_ID || id === "worker-session").toBe(true)
+        return { data: { id, directory: worktree, metadata: id === SESSION_ID ? sessionMetadata : {}, ...(id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
+      },
+      patch: async ({ url, path, body }) => {
+        expect(url).toBe(SESSION_ROUTE)
+        expect(path).toEqual({ id: SESSION_ID })
+        expect(body).toEqual({ metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } })
+        sessionMetadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }
+        return { response: new Response(null, { status: 200 }) }
+      },
+      post: async () => { throw new Error("dispatch scope must not change host permissions or directory") },
+    })
+    const realCalls: Array<{ argv: string[]; input: JSONRecord }> = []
+    const realRunner = realStoreRunner(binary, dbPath, realCalls, worktree)
+    configureConcordAdapter({ runner: realRunner })
+
+    const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
+      invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
+    await driveWorkflowToContract(workID, invoke, context, MAX_PREMISE, EIGHT_ROUTE_PREDICATES)
+
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-max-premise-dispatch", fields: { lane_id: "implement" } } })
+    const windows = new DispatchWindows()
+    const dispatchResult = await dispatchLaneWorker(routed as any, {
+      context, invoke,
+      credentials: { async getPrivateKey() { return PRIVATE_SEED } } satisfies CredentialStore,
+      windows,
+    })
+    // The whole dispatch must land: the core authorizes the attempt and the
+    // window opens.
+    expect(dispatchResult.outcome, JSON.stringify(dispatchResult)).toBe("ok")
+    expect(dispatchResult.dispatch_state).toBe("awaiting_worker")
+    expect(windows.has(SESSION_ID)).toBe(true)
+
+    const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    boundPacket = packet
+    // The objective reaches the worker byte-for-byte: 4096 UTF-8 bytes of
+    // ASCII, no header, no trailer, no duplicate, with the typed binding
+    // beside it and all eight predicates in ordinal order.
+    expect(packet.inputs.task).toBe(MAX_PREMISE)
+    expect(Buffer.byteLength(packet.inputs.task as string, "utf8")).toBe(4_096)
+    expect(packet.inputs.task).not.toContain(workID)
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 12, contract_version: 1, assigned_result: "files_touched" })
+    const predicates = packet.inputs.outcome_predicates as JSONRecord[]
+    expect(predicates).toHaveLength(8)
+    predicates.forEach((predicate, ordinal) => {
+      expect(predicate.predicate_id).toBe(`predicate:route-e2e-eight-${ordinal}`)
+      expect(predicate.ordinal).toBe(ordinal)
+      expect(predicate.outcome_payload).toEqual(EIGHT_ROUTE_PREDICATES[ordinal].outcome_payload)
+    })
+
+    // The core recorded the authorized attempt against all eight predicates.
+    const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
+    expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual(EIGHT_ROUTE_PREDICATES.map((predicate) => predicate.predicate_id))
+
+    // The authorized packet round-trips completion: the worker session opens
+    // with it, the report discharges the assigned result, and the store
+    // completes the attempt.
+    const report = {
+      schema_version: "1.0",
+      readback_model: READBACK_MODEL,
+      status: "completed",
+      evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
+        obligation,
+        detail: `discharged ${obligation}`,
+        ...(index === 0 ? { predicate_ids: ["predicate:route-e2e-eight-0"] } : {}),
+      })),
+    }
+    const completionOutput = { title: "task", output: taskResult(report), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "e2e-maxpremise-call", args: taskArgs }, completionOutput, { windows, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, runner: realRunner, concordBinary: binary })
+    expect(completionOutput.output).toContain('<concord_attempt>')
+    const attempt = dbValue(dbPath, `SELECT lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id='${packet.attempt_id}'`)
+    expect(attempt.lifecycle_state).toBe("completed")
+    expect(attempt.readback_model).toBe(READBACK_MODEL)
   } finally {
     configureConcordAdapter({ reset: true })
     hostControlPlane().bind(undefined)

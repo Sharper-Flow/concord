@@ -759,11 +759,15 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 continue
             if isinstance(relation.get("source_project_id"), str):
                 # CD-0200: a cross-source relation names a law another
-                # registered source holds. It stays outside this manifest's
-                # relation graph; naming a target this manifest declares is a
-                # shape defect.
-                if by_id.get(relation.get("target_id")) is not None:
-                    fail(findings, f"{prefix}: law relation names a source for a target declared in the same manifest")
+                # registered source holds, by source plus bare target ID. The
+                # named source owns the endpoint, so a local record holding
+                # the same bare ID does not capture it, and a bare ID both
+                # sources hold is not a self-edge — endpoints compare as
+                # source-qualified nodes. The relation stays outside this
+                # manifest's relation graph, and the rebuild validates its
+                # endpoint over the verified source set, including the
+                # refusal of a qualified target naming the declaring
+                # source's own Project.
                 continue
             target = by_id.get(relation.get("target_id"))
             if target is None or target.get("kind") not in LAW_RELATION_SUBJECTS:
@@ -789,6 +793,12 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
                 graph.setdefault(record.get("id"), []).append(relation.get("target_id"))
     for record in records:
         if not isinstance(record, dict) or not record.get("successor"):
+            continue
+        # CD-0200 fail-closed supersedes: the cross-source supersedes edge a
+        # qualified successor implies has no admitted declaration, so the
+        # successor must live in this manifest.
+        if isinstance(record.get("successor"), str) and "/" in record["successor"]:
+            fail(findings, "manifest.records: supersede within the declaring source or amend through the shared home")
             continue
         successor = by_id.get(record["successor"])
         if not any(isinstance(r, dict) and r.get("kind") == "supersedes" and r.get("target_id") == record.get("id") for r in (successor or {}).get("law_relations", [])):
@@ -819,6 +829,9 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         successor = record["successor"]
         if successor == record.get("id"):
             fail(findings, f"{prefix}: successor cannot be self")
+            continue
+        if "/" in successor:
+            fail(findings, f"{prefix}: supersede within the declaring source or amend through the shared home")
             continue
         target = by_id.get(successor)
         if target is None:

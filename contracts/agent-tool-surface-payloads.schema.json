@@ -1045,31 +1045,6 @@
         }
       }
     },
-    "budget": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "max_bytes",
-        "max_items"
-      ],
-      "properties": {
-        "max_bytes": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65536
-        },
-        "max_items": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "max_millis": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 300000
-        }
-      }
-    },
     "field": {
       "type": "object",
       "additionalProperties": false,
@@ -1752,9 +1727,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1824,9 +1796,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1895,9 +1864,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1921,9 +1887,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -1957,9 +1920,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1986,9 +1946,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "one_of": {
           "type": "string",
@@ -2051,9 +2008,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -2113,9 +2067,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -3090,9 +3041,6 @@
           "minimum": 1,
           "maximum": 3
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -3159,9 +3107,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "domain_id": {
           "$ref": "#/$defs/id"
@@ -4361,9 +4306,6 @@
         "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -5264,9 +5206,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "source": {
           "$ref": "#/$defs/product_row_source"
@@ -6193,9 +6132,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6671,9 +6607,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6844,9 +6777,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7008,9 +6938,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7092,9 +7019,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -7217,9 +7141,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -8356,7 +8277,7 @@
       }
     },
     "requested_budget_seconds": {
-      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; the only agent-facing operation budget since the 2026-10-02 retirement of the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
       "type": "integer",
       "minimum": 1
     },
@@ -8493,13 +8414,17 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "task"
+            "task",
+            "binding"
           ],
           "properties": {
             "task": {
               "type": "string",
               "minLength": 1,
               "maxLength": 4096
+            },
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
             },
             "context": {
               "type": "string",
@@ -8525,6 +8450,83 @@
           }
         }
       }
+    },
+    "worker_packet_binding": {
+      "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective_source",
+        "work_version",
+        "contract_version",
+        "assigned_result"
+      ],
+      "properties": {
+        "objective_source": {
+          "type": "string",
+          "enum": [
+            "contract_premise",
+            "work_question"
+          ]
+        },
+        "work_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "contract_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "assigned_result": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "contract_premise"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "objective_source": {
+                "const": "work_question"
+              }
+            },
+            "required": [
+              "objective_source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "contract_version": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     },
     "work_transition_worktree_destroy_input": {
       "type": "object",
@@ -8894,9 +8896,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -9070,7 +9069,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "description": "Bound matches the store's contract premise write validation (WorkflowPremiseMaxLength)."
+      "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
     },
     "reference": {
       "type": "string",
@@ -9903,7 +9902,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -12936,7 +12936,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -13118,7 +13119,8 @@
                       "enum": [
                         "workflow premise"
                       ]
-                    }
+                    },
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
                   },
                   "outcome_predicates": {
                     "$ref": "#/$defs/workflow_action_outcome_predicates",
@@ -14318,9 +14320,6 @@
       "properties": {
         "work_id": {
           "$ref": "#/$defs/id"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"

@@ -93,25 +93,59 @@ test("published tool arguments expose a host-safe request shape", () => {
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
     expect(published.properties.operation.enum, toolName).toEqual(expected)
+    // The published input is one closed branch per operation, in contract
+    // order: the branch states the required set and the admitted fields the
+    // core enforces. No branch carries a sibling operation's fields.
     expect(published.properties.input.type, toolName).toBe("object")
-    expect(published.properties.input.additionalProperties, toolName).toBe(true)
-    expect(published.properties.input.required, toolName).toEqual([])
+    const branches = published.oneOf
+    expect(branches, toolName).toHaveLength(expected.length)
+    for (const [index, branch] of branches.entries()) {
+      expect(branch.type, toolName).toBe("object")
+      expect(branch.additionalProperties, toolName).toBe(false)
+      expect(branch.properties.operation.const, toolName).toBe(expected[index])
+      expect(branch.properties.input.type, toolName).toBe("object")
+      expect(branch.properties.input.additionalProperties, toolName).toBe(false)
+      expect(Array.isArray(branch.properties.input.required), toolName).toBe(true)
+      expect(Object.keys(branch.properties.input.properties).length, toolName).toBeGreaterThan(0)
+    }
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
     expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
-    if (toolName === "concord_work_transition") {
-      // The outcome_payload variant union is the one bounded oneOf the host
-      // is published; every other tool stays union-free.
-      expect(JSON.stringify(published), toolName).toContain('"oneOf"')
-    } else {
-      expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
+    for (const branch of branches) {
+      // The request-level discriminator union is the one oneOf every tool
+      // carries. Inside an input, only the workflow_action branch's bounded
+      // outcome_payload variant union survives; every other branch stays
+      // union-free below the branch level.
+      const inputJson = JSON.stringify(branch.properties.input)
+      if (branch.properties.operation.const === "workflow_action") {
+        expect(inputJson, toolName).toContain('"oneOf"')
+      } else {
+        expect(inputJson, toolName).not.toContain('"oneOf"')
+      }
     }
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
+  const captureInput = published.oneOf[0].properties.input
+  expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
+  expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const payloadVariants = transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
+  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // The conditional action fields the merged projection used to drop are
+  // named by the branch, so a calling agent can read them before calling.
+  for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
+    expect(actionBranch.properties[field], field).toBeObject()
+  }
+  // The approval premise an author writes is the published action field, so
+  // it carries the unit guidance: code points, the UTF-8 byte admission, and
+  // its distinction from packet and model-token limits.
+  const premise = actionBranch.properties.fields.properties.premise
+  expect(premise.maxLength).toBe(4_096)
+  expect(premise.description).toContain("Unicode code points")
+  expect(premise.description).toContain("UTF-8 bytes")
+  expect(premise.description).toContain("model-token limit")
+  expect(premise.description).toContain("Do not truncate an approved objective")
   // Every generated field reaches the host. The definition hook makes the
   // published fields optional; the adapter enforces the closed modes.
   // project_id is the CD-0182 resume selector: resume-only, never capture.
@@ -953,7 +987,8 @@ test("host publication round-trips check predicate payloads unchanged", async ()
     },
   }
   const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const payloadVariants = published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  const actionBranch: any = published.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
+  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
@@ -1980,6 +2015,7 @@ const resumeSuccess = () => ({
   project_id: "project-1",
   work_id: "work-1",
   worktree: { set_id: "worktree-set-1", path: WORKTREE, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" },
+  branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 2 },
 })
 
 const resumeRunner = (calls: RetargetCall[], overrides: Record<string, () => { exitCode: number; stdout: string; stderr: string }> = {}) => ({
@@ -2248,6 +2284,82 @@ test("work start resume refuses a malformed linear_remote section", async () => 
   const shaped: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(shaped.outcome).toBe("error")
   expect(shaped.error.kind).toBe("malformed_response")
+})
+
+// The branch freshness sample rides the work-resume result into the envelope,
+// so the resuming session sees how far its branch sits behind the origin
+// default branch before it builds on it. The strict validator admits the
+// exact sampled shape and the typed unknown, and refuses anything outside
+// the contract.
+test("work start resume passes the branch freshness sample through to the envelope", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 3 } }), stderr: "" }),
+  }) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.branch_freshness).toEqual({ status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 3 })
+
+  // A failed refresh degrades to the typed unknown with no count, and the
+  // start still succeeds.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "fetch_failed" } }), stderr: "" }),
+  }) })
+  const degraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(degraded.outcome).toBe("ok")
+  expect(degraded.branch_freshness).toEqual({ status: "unknown", reason: "fetch_failed" })
+
+  // A nested default branch is a valid Git ref name: the sample passes
+  // through the strict validator unchanged.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/release/stable", default_sha: "c".repeat(40), behind_count: 1 } }), stderr: "" }),
+  }) })
+  const nested: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(nested.outcome).toBe("ok")
+  expect(nested.branch_freshness.default_ref).toBe("origin/release/stable")
+})
+
+test("work start resume refuses a malformed branch freshness sample", async () => {
+  bindRetargetRoute()
+  const malformed = [
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: -1 } },
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "short", default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 0 } },
+    { ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "invented_reason" } },
+    { ...resumeSuccess(), branch_freshness: { status: "unknown", reason: "timeout", behind_count: 4 } },
+    { ...resumeSuccess(), branch_freshness: { status: "degraded" } },
+    // A sampled SHA is a string field: an array wrapping the hex must fail
+    // the strict contract, not coerce through String() into a passing test.
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: ["b".repeat(40)], default_ref: "origin/main", default_sha: "c".repeat(40), behind_count: 0 } },
+    { ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref: "origin/main", default_sha: ["c".repeat(40)], behind_count: 0 } },
+    // The worktree base SHA is likewise a string field in the same contract.
+    { ...resumeSuccess(), worktree: { set_id: "worktree-set-1", path: WORKTREE, branch: "work/work-1", base_sha: ["a".repeat(40)], state: "active" } },
+  ]
+  const malformedDefaultRefs = ["origin/..", "origin/main.lock", "origin/.hidden", "origin/sp ace", "origin/x.", "origin/a..b", "origin//double", "origin/", "refs/heads/main", "origin/tilde~x"]
+  for (const default_ref of malformedDefaultRefs) {
+    malformed.push({ ...resumeSuccess(), branch_freshness: { status: "ok", head_sha: "b".repeat(40), default_ref, default_sha: "c".repeat(40), behind_count: 2 } })
+  }
+  for (const stdout of malformed) {
+    adapter.configureConcordAdapter({ runner: resumeRunner([], {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify(stdout), stderr: "" }),
+    }) })
+    const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+    expect(refused.outcome).toBe("error")
+    expect(refused.error.kind).toBe("malformed_response")
+    expect(refused.error.message).toContain("strict resume contract")
+  }
+
+  // A resume that omits the freshness section fails the strict contract:
+  // the core always samples it, and a missing section hides the lag.
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => {
+      const { branch_freshness: _omitted, ...without } = resumeSuccess()
+      return { exitCode: 0, stdout: JSON.stringify(without), stderr: "" }
+    },
+  }) })
+  const missing: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(missing.outcome).toBe("error")
+  expect(missing.error.kind).toBe("malformed_response")
 })
 
 // CD-0182: a resume whose named member Project lives in another repository
@@ -2576,13 +2688,13 @@ const workStartDiagnosticCases: Array<{ name: string; args: unknown; fragments: 
   { name: "priority above maximum", args: { ...bootstrapArgs, priority: 101 }, fragments: ["priority", "maximum", "100"] },
   { name: "bad idempotency key", args: { ...bootstrapArgs, idempotency_key: "sensitive-input-value bad" }, fragments: ["idempotency_key", "match"] },
   { name: "bad workflow reference", args: { ...bootstrapArgs, workflow_type_ref: "sensitive-input-value bad" }, fragments: ["workflow_type_ref", "match"] },
-  { name: "empty title", args: { ...bootstrapArgs, title: "" }, fragments: ["title", "shorter", "1"] },
+  { name: "empty title", args: { ...bootstrapArgs, title: "" }, fragments: ["title", "Unicode code points", "minimum of 1"] },
   { name: "title character limit", args: { ...bootstrapArgs, title: "x".repeat(257) }, fragments: ["title", "256"] },
   { name: "title byte limit", args: { ...bootstrapArgs, title: "é".repeat(129) }, fragments: ["title", "256", "UTF-8 bytes"] },
   { name: "value statement byte limit", args: { ...bootstrapArgs, value_statement: "é".repeat(129) }, fragments: ["value_statement", "256", "UTF-8 bytes"] },
   { name: "external reference byte limit", args: { ...bootstrapArgs, external_ref: "é".repeat(129) }, fragments: ["external_ref", "256", "UTF-8 bytes"] },
   { name: "task byte limit", args: { ...bootstrapArgs, task: "🙂".repeat(2049) }, fragments: ["task", "8192", "UTF-8 bytes"] },
-  { name: "empty resume identity", args: { work_id: "" }, fragments: ["work_id", "shorter", "1"] },
+  { name: "empty resume identity", args: { work_id: "" }, fragments: ["work_id", "Unicode code points", "minimum of 1"] },
   { name: "invalid resume identity", args: { work_id: "sensitive-input-value bad" }, fragments: ["work_id", "match"] },
   { name: "oversize resume identity", args: { work_id: "w".repeat(129) }, fragments: ["work_id", "128"] },
   { name: "null resume identity", args: { work_id: null }, fragments: ["work_id", "string"] },
@@ -3121,7 +3233,7 @@ test("an ok worker_abandon releases the session's retained in-flight record", as
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
@@ -3168,7 +3280,7 @@ test("a worker_abandon refusal for a never-dispatched attempt releases the retai
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd())
@@ -3213,7 +3325,7 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd())

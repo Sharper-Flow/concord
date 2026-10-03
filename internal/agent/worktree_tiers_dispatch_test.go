@@ -48,8 +48,7 @@ func tiersRepoFixture(t *testing.T) (*store.Store, *Service, Authority, string) 
 	}
 	gitRun(t, repoRoot, "add", "README.md")
 	gitRun(t, repoRoot, "commit", "-m", "fixture base")
-	gitRun(t, repoRoot, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRun(t, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedClaimOrigin(t, repoRoot)
 	if err := s.AddProjectLocator(ctx, "project-1", store.ProjectLocator{ID: "path-1", Kind: store.LocatorCanonicalPath, Value: repoRoot}, 1); err != nil {
 		t.Fatal(err)
 	}

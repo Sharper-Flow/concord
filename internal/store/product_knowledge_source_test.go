@@ -345,11 +345,12 @@ func TestSourceRebuildAcceptsCrossSourceReferenceBetweenSources(t *testing.T) {
 	writeSourceRelations(t, sourceA.RepoPath, []KnowledgeRelation{{Kind: "refines", TargetID: "SRCB-LAW", SourceProjectID: "ref-src-b"}})
 	commitKnowledgeRepo(t, sourceA.RepoPath, "cross-source refinement")
 	// The target source is registered but not yet rebuilt: the declaring
-	// source's rebuild refuses the unresolved relation.
+	// source's rebuild refuses the unverified source set before any target
+	// row answers (CD-0200 D5).
 	unresolvedErr := s.RebuildKnowledgeIndex(ctx, sourceA)
 	var unresolved *Failure
-	if !errors.As(unresolvedErr, &unresolved) || unresolved.Kind != KindProjectionNotFound {
-		t.Fatalf("unresolved target error = %v, want %v", unresolvedErr, KindProjectionNotFound)
+	if !errors.As(unresolvedErr, &unresolved) || unresolved.Kind != KindIndexDegraded {
+		t.Fatalf("unverified target source error = %v, want %v", unresolvedErr, KindIndexDegraded)
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, sourceB); err != nil {
 		t.Fatal(err)
@@ -415,8 +416,6 @@ func TestQualifiedAndAmbiguousLawIdentity(t *testing.T) {
 	}
 }
 
-// writeSourceRelations rewrites the source fixture manifest so lawID carries
-// exactly the given law relations, and leaves the tree uncommitted.
 // writeSourceRelations rewrites the fixture manifest so SRC-LAW, the law every
 // federated source fixture carries, declares exactly the given relations, and
 // leaves the tree uncommitted.
@@ -634,6 +633,13 @@ func TestWorkflowLawPinsDeriveAcrossSources(t *testing.T) {
 		"SRC-LAW", ".concord/docs/decisions/CD-0917-pin-law.md", "Pin source law")
 	seedKnowledgeWork(t, s, "pin-review-work", "Pin review work")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_projects SET project_id=? WHERE work_id='pin-review-work' AND role='primary'; DELETE FROM fold_guard`, source.HomeProjectID); err != nil {
+		t.Fatal(err)
+	}
+	// The derivation runs the mandated-law boundary in its transaction, so
+	// the registered source set verifies before the transaction opens and the
+	// proof travels in the context the derivation reads.
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, "pin-review-work")
+	if err != nil {
 		t.Fatal(err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)

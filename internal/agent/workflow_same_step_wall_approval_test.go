@@ -27,7 +27,7 @@ func seedSameStepWallWithoutCorrection(t *testing.T, s *store.Store, grant Autho
 		attemptID := fmt.Sprintf("attempt:work-1:verify-%d", cycle)
 		runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
 			"attempt_id":    attemptID,
-			"worker_packet": verifyWallPacket(t, attemptID, nil),
+			"worker_packet": verifyWallPacket(t, s, attemptID, nil),
 		}, owner, worktree, "dispatch-"+strconv.Itoa(cycle))
 		applyVerifyWallDispatchAndFailure(t, s, grant, attemptID)
 	}
@@ -38,7 +38,7 @@ func seedSameStepWallWithoutCorrection(t *testing.T, s *store.Store, grant Autho
 	version := workVersion(t, s, "work-1")
 	payload, err := json.Marshal(map[string]any{
 		"attempt_id":    fourth,
-		"worker_packet": verifyWallPacket(t, fourth, nil),
+		"worker_packet": verifyWallPacket(t, s, fourth, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestSameStepWallAfterACompletedAttemptMintsTheApprovalChallenge(t *testing.
 	retryID := "attempt:work-1:verify-5"
 	unapprovedPayload, err := json.Marshal(map[string]any{
 		"attempt_id":    retryID,
-		"worker_packet": verifyWallPacket(t, retryID, nil),
+		"worker_packet": verifyWallPacket(t, s, retryID, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestSameStepWallAfterACompletedAttemptMintsTheApprovalChallenge(t *testing.
 	version := workVersion(t, s, "work-1")
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "same-step-challenge-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": verifyWallPacket(t, retryID, nil)},
+		"idempotency_key": "same-step-challenge-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": verifyWallPacket(t, s, retryID, nil)},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {

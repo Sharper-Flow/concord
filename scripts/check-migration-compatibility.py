@@ -58,11 +58,17 @@ all of this:
 - neither side carries AUTOINCREMENT state: the sequence high-water mark
   lives in sqlite_sequence, outside the copied rows, so any
   sqlite_sequence entry for the table on either side refuses;
-- the seeded rows return exactly, rowids included: a table that answers
-  SELECT rowid proves its copy carried the rowids (a rowid-alias column,
-  or a copy that writes rowids by name), and a table with no rowid
-  (WITHOUT ROWID, decided by SQLite refusing the select) carries its
-  identity in its key; an empty rowid table proves nothing and refuses;
+- the seeded rows return exactly, rowids included: the rows carry a
+  distinct value in every cell - distinct per column and per row, so a
+  copy that transforms a value has nothing to impersonate - and the
+  rowid is read and seeded through one of SQLite's three spellings
+  (rowid, oid, _rowid_) that the table's own declared columns leave
+  unshadowed (PRAGMA table_xinfo): a declared column of such a name is
+  that column, not the hidden integer. A table that shadows all three
+  spellings hides its rowid from every SELECT and refuses; a table
+  with no rowid (WITHOUT ROWID, decided by SQLite refusing the alias
+  select) carries its identity in its key; an empty rowid table proves
+  nothing and refuses;
 - the stored CREATE definitions differ only inside CHECK constraints,
   which must widen inside the decidable family: same column, one numeric
   bound moved under one monotone operator where the referenced column's
@@ -74,7 +80,12 @@ all of this:
   literal reads at its SQLite runtime value, so 9007199254740995.0 and
   9007199254740995 are not one bound;
 - the copy statement names every column of the recreated table, in
-  order, unquoted, on both sides of the SELECT.
+  order, on both sides of the SELECT, and each name on both sides is
+  exactly one identifier token - bare, or quoted under SQLite's
+  identifier quoting. A SELECT item that spells an expression the same
+  text names (a * b against a column "a * b") evaluates that
+  expression, so anything beyond one token - an alias, a cast, a
+  COLLATE, a parenthesized name, a table-qualified name - refuses.
 
 An unknown baseline (a poisoned world), a narrowed or novel CHECK, an
 altered column, default, key, or foreign-key shape, unsupported SQL, a
@@ -543,8 +554,8 @@ def bare_name(ref: str) -> str | None:
     """Return one unqualified, unquoted, folded name, or None.
 
     A single-quoted token is a string, not a name, and a dotted reference
-    is qualified, so both refuse: the CHECK and copy-list parsers need
-    bare columns exactly.
+    is qualified, so both refuse: the CHECK parsers need bare columns
+    exactly.
     """
     text = ref.strip(SQL_TRIM)
     if not text or text[0] == "'":
@@ -553,6 +564,30 @@ def bare_name(ref: str) -> str | None:
     if len(parts) != 1:
         return None
     return fold_ascii(unquote_name(parts[0]))
+
+
+def copy_column_name(item: str) -> str | None:
+    """One identifier token naming a copy column, or None.
+
+    Both lists of a proved copy hold column names: an item admits only
+    when the whole item is one identifier token - bare, or quoted under
+    SQLite's identifier quoting. A SELECT item is an expression SQLite
+    evaluates, and one that spells an expression the same text names
+    (a * b against a column "a * b") evaluates it, so everything beyond
+    one token refuses: an alias, a cast, a COLLATE, a parenthesized
+    name, a table-qualified name, a string literal. The replayed trial
+    remains the backstop for anything the token rule cannot see.
+    """
+    text = item.strip(SQL_TRIM)
+    if not text or text[0] == "'":
+        return None
+    if text[0] in ('"', "`", "["):
+        if quoted_end(text, 0) != len(text):
+            return None
+        return fold_ascii(unquote_name(text))
+    if re.fullmatch(rf"{SQL_ID_START}{SQL_ID_CONT}*", text) is None:
+        return None
+    return fold_ascii(text)
 
 
 def collapse_ws(text: str) -> str:
@@ -1219,18 +1254,22 @@ def index_facts(db, exact: str) -> list:
     return sorted(facts, key=repr)
 
 
-def row_image(db, exact: str):
+def row_image(db, exact: str, alias: str = "rowid"):
     """Every row with its rowid, or without it when the table has none.
 
-    SELECT rowid failing is SQLite's own word that the table is WITHOUT
-    ROWID, so the rowid and rowid-less images never mix.
+    The rowid is read through an alias spelling the table leaves
+    unshadowed: on a table that declares a rowid column, SELECT rowid
+    returns that column, so a shadowed spelling would image the
+    declared column and hide the integer the copy must carry. The
+    alias select failing is SQLite's own word that the table is
+    WITHOUT ROWID, so the rowid and rowid-less images never mix.
     """
     try:
         return (
             "rowid",
             sorted(
                 db.execute(
-                    f"SELECT rowid, * FROM {quote_ident(exact)}"
+                    f"SELECT {alias}, * FROM {quote_ident(exact)}"
                 ).fetchall(),
                 key=repr,
             ),
@@ -1314,19 +1353,47 @@ def probed_affinities(db, xinfo_rows) -> object:
 # so a copy that reassigns them can never reproduce these by accident.
 PROBE_ROWIDS = (842137, 842139)
 
+# SQLite's three spellings of the hidden rowid, case-insensitive. A user
+# column that declares one of these names is that column and never the
+# integer, so the proof reads and seeds the rowid through the first
+# spelling the table's own columns leave free.
+ROWID_ALIASES = ("rowid", "oid", "_rowid_")
+
+
+def rowid_alias(xinfo_rows) -> str | None:
+    """One rowid alias spelling no declared column shadows, or None.
+
+    SQLite reads rowid, oid, and _rowid_ as the hidden rowid until a
+    user column declares that name, and then the name is the column. A
+    table whose columns shadow all three spellings hides its rowid
+    from every SELECT, so no probe can prove a copy carried it.
+    """
+    declared = {fold_ascii(row[1]) for row in xinfo_rows if row[6] == 0}
+    for alias in ROWID_ALIASES:
+        if fold_ascii(alias) not in declared:
+            return alias
+    return None
+
+
 NUMERIC_TYPE_WORD = re.compile(r"INT|REAL|FLOA|DOUB|NUM|BOOL", re.IGNORECASE)
 
 
-def probe_value_candidates(declared: str, pk: bool) -> list:
-    """SQL literal candidates for one probe column, best first."""
-    if NUMERIC_TYPE_WORD.search(declared):
-        return ["842137", "1", "0"] if pk else ["1", "0", "7"]
-    if not declared.strip(SQL_TRIM):
-        return ["'p'", "842137", "1"]
-    return ["'p'", "'0'", "'1'"]
+def probe_value_candidates(declared: str, pk: bool, index: int, rowid: int) -> list:
+    """SQL literal candidates for one probe cell, best first.
+
+    Every candidate is distinct per column, per row, and per attempt.
+    A first proof seeded uniform values, and a copy that transformed
+    one - an expression the copy's own text spells - returned every
+    column's shared value and passed as lossless. Distinct cells leave
+    a transformation nothing to impersonate, so the row comparison
+    convicts it on the values SQLite returns.
+    """
+    if NUMERIC_TYPE_WORD.search(declared) or pk:
+        return [str(rowid * 100 + index * 3 + attempt) for attempt in range(3)]
+    return [f"'p{rowid}x{index}k{attempt}'" for attempt in range(3)]
 
 
-def seed_probe_rows(db, exact: str) -> None:
+def seed_probe_rows(db, exact: str, alias: str) -> None:
     """Seed probe rows, suspending the table's own triggers.
 
     The triggers drop and return by their stored definitions, so the
@@ -1334,7 +1401,10 @@ def seed_probe_rows(db, exact: str) -> None:
     the one the rows were seeded into; a trigger that will not come back
     raises, and the caller refuses the proof. A row no candidate
     satisfies is skipped: a table left empty proves no rowid identity,
-    and the caller refuses that proof too.
+    and the caller refuses that proof too. The rowid rides the given
+    alias - one spelling the table's own columns leave unshadowed - so
+    the seed writes the hidden integer itself, not a declared column
+    that shadows it.
     """
     triggers = db.execute(
         "SELECT name, sql FROM sqlite_schema WHERE type='trigger' "
@@ -1350,15 +1420,18 @@ def seed_probe_rows(db, exact: str) -> None:
             if row[6] == 0
         ]
         target = quote_ident(exact)
+        alias_name = quote_ident(alias)
         for rowid in PROBE_ROWIDS:
             for use_rowid in (True, False):
-                names = (["rowid"] if use_rowid else []) + [
+                names = ([alias_name] if use_rowid else []) + [
                     quote_ident(column) for column, _, _ in columns
                 ]
                 for attempt in range(3):
                     values = ([str(rowid)] if use_rowid else []) + [
-                        probe_value_candidates(declared, bool(pk))[attempt]
-                        for _, declared, pk in columns
+                        probe_value_candidates(
+                            declared, bool(pk), index, rowid
+                        )[attempt]
+                        for index, (_, declared, pk) in enumerate(columns)
                     ]
                     statement = (
                         f"INSERT INTO {target}({', '.join(names)}) "
@@ -1556,10 +1629,12 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
     runs the candidate migration, and compares. The proof holds only
     when every schema object outside the table returns byte-identical,
     the table's PRAGMA facts are unchanged, no AUTOINCREMENT state
-    exists on either side, the seeded rows return with their rowids, the
-    stored definitions differ only by CHECKs that widen inside the
+    exists on either side, the seeded rows - distinct in every cell,
+    rowids included, read through an unshadowed rowid alias - return,
+    the stored definitions differ only by CHECKs that widen inside the
     supported family under SQLite-probed affinity, and the copy names
-    every column. Any refusal keeps the migration breaking.
+    every column as one identifier token on both sides. Any refusal
+    keeps the migration breaking.
     """
     before_row = table_row(world.db, key[0], key[1])
     if before_row is None:
@@ -1572,17 +1647,23 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
         # textual family below owns CHECK widening, so the trial reads
         # them through CHECK enforcement the way a recovery tool would.
         trial.executescript("PRAGMA ignore_check_constraints = ON;")
-        seed_probe_rows(trial, exact)
-        before_catalog = catalog(trial)
         before_xinfo = trial.execute(
             f"PRAGMA table_xinfo({quote_ident(exact)})"
         ).fetchall()
+        alias = rowid_alias(before_xinfo)
+        if alias is None:
+            # All three spellings are declared columns: every SELECT
+            # reads a declared column, so nothing can prove the copy
+            # carried the hidden rowid.
+            return False
+        seed_probe_rows(trial, exact, alias)
+        before_catalog = catalog(trial)
         before_fk = trial.execute(
             f"PRAGMA foreign_key_list({quote_ident(exact)})"
         ).fetchall()
         before_index = index_facts(trial, exact)
         before_sequence = sequence_row(trial, exact)
-        before_rows = row_image(trial, exact)
+        before_rows = row_image(trial, exact, alias)
         trial.executescript(";\n".join(stmts) + ";")
     except sqlite3.Error:
         return False
@@ -1606,7 +1687,7 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
         ).fetchall()
         after_index = index_facts(trial, exact)
         after_sequence = sequence_row(trial, exact)
-        after_rows = row_image(trial, exact)
+        after_rows = row_image(trial, exact, alias)
     except sqlite3.Error:
         return False
     if table_row(trial, moved[0], moved[1]):
@@ -1652,9 +1733,15 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
         old_shape, new_shape, probed_affinities(trial, before_xinfo)
     ):
         return False
-    insert_columns = [bare_name(p) for p in split_top_level(copy_match.group(2))]
-    select_columns = [bare_name(p) for p in split_top_level(copy_match.group(3))]
+    insert_columns = [
+        copy_column_name(p) for p in split_top_level(copy_match.group(2))
+    ]
+    select_columns = [
+        copy_column_name(p) for p in split_top_level(copy_match.group(3))
+    ]
     if None in insert_columns or None in select_columns:
+        # An item beyond one identifier token is an expression or a
+        # qualified name SQLite evaluates, never a plain column copy.
         return False
     if insert_columns != [c.name for c in new_shape.columns]:
         return False

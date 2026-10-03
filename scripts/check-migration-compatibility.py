@@ -55,7 +55,10 @@ re-creates it byte for byte,
 no other table's foreign keys or triggers name the rebuilt table
 (a rename rewrites every inbound reference onto the scratch name, and an
 earlier migration's rename has already rewritten such a reference onto
-another name that the replay cannot carry, so that world poisons), and the
+another name that the replay cannot carry, so that world poisons; the
+renamed table's own shape is such a reference too, because SQLite rewrites
+a self-referencing foreign key onto the new name while the replay carries
+the old text, so any rename of a self-referencing table poisons), and the
 CHECKs differ only by widening inside a decidable family - same column,
 one numeric bound moved under one monotone operator where the referenced
 column's declared-type affinity makes the comparison numeric, one
@@ -71,7 +74,13 @@ by its identical spelling. The affinity reads the declared type the way
 SQLite does, and SQLite reads a quoted type word as the name it quotes -
 "TEXT", 'TEXT', [TEXT], and `TEXT` all apply TEXT affinity - so a quoted
 spelling cannot park a numeric CHECK on a column whose comparisons are
-textual. An identity state the copy cannot carry refuses the rebuild
+textual. Every scanner reads a quoted token at its unquoted value, the
+way SQLite reads it: a doubled quote inside "a""b" is one character of
+the name, so a column, a declared type, or a reference spelled with an
+escape keeps the identity SQLite gives it, a semicolon or a comment
+marker inside the escape never cuts a statement, and two different
+definitions cannot parse equal by splitting an escape apart. An identity
+state the copy cannot carry refuses the rebuild
 outright: an AUTOINCREMENT column does, because
 the sequence high-water mark lives in sqlite_sequence and the copy leaves
 it on the dropped scratch name, and a rowid table without a rowid alias
@@ -144,7 +153,7 @@ SQL_SQ = f"{SQL_SPACE}*"
 SQL_NOT_SPACE = "[^ \\t\\n\\f\\r]"
 SQL_TRIM = " \t\n\f\r"
 SQL_REF = (
-    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`[^`]*`|'(?:[^']|'')*'"
+    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`(?:[^`]|``)*`|'(?:[^']|'')*'"
     rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
 )
 SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
@@ -163,6 +172,30 @@ DROP_TABLE = re.compile(
     rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
+
+
+def quoted_end(text: str, start: int) -> int:
+    """Return the index just past the quoted token opening at start.
+
+    The scan reads the token the way SQLite does: a doubled quote inside a
+    double-quoted, single-quoted, or backticked token is one character of
+    its content, never a boundary, and a bracket token closes at its first
+    right bracket. An unterminated token runs to the text's end, which the
+    caller refuses rather than guesses at.
+    """
+    quote = text[start]
+    if quote == "[":
+        close = text.find("]", start + 1)
+        return len(text) if close < 0 else close + 1
+    i, n = start + 1, len(text)
+    while i < n:
+        if text[i] == quote:
+            if i + 1 < n and text[i + 1] == quote:
+                i += 2
+                continue
+            return i + 1
+        i += 1
+    return n
 
 
 def sql_parts(ref: str) -> list[str]:
@@ -394,11 +427,9 @@ def statements(sql: str) -> list[str]:
             stmt_open = True
             continue
         if ch in ('"', "`", "["):
-            close = "]" if ch == "[" else ch
-            j = sql.find(close, i + 1)
-            j = n - 1 if j < 0 else j
-            current.append(sql[i : j + 1])
-            i = j + 1
+            j = quoted_end(sql, i)
+            current.append(sql[i:j])
+            i = j
             stmt_open = True
             continue
         if sql.startswith("--", i):
@@ -597,15 +628,8 @@ def paren_span(text: str, start: int) -> tuple[str, int] | None:
                 j += 1
             i = j + 1
             continue
-        if ch in ('"', "`"):
-            j = text.find(ch, i + 1)
-            j = n if j < 0 else j
-            i = j + 1
-            continue
-        if ch == "[":
-            j = text.find("]", i + 1)
-            j = n if j < 0 else j
-            i = j + 1
+        if ch in ('"', "`", "["):
+            i = quoted_end(text, i)
             continue
         if text.startswith("--", i):
             j = text.find("\n", i)
@@ -653,17 +677,10 @@ def sql_tokens(text: str) -> list[str]:
             out.append(text[i : min(j + 1, n)])
             i = j + 1
             continue
-        if ch in ('"', "`"):
-            j = text.find(ch, i + 1)
-            j = n if j < 0 else j
-            out.append(text[i : min(j + 1, n)])
-            i = j + 1
-            continue
-        if ch == "[":
-            j = text.find("]", i + 1)
-            j = n if j < 0 else j
-            out.append(text[i : min(j + 1, n)])
-            i = j + 1
+        if ch in ('"', "`", "["):
+            j = quoted_end(text, i)
+            out.append(text[i:j])
+            i = j
             continue
         match = re.match(SQL_ID_START + SQL_ID_CONT + "*", text[i:])
         if match:
@@ -716,17 +733,10 @@ def split_top_level(text: str) -> list[str]:
             current.append(text[i : min(j + 1, n)])
             i = j + 1
             continue
-        if ch in ('"', "`"):
-            j = text.find(ch, i + 1)
-            j = n if j < 0 else j
-            current.append(text[i : j + 1])
-            i = j + 1
-            continue
-        if ch == "[":
-            j = text.find("]", i + 1)
-            j = n if j < 0 else j
-            current.append(text[i : j + 1])
-            i = j + 1
+        if ch in ('"', "`", "["):
+            j = quoted_end(text, i)
+            current.append(text[i:j])
+            i = j
             continue
         if ch == "(":
             depth += 1
@@ -1301,20 +1311,25 @@ def references_table(text: str, name: str) -> bool:
 
     String literals count as references: SQLite accepts a string literal
     where an identifier is expected, so FROM 'attempts' names the table,
-    and a rename rewrites such a reference onto the scratch name. Quoted
-    identifiers keep their quote marks, which still bound the name for the
-    word scan. Over-naming is safe: every extra hit only tightens the
-    proof, so a value that merely spells the table's name costs a refusal,
-    never an admission.
+    and a rename rewrites such a reference onto the scratch name. Every
+    quoting form is read at its unquoted, case-folded value, so a
+    reference spelled with a doubled quote - FROM "a""b" naming a"b - is
+    still a reference; the raw text never spells the name that way, and a
+    token-boundary scan is the only place the reference exists to find.
+    Over-naming is safe: every extra hit only tightens the proof, so a
+    value that merely spells the table's name costs a refusal, never an
+    admission.
     """
-    return (
-        re.search(
-            rf"(?<!{SQL_ID_CONT}){re.escape(fold_ascii(name))}(?!{SQL_ID_CONT})",
-            text,
-            re.IGNORECASE,
-        )
-        is not None
-    )
+    target = fold_ascii(name)
+    for token in sql_tokens(text):
+        if not token:
+            continue
+        if token[0] in ('"', "'", "`", "["):
+            if fold_ascii(unquote_name(token)) == target:
+                return True
+        elif is_bare_word(token) and fold_ascii(token) == target:
+            return True
+    return False
 
 
 def shape_references(shape: TableShape, name: str) -> bool:
@@ -1547,18 +1562,28 @@ class World:
         return True
 
     def _inbound_references(self, key: tuple[str, str]) -> bool:
-        """Whether any table other than key names it.
+        """Whether a surviving shape or dependent names the renamed table.
 
-        The renamed table's own dependents move with it and their bodies
-        are rewritten by the same rename, so only foreign shapes and
-        foreign dependents leave the replay unable to vouch.
+        SQLite rewrites every inbound foreign-key clause and trigger body
+        onto the new name, and the replay carries such a reference only as
+        stale text: a rename a foreign reference can see leaves the
+        replayed world behind the real one. The renamed table's own shape
+        is such a reference too - a self-referencing foreign key is
+        rewritten onto the new name while the replay carries the old text,
+        a fictitious baseline for any later proof, and a copy through a
+        self-reference is not provably lossless under immediate
+        foreign-key checking either. The renamed table's own dependents
+        are different: each one's attachment names the table, the
+        attachment moves with the rename, and a later proof's restoration
+        must repeat the stored text exactly, so a stale attachment is one
+        SQLite itself refuses to create.
         """
         name = key[1]
         for other_key, state in self.tables.items():
-            if other_key == key:
-                continue
             if state.shape is not None and shape_references(state.shape, name):
                 return True
+            if other_key == key:
+                continue
             for held in state.dependents.values():
                 if references_table(held.text, name):
                     return True

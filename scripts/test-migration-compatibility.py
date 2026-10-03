@@ -3485,6 +3485,275 @@ rebuild_roundtrip(
     base=FORWARD_ROUNDTRIP_BASE,
 )
 
+# --- CON-488 retry-12: escaped tokens and self-referencing renames ------------
+# Three unsafe additive admissions the earlier proof carried, each with the
+# SQLite fact that convicted it. A doubled quote inside a quoted identifier is
+# one character of its name, but the token scanners split it apart, so a
+# changed column name and declared type parsed identical to the old one and
+# the copy wrote the string literal 'p' where the old value was. An escaped
+# table name never met the reference scan's raw-text eye, so a stranded view
+# proved restored. And a rename rewrites the renamed table's own foreign key
+# onto the new name, which the replay carried as its old text and a later
+# proof read as a baseline the real database no longer had.
+
+# A column renamed through an escaped token: "p""q" (the column p"q) and
+# "p" "q" (the column p with a quoted type word) split into the same token
+# stream, so the proof must refuse what the parser cannot tell apart.
+ESCAPED_COLUMN_BASE = small_base(
+    'id INTEGER PRIMARY KEY, "p""q" TEXT NOT NULL, n INTEGER CHECK(n >= 0)'
+)
+ESCAPED_COLUMN_ATTACK = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        'CREATE TABLE t (id INTEGER PRIMARY KEY, "p" "q" TEXT NOT NULL, '
+        "n INTEGER CHECK(n >= -1));",
+        'INSERT INTO t (id, p, n) SELECT id, "p", n FROM scratch;',
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "a column renamed through an escaped token stays breaking",
+    ESCAPED_COLUMN_BASE,
+    ESCAPED_COLUMN_ATTACK,
+    breaking=True,
+)
+# The copy names the new column p, which the scratch table does not carry:
+# SQLite falls back to reading "p" as the string literal it spells, so the
+# rebuild runs, the column is renamed, and every old value is lost.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ESCAPED_COLUMN_BASE)
+    connection.execute('INSERT INTO t (id, "p""q", n) VALUES (1, \'real\', 5)')
+    connection.executescript(ESCAPED_COLUMN_ATTACK)
+    columns = [row[1] for row in connection.execute("PRAGMA table_info(t)")]
+    if columns != ["id", "p", "n"]:
+        FAILURES.append(
+            f"the escaped-token attack kept its columns: {columns}")
+    rows = connection.execute("SELECT id, p, n FROM t").fetchall()
+    if rows != [(1, "p", 5)]:
+        FAILURES.append(
+            f"the escaped-token attack kept an old value: {rows}")
+finally:
+    connection.close()
+# The same escape on both sides keeps one identity and still widens.
+expect_world(
+    "an identically escaped column still widens additively",
+    ESCAPED_COLUMN_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            'CREATE TABLE t (id INTEGER PRIMARY KEY, "p""q" TEXT NOT NULL, '
+            "n INTEGER CHECK(n >= -1));",
+            'INSERT INTO t (id, "p""q", n) SELECT id, "p""q", n FROM scratch;',
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# A semicolon or a comment marker inside an escaped token is content: it
+# cuts no statement, opens no comment, and a rebuild carrying the token
+# still proves its shape.
+ESCAPED_MARKER_BASE = small_base(
+    'id INTEGER PRIMARY KEY, d TEXT NOT NULL DEFAULT "a"";--b", '
+    "n INTEGER CHECK(n >= 0)"
+)
+if len(check.statements(
+    'CREATE TABLE t (d TEXT NOT NULL DEFAULT "a"";--b");'
+)) != 1:
+    FAILURES.append("a semicolon inside an escaped token split a statement")
+expect_world(
+    "an escaped semicolon inside a default cuts no statement",
+    ESCAPED_MARKER_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            'CREATE TABLE t (id INTEGER PRIMARY KEY, '
+            'd TEXT NOT NULL DEFAULT "a"";--b", n INTEGER CHECK(n >= -1));',
+            "INSERT INTO t (id, d, n) SELECT id, d, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# A table named through an escaped spelling strands a view that names it the
+# same way: SQLite rewrites the view onto the scratch name at the rename, so
+# the rebuild owes the view a drop and a restoration.
+ESCAPED_TABLE_BASE = (
+    'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); '
+    'CREATE VIEW v AS SELECT id FROM "t""x";'
+)
+ESCAPED_TABLE_REBUILD = "\n".join(
+    (
+        'ALTER TABLE "t""x" RENAME TO scratch;',
+        'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));',
+        'INSERT INTO "t""x" (id, n) SELECT id, n FROM scratch;',
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "an escaped view reference strands like any other",
+    ESCAPED_TABLE_BASE,
+    ESCAPED_TABLE_REBUILD,
+    breaking=True,
+)
+expect_world(
+    "an escaped view reference dropped and restored stays additive",
+    ESCAPED_TABLE_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            'ALTER TABLE "t""x" RENAME TO scratch;',
+            'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));',
+            'INSERT INTO "t""x" (id, n) SELECT id, n FROM scratch;',
+            "DROP TABLE scratch;",
+            'CREATE VIEW v AS SELECT id FROM "t""x";',
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: the unrestored view names the dropped scratch name.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ESCAPED_TABLE_BASE)
+    connection.executescript(ESCAPED_TABLE_REBUILD)
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the escaped-name view survived the rebuild unbroken")
+finally:
+    connection.close()
+# An inbound trigger that names the table through an escaped spelling is an
+# inbound reference the rename rewrites onto the scratch name.
+expect_world(
+    "an inbound trigger through an escaped spelling keeps the rebuild breaking",
+    'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); '
+    "CREATE TABLE log (id INTEGER PRIMARY KEY); "
+    'CREATE TRIGGER g AFTER INSERT ON log BEGIN DELETE FROM "t""x"; END;',
+    ESCAPED_TABLE_REBUILD,
+    breaking=True,
+)
+# Escaped spellings ride the whole proof: a backticked name with a doubled
+# backtick is one identifier, in the rename, the references, and the proof.
+expect_world(
+    "a backticked escaped name proves its rebuild",
+    "CREATE TABLE `a``b` (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE `a``b` RENAME TO scratch;",
+            "CREATE TABLE `a``b` (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO `a``b` (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# SQLite rewrites a renamed table's own foreign key onto the new name, and
+# the replay carries the old text: a prior self-referencing rename leaves a
+# fictitious baseline, and a proof read from it admits a rebuild whose
+# foreign key targets a table that no longer exists.
+SELF_FK_RENAME_BASE = (
+    "CREATE TABLE parent (id INTEGER PRIMARY KEY, "
+    "pid INTEGER REFERENCES parent(id), n INTEGER CHECK(n >= 0)); "
+    "ALTER TABLE parent RENAME TO t;"
+)
+SELF_FK_FICTITIOUS_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+        "pid INTEGER REFERENCES parent(id), n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, pid, n) SELECT id, pid, n FROM scratch;",
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "a prior self-referencing rename poisons the baseline",
+    SELF_FK_RENAME_BASE,
+    SELF_FK_FICTITIOUS_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: migrations run inside one transaction with foreign keys
+# enforced, and the copy against the vanished parent table cannot even run.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(SELF_FK_RENAME_BASE)
+    connection.execute("INSERT INTO t (id, pid, n) VALUES (1, NULL, 0)")
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = ON")
+    if connection.execute("PRAGMA foreign_keys").fetchone() != (1,):
+        FAILURES.append("the conviction could not enable foreign keys")
+    try:
+        connection.executescript(SELF_FK_FICTITIOUS_REBUILD)
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append(
+            "the fictitious-baseline rebuild copied rows against a "
+            "nonexistent parent table"
+        )
+finally:
+    connection.close()
+# A self-referencing table rebuilt without any prior rename fails closed
+# too: the copy through a self-reference is lossless only when the stored
+# rows satisfy the key, and that is data state the shape cannot prove.
+expect_world(
+    "a self-referencing table keeps its rebuild breaking",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+    "pid INTEGER REFERENCES t(id), n INTEGER CHECK(n >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+            "pid INTEGER REFERENCES t(id), n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, pid, n) SELECT id, pid, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=True,
+)
+# A rename that rewrites nothing stays faithful: the table and its trigger
+# name only other tables, the replay carries them truly, and a later
+# rebuild of a different table against that world still proves.
+expect_world(
+    "a rebuild beside a clean prior rename stays additive",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TRIGGER g AFTER INSERT ON t BEGIN SELECT 1; END; "
+    "ALTER TABLE t RENAME TO u; "
+    "CREATE TABLE other (id INTEGER PRIMARY KEY, m INTEGER CHECK(m >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE other RENAME TO other_scratch;",
+            "CREATE TABLE other (id INTEGER PRIMARY KEY, m INTEGER CHECK(m >= -1));",
+            "INSERT INTO other (id, m) SELECT id, m FROM other_scratch;",
+            "DROP TABLE other_scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# The reference scan reads whole tokens at their unquoted value, the way
+# SQLite rewrites them: a value string that merely contains the name is not
+# a reference, so a view carrying one is not stranded by the rename.
+expect_world(
+    "a view naming the table only inside a longer string stays additive",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE VIEW notes AS SELECT 'see t here' AS label;",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

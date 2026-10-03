@@ -396,14 +396,29 @@ func preflightProjectHandoffTx(ctx context.Context, tx *sql.Tx, req RecordProjec
 }
 
 // readFileBounded reads one artifact file with a bounded size, so a
-// mis-referenced path cannot pull unbounded bytes into the digest check.
-func readFileBounded(path string) ([]byte, error) {
-	file, err := os.Open(path)
+// mis-referenced path cannot pull unbounded bytes into the digest check. The
+// read opens through an os.Root on the claimed worktree, so a symlink swapped
+// in after the caller's containment check still cannot reach outside it.
+func readFileBounded(worktree, relative string) (content []byte, err error) {
+	root, err := os.OpenRoot(worktree)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, projectHandoffArtifactMaxBytes+1))
+	defer func() {
+		if closeErr := root.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	file, err := root.Open(relative)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	content, err = io.ReadAll(io.LimitReader(file, projectHandoffArtifactMaxBytes+1))
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +491,8 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 		if !strings.HasPrefix(resolvedPath, treePrefix) {
 			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s resolves through a symlink outside the claimed source worktree", ref), false, "reference artifacts that live inside the claimed source worktree")
 		}
-		content, readErr := readFileBounded(path)
+		relative := strings.TrimPrefix(path, sourceWorktree+string(filepath.Separator))
+		content, readErr := readFileBounded(sourceWorktree, relative)
 		if readErr != nil {
 			return newFailure(KindProjectionNotFound, "project_handoff", fmt.Sprintf("artifact reference %s names no readable file under the claimed source worktree", ref), false, "reference committed artifacts that exist in the worktree")
 		}
@@ -484,7 +500,6 @@ func verifyArtifactPreservation(ctx context.Context, sourceWorktree string, arti
 		if digest != claimed {
 			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s does not match the worktree content", ref), false, "reference the artifact's actual content digest")
 		}
-		relative := strings.TrimPrefix(path, sourceWorktree+string(filepath.Separator))
 		committed, headErr := ExecGitRunner{}.Run(ctx, sourceWorktree, "show", "HEAD:"+filepath.ToSlash(relative))
 		if headErr != nil {
 			return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("artifact reference %s is not committed at the source worktree's HEAD; an uncommitted or ignored artifact would not survive session retirement", ref), false, "commit the artifact or reference committed content; the core never commits, stashes, or hides files")
@@ -965,11 +980,12 @@ func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction,
 		return err
 	}
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
-	if contractErr == sql.ErrNoRows {
+	switch {
+	case contractErr == sql.ErrNoRows:
 		facts.contractVersion = 0
-	} else if contractErr != nil {
+	case contractErr != nil:
 		return contractErr
-	} else {
+	default:
 		facts.contractVersion = version
 	}
 	var recorded int
@@ -982,15 +998,16 @@ func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction,
 		} else {
 			var handoffID, refs string
 			scanErr := tx.QueryRowContext(ctx, `SELECT handoff_id,artifact_refs FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef, facts.contractVersion).Scan(&handoffID, &refs)
-			if scanErr == sql.ErrNoRows {
+			switch {
+			case scanErr == sql.ErrNoRows:
 				var staleVersion int64
 				if staleErr := tx.QueryRowContext(ctx, `SELECT contract_version FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef).Scan(&staleVersion); staleErr != nil {
 					return wrapFailure(KindUnavailable, "project_retirement", "cannot read the recorded handoffs", true, "retry once the database is readable", staleErr)
 				}
 				facts.contractBlocker = fmt.Sprintf("the newest recorded handoff stands under contract version %d, but the active contract is version %d; a handoff the receiver can no longer consume cannot prove retirement readiness, so record a fresh addressed handoff under the active contract", staleVersion, facts.contractVersion)
-			} else if scanErr != nil {
+			case scanErr != nil:
 				return wrapFailure(KindUnavailable, "project_retirement", "cannot read the handoff's artifact references", true, "retry once the database is readable", scanErr)
-			} else {
+			default:
 				facts.recorded = true
 				facts.handoffID = handoffID
 				if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {

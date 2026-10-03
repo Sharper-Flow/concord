@@ -2694,7 +2694,7 @@ type projectHandoffConsumeInput struct {
 // re-probeable inside a transaction; the retirement read re-proves
 // preservation from the recorded references against the claimed source
 // before any readiness, so a stale preservation never reaches retirement.
-func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -2756,7 +2756,7 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, ra
 // its ambient Project, and the active contract: a missing, wrong-target,
 // stale, or foreign-session consume refuses with no event, so managed
 // execution stays closed until the bind stands.
-func (r runtime) planProjectHandoffConsume(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffConsumeInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true

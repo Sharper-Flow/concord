@@ -123,8 +123,8 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-1"): 1, store.VersionRef(store.SubjectProject, "project-2"): 1}}); err != nil {
 		t.Fatal(err)
 	}
-	sourceService, _, sourceGrant := authorizedHandoffService(t, s, "client-source", []string{"project-1"}, repoSource)
-	receiveService, _, receiveGrant := authorizedHandoffService(t, s, "client-receive", []string{"project-2"}, repoReceive)
+	sourceService, sourceGrant := authorizedHandoffService(t, s, "client-source", []string{"project-1"}, repoSource)
+	receiveService, receiveGrant := authorizedHandoffService(t, s, "client-receive", []string{"project-2"}, repoReceive)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +235,7 @@ func handoffSessionReauthorized(t *testing.T, service *Service, client, project,
 
 // authorizedHandoffService mirrors newAuthorizedService with a linked
 // worktree the handoff record can probe.
-func authorizedHandoffService(t *testing.T, db *store.Store, client string, projects []string, worktree string) (*Service, Invocation, Authority) {
+func authorizedHandoffService(t *testing.T, db *store.Store, client string, projects []string, worktree string) (*Service, Authority) {
 	t.Helper()
 	ctx := context.Background()
 	service := NewService(db)
@@ -253,7 +253,7 @@ func authorizedHandoffService(t *testing.T, db *store.Store, client string, proj
 	if err != nil {
 		t.Fatal(err)
 	}
-	return service, invocation, authority
+	return service, authority
 }
 
 func handoffEnvelope(grant Authority, ambientProject, scopeVersion string) CallEnvelope {
@@ -403,7 +403,7 @@ func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *test
 	// The retiring session authorizes from the receiving Project's claimed
 	// worktree, whose Project's canonical locator names the registered main
 	// checkout the vacate destination resolves to.
-	vacateService, _, vacateGrant := authorizedHandoffService(t, s, "client-receive-vacate", []string{"project-2"}, receiveWorktree)
+	vacateService, vacateGrant := authorizedHandoffService(t, s, "client-receive-vacate", []string{"project-2"}, receiveWorktree)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-2")
 	if err != nil {
 		t.Fatal(err)
@@ -560,7 +560,7 @@ func TestProjectHandoffRecordBindsThePreservationProbeToTheClaimedSourceWorktree
 	if out, err := exec.Command("git", "-C", repoSource, "worktree", "add", "-b", "handoff-unrelated", unrelated, "HEAD").CombinedOutput(); err != nil {
 		t.Fatalf("worktree add: %s %v", out, err)
 	}
-	rogueService, _, rogueGrant := authorizedHandoffService(t, s, "client-source-rogue", []string{"project-1"}, unrelated)
+	rogueService, rogueGrant := authorizedHandoffService(t, s, "client-source-rogue", []string{"project-1"}, unrelated)
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

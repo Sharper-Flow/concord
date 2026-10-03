@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, invokeConcordOperation, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
+import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
 import { configureHostLease } from "./host-lease"
 import { resetClaimedWorktrees } from "./claimed-worktree"
@@ -394,10 +394,34 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(envelope.ambient_project_id).toBe(RECEIVE_PROJECT)
     expect(envelope.manifest_digest).toBe(manifestDigest)
     expect((captured.invoke?.input as JSONRecord).handoff_id).toBe(handoffID)
+    // The automatic consume key is the bounded hash of the complete consume
+    // identity: the real route sent exactly the construction that stays
+    // inside the payload contract's 128-character idempotency_key bound for
+    // every accepted work_id and handoff_id length (the reviewed overflow
+    // reproduced at a 123-character work_id).
+    const sentKey = (captured.invoke?.input as JSONRecord).idempotency_key as string
+    expect(sentKey).toBe(projectHandoffConsumeKey(workID, handoffID))
+    expect(sentKey.length).toBeLessThanOrEqual(128)
+    expect(sentKey).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
     // The core recorded the bind on the shared work.
     const bind = dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`)
     expect(bind.state).toBe("consumed")
     expect(bind.consumer).toBe(RECEIVE_SESSION)
+
+    // Lost-response recovery through the real routes: the consume committed
+    // but its success never reached the receiving session, so it replays
+    // work_start. The resume re-renders the receiver's own consumed bind —
+    // the bounded job and next action ride again — and the consume replays
+    // idempotently against the standing bind instead of re-binding or
+    // refusing closed.
+    const replay = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, receiveWorktree)))
+    expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
+    const renderedAgain = replay.project_handoff as JSONRecord
+    expect(renderedAgain.handoff_id).toBe(handoffID)
+    expect(renderedAgain.bounded_job).toContain("verify the receiving repository's adapter surface")
+    expect(renderedAgain.next_action).toContain("consume the handoff")
+    expect(dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
+    expect(occupantOf(RECEIVE_PROJECT)).toBe(RECEIVE_SESSION)
 
     // The source session retires through the real owning routes: the
     // session_vacate mutation records the relocation request toward the

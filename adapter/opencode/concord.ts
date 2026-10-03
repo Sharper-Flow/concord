@@ -1076,8 +1076,10 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // section: absent exactly when the resume applies no remote check.
 // project_handoff is the optional bounded addressed handoff the core renders
 // for a Project-selected resume (CD-0182 amendment): absent exactly when no
-// handoff addresses the resuming Project, and never consumable from this
-// rendering alone.
+// handoff addresses the resuming Project under the active contract and the
+// resume carries no standing bind of the resuming session — a consume whose
+// response was lost re-renders the receiver's own bind so its replay
+// recovers the bounded job — and never consumable from this rendering alone.
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value)) return false
   const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree"]
@@ -1435,6 +1437,19 @@ export function resetConsumedProjectHandoffs(): void {
   consumedHandoffs.clear()
 }
 
+// projectHandoffConsumeKey derives the automatic consume idempotency key from
+// the complete consume identity — work and handoff — through a JSON encoding
+// the digest unambiguously decodes back into exactly one identity pair. Every
+// accepted pair (each id up to the contract's 128-character bound) hashes to
+// the same bounded 48-character key, so the generated input always satisfies
+// the owning idempotency_key schema, while equal identities replay the
+// standing bind and a different work or handoff can never reuse a prior
+// bind's cached answer. The export serves the consume-boundary tests that
+// pin that bound at maximum accepted identity lengths.
+export function projectHandoffConsumeKey(workID: string, handoffID: string): string {
+  return `handoff-consume-${createHash("sha256").update(JSON.stringify([workID, handoffID])).digest("hex").slice(0, 32)}`
+}
+
 // consumeAddressedProjectHandoff issues the typed consume for one rendered
 // handoff after the session's verified landing, through the owning invoke
 // route — never a second raw invoke path. The verified landing supplies the
@@ -1442,15 +1457,15 @@ export function resetConsumedProjectHandoffs(): void {
 // ambient context the flow already resolved, so the consume re-resolves
 // neither and the core binds against the authenticated boundary. The input
 // carries the handoff_id the boot rendered: the generated tool contract
-// requires it, and the key is derived from the handoff identity so a
-// successor handoff under a renewed contract can never replay a prior
+// requires it, and the key is derived from the complete consume identity so
+// a successor handoff under a renewed contract can never replay a prior
 // bind's cached answer. Every refusal surfaces as the returned message the
 // caller carries as a refusal — the consuming session either binds the
 // rendered handoff or fails closed. The export serves this file's own
 // consume-boundary tests.
 export async function consumeAddressedProjectHandoff(workID: string, handoffID: string, context: ToolContext, transport: { sessionDirectory: string; ambient: AmbientContext }): Promise<{ consumed: boolean; handoffID: string; message?: string }> {
   if (!workID || !handoffID || !context.sessionID) return { consumed: false, handoffID: "", message: "consume skipped: the landing named no work, handoff, and session" }
-  const envelope = await invokeConcordOperationRaw("concord_work_transition", { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: `handoff-consume-${workID}-${createHash("sha256").update(handoffID).digest("hex").slice(0, 16)}` } }, context, transport.sessionDirectory, transport.ambient)
+  const envelope = await invokeConcordOperationRaw("concord_work_transition", { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: projectHandoffConsumeKey(workID, handoffID) } }, context, transport.sessionDirectory, transport.ambient)
   if (envelope.outcome === "ok") {
     const result = envelope.result as { handoff_id?: string } | undefined
     if (typeof result?.handoff_id === "string" && result.handoff_id) {

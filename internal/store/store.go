@@ -42,6 +42,12 @@ type Store struct {
 	db    *sql.DB
 	path  string
 	Clock func() time.Time
+
+	// retireProbeInterleave is the deterministic test seam that runs between
+	// the retirement evaluation's git probe phase and its final transaction,
+	// so a test can interleave a committed state change into exactly that
+	// window. Production leaves it nil.
+	retireProbeInterleave func()
 }
 
 func (s *Store) now() time.Time {

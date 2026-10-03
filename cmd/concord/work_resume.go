@@ -27,12 +27,13 @@ type workResumeOutput struct {
 	WorkID        string               `json:"work_id"`
 	Worktree      workBootstrapTree    `json:"worktree"`
 	LinearRemote  *linearRemoteSection `json:"linear_remote,omitempty"`
-	// ProjectHandoff carries the recorded handoff addressed to this Project
-	// (CD-0182 amendment) when one stands unconsumed. It names the bounded
-	// repository job the receiving session must consume through
-	// concord_work_transition.project_handoff_consume before managed
+	// ProjectHandoff carries the handoff addressed to this Project
+	// (CD-0182 amendment) while it stands unconsumed, or the resuming
+	// session's own consumed bind when the resume names that session. It
+	// names the bounded repository job the receiving session must consume
+	// through concord_work_transition.project_handoff_consume before managed
 	// execution; visibility here never consumes or authorizes. Nil when no
-	// handoff addresses the Project.
+	// handoff addresses the Project under the active contract.
 	ProjectHandoff *projectHandoffSection `json:"project_handoff,omitempty"`
 }
 
@@ -363,9 +364,12 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	// The Project-selected boot/resume flow names the bounded job: the
 	// recorded handoff addressed to this Project rides the answer so the
 	// receiving session consumes it without the operator copying context.
-	// A read failure degrades the section to nil-grade absence only for a
-	// typed not-found; other failures refuse the resume.
-	handoff, err := store.ReadPendingProjectHandoffForProject(ctx, s, input.WorkID, input.ProjectID)
+	// The resume's authenticated session reference also re-renders this
+	// session's own consumed bind, so a replay after a lost consume response
+	// recovers the bounded job instead of booting without it. A read failure
+	// degrades the section to nil-grade absence only for a typed not-found;
+	// other failures refuse the resume.
+	handoff, err := store.ReadPendingProjectHandoffForProject(ctx, s, input.WorkID, input.ProjectID, input.SessionRef)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
 		return 1

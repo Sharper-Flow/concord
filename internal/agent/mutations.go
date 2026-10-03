@@ -565,13 +565,15 @@ type compactReconcileInput struct {
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
-	// session_vacate replays state-driven: its recorded success goes stale
-	// the moment a later claim's occupancy rows stand, so every replay must
-	// reach the planner and re-read the committed request's state inside the
-	// transaction instead of returning the cached payload here (CD-0190
-	// D2/D3). The cached answer would otherwise send the adapter's host mover
-	// after a request that must refuse.
-	if op.ID == "concord_work_transition.session_vacate" {
+	// session_vacate and project_handoff_consume replay state-driven: their
+	// recorded successes go stale — the vacate the moment a later claim's
+	// occupancy rows stand (CD-0190 D2/D3), the consume the moment its bind
+	// names another receiving session or the active contract moved on. Every
+	// replay must reach the planner and re-read the recorded state inside
+	// the transaction instead of returning the cached payload here: the
+	// core's own state checks refuse the foreign or stale bind and resolve
+	// the owning session's replay as the standing bind with no second event.
+	if op.ID == "concord_work_transition.session_vacate" || op.ID == "concord_work_transition.project_handoff_consume" {
 		return Envelope{}, false, nil
 	}
 	key := idempotencyKey(raw)
@@ -2653,9 +2655,16 @@ type projectHandoffConsumeInput struct {
 // handoff. The artifact-preservation probe runs here, in the plan phase,
 // BEFORE the mutation transaction opens: it is a git/filesystem fact, and
 // the single-connection store cannot observe a subprocess parked inside a
-// transaction. The session's own linked worktree — the authenticated grant
-// boundary, never an input — is the claimed source worktree the probe
-// verifies against.
+// transaction. The probe binds to the shared work's OWN claimed source
+// worktree — the store's claim resolution, never an input, and never just
+// the session's linked worktree — so a clean unrelated linked worktree
+// cannot stand in for a claimed source that carries unpreserved changes.
+// The record transaction re-checks the binding inside its own transaction,
+// so a claim that moves between this read and the record refuses there.
+// Content drift inside the probed tree in that same window is not
+// re-probeable inside a transaction; the retirement read re-proves
+// preservation from the recorded references against the claimed source
+// before any readiness, so a stale preservation never reaches retirement.
 func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, digest string, grant Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -2671,16 +2680,29 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, ra
 	if grant.SessionRef == "" || grant.Worktree == "" {
 		return coreError(base, "unknown_scope", "project handoff record requires the session's authenticated session and linked worktree", "refresh_context", false), nil, true
 	}
+	if r.Store == nil {
+		return coreError(base, "unreachable", "project handoff record requires the store authority", "contact_operator", true), nil, true
+	}
+	claimed, err := store.ReadSessionClaimedWorktree(ctx, r.Store, in.WorkID, project)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if claimed == "" {
+		return coreError(base, "invalid_input", "the work holds no claimed source worktree for this Project, so the handoff cannot bind artifact preservation to the shared work's own source claim", "reread_entities", false), nil, true
+	}
+	if filepath.Clean(claimed) != filepath.Clean(grant.Worktree) {
+		return coreError(base, "invalid_input", fmt.Sprintf("the session's linked worktree is not the work's claimed source worktree %s; the preservation probe verifies the claimed source only", claimed), "reread_entities", false), nil, true
+	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{project, in.TargetProjectID}
 	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "project_retirement", QueryID: "CD-0182.R1", ReasonCode: "verify_handoff_recorded", RequiredFields: []string{"work_id"}}}
 	req := store.RecordProjectHandoffRequest{
 		WorkID: in.WorkID, SourceProjectID: project, TargetProjectID: in.TargetProjectID, SourceSessionRef: grant.SessionRef,
 		BoundedJob: in.BoundedJob, Changes: in.Changes, Verification: in.Verification, ArtifactRefs: in.ArtifactRefs,
-		Blockers: in.Blockers, NextAction: in.NextAction, SourceWorktree: grant.Worktree,
+		Blockers: in.Blockers, NextAction: in.NextAction, SourceWorktree: claimed,
 	}
 	// Outside any transaction: the probe reads git and the artifact files.
-	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, grant.Worktree, in.ArtifactRefs); err != nil {
+	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, claimed, in.ArtifactRefs); err != nil {
 		return failureEnvelope(base, err), nil, true
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
@@ -4998,16 +5020,18 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			if prior.CanonicalDigest != digest {
 				return storeIdempotencyConflict(r.Operation, key)
 			}
-			if r.Operation != "session_vacate" {
+			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr
 			}
-			// session_vacate replays state-driven: the cached payload is
-			// stale the moment a later claim's occupancy rows stand, so the
-			// effect below re-reads the committed request and resolves or
-			// refuses from its state (CD-0190 D2/D3). The key stays recorded,
-			// so the tail touches instead of inserting.
+			// session_vacate and project_handoff_consume replay state-driven:
+			// the cached payload is stale the moment a later claim's occupancy
+			// rows stand, or the moment the consume bind names another
+			// receiving session or the active contract moved on, so the
+			// effect below re-reads the recorded state and resolves or
+			// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
+			// tail touches instead of inserting.
 			replay = true
 		}
 		// CD-0041 D7: every consequential boundary validates the contract's law

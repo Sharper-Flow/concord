@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -87,7 +89,15 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	// own checkout, and the receiving session claims its own worktree.
 	repoSource := cleanHandoffRepo(t)
 	repoReceive := cleanHandoffRepo(t)
+	normalizedSource, err := store.NormalizeProjectLocator(store.LocatorCanonicalPath, repoSource)
+	if err != nil {
+		t.Fatal(err)
+	}
 	normalizedReceive, err := store.NormalizeProjectLocator(store.LocatorCanonicalPath, repoReceive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceLocatorPayload, err := json.Marshal(map[string]any{"project_id": "project-1", "locator_id": "canonical-source", "kind": string(store.LocatorCanonicalPath), "value": repoSource, "normalized_value": normalizedSource, "expected_version": 1, "resulting_version": 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +106,9 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 		t.Fatal(err)
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
+		{EventID: "handoff-locator-w", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: sourceLocatorPayload},
 		{EventID: "handoff-locator-e", Kind: "project.locator_added", SubjectType: store.SubjectProject, SubjectID: "project-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: locatorPayload},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-2"): 1}}); err != nil {
+	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, "project-1"): 1, store.VersionRef(store.SubjectProject, "project-2"): 1}}); err != nil {
 		t.Fatal(err)
 	}
 	sourceService, _, sourceGrant := authorizedHandoffService(t, s, "client-source", []string{"project-1"}, repoSource)
@@ -143,6 +154,25 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract failed: %+v", approved.Error)
 	}
+	// The source Project's claimed worktree: the real claim the preservation
+	// bind resolves, and the worktree the source session runs in once the
+	// boot route places it there.
+	sourceVersion, err := workVersionForWorkflow(t, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBase, err := exec.Command("git", "-C", repoSource, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimSource, err := s.ClaimWorktree(ctx, store.WorktreeClaimRequest{
+		OpID: "handoff-claim-w", WorkID: "work-1", ProjectID: "project-1",
+		BaseSHA: strings.TrimSpace(string(sourceBase)), PrincipalRef: "human-1", RequestID: "handoff-req-w",
+		ExpectedVersion: sourceVersion, Now: fixedTime(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// The receiving Project's claimed worktree: the real claim the boot
 	// route enters, ready for the verified landing that records the
 	// receiving session's placement.
@@ -162,7 +192,33 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The source session re-authorizes inside its claimed worktree: the
+	// authenticated grant names the work's claimed source worktree, the
+	// same placement the real boot route gives a Project-selected session.
+	scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceGrant = handoffSessionReauthorized(t, sourceService, "client-source", "project-1", claimSource.Entry.Path)
+	sourceEnv = handoffEnvelope(sourceGrant, "project-1", scopeVersion)
 	return s, sourceService, receiveService, sourceEnv, receiveEnv, repoSource, claimReceive.Entry.Path
+}
+
+// handoffSessionReauthorized re-authorizes a registered handoff client
+// inside another linked worktree, so a test can move a session into the
+// claimed worktree a claim derived after the first authorization.
+func handoffSessionReauthorized(t *testing.T, service *Service, client, project, worktree string) Authority {
+	t.Helper()
+	invocation := Invocation{
+		ClientRef: client, PrincipalRef: "human-1", SessionRef: "session-" + client, AgentRef: "agent-1",
+		Directory: worktree, Worktree: worktree, ManifestDigest: ManifestDigest,
+		RequiredCapability: "work_transition", ProductID: "product-1", ProjectID: project,
+	}
+	authority, err := service.Authorize(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
 }
 
 // authorizedHandoffService mirrors newAuthorizedService with a linked
@@ -222,7 +278,7 @@ func retirementInvoke(t *testing.T, s *store.Store, service *Service, env CallEn
 
 func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) {
 	t.Parallel()
-	s, sourceService, receiveService, sourceEnv, receiveEnv, repo, receiveWorktree := handoffDispatchFixture(t)
+	s, sourceService, receiveService, sourceEnv, receiveEnv, _, receiveWorktree := handoffDispatchFixture(t)
 	// The source records the addressed handoff from its authenticated
 	// identities: no input names the source Project or session.
 	record := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
@@ -254,9 +310,10 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if resultField(t, replay, "handoff_id") != handoffID || !resultBool(t, replay, "already_recorded") {
 		t.Fatalf("replay=%s, want the same id flagged already_recorded", replay.Result)
 	}
-	// A dirty source worktree refuses before any transaction: preservation
-	// is a probe fact, never an assertion.
-	if err := osWrite(repo, "tracked.txt", "mutated\n"); err != nil {
+	// A dirty claimed source worktree refuses before any transaction:
+	// preservation is a probe fact, never an assertion. The probe targets
+	// the claimed source worktree the session runs in, never another tree.
+	if err := osWrite(sourceEnv.Worktree, "tracked.txt", "mutated\n"); err != nil {
 		t.Fatal(err)
 	}
 	dirty := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
@@ -267,7 +324,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if dirty.Outcome == OutcomeOK || dirty.Error == nil || !strings.Contains(dirty.Error.Message, "unpreserved changes") {
 		t.Fatalf("dirty record=%+v, want the unpreserved-changes refusal", dirty.Error)
 	}
-	if err := exec.Command("git", "-C", repo, "checkout", "--", "tracked.txt").Run(); err != nil {
+	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
 		t.Fatal(err)
 	}
 	// The source session cannot consume its own handoff: the core binds the
@@ -405,5 +462,169 @@ func TestSessionVacateRouteAndVerifiedLandingCompleteRetirementReadiness(t *test
 	}
 	if lifecycle != "in_progress" {
 		t.Fatalf("lifecycle=%q, want retirement to leave the shared work alone", lifecycle)
+	}
+}
+
+// The consume's idempotent replay rechecks the recorded state instead of
+// returning the cached success: the owning session's same-key replay
+// resolves the standing bind with no second consumed event, a foreign
+// receiver's same-key replay refuses on the recorded bind, and a replay
+// after a contract replacement refuses closed on the stale bind.
+func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
+	s, sourceService, receiveService, sourceEnv, receiveEnv, _, tree := handoffDispatchFixture(t)
+	record := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
+		"idempotency_key": "replay-record",
+		"work_id":         "work-1", "target_project_id": "project-2",
+		"bounded_job": "bounded receiver job", "next_action": "execute receiver job",
+	})
+	if record.Outcome != OutcomeOK {
+		t.Fatalf("record failed: %+v", record.Error)
+	}
+	handoffID := resultField(t, record, "handoff_id")
+	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{WorkID: "work-1", SessionRef: receiveEnv.SessionRef, LandedDirectory: tree, HostPID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume"}
+	first := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
+	if first.Outcome != OutcomeOK {
+		t.Fatalf("first consume failed: %+v", first.Error)
+	}
+	// The owning session's same-key replay resolves the standing bind.
+	ownerReplay := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
+	if ownerReplay.Outcome != OutcomeOK || !resultBool(t, ownerReplay, "already_consumed") {
+		t.Fatalf("owner replay=%+v result=%s, want the standing bind re-resolved", ownerReplay.Error, ownerReplay.Result)
+	}
+	// A foreign receiver's same-key replay refuses on the recorded bind
+	// instead of receiving the cached success.
+	foreign := receiveEnv
+	foreign.SessionRef = "session-foreign-receiver"
+	foreignReplay := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", input)
+	if foreignReplay.Outcome == OutcomeOK || foreignReplay.Error == nil || !strings.Contains(foreignReplay.Error.Message, "already consumed by another receiving session") {
+		t.Fatalf("foreign replay=%+v, want the foreign-bind refusal", foreignReplay.Error)
+	}
+	foreignNewKey := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume-foreign-new-key"})
+	if foreignNewKey.Outcome == OutcomeOK {
+		t.Fatalf("foreign new-key consume=%+v, want the same refusal", foreignNewKey.Result)
+	}
+	// A contract replacement holds the same-key replay closed on the stale
+	// bind: the cached success would otherwise authorize execution under a
+	// contract the receiver can no longer consume.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+	INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+	SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
+	UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='work-1' AND contract_version=1;
+	DELETE FROM fold_guard;`); err != nil {
+		t.Fatal(err)
+	}
+	staleReplay := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
+	if staleReplay.Outcome == OutcomeOK || staleReplay.Error == nil || !strings.Contains(staleReplay.Error.Message, "contract version 1") || !strings.Contains(staleReplay.Error.Message, "version 2") {
+		t.Fatalf("stale replay=%+v, want the stale-bind refusal", staleReplay.Error)
+	}
+	var consumedEvents int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id='work-1'`).Scan(&consumedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if consumedEvents != 1 {
+		t.Fatalf("consumed events=%d, want exactly the first consume's event", consumedEvents)
+	}
+}
+
+// The preservation probe binds to the shared work's OWN claimed source
+// worktree, never to whatever linked worktree the calling session sits in:
+// a session inside an unrelated clean linked worktree cannot record while
+// the claimed source carries unpreserved changes, and the honest session
+// inside its claimed worktree still records once the changes commit.
+func TestProjectHandoffRecordBindsThePreservationProbeToTheClaimedSourceWorktree(t *testing.T) {
+	t.Parallel()
+	s, sourceService, _, sourceEnv, _, repoSource, _ := handoffDispatchFixture(t)
+	ctx := context.Background()
+	// The work's claimed source worktree carries unpreserved changes.
+	if err := osWrite(sourceEnv.Worktree, "tracked.txt", "unpreserved source\n"); err != nil {
+		t.Fatal(err)
+	}
+	// An unrelated clean linked worktree of the same repository: a probe of
+	// this tree would pass, which is exactly what the bind must not accept.
+	unrelated := filepath.Join(t.TempDir(), "unrelated-tree")
+	if out, err := exec.Command("git", "-C", repoSource, "worktree", "add", "-b", "handoff-unrelated", unrelated, "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %s %v", out, err)
+	}
+	rogueService, _, rogueGrant := authorizedHandoffService(t, s, "client-source-rogue", []string{"project-1"}, unrelated)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rogueEnv := handoffEnvelope(rogueGrant, "project-1", scopeVersion)
+	rogue := handoffInvoke(t, s, rogueService, rogueEnv, "project_handoff_record", map[string]any{
+		"idempotency_key": "record-wrong-source",
+		"work_id":         "work-1", "target_project_id": "project-2",
+		"bounded_job": "bounded receiver job", "next_action": "consume",
+	})
+	if rogue.Outcome == OutcomeOK || rogue.Error == nil || !strings.Contains(rogue.Error.Message, "claimed source worktree") {
+		t.Fatalf("rogue record=%+v, want the claimed-source bind refusal", rogue.Error)
+	}
+	// The honest session inside its claimed worktree refuses on the probe
+	// while the changes stand unpreserved, and records once they commit.
+	honest := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
+		"idempotency_key": "record-honest-dirty",
+		"work_id":         "work-1", "target_project_id": "project-2",
+		"bounded_job": "bounded receiver job", "next_action": "consume",
+	})
+	if honest.Outcome == OutcomeOK || honest.Error == nil || !strings.Contains(honest.Error.Message, "unpreserved changes") {
+		t.Fatalf("honest dirty record=%+v, want the unpreserved-changes refusal", honest.Error)
+	}
+	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
+		t.Fatal(err)
+	}
+	honestClean := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{
+		"idempotency_key": "record-honest-clean",
+		"work_id":         "work-1", "target_project_id": "project-2",
+		"bounded_job": "bounded receiver job", "next_action": "consume",
+	})
+	if honestClean.Outcome != OutcomeOK {
+		t.Fatalf("honest clean record failed: %+v", honestClean.Error)
+	}
+}
+
+// The adapter derives the automatic consume idempotency key from the complete
+// consume identity — work and handoff — through a bounded hash, so every
+// accepted identity pair yields a key inside the payload contract's
+// 128-character bound. The reviewed reproduction accepted a 123-character
+// work_id and refused the pre-fix concatenated 156-character key with
+// "maxLength at $.idempotency_key", so this regression pins both directions
+// at maximum accepted identity lengths through the real payload validator
+// the core runs on the adapter's input.
+func TestProjectHandoffConsumeKeyFitsTheContractAtMaximumIdentityLengths(t *testing.T) {
+	consumeKey := func(workID, handoffID string) string {
+		raw, err := json.Marshal([2]string{workID, handoffID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(raw)
+		return "handoff-consume-" + hex.EncodeToString(sum[:])[:32]
+	}
+	workID := "work-" + strings.Repeat("w", 118) // the reviewed accepted 123-character id
+	handoffID := "project-handoff-" + strings.Repeat("a", 32)
+	maxWorkID := "work-" + strings.Repeat("w", 123)
+	maxHandoffID := "project-handoff-" + strings.Repeat("a", 112)
+	for name, tc := range map[string]struct{ workID, handoffID string }{
+		"reviewed lengths":  {workID, handoffID},
+		"maximum lengths":   {maxWorkID, maxHandoffID},
+		"generated lengths": {workID[:29], handoffID[:48]},
+	} {
+		raw, err := json.Marshal(map[string]any{"work_id": tc.workID, "handoff_id": tc.handoffID, "idempotency_key": consumeKey(tc.workID, tc.handoffID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err != nil {
+			t.Fatalf("%s: bounded consume key refused: %v", name, err)
+		}
+	}
+	legacy := "handoff-consume-" + workID + "-" + strings.Repeat("b", 16)
+	raw, err := json.Marshal(map[string]any{"work_id": workID, "handoff_id": handoffID, "idempotency_key": legacy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateOperationPayload("concord_work_transition", "project_handoff_consume", raw, false); err == nil {
+		t.Fatalf("the concatenated legacy key (%d characters) must fail the 128-character bound", len(legacy))
 	}
 }

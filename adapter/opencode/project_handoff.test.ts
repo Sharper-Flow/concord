@@ -4,7 +4,7 @@ import { configureCoreBinary, type AgentLanePacket, type DispatchRunner } from "
 import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
-import { configureConcordAdapter, consumeAddressedProjectHandoff, consumedProjectHandoff, resetConsumedProjectHandoffs, work_trace } from "./concord"
+import { configureConcordAdapter, consumeAddressedProjectHandoff, consumedProjectHandoff, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_trace } from "./concord"
 
 // The consume resolves the core binary path before the runner seam
 // intercepts the verb, so the file binds a path once at module level.
@@ -133,6 +133,44 @@ const landingTransport = () => ({ sessionDirectory: "/worktree", ambient: { proj
 // The bounded job the work-resume rendered for this Project: the consume
 // carries its durable id, never an adapter-invented identity.
 const renderedHandoffID = "work-1:project-handoff:project-source:project-receive:abcd1234abcd"
+
+// The identity members the generated consume payload accepts: the owning
+// agent-tool-surface-payloads.schema.json $defs/id bound both ids share.
+const MAX_ID = 128
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+const maxID = (head: string) => (head + "w".repeat(MAX_ID)).slice(0, MAX_ID)
+
+describe("projectHandoffConsumeKey", () => {
+  // The negative control: the pre-fix construction concatenated the full
+  // work_id, so the accepted 123-character work_id of the review
+  // reproduction produced a 156-character key the core refused with
+  // "maxLength at $.idempotency_key", and the maximum accepted pair produced
+  // 161. Both assertions fail again if the key ever grows unbounded.
+  test("fits the 128-character contract bound at maximum accepted identity lengths", () => {
+    const workID = maxID("work-")
+    const handoffID = maxID("project-handoff-")
+    expect(workID).toHaveLength(128)
+    expect(ID_PATTERN.test(workID)).toBe(true)
+    const key = projectHandoffConsumeKey(workID, handoffID)
+    expect(key.length).toBeLessThanOrEqual(128)
+    expect(ID_PATTERN.test(key)).toBe(true)
+    expect(ID_PATTERN.test(projectHandoffConsumeKey(workID, maxID("work-")))).toBe(true)
+  })
+
+  test("the reviewed 123-character work_id no longer overflows the bound", () => {
+    const workID = "work-" + "w".repeat(118)
+    const key = projectHandoffConsumeKey(workID, renderedHandoffID)
+    expect(key.length).toBeLessThanOrEqual(128)
+    expect(`handoff-consume-${workID}-${"b".repeat(16)}`.length).toBeGreaterThan(128)
+  })
+
+  test("equal identities replay one key; another work or handoff never collides", () => {
+    const workID = maxID("work-")
+    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).toBe(projectHandoffConsumeKey(workID, renderedHandoffID))
+    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).not.toBe(projectHandoffConsumeKey(workID, "project-handoff-" + "f".repeat(32)))
+    expect(projectHandoffConsumeKey(workID, renderedHandoffID)).not.toBe(projectHandoffConsumeKey("work-other", renderedHandoffID))
+  })
+})
 
 describe("consumeAddressedProjectHandoff", () => {
   // The consume's success path is proven on the real boundary in

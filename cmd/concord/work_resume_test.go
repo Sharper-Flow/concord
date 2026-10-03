@@ -18,7 +18,15 @@ import (
 
 func resumeCLI(t *testing.T, s *store.Store, directory, workID string) (int, workResumeOutput, string) {
 	t.Helper()
-	raw, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: workID})
+	return resumeCLIAsSession(t, s, directory, workID, "")
+}
+
+// resumeCLIAsSession drives the resume with the authenticated session
+// reference the adapter's work_start carries, so the handoff frontier can
+// re-render that session's own consumed bind.
+func resumeCLIAsSession(t *testing.T, s *store.Store, directory, workID, sessionRef string) (int, workResumeOutput, string) {
+	t.Helper()
+	raw, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: workID, SessionRef: sessionRef})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,8 +380,10 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 
 // TestWorkResumeNamesTheAddressedBoundedJob pins the Project-selected
 // boot/resume visibility for the v1 Project-session handoff (CD-0182
-// amendment): the addressed handoff rides the resume answer, the consumed
-// handoff stops riding, and a handoff-free resume carries no section.
+// amendment): the addressed handoff rides the resume answer, a consumed
+// handoff stops riding for an identity-less or foreign read but re-renders
+// to the session its own bind names, and a handoff-free resume carries no
+// section.
 func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
@@ -448,6 +458,16 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	if code, output, stderr := resumeCLI(t, s, repo, origin.WorkID); code != 0 || output.ProjectHandoff != nil {
 		t.Fatalf("consumed resume code=%d handoff=%+v stderr=%q", code, output.ProjectHandoff, stderr)
 	}
+	// Lost-response recovery: the resume carrying the consuming session's
+	// own authenticated reference re-renders the standing bind, so a replay
+	// after a lost consume response recovers the bounded job. A foreign
+	// session's resume renders nothing.
+	if code, output, stderr := resumeCLIAsSession(t, s, repo, origin.WorkID, "session/receive"); code != 0 || output.ProjectHandoff == nil || output.ProjectHandoff.BoundedJob != "verify the receiving repository's adapter surface" {
+		t.Fatalf("lost-response resume code=%d handoff=%+v stderr=%q, want the receiver's own bind re-rendered", code, output.ProjectHandoff, stderr)
+	}
+	if code, output, stderr := resumeCLIAsSession(t, s, repo, origin.WorkID, "session/other"); code != 0 || output.ProjectHandoff != nil {
+		t.Fatalf("foreign-session resume code=%d handoff=%+v stderr=%q, want no section", code, output.ProjectHandoff, stderr)
+	}
 	// The stale-frontier pin: a successor handoff recorded under the
 	// replacement contract, consumed, leaves the superseded contract's
 	// recorded handoff omitted — resume renders the current frontier only.
@@ -498,5 +518,10 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	}
 	if code, output, stderr := resumeCLI(t, s, repo, origin.WorkID); code != 0 || output.ProjectHandoff != nil {
 		t.Fatalf("post-successor resume code=%d handoff=%+v stderr=%q, want the superseded contract's recorded handoff to stay omitted", code, output.ProjectHandoff, stderr)
+	}
+	// The fresh bind renders again only to the session that owns it, under
+	// the contract it was made under.
+	if code, output, stderr := resumeCLIAsSession(t, s, repo, origin.WorkID, "session/receive"); code != 0 || output.ProjectHandoff == nil || output.ProjectHandoff.HandoffID != successorID {
+		t.Fatalf("successor lost-response resume code=%d handoff=%+v stderr=%q, want the fresh bind re-rendered", code, output.ProjectHandoff, stderr)
 	}
 }

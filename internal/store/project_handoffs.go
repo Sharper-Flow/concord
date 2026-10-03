@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -233,10 +234,28 @@ type ProjectHandoffResult struct {
 // artifact references.
 var artifactRefPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}:/.+$`)
 
+// projectHandoffEventOrder is the one definition of "newest handoff" every
+// selection read shares: the durable append sequence of the handoff's
+// recorded event. Ordering on recorded_at text would let an RFC3339Nano
+// rendering sort a whole-second timestamp ahead of a later fractional one
+// ("...T00:00:40Z" sorts after "...T00:00:40.000000001Z"), so the boot
+// frontier, the admission gate, the consume resolution, the continuity read,
+// and the retirement facts all order on the event log's seq instead. Each
+// handoff row folds from exactly one recorded event, so the correlate always
+// resolves; the scalar reads NULL only for a row no event produced, and NULL
+// sorts last under DESC.
+const projectHandoffEventOrder = `(SELECT l.seq FROM domain_events l
+		WHERE l.kind='work.project_handoff_recorded' AND l.subject_id=project_handoffs.work_id
+		AND json_extract(l.payload,'$.handoff_id')=project_handoffs.handoff_id) DESC`
+
 // projectHandoffIdentity derives the deterministic handoff id from the
 // recorded content: a replay of the same addressed handoff resolves to the
 // same id and no event, while a successor handoff with different content
-// records under its own id.
+// records under its own id. The digest alone carries the identity: the
+// published tool-surface id bound is 128 characters, and a composite of the
+// named identities can exceed it (a 128-character work id alone consumes
+// the whole bound), so the id renders one stable prefix plus the content
+// digest and always fits every accepted identity length.
 func projectHandoffIdentity(req RecordProjectHandoffRequest, contractVersion int64) string {
 	identity := struct {
 		Work          string   `json:"work"`
@@ -253,7 +272,7 @@ func projectHandoffIdentity(req RecordProjectHandoffRequest, contractVersion int
 	}{Work: req.WorkID, Source: req.SourceProjectID, Target: req.TargetProjectID, SourceSession: req.SourceSessionRef, Contract: contractVersion, Job: req.BoundedJob, Changes: req.Changes, Verification: req.Verification, ArtifactRefs: req.ArtifactRefs, Blockers: req.Blockers, NextAction: req.NextAction}
 	raw, _ := json.Marshal(identity)
 	digest := sha256.Sum256(raw)
-	return fmt.Sprintf("%s:project-handoff:%s:%s:%s", req.WorkID, req.SourceProjectID, req.TargetProjectID, hex.EncodeToString(digest[:8]))
+	return fmt.Sprintf("project-handoff-%s", hex.EncodeToString(digest[:16]))
 }
 
 // VerifyProjectHandoffArtifactPreservation is the exported probe the agent
@@ -291,6 +310,23 @@ func recordProjectHandoffCore(ctx context.Context, tx *sql.Tx, req RecordProject
 	}
 	if err := preflightProjectHandoffTx(ctx, tx, req); err != nil {
 		return out, err
+	}
+	// The preservation probe proved a git/filesystem fact about one
+	// worktree before this transaction opened; this bind proves the probed
+	// path is the shared work's OWN claimed source worktree, so a clean
+	// unrelated linked worktree can never stand in for a claimed source
+	// that carries unpreserved changes. Read and compare inside the same
+	// transaction that records, so a claim moved between the probe and the
+	// record refuses here.
+	claimed, err := sessionClaimedWorktreeTx(ctx, tx, req.WorkID, req.SourceProjectID)
+	if err != nil {
+		return out, err
+	}
+	if claimed == "" {
+		return out, newFailure(KindInvalidOperation, "project_handoff", "the source Project holds no claimed worktree on the work, so the handoff cannot bind artifact preservation to the shared work's own source claim", false, "claim the source worktree before recording the handoff")
+	}
+	if filepath.Clean(claimed) != filepath.Clean(req.SourceWorktree) {
+		return out, newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("the recorded source worktree is not the work's claimed source worktree %s", claimed), false, "record from the session linked to the claimed source worktree")
 	}
 	contractVersion, err := activeWorkflowContractVersionInTx(ctx, tx, req.WorkID)
 	if err != nil {
@@ -514,10 +550,11 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		// The addressed resolution reads the newest handoff addressed to the
 		// consumer's Project in any state, so a standing bind replays as
 		// AlreadyConsumed and a foreign bind refuses with the bound session
-		// named. The ordering matches the admission gate and the boot
-		// frontier, so the three reads of "the current handoff" agree.
+		// named. The recorded-event ordering matches the admission gate, the
+		// boot frontier, the continuity read, and the retirement facts, so
+		// every read of "the current handoff" agrees on one durable order.
 		var id string
-		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
+		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
 		if idErr == sql.ErrNoRows {
 			return ProjectHandoff{}, newFailure(KindProjectionNotFound, "project_handoff", "no recorded project handoff addresses this Project", false, "wait for the source session to record the addressed handoff")
 		}
@@ -629,11 +666,14 @@ func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID str
 
 // verifiedSessionPlacementTx resolves the Project of the session's verified
 // placement on one work: an occupancy row a recorded claim landing
-// established (CD-0178 D3) that still stands. Claim admission records an
-// occupancy row without a landing, and a vacate landing releases the row, so
-// neither state alone proves the session was placed and has not left. It
-// returns an empty Project when no verified placement stands. It runs inside
-// the caller's transaction.
+// established (CD-0178 D3) for the session's current claim generation, and
+// that still stands. Claim admission records an occupancy row without a
+// landing, and a vacate landing releases the row, so neither state alone
+// proves the session was placed and has not left. The landing must name the
+// claim the occupancy row stands on: a landing recorded for a superseded
+// claim — after a reclaim, or a vacate plus re-claim — proves nothing about
+// the current claim. It returns an empty Project when no verified placement
+// stands. It runs inside the caller's transaction.
 func verifiedSessionPlacementTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (string, error) {
 	var projectID string
 	err := tx.QueryRowContext(ctx, `SELECT c.project_id
@@ -644,7 +684,8 @@ func verifiedSessionPlacementTx(ctx context.Context, tx *sql.Tx, workID, session
 		  AND EXISTS (SELECT 1 FROM domain_events l
 		              WHERE l.kind='work.session_claim_landed' AND l.subject_id=c.work_id
 		                AND json_extract(l.payload,'$.session_ref')=o.session_ref
-		                AND json_extract(l.payload,'$.project_id')=c.project_id)`,
+		                AND json_extract(l.payload,'$.project_id')=c.project_id
+		                AND json_extract(l.payload,'$.claim_op_id')=e.claim_op_id)`,
 		sessionRef, workID).Scan(&projectID)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -701,7 +742,7 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	var frontierConsumer string
 	frontierErr := tx.QueryRowContext(ctx, `SELECT handoff_id,source_session_ref,contract_version,state,COALESCE(consumed_by_session_ref,'') FROM project_handoffs
 		WHERE work_id=? AND target_project_id=? AND source_session_ref<>?
-		ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, sessionRef).Scan(&frontierID, &frontierSource, &frontierVersion, &frontierState, &frontierConsumer)
+		ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef).Scan(&frontierID, &frontierSource, &frontierVersion, &frontierState, &frontierConsumer)
 	if frontierErr == sql.ErrNoRows {
 		// No handoff from another session addresses this Project: the
 		// session is not the addressed receiver of anything.
@@ -775,6 +816,17 @@ const (
 // identified worker is not this session's worker. The evaluation writes no
 // event, completes no work, cancels nothing, removes no worktree, and
 // terminates no process.
+//
+// The git/filesystem preservation probe must run outside any SQL
+// transaction, so the derivation reads in two snapshots: the phase-one
+// handoff facts, then the probe, then the final transaction. The final
+// transaction revalidates the phase-one snapshot against the committed
+// state — the active contract version, the selected handoff identity and
+// frontier, the preserved artifact references, and the claimed source
+// worktree — because the probe proved a fact about THAT selection and THAT
+// claim only. A contract replacement, a newer handoff, or a source-claim
+// change between the phases leaves the snapshot obsolete, and readiness
+// fails closed on the drift instead of emitting stale facts.
 func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, projectID, sessionRef string) (ProjectSessionRetirement, error) {
 	out := ProjectSessionRetirement{WorkID: workID, ProjectID: projectID, SessionRef: sessionRef, State: RetirementPending, Blockers: []string{}}
 	if s == nil || s.db == nil {
@@ -794,7 +846,11 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	}
 	out.RecordedHandoff = handoffFacts.recorded
 	if !out.RecordedHandoff {
-		out.Blockers = append(out.Blockers, "record the addressed Project handoff before retirement")
+		if handoffFacts.contractBlocker != "" {
+			out.Blockers = append(out.Blockers, handoffFacts.contractBlocker)
+		} else {
+			out.Blockers = append(out.Blockers, "record the addressed Project handoff before retirement")
+		}
 	}
 	artifactRefs := handoffFacts.artifactRefs
 	sourceWorktree := handoffFacts.sourceWorktree
@@ -808,13 +864,21 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	} else {
 		out.Blockers = append(out.Blockers, "the session holds no active claimed worktree to verify artifact preservation against")
 	}
-	// Phase three: the remaining facts are projection reads.
+	if s.retireProbeInterleave != nil {
+		s.retireProbeInterleave()
+	}
+	// Phase three: the remaining facts are projection reads, and the same
+	// final transaction revalidates the phase-one snapshot the probe proved.
 	var execution projectRetirementExecutionFacts
+	var recheck projectRetirementHandoffFacts
 	err = s.Transact(ctx, func(transaction *Transaction) error {
-		return readRetirementExecutionFactsTx(ctx, transaction, workID, sessionRef, &execution)
+		return readRetirementFinalFactsTx(ctx, transaction, workID, projectID, sessionRef, &execution, &recheck)
 	})
 	if err != nil {
 		return out, err
+	}
+	if drift := retirementHandoffSnapshotDrift(handoffFacts, recheck); drift != "" {
+		out.Blockers = append(out.Blockers, drift+"; re-run the retirement read")
 	}
 	out.WorkersStopped = execution.workersStopped
 	out.VacateLanded = execution.vacateLanded
@@ -830,6 +894,33 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	return out, nil
 }
 
+// retirementHandoffSnapshotDrift compares the phase-one handoff snapshot the
+// preservation probe proved against the current committed state the final
+// transaction read, and names the identity that moved. An equal snapshot
+// names no drift. Every compared field is one the probe's validity binds to:
+// the active contract version and the selected handoff identity decide
+// whether the evaluated record still stands eligible, the artifact
+// references are the digests the probe verified, and the claimed source
+// worktree is the tree the probe ran in.
+func retirementHandoffSnapshotDrift(snapshot, current projectRetirementHandoffFacts) string {
+	if snapshot.contractVersion != current.contractVersion {
+		return fmt.Sprintf("the work's active workflow contract moved from version %d to %d while the retirement was evaluated", snapshot.contractVersion, current.contractVersion)
+	}
+	if snapshot.handoffID != current.handoffID {
+		return "a newer addressed handoff superseded the evaluated one while the retirement was evaluated"
+	}
+	if snapshot.recorded != current.recorded {
+		return "the addressed handoff record changed while the retirement was evaluated"
+	}
+	if !slices.Equal(snapshot.artifactRefs, current.artifactRefs) {
+		return "the evaluated handoff's preserved artifact references changed while the retirement was evaluated"
+	}
+	if snapshot.sourceWorktree != current.sourceWorktree {
+		return "the claimed source worktree changed while the retirement was evaluated"
+	}
+	return ""
+}
+
 // preservationBlocker reduces a typed preservation refusal to the blocker
 // text the readiness result carries; the refusal's recovery stays in the
 // recorded handoff flow, and readiness never names a path the session can
@@ -843,38 +934,85 @@ func preservationBlocker(err error) string {
 }
 
 // projectRetirementHandoffFacts carries the phase-one read: whether the
-// session recorded an addressed handoff on the work, the newest record's
-// immutable artifact references, and the claimed source worktree path the
-// preservation probe needs.
+// session recorded an addressed handoff on the work under the ACTIVE
+// contract, the active contract version the read resolved, the newest
+// eligible record's handoff id and immutable artifact references, the
+// claimed source worktree path the preservation probe needs, and the
+// stale-contract blocker text when the session's records all predate the
+// active contract. Every field except the blocker is snapshot identity: the
+// final transaction revalidates them, because the preservation probe proved
+// a fact about exactly this selection and this claimed source.
 type projectRetirementHandoffFacts struct {
-	recorded       bool
-	artifactRefs   []string
-	sourceWorktree string
+	recorded        bool
+	contractVersion int64
+	handoffID       string
+	artifactRefs    []string
+	sourceWorktree  string
+	contractBlocker string
 }
 
 // readRetirementHandoffFactsTx is the tx-taking wrapper the transaction
-// scope rule owns the phase-one read through.
+// scope rule owns the phase-one read through. Retirement eligibility binds
+// to the work's active contract: a handoff recorded under a superseded
+// contract is one the receiving session can never consume, so readiness
+// never derives from it. After a contract replacement the source session
+// records a fresh addressed handoff under the active contract; until then
+// the fact reads as unrecorded with the stale contract named, and
+// readiness fails closed.
 func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, facts *projectRetirementHandoffFacts) error {
 	tx, err := transactionSQL(transaction, "project_retirement")
 	if err != nil {
 		return err
 	}
+	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+	if contractErr == sql.ErrNoRows {
+		facts.contractVersion = 0
+	} else if contractErr != nil {
+		return contractErr
+	} else {
+		facts.contractVersion = version
+	}
 	var recorded int
 	if scanErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=?`, workID, projectID, sessionRef).Scan(&recorded); scanErr != nil {
 		return wrapFailure(KindUnavailable, "project_retirement", "cannot read the recorded handoffs", true, "retry once the database is readable", scanErr)
 	}
-	facts.recorded = recorded > 0
-	if facts.recorded {
-		var refs string
-		if scanErr := tx.QueryRowContext(ctx, `SELECT artifact_refs FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? ORDER BY recorded_at DESC LIMIT 1`, workID, projectID, sessionRef).Scan(&refs); scanErr != nil {
-			return wrapFailure(KindUnavailable, "project_retirement", "cannot read the handoff's artifact references", true, "retry once the database is readable", scanErr)
-		}
-		if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {
-			return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "rebuild projections from the event log")
+	if recorded > 0 {
+		if facts.contractVersion == 0 {
+			facts.contractBlocker = "the work holds no active workflow contract, so the recorded handoff cannot stand as the addressed handoff retirement derives from"
+		} else {
+			var handoffID, refs string
+			scanErr := tx.QueryRowContext(ctx, `SELECT handoff_id,artifact_refs FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef, facts.contractVersion).Scan(&handoffID, &refs)
+			if scanErr == sql.ErrNoRows {
+				var staleVersion int64
+				if staleErr := tx.QueryRowContext(ctx, `SELECT contract_version FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef).Scan(&staleVersion); staleErr != nil {
+					return wrapFailure(KindUnavailable, "project_retirement", "cannot read the recorded handoffs", true, "retry once the database is readable", staleErr)
+				}
+				facts.contractBlocker = fmt.Sprintf("the newest recorded handoff stands under contract version %d, but the active contract is version %d; a handoff the receiver can no longer consume cannot prove retirement readiness, so record a fresh addressed handoff under the active contract", staleVersion, facts.contractVersion)
+			} else if scanErr != nil {
+				return wrapFailure(KindUnavailable, "project_retirement", "cannot read the handoff's artifact references", true, "retry once the database is readable", scanErr)
+			} else {
+				facts.recorded = true
+				facts.handoffID = handoffID
+				if json.Unmarshal([]byte(refs), &facts.artifactRefs) != nil {
+					return newFailure(KindInvariantViolation, "project_retirement", "the handoff projection contains malformed artifact references", false, "rebuild projections from the event log")
+				}
+			}
 		}
 	}
 	facts.sourceWorktree, err = sessionClaimedWorktreeTx(ctx, tx, workID, projectID)
 	return err
+}
+
+// readRetirementFinalFactsTx is the tx-taking wrapper the transaction scope
+// rule owns the phase-three read through: the execution facts and the
+// phase-one snapshot revalidation read in one transaction, so the drift
+// comparison observes the same committed state the stopped-worker and
+// landing facts derive from.
+func readRetirementFinalFactsTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, execution *projectRetirementExecutionFacts, recheck *projectRetirementHandoffFacts) error {
+	if err := readRetirementExecutionFactsTx(ctx, transaction, workID, sessionRef, execution); err != nil {
+		return err
+	}
+	return readRetirementHandoffFactsTx(ctx, transaction, workID, projectID, sessionRef, recheck)
 }
 
 // projectRetirementExecutionFacts carries the phase-three read: whether the
@@ -913,6 +1051,33 @@ func sessionClaimedWorktreeTx(ctx context.Context, tx *sql.Tx, workID, projectID
 		return "", wrapFailure(KindUnavailable, "project_retirement", "cannot read the claimed worktree", true, "retry once the database is readable", err)
 	}
 	return path, nil
+}
+
+// ReadSessionClaimedWorktree resolves the active claimed worktree path of
+// one work and Project outside any mutation transaction: the handoff record
+// planner reads it before the git/filesystem probe opens, and an empty path
+// means the Project holds no claim the probe could bind to. The record
+// transaction re-checks the same binding tx-scoped, so a claim that moves
+// between this read and the record refuses there.
+func ReadSessionClaimedWorktree(ctx context.Context, s *Store, workID, projectID string) (string, error) {
+	var path string
+	err := s.Transact(ctx, func(transaction *Transaction) error {
+		return readSessionClaimedWorktreeTx(ctx, transaction, workID, projectID, &path)
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func readSessionClaimedWorktreeTx(ctx context.Context, transaction *Transaction, workID, projectID string, out *string) error {
+	tx, err := transactionSQL(transaction, "project_handoff")
+	if err != nil {
+		return err
+	}
+	var readErr error
+	*out, readErr = sessionClaimedWorktreeTx(ctx, tx, workID, projectID)
+	return readErr
 }
 
 // sessionOwnedExecutionStoppedTx derives whether the session's own open,
@@ -1052,7 +1217,7 @@ func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessio
 // it here. It runs inside the caller's transaction.
 func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*ProjectHandoff, error) {
 	var id string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND state='recorded' ORDER BY recorded_at DESC, handoff_id LIMIT 1`, workID).Scan(&id)
+	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND state='recorded' ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID).Scan(&id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1068,15 +1233,22 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 
 // PendingProjectHandoffForProjectTx reads the boot/resume frontier: the
 // newest handoff on the work addressed to one Project under the ACTIVE
-// contract version, whatever its state. A consumed frontier's bind stands and
-// renders no job, and an older recorded handoff behind the consumed frontier
-// is superseded by ordinal — the boot never resurrects it. Only a frontier
-// that still stands recorded renders as the bounded repository job the
-// receiving session must consume before managed execution; a handoff
-// recorded under a superseded contract can never be consumed, so resume
-// renders nothing for it. Visibility here never consumes or authorizes. It
-// runs inside the caller's transaction.
-func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, projectID string) (*ProjectHandoff, error) {
+// contract version, whatever its state. A frontier that still stands
+// recorded renders as the bounded repository job the receiving session must
+// consume before managed execution. A consumed frontier renders again only
+// to the session its own bind names: when a consume committed but its
+// response was lost, the receiver's work_start replay re-delivers the
+// bounded job and context from the standing bind instead of admitting the
+// session with its job lost. A consumed bind read without the consuming
+// session's identity, or by any other session, renders nothing; a bind
+// under a superseded contract never reaches this read because the frontier
+// query filters on the active contract. An older recorded handoff behind
+// the frontier is superseded by recorded event order — the boot never
+// resurrects it, and
+// a handoff recorded under a superseded contract can never be consumed, so
+// resume renders nothing for it. Visibility here never consumes or
+// authorizes. It runs inside the caller's transaction.
+func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
 	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
 		// No active workflow contract: no handoff can bind, so the boot
@@ -1087,7 +1259,7 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 		return nil, contractErr
 	}
 	var id string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY recorded_at DESC, handoff_id DESC LIMIT 1`, workID, projectID, version).Scan(&id)
+	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, version).Scan(&id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1098,18 +1270,24 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 	if err != nil {
 		return nil, err
 	}
-	if handoff.State != ProjectHandoffRecorded {
-		return nil, nil
+	if handoff.State == ProjectHandoffRecorded {
+		return &handoff, nil
 	}
-	return &handoff, nil
+	if handoff.State == ProjectHandoffConsumed && sessionRef != "" && handoff.ConsumedBySessionRef == sessionRef {
+		return &handoff, nil
+	}
+	return nil, nil
 }
 
 // ReadPendingProjectHandoffForProject is the transaction-taking wrapper the
-// boot/resume flow reads the addressed bounded job through.
-func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, projectID string) (*ProjectHandoff, error) {
+// boot/resume flow reads the addressed bounded job through. The session
+// reference is the authenticated receiving session the resume carries; it
+// decides whose consumed bind renders again, and an empty reference renders
+// recorded handoffs only.
+func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
 	var handoff *ProjectHandoff
 	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return readPendingProjectHandoffForProjectTx(ctx, transaction, workID, projectID, &handoff)
+		return readPendingProjectHandoffForProjectTx(ctx, transaction, workID, projectID, sessionRef, &handoff)
 	})
 	if err != nil {
 		return nil, err
@@ -1117,11 +1295,11 @@ func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, 
 	return handoff, nil
 }
 
-func readPendingProjectHandoffForProjectTx(ctx context.Context, transaction *Transaction, workID, projectID string, out **ProjectHandoff) error {
+func readPendingProjectHandoffForProjectTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, out **ProjectHandoff) error {
 	tx, err := transactionSQL(transaction, "project_handoff")
 	if err != nil {
 		return err
 	}
-	*out, err = PendingProjectHandoffForProjectTx(ctx, tx, workID, projectID)
+	*out, err = PendingProjectHandoffForProjectTx(ctx, tx, workID, projectID, sessionRef)
 	return err
 }

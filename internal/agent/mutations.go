@@ -565,13 +565,15 @@ type compactReconcileInput struct {
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
-	// session_vacate replays state-driven: its recorded success goes stale
-	// the moment a later claim's occupancy rows stand, so every replay must
-	// reach the planner and re-read the committed request's state inside the
-	// transaction instead of returning the cached payload here (CD-0190
-	// D2/D3). The cached answer would otherwise send the adapter's host mover
-	// after a request that must refuse.
-	if op.ID == "concord_work_transition.session_vacate" {
+	// session_vacate and project_handoff_consume replay state-driven: their
+	// recorded successes go stale — the vacate the moment a later claim's
+	// occupancy rows stand (CD-0190 D2/D3), the consume the moment its bind
+	// names another receiving session or the active contract moved on. Every
+	// replay must reach the planner and re-read the recorded state inside
+	// the transaction instead of returning the cached payload here: the
+	// core's own state checks refuse the foreign or stale bind and resolve
+	// the owning session's replay as the standing bind with no second event.
+	if op.ID == "concord_work_transition.session_vacate" || op.ID == "concord_work_transition.project_handoff_consume" {
 		return Envelope{}, false, nil
 	}
 	key := idempotencyKey(raw)
@@ -2651,6 +2653,147 @@ func (r runtime) planWorktreeClaim(ctx context.Context, base Envelope, raw []byt
 	return Envelope{}, nil, false
 }
 
+// projectHandoffRecordInput is concord_work_transition.project_handoff_record
+// (CD-0182 amendment). The source Project and source session resolve from the
+// authenticated call context; the input only names the receiving Project and
+// the handoff content.
+type projectHandoffRecordInput struct {
+	IdempotencyKey  string         `json:"idempotency_key"`
+	WorkID          string         `json:"work_id"`
+	TargetProjectID string         `json:"target_project_id"`
+	BoundedJob      string         `json:"bounded_job"`
+	NextAction      string         `json:"next_action"`
+	Changes         []string       `json:"changes"`
+	Verification    []string       `json:"verification"`
+	ArtifactRefs    []string       `json:"artifact_refs"`
+	Blockers        []string       `json:"blockers"`
+	Approval        *approvalInput `json:"approval"`
+}
+
+// projectHandoffConsumeInput is concord_work_transition.project_handoff_consume.
+// The consuming Project and session resolve from the authenticated call
+// context; a caller that names them is ignored.
+type projectHandoffConsumeInput struct {
+	IdempotencyKey string         `json:"idempotency_key"`
+	WorkID         string         `json:"work_id"`
+	HandoffID      string         `json:"handoff_id"`
+	Approval       *approvalInput `json:"approval"`
+}
+
+// planProjectHandoffRecord plans the source side of the Project-session
+// handoff. The artifact-preservation probe runs here, in the plan phase,
+// BEFORE the mutation transaction opens: it is a git/filesystem fact, and
+// the single-connection store cannot observe a subprocess parked inside a
+// transaction. The probe binds to the shared work's OWN claimed source
+// worktree — the store's claim resolution, never an input, and never just
+// the session's linked worktree — so a clean unrelated linked worktree
+// cannot stand in for a claimed source that carries unpreserved changes.
+// The record transaction re-checks the binding inside its own transaction,
+// so a claim that moves between this read and the record refuses there.
+// Content drift inside the probed tree in that same window is not
+// re-probeable inside a transaction; the retirement read re-proves
+// preservation from the recorded references against the claimed source
+// before any readiness, so a stale preservation never reaches retirement.
+func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in projectHandoffRecordInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return coreError(base, "unknown_scope", "project handoff record requires a resolved Project", "refresh_context", false), nil, true
+	}
+	if grant.SessionRef == "" || grant.Worktree == "" {
+		return coreError(base, "unknown_scope", "project handoff record requires the session's authenticated session and linked worktree", "refresh_context", false), nil, true
+	}
+	if r.Store == nil {
+		return coreError(base, "unreachable", "project handoff record requires the store authority", "contact_operator", true), nil, true
+	}
+	claimed, err := store.ReadSessionClaimedWorktree(ctx, r.Store, in.WorkID, project)
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	if claimed == "" {
+		return coreError(base, "invalid_input", "the work holds no claimed source worktree for this Project, so the handoff cannot bind artifact preservation to the shared work's own source claim", "reread_entities", false), nil, true
+	}
+	if filepath.Clean(claimed) != filepath.Clean(grant.Worktree) {
+		return coreError(base, "invalid_input", fmt.Sprintf("the session's linked worktree is not the work's claimed source worktree %s; the preservation probe verifies the claimed source only", claimed), "reread_entities", false), nil, true
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["project_ids"] = []string{project, in.TargetProjectID}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "project_retirement", QueryID: "CD-0182.R1", ReasonCode: "verify_handoff_recorded", RequiredFields: []string{"work_id"}}}
+	req := store.RecordProjectHandoffRequest{
+		WorkID: in.WorkID, SourceProjectID: project, TargetProjectID: in.TargetProjectID, SourceSessionRef: grant.SessionRef,
+		BoundedJob: in.BoundedJob, Changes: in.Changes, Verification: in.Verification, ArtifactRefs: in.ArtifactRefs,
+		Blockers: in.Blockers, NextAction: in.NextAction, SourceWorktree: claimed,
+	}
+	// Outside any transaction: the probe reads git and the artifact files.
+	if err := store.VerifyProjectHandoffArtifactPreservation(ctx, claimed, in.ArtifactRefs); err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		recorded, err := store.RecordProjectHandoffTx(ctx, tx, req)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		payload, err := json.Marshal(map[string]any{
+			"changed_refs":       mutationResultChangedRefs([]ChangedRef{}),
+			"next_valid_intents": mutationResultIntents(plan.intents),
+			"work_id":            in.WorkID,
+			"handoff_id":         recorded.HandoffID,
+			"already_recorded":   recorded.AlreadyRecorded,
+		})
+		return payload, nil, []ChangedRef{}, err
+	}
+	return Envelope{}, nil, false
+}
+
+// planProjectHandoffConsume plans the receiving side of the Project-session
+// handoff. The core binds the consume to the authenticated receiving session,
+// its ambient Project, and the active contract: a missing, wrong-target,
+// stale, or foreign-session consume refuses with no event, so managed
+// execution stays closed until the bind stands.
+func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in projectHandoffConsumeInput
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err, true
+	}
+	if in.Approval != nil {
+		plan.approval = in.Approval.ApprovalRef
+	}
+	project := r.Envelope.AmbientProjectID
+	if project == "" {
+		return coreError(base, "unknown_scope", "project handoff consume requires a resolved Project", "refresh_context", false), nil, true
+	}
+	if grant.SessionRef == "" {
+		return coreError(base, "unknown_scope", "project handoff consume requires the session's authenticated session", "refresh_context", false), nil, true
+	}
+	plan.scope["work_ids"] = []string{in.WorkID}
+	plan.scope["project_ids"] = []string{project}
+	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "read_consumed_handoff_context", RequiredFields: []string{"work_id"}}}
+	req := store.ConsumeProjectHandoffRequest{
+		WorkID: in.WorkID, HandoffID: in.HandoffID, ConsumerProjectID: project, ConsumerSessionRef: grant.SessionRef,
+	}
+	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
+		consumed, err := store.ConsumeProjectHandoffTx(ctx, tx, req)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		payload, err := json.Marshal(map[string]any{
+			"changed_refs":       mutationResultChangedRefs([]ChangedRef{}),
+			"next_valid_intents": mutationResultIntents(plan.intents),
+			"work_id":            in.WorkID,
+			"handoff_id":         consumed.HandoffID,
+			"already_consumed":   consumed.AlreadyConsumed,
+		})
+		return payload, nil, []ChangedRef{}, err
+	}
+	return Envelope{}, nil, false
+}
+
 // planSessionVacate derives the registered main checkout for the session's
 // linked worktree and records the relocation request before the adapter moves
 // it. The commit leaves every occupancy row standing; the adapter-only
@@ -4114,6 +4257,10 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.session_vacate":
 		answer, err, handled = r.planSessionVacate(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.project_handoff_record":
+		answer, err, handled = r.planProjectHandoffRecord(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.project_handoff_consume":
+		answer, err, handled = r.planProjectHandoffConsume(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.correct_delivery":
 		answer, err, handled = r.planCorrectDelivery(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
@@ -4896,16 +5043,18 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			if prior.CanonicalDigest != digest {
 				return storeIdempotencyConflict(r.Operation, key)
 			}
-			if r.Operation != "session_vacate" {
+			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr
 			}
-			// session_vacate replays state-driven: the cached payload is
-			// stale the moment a later claim's occupancy rows stand, so the
-			// effect below re-reads the committed request and resolves or
-			// refuses from its state (CD-0190 D2/D3). The key stays recorded,
-			// so the tail touches instead of inserting.
+			// session_vacate and project_handoff_consume replay state-driven:
+			// the cached payload is stale the moment a later claim's occupancy
+			// rows stand, or the moment the consume bind names another
+			// receiving session or the active contract moved on, so the
+			// effect below re-reads the recorded state and resolves or
+			// refuses from it (CD-0190 D2/D3). The key stays recorded, so the
+			// tail touches instead of inserting.
 			replay = true
 		}
 		// CD-0041 D7: every consequential boundary validates the contract's law

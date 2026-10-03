@@ -5,8 +5,9 @@
 - **Scope:** How a work item reaches a second repository's coordinator
   session; the session opener, the explicit Project selector for the
   launcher, the `cross_repository_claim` remedy, the installer's recognition
-  of the plugin tuple entry, and the coordinator instructions that name the
-  route
+  of the plugin tuple entry, the coordinator instructions that name the
+  route, and the bounded Project-session handoff its sessions record and
+  consume
 - **Amends:** CD-0078 D1 and D2 and its rejected pluggable-placement
   alternative, CD-0163, CD-0176 D2
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
@@ -94,6 +95,32 @@ with the invalid field named and still returns the command.
 the Concord entry and keep its options, so an upgrade never adds a duplicate
 bare entry and an uninstall removes the tuple whole. The example coordinator
 definitions name the route of D3 and carry no claim-and-move text.
+
+### D5. The Project-selected session carries a bounded addressed handoff
+
+A Project-selected session receives one bounded repository job and one
+explicit receiving Project on the same shared work item and active contract.
+The source session records that job as a typed handoff on the work item.
+The record carries the changes, the verification results, the immutable
+artifact references, the open blockers, and the exact next action. The
+source session verifies its changed artifacts against the claimed worktree
+before the record commits: a dirty or untracked worktree refuses, and the
+core never commits, stashes, or hides files.
+
+The receiving session consumes the recorded handoff before it runs any
+managed external effect. The consume binds the record to the authenticated
+receiving session, its target Project, and the current contract. A missing,
+wrong-target, foreign, or stale handoff refuses. Managed-execution
+admission fails closed while an unconsumed or stale handoff stands.
+
+`READY_TO_CLOSE_OR_REPLACE` is a derived read, never a written state. It
+reports ready only when the session recorded an addressed handoff, its
+changed artifacts verify preserved, its own open workers and nonterminal
+actions stopped, and its verified vacate landing released its occupancy.
+Unknown worker attribution blocks readiness. Retirement never completes or
+cancels the shared work, removes a worktree, or terminates a process. The
+continuity snapshot carries the newest unconsumed handoff, so a
+Project-selected boot names the bounded job without operator copying.
 
 ## Alternatives considered
 

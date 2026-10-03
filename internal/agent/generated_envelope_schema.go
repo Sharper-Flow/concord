@@ -273,7 +273,10 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify",
-            "product_project_add"
+            "product_project_add",
+            "project_handoff_consume",
+            "project_handoff_record",
+            "project_retirement"
           ],
           "type": "string"
         },
@@ -303,7 +306,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "replayed": {
@@ -886,12 +889,15 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worktree_inspect",
             "worktree_reclaim",
             "worktree_verify",
-            "product_project_add"
+            "product_project_add",
+            "project_handoff_consume",
+            "project_handoff_record",
+            "project_retirement"
           ],
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "reason_code": {
@@ -1061,6 +1067,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "lifecycle",
                       "remove",
                       "session_vacate",
+                      "project_handoff_record",
+                      "project_handoff_consume",
                       "worker_abandon",
                       "worktree_audit_reclaim",
                       "worktree_claim",
@@ -1755,6 +1763,24 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
+              "const": "project_retirement"
+            },
+            "query_id": {
+              "const": "CD-0182.R1"
+            },
+            "tool": {
+              "const": "concord_work_trace"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "query_id"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
               "const": "research"
             },
             "query_id": {
@@ -1969,6 +1995,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worker_abandon",
                 "worktree_claim",
                 "session_vacate",
+                "project_handoff_record",
+                "project_handoff_consume",
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",

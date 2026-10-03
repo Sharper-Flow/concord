@@ -32,6 +32,28 @@ type workResumeOutput struct {
 	// count, and the resume itself still succeeds.
 	BranchFreshness *store.BranchFreshness `json:"branch_freshness"`
 	LinearRemote    *linearRemoteSection   `json:"linear_remote,omitempty"`
+	// ProjectHandoff carries the handoff addressed to this Project
+	// (CD-0182 amendment) while it stands unconsumed, or the resuming
+	// session's own consumed bind when the resume names that session. It
+	// names the bounded repository job the receiving session must consume
+	// through concord_work_transition.project_handoff_consume before managed
+	// execution; visibility here never consumes or authorizes. Nil when no
+	// handoff addresses the Project under the active contract.
+	ProjectHandoff *projectHandoffSection `json:"project_handoff,omitempty"`
+}
+
+// projectHandoffSection is the boot/resume projection of one addressed
+// handoff: the bounded job, its durable identity, and the exact next action.
+type projectHandoffSection struct {
+	HandoffID       string   `json:"handoff_id"`
+	SourceProjectID string   `json:"source_project_id"`
+	BoundedJob      string   `json:"bounded_job"`
+	Changes         []string `json:"changes"`
+	Verification    []string `json:"verification"`
+	ArtifactRefs    []string `json:"artifact_refs"`
+	Blockers        []string `json:"blockers"`
+	NextAction      string   `json:"next_action"`
+	RecordedAt      string   `json:"recorded_at"`
 }
 
 // linearRemoteStatus is the remote workflow state compared with the
@@ -350,5 +372,26 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	// fully succeeded: a degraded Linear authority never changes the resume
 	// outcome, and a failed resume never spends a Linear call.
 	output.LinearRemote = checkLinearRemote(ctx, s, input.WorkID)
+	// The Project-selected boot/resume flow names the bounded job: the
+	// recorded handoff addressed to this Project rides the answer so the
+	// receiving session consumes it without the operator copying context.
+	// The resume's authenticated session reference also re-renders this
+	// session's own consumed bind, so a replay after a lost consume response
+	// recovers the bounded job instead of booting without it. A read failure
+	// degrades the section to nil-grade absence only for a typed not-found;
+	// other failures refuse the resume.
+	handoff, err := store.ReadPendingProjectHandoffForProject(ctx, s, input.WorkID, input.ProjectID, input.SessionRef)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		return 1
+	}
+	if handoff != nil {
+		output.ProjectHandoff = &projectHandoffSection{
+			HandoffID: handoff.HandoffID, SourceProjectID: handoff.SourceProjectID,
+			BoundedJob: handoff.BoundedJob, Changes: handoff.Changes, Verification: handoff.Verification,
+			ArtifactRefs: handoff.ArtifactRefs, Blockers: handoff.Blockers,
+			NextAction: handoff.NextAction, RecordedAt: handoff.RecordedAt,
+		}
+	}
 	return writeJSON(out, output, errOut)
 }

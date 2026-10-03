@@ -124,6 +124,11 @@ type ContinuitySnapshot struct {
 	CompatibleLawAmendments []CompatibleLawAmendment    `json:"compatible_law_amendments"`
 	ActiveVerifyLeases      []ActiveWorktreeVerifyLease `json:"active_verify_leases,omitempty"`
 	WorkPin                 *WorkPin                    `json:"work_pin,omitempty"`
+	// PendingProjectHandoff carries the work's newest unconsumed
+	// Project-session handoff (CD-0182 amendment), so a Project-selected
+	// boot renders the bounded job a receiving session must consume before
+	// managed execution. Nil when no handoff stands unconsumed.
+	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -219,6 +224,13 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 		return out, err
 	}
 	if err := continuityReadCheckpointTx(ctx, tx, req.Work, &out); err != nil {
+		return out, err
+	}
+	// The work's newest unconsumed Project-session handoff rides the
+	// snapshot when present; the absent field keeps a handoff-free work's
+	// bytes unchanged.
+	out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
+	if err != nil {
 		return out, err
 	}
 	out.DesignRecord, _, err = readCurrentWorkflowDesign(ctx, tx, req.Work)

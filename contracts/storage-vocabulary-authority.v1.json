@@ -240,6 +240,11 @@
       "authority": "check"
     },
     {
+      "table": "project_handoffs",
+      "column": "state",
+      "authority": "check"
+    },
+    {
       "table": "project_locators",
       "column": "kind",
       "authority": "check"

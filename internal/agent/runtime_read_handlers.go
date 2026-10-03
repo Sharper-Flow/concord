@@ -400,6 +400,28 @@ func (r runtime) readTraceRelations(ctx context.Context, base Envelope, input []
 	return r.q8(base, q)
 }
 
+// readTraceProjectRetirement answers concord_work_trace.project_retirement
+// (CD-0182.R1). The retirement identities come from the authenticated call
+// context, never from the input: the ambient Project is the session's own,
+// and the envelope session reference is the acting session. The derivation
+// is read-only and writes nothing.
+func (r runtime) readTraceProjectRetirement(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
+	var in workIDInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	project := r.Envelope.AmbientProjectID
+	session := r.Envelope.SessionRef
+	if project == "" || session == "" {
+		return coreError(base, "unknown_scope", "project retirement requires a resolved Project and an authenticated session", "refresh_context", false), nil
+	}
+	retirement, err := store.EvaluateProjectSessionRetirement(ctx, r.Store, in.WorkID, project, session)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
+}
+
 func (r runtime) readInitiativeEntries(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
 	var in initiativeEntriesInput
 	if err := decodeOperationInput(input, &in); err != nil {

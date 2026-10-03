@@ -897,11 +897,21 @@ func hostLeaseSetFromContext(ctx context.Context) (HostLeaseSet, bool) {
 // time. It is a package variable so tests can pin the conversion.
 var hostLeaseWallStart = hostlease.WallStart
 
+// wallStartSkewBound is the conservative bound on hostlease.WallStart's
+// approximation error. WallStart derives the start from /proc ticks, the
+// system uptime, and the wall clock read in separate instants, so a
+// deschedule between those reads can push the computed start later than the
+// process's true start. The release comparison must hold WallStart to the
+// precision it can prove: a lease whose computed start sits within this
+// bound of the row's recorded_at proves nothing, and the row stays.
+const wallStartSkewBound = time.Minute
+
 // legacyOccupancyRowEnded applies the one release rule a legacy row admits
 // (CD-0179): every live host lease started after the row's recorded_at, so
 // no process alive today existed when the row was recorded and its recording
 // process has ended. An unreadable lease set, an unreadable process start,
-// or a live lease that predates the row releases nothing and reports false.
+// a live lease that predates the row, or a lease whose computed start is
+// within WallStart's skew of the row releases nothing and reports false.
 func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 	if set.Err != nil {
 		return false
@@ -915,7 +925,7 @@ func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 		if err != nil {
 			return false
 		}
-		if !started.After(recorded) {
+		if !started.After(recorded.Add(wallStartSkewBound)) {
 			return false
 		}
 	}
@@ -1529,10 +1539,13 @@ func refuseWhenSessionOccupiesAnotherWorktreeTx(ctx context.Context, tx *sql.Tx,
 // landing, never an intention to land. HostPID is the OpenCode process that
 // recorded the landing; HostPIDStart is the value the core derived from
 // /proc at record time so the recorded identity survives the host process
-// later dying (CD-0178 D3).
+// later dying (CD-0178 D3). ClaimOpID names the claim generation the landing
+// verified, so a placement derived from the event binds to its own claim and
+// never to a landing a reclaim or a vacate plus re-claim superseded.
 type sessionClaimLandedPayload struct {
 	WorkID            string   `json:"work_id"`
 	ProjectID         string   `json:"project_id"`
+	ClaimOpID         string   `json:"claim_op_id"`
 	SessionRef        string   `json:"session_ref"`
 	SourceDirectories []string `json:"source_directories"`
 	LandedDirectory   string   `json:"landed_directory"`
@@ -1624,10 +1637,22 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	// the replay for the work item's whole life, and after a reclaim and a
 	// new claim at the same derived path a real second transfer would be
 	// skipped while the session's sources stay occupied under a success
-	// report. When this session already holds the destination row and no
-	// other row of this work item, the projection already holds the landing
-	// and the same landing replays idempotently with no event.
-	if held && len(sources) == 0 {
+	// report. The replay is a recorded landing, never a bare occupancy row:
+	// a claim carries its session's row from creation (CD-0179), and that
+	// row proves nothing about where the session runs until this landing
+	// verifies it. The replay is scoped to this claim generation: a landing
+	// recorded for a superseded claim — after a reclaim, or a vacate plus
+	// re-claim that left the session with no occupied source row — proves
+	// nothing about the current claim, so a re-claim in this or another
+	// Project records its own first landing. When this session already holds
+	// the destination row, no other row of this work item, and a recorded
+	// landing for this claim stands, the projection already holds the
+	// landing and the same landing replays idempotently with no event.
+	claimRecorded, err := countSessionClaimLandingsForClaimTx(ctx, tx, req.WorkID, req.SessionRef, claimOpID)
+	if err != nil {
+		return out, err
+	}
+	if held && len(sources) == 0 && claimRecorded > 0 {
 		out.AlreadyRecorded = true
 		return out, nil
 	}
@@ -1646,7 +1671,7 @@ func recordWorktreeClaimLandingTx(ctx context.Context, tx *sql.Tx, req WorktreeC
 	if now.IsZero() {
 		now = nowFromClock(nil)
 	}
-	payload, err := json.Marshal(sessionClaimLandedPayload{WorkID: req.WorkID, ProjectID: projectID, SessionRef: req.SessionRef, SourceDirectories: sources, LandedDirectory: out.LandedDirectory, HostPID: req.HostPID, HostPIDStart: pidStart})
+	payload, err := json.Marshal(sessionClaimLandedPayload{WorkID: req.WorkID, ProjectID: projectID, ClaimOpID: claimOpID, SessionRef: req.SessionRef, SourceDirectories: sources, LandedDirectory: out.LandedDirectory, HostPID: req.HostPID, HostPIDStart: pidStart})
 	if err != nil {
 		return out, err
 	}
@@ -1679,6 +1704,21 @@ func countSessionClaimLandingsTx(ctx context.Context, tx *sql.Tx, workID, sessio
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=?`, workID, sessionRef).Scan(&count)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the recorded landing events", true, "retry once the database is readable", err)
+	}
+	return count, nil
+}
+
+// countSessionClaimLandingsForClaimTx returns how many landing events the
+// projection already records for one claim generation — the claim op the
+// landed entry carries. A landing recorded for a superseded claim proves
+// nothing about the current claim, so this count, not the work-wide count,
+// decides whether a landing replays. It runs inside the caller's
+// transaction.
+func countSessionClaimLandingsForClaimTx(ctx context.Context, tx *sql.Tx, workID, sessionRef, claimOpID string) (int, error) {
+	var count int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE kind='work.session_claim_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND json_extract(payload,'$.claim_op_id')=?`, workID, sessionRef, claimOpID).Scan(&count)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, "claim-landing", "cannot count the claim's recorded landing events", true, "retry once the database is readable", err)
 	}
 	return count, nil
 }
@@ -1756,6 +1796,14 @@ func foldSessionClaimLanded(ctx context.Context, tx *sql.Tx, event Event) error 
 			return newFailure(KindProjectionNotFound, "fold_event", "landed path has no active worktree row to attach occupancy to", false, "rebuild the worktree row before re-folding")
 		}
 		return err
+	}
+	// A recorded claim op binds the landing to the claim generation it
+	// verified: the landed path's current claim op must still be that
+	// generation, because a reclaim that supersedes the claim folds after
+	// the landing it retires. Payloads recorded before the field existed
+	// carry no claim op and keep the path resolution alone.
+	if p.ClaimOpID != "" && p.ClaimOpID != claimOpID {
+		return newFailure(KindInvalidPayload, "fold_event", "session claim landed payload names a claim generation the landed path no longer carries", false, "rebuild projections from the event log")
 	}
 	// Insert (or replace) the destination occupancy row with the recorded
 	// host identity. A prior legacy row from worktree_created for the same

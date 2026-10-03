@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:4284f848a426f2b278b233d41337e6494bd0732c90eeb68796998e4719ac6648`
-Payload schema digest: `sha256:1159404f7ff9d8a3e4fb4d84bf00479c202c01e9138ee25b505b563d339bed4c`
+Manifest digest: `sha256:4fffc8110218786d3bf786030aceaa73e8ab49a434132625203413dfb7023e2e`
+Payload schema digest: `sha256:5f06d9dac47eebd5d5a1c6e619230ab51db5410059da6c43dc7e8958c6d509d2`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -25,6 +25,7 @@ Envelope schema: `1.0`
 | `concord_work_trace.relations` | `read` | `PM1.Q8` | `product_read` | `read` | `always` |
 | `concord_work_trace.continuity` | `read` | `C19.Continuity` | `product_read` | `read` | `always` |
 | `concord_work_trace.research` | `read` | `PM1.Q11` | `product_read` | `read` | `always` |
+| `concord_work_trace.project_retirement` | `read` | `CD-0182.R1` | `product_read` | `read` | `always` |
 | `concord_knowledge.search` | `read` | `PM1.Q9` | `product_read` | `read` | `always` |
 | `concord_knowledge.resolve_note` | `read` | `PM1.Q10` | `product_read` | `read` | `always` |
 | `concord_knowledge.unprocessed` | `read` | `PM1.Q15` | `product_read` | `read` | `always` |
@@ -50,6 +51,8 @@ Envelope schema: `1.0`
 | `concord_work_transition.worker_abandon` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_transition.worktree_claim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.session_vacate` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
+| `concord_work_transition.project_handoff_record` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
+| `concord_work_transition.project_handoff_consume` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.worktree_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.worktree_audit_reclaim` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.worktree_verify` | `mutation` | `—` | `work_transition` | `claim` | `always` |

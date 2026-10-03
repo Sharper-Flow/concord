@@ -193,6 +193,13 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		return rollback(err)
 	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite {
+		// Project-session handoff admission (CD-0182 amendment): a session
+		// whose receiving Project holds an unconsumed, stale, or foreign
+		// handoff executes no managed external effect until it consumes the
+		// handoff addressed to it. A work with no handoffs is unaffected.
+		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx, request.WorkID, request.Actor.SessionRef); err != nil {
+			return rollback(err)
+		}
 		var open int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot inspect consequential conditions", true, "retry once the database is readable", err))

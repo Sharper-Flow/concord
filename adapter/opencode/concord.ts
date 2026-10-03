@@ -554,7 +554,7 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
 // tool exports below. It owns envelope construction, the closed core-response
 // contract check, and the approval_required resubmission. Native worker
 // dispatch can supply the canonical session directory that its window pins.
-async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
+async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string, ambientOverride?: AmbientContext): Promise<CoreConcordEnvelope> {
   const operation = args.operation
   const requestID = `${context.sessionID}-${context.messageID}`
   // CD-0111 D2: a session that could not claim its host lease runs closed.
@@ -565,7 +565,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   let ambient: AmbientContext
   let sessionDirectory: string
   try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
-  try { ambient = await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
+  try { ambient = ambientOverride ?? await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = { schema_version: "1.0", request_id: requestID, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
   const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
@@ -848,14 +848,33 @@ async function encodeHostToolResult(toolName: string, args: HostToolArgs, contex
   return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, envelope)
 }
 
+// The Project-session retirement read composes the core derivation with this
+// session's own adapter dispatch-window quiescence (CD-0182 amendment): the
+// core cannot see the adapter's windows, so an open, in-flight, settling, or
+// refused window downgrades a derived ready state to pending with the named
+// blocker. The composition only narrows readiness — it never upgrades a
+// pending core answer, and a session with no retained window passes the
+// core's answer through unchanged.
+function composeRetirementQuiescence(toolName: string, args: HostToolArgs, envelope: HostConcordEnvelope, sessionID: string): HostConcordEnvelope {
+  if (toolName !== "concord_work_trace" || args.operation !== "project_retirement" || envelope.outcome !== "ok") return envelope
+  const blocker = dispatchWindows().retirementBlocker(sessionID)
+  if (blocker === null) return envelope
+  const result = (envelope as { result?: { state?: string; blockers?: string[] } }).result
+  if (result?.state !== "ready_to_close_or_replace") return envelope
+  result.state = "pending"
+  result.blockers = [...(result.blockers ?? []), blocker]
+  return envelope
+}
+
 async function executeHostTool(toolName: string, args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
   // One staleness observation per tool call (CD-0191): the same reading
   // feeds the dispatch gate and the result notice.
   const staleness = releaseStaleness()
   const envelope = await invokeConcordOperation(toolName, args, context)
   const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
-  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(settled, context) : []
-  return appendWarnings(await encodeHostToolResult(toolName, args, context, settled), [...warnings, ...extraWarnings])
+  const composed = composeRetirementQuiescence(toolName, args, settled, context.sessionID)
+  const warnings = operationIsMutation(toolName, args.operation) ? await workStateReporter.report(composed, context) : []
+  return appendWarnings(await encodeHostToolResult(toolName, args, context, composed), [...warnings, ...extraWarnings])
 }
 
 async function executeHostTransition(args: HostToolArgs, context: ToolContext): Promise<ToolResult> {
@@ -962,6 +981,24 @@ type LinearRemoteSection = {
   comments?: { items: LinearRemoteComment[]; truncated: boolean; reason?: string }
 }
 
+// ProjectHandoffSection is the bounded addressed handoff a Project-selected
+// work-resume renders (CD-0182 amendment): the durable handoff identity, the
+// bounded repository job, and the exact next action the receiving session
+// must consume through project_handoff_consume before managed execution.
+// The section is visibility only: rendering it consumes nothing and
+// authorizes nothing.
+type ProjectHandoffSection = {
+  handoff_id: string
+  source_project_id: string
+  bounded_job: string
+  changes: string[] | null
+  verification: string[] | null
+  artifact_refs: string[] | null
+  blockers: string[] | null
+  next_action: string
+  recorded_at: string
+}
+
 type WorkStartResume = {
   schema_version: "1.0"
   product_id: string
@@ -970,6 +1007,7 @@ type WorkStartResume = {
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
   branch_freshness: BranchFreshness
   linear_remote?: LinearRemoteSection
+  project_handoff?: ProjectHandoffSection
 }
 
 type WorkStartBootstrap = {
@@ -1015,6 +1053,7 @@ type WorkStartEnvelope = {
   session_id?: string | null
   output?: string
   linear_remote?: LinearRemoteSection
+  project_handoff?: ProjectHandoffSection
   branch_freshness?: BranchFreshness
   launch?: WorkStartLaunch
   opener?: { argv: string[]; exit_code: number }
@@ -1091,12 +1130,19 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // section: absent exactly when the resume applies no remote check.
 // branch_freshness is the typed behind-the-default sample the resume always
 // carries; a fetch or probe failure degrades it to the typed unknown.
+// project_handoff is the optional bounded addressed handoff the core renders
+// for a Project-selected resume (CD-0182 amendment): absent exactly when no
+// handoff addresses the resuming Project under the active contract and the
+// resume carries no standing bind of the resuming session — a consume whose
+// response was lost re-renders the receiver's own bind so its replay
+// recovers the bounded job — and never consumable from this rendering alone.
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value)) return false
   const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree", "branch_freshness"]
+  const optionalKeys = ["linear_remote", "project_handoff"]
   if (!baseKeys.every((key) => key in value)) return false
   const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
-  if (extraKeys.length > 1 || (extraKeys.length === 1 && extraKeys[0] !== "linear_remote")) return false
+  if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
   if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
   const worktree = value.worktree
   const worktreeOk = exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
@@ -1105,7 +1151,24 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
     && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
   if (!worktreeOk) return false
   if (!validateBranchFreshness(value.branch_freshness)) return false
-  return !("linear_remote" in value) || validateLinearRemoteSection(value.linear_remote)
+  if ("linear_remote" in value && !validateLinearRemoteSection(value.linear_remote)) return false
+  return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
+}
+
+// validateProjectHandoffSection is the strict shape for the rendered bounded
+// handoff. Exact keys keep the section closed on both sides; the four list
+// fields accept null because the core marshals an absent list as null, and
+// otherwise carry only bounded non-empty entries.
+function validateProjectHandoffSection(value: unknown): value is ProjectHandoffSection {
+  if (!record(value) || !exactKeys(value, ["handoff_id", "source_project_id", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "recorded_at"])) return false
+  const boundedStrings = (values: unknown): values is string[] | null =>
+    values === null || (Array.isArray(values) && values.length <= 16 && values.every(nonEmptyString))
+  return nonEmptyString(value.handoff_id) && value.handoff_id.length <= 256
+    && nonEmptyString(value.source_project_id)
+    && nonEmptyString(value.bounded_job) && Buffer.byteLength(String(value.bounded_job)) <= 4000
+    && boundedStrings(value.changes) && boundedStrings(value.verification) && boundedStrings(value.artifact_refs) && boundedStrings(value.blockers)
+    && nonEmptyString(value.next_action) && Buffer.byteLength(String(value.next_action)) <= 1000
+    && nonEmptyString(value.recorded_at)
 }
 
 const branchFreshnessReasons = new Set(["timeout", "fetch_failed", "probe_failed"])
@@ -1444,6 +1507,77 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 // No step records intent ahead of its effect, so there is no partial state.
 // The session's worktree is the directory it runs in, and the host owns that
 // answer (CD-0098 D3).
+// The receiving side of the v1 Project-session handoff (CD-0182 amendment).
+// After the host readback proves this session landed in its claimed worktree,
+// the adapter binds the addressed handoff to this session through the same
+// invokeConcordOperationRaw transport every adapter surface uses, so the core
+// consume resolves the addressed handoff against the session's authenticated
+// Project and call context and the strict call-envelope validation stays in
+// force. The adapter names no receiver identity, and the core refuses
+// missing, wrong-target, or stale binds closed. A failed consume is a
+// warning, never a bypass: the core's managed-execution admission gate stays
+// closed until the bind stands.
+
+// Per-session record of the handoff this session consumed after placement.
+// One entry per session; a newer consume replaces the older record. The map
+// is lifecycle-bounded like the armed claims: its exits are a host process
+// restart or resetConsumedProjectHandoffs in tests.
+type ConsumedHandoff = { workID: string; handoffID: string }
+
+const consumedHandoffs = new Map<string, ConsumedHandoff>()
+
+// consumedProjectHandoff answers the consumed handoff record for one session,
+// or null when the session consumed none.
+export function consumedProjectHandoff(sessionID: string): ConsumedHandoff | null {
+  return sessionID ? consumedHandoffs.get(sessionID) ?? null : null
+}
+
+export function resetConsumedProjectHandoffs(): void {
+  consumedHandoffs.clear()
+}
+
+// projectHandoffConsumeKey derives the automatic consume idempotency key from
+// the complete consume identity — work and handoff — through a JSON encoding
+// the digest unambiguously decodes back into exactly one identity pair. Every
+// accepted pair (each id up to the contract's 128-character bound) hashes to
+// the same bounded 48-character key, so the generated input always satisfies
+// the owning idempotency_key schema, while equal identities replay the
+// standing bind and a different work or handoff can never reuse a prior
+// bind's cached answer. The export serves the consume-boundary tests that
+// pin that bound at maximum accepted identity lengths.
+export function projectHandoffConsumeKey(workID: string, handoffID: string): string {
+  return `handoff-consume-${createHash("sha256").update(JSON.stringify([workID, handoffID])).digest("hex").slice(0, 32)}`
+}
+
+// consumeAddressedProjectHandoff issues the typed consume for one rendered
+// handoff after the session's verified landing, through the owning invoke
+// route — never a second raw invoke path. The verified landing supplies the
+// transport facts: the session directory the host readback proved and the
+// ambient context the flow already resolved, so the consume re-resolves
+// neither and the core binds against the authenticated boundary. The input
+// carries the handoff_id the boot rendered: the generated tool contract
+// requires it, and the key is derived from the complete consume identity so
+// a successor handoff under a renewed contract can never replay a prior
+// bind's cached answer. Every refusal surfaces as the returned message the
+// caller carries as a refusal — the consuming session either binds the
+// rendered handoff or fails closed. The export serves this file's own
+// consume-boundary tests.
+export async function consumeAddressedProjectHandoff(workID: string, handoffID: string, context: ToolContext, transport: { sessionDirectory: string; ambient: AmbientContext }): Promise<{ consumed: boolean; handoffID: string; message?: string }> {
+  if (!workID || !handoffID || !context.sessionID) return { consumed: false, handoffID: "", message: "consume skipped: the landing named no work, handoff, and session" }
+  const envelope = await invokeConcordOperationRaw("concord_work_transition", { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: projectHandoffConsumeKey(workID, handoffID) } }, context, transport.sessionDirectory, transport.ambient)
+  if (envelope.outcome === "ok") {
+    const result = envelope.result as { handoff_id?: string } | undefined
+    if (typeof result?.handoff_id === "string" && result.handoff_id) {
+      consumedHandoffs.set(context.sessionID, { workID, handoffID: result.handoff_id })
+      return { consumed: true, handoffID: result.handoff_id }
+    }
+    return { consumed: false, handoffID: "", message: "the addressed handoff consume answered ok without a handoff id" }
+  }
+  const error = envelope.error as { kind?: string; message?: string } | undefined
+  const refusal = typeof error?.message === "string" ? error.message : "the addressed handoff consume refused without a typed message"
+  return { consumed: false, handoffID: "", message: `the addressed handoff consume refused (${error?.kind ?? "unknown"}): ${refusal}` }
+}
+
 async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warnings: string[]): Promise<WorkStartEnvelope> {
   let target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null = null
   const resume = record(args) && isWorkStartResumeArgs(args)
@@ -1496,6 +1630,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     }
     let prepareTask: string
     let resumeRemote: LinearRemoteSection | undefined
+    let renderedHandoff: ProjectHandoffSection | undefined
     let resumeFreshness: BranchFreshness | undefined
     if (resume) {
       const workID = (args as { work_id: string }).work_id
@@ -1509,6 +1644,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
       resumeRemote = resumedValue.linear_remote
+      renderedHandoff = resumedValue.project_handoff
       resumeFreshness = resumedValue.branch_freshness
       prepareTask = ""
     } else {
@@ -1602,11 +1738,34 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
         await recordClaimLanding(target.work_id, context.sessionID, target.worktree.path, context.abort)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
+        if (renderedHandoff) {
+          // Fail closed on a handoff-bearing boot: without the recorded
+          // occupancy the core admission gate cannot resolve this session's
+          // Project, so managed execution would refuse. Reporting success
+          // here would boot the session into a state where every
+          // consequential action refuses.
+          throw new AdapterFailure("resume_failure", "claim_landing_unrecorded", `Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The addressed Project handoff requires verified placement before managed execution; replay work_start to retry the record.`, "none", "retry_same_request")
+        }
         warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
       }
     }
+    // The verified placement arms the receiving side of the Project-session
+    // handoff (CD-0182 amendment): the addressed handoff binds to this
+    // session before any managed execution it issues. The boot consumes
+    // exactly the handoff the resume rendered, by its own id, through the
+    // authenticated boundary; a boot whose rendered handoff does not bind
+    // refuses and arms no claimed worktree, because the core admission gate
+    // stays closed until a typed consume succeeds.
+    if (renderedHandoff) {
+      const handoff = await consumeAddressedProjectHandoff(target.work_id, renderedHandoff.handoff_id, context, { sessionDirectory: target.worktree.path, ambient })
+      if (!handoff.consumed) {
+        throw new AdapterFailure("resume_failure", "project_handoff_unconsumed", `Concord did not consume the addressed Project handoff for ${target.work_id}: ${handoff.message ?? "the consume refused"}. Managed execution stays gated until a typed consume succeeds.`, "none", "retry_same_request")
+      }
+    }
     // The tool context landed in the claimed worktree, so this session's
-    // active claimed worktree is armed for the dispatch check.
+    // active claimed worktree is armed for the dispatch check. The arm sits
+    // behind every refusal the landing and the handoff bind can raise, so a
+    // boot that fails closed arms no dispatch.
     armClaimedWorktree(context.sessionID, target.worktree.path)
     // Issue #917: the pane frame now names the work this session runs. The
     // rename sits after every refusal point, so it fires once per success and
@@ -1630,11 +1789,18 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       session_id: context.sessionID,
       // The move notice replaces the bare runs-in line: the agent needs the
       // new path, the paths-under-it rule, and the stale surfaces, not only
-      // the fact of the move.
-      output: moveNoticeText(target.worktree.path),
+      // the fact of the move. A rendered handoff appends the bounded job and
+      // next action so the receiving session holds both without the envelope.
+      output: renderedHandoff
+        ? `${moveNoticeText(target.worktree.path)} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
+        : moveNoticeText(target.worktree.path),
       // The remote Linear check rides the resume result into the envelope so
       // the resuming session sees remote drift before it acts.
       ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
+      // The consumed handoff's bounded job rides the result so the receiving
+      // session holds its repository job and exact next action without the
+      // operator copying context (CD-0182 amendment).
+      ...(renderedHandoff ? { project_handoff: renderedHandoff } : {}),
       // The branch freshness sample rides the resume result into the
       // envelope so the resuming session sees how far its branch sits
       // behind the origin default branch before it builds on it.

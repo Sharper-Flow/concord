@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import fs from "node:fs"
 import path from "node:path"
 import { agentLanes } from "./generated-agent-lanes"
+import { manifestDigest } from "./generated-contracts"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { configureCoreBinary, dispatchWorker, type AgentLanePacket } from "./dispatch"
@@ -41,6 +42,12 @@ beforeEach(async () => {
   resetClaimedWorktrees()
   hostControlPlane().bind(undefined)
   plugin = await ConcordAdapterPlugin({})
+  // The bare factory re-claims the host lease against the repository
+  // placeholder and records the closed-transport fault. This file's boot
+  // flows ride the owning invoke transport, whose lease gate consults that
+  // fault, so the aftereffect of the uninstalled-checkout claim is cleared
+  // rather than stamped around.
+  configureHostLease({ reset: true })
 })
 
 afterEach(() => {
@@ -233,6 +240,11 @@ describe("same-turn session move boundary", () => {
         if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1", main_worktree: false }), stderr: "" }
         if (command === "work-bootstrap") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", operation_id: "operation-1", replayed: false, product_id: "product-1", project_id: "project-1", work_id: "work-1", work_version: 1, worktree: { set_id: "set-1", path: claimed, branch: "work/work-1", base_sha: "a".repeat(40), state: "active" } }), stderr: "" }
         if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", agent: "agent-1", directory: claimed, product_id: "product-1", work_id: "work-1", title: "Work", prompt: "Do work" }), stderr: "" }
+        if (command === "invoke") {
+          // The typed Project-handoff consume is this flow's only invoke; the
+          // ordinary no-handoff refusal keeps the boot answer single-line.
+          return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", request_id: "core-answer", origin: "core", tool: "concord_work_transition", operation: "project_handoff_consume", outcome: "error", manifest_digest: manifestDigest, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, error: { kind: "unknown_scope", retry_safe: false, recovery_action: { kind: "none" }, effect_state: "none", message: "no recorded project handoff addresses this Project" } }), stderr: "" }
+        }
         return { exitCode: 0, stdout: JSON.stringify({ schema_version: "1.0", manifest_digest: "sha256:" + "0".repeat(64), request_id: "session-boundary-message-boundary", origin: "core", tool: "concord_product_view", operation: "portfolio", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" } }), stderr: "" }
       },
     }

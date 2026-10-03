@@ -91,7 +91,14 @@ all of this:
   commas, never on raw commas: a comma inside a string literal is a
   character of that literal, ('a'',''b') is one member, and a list of
   anything but single literal tokens - 'a'||'b', a function, a column
-  reference - leaves the family and can only repeat its old text;
+  reference - leaves the family and can only repeat its old text.
+  The body reader accounts for the whole statement: a comma-free
+  segment may carry any number of juxtaposed constraints, each
+  optionally named CONSTRAINT <name>, and every CHECK the segment
+  carries enters the differential - a narrowed trailing CHECK can
+  never ride behind a widened leading one - while each CONSTRAINT
+  name and every PRIMARY, UNIQUE, or FOREIGN body is comparison text
+  that repeats byte for byte;
 - the copy statement names every column of the recreated table, in
   order, on both sides of the SELECT, and each name on both sides is
   exactly one identifier token - bare, or quoted under SQLite's
@@ -116,7 +123,8 @@ same failure class (silent corruption invisible where it is authored)
 and a named structural end-state: the statement splitter and head-word
 recognizers read only enough to route a statement to a rule, and their
 miss shape is fail-closed ("unclassified statement" stays breaking); the
-CREATE TABLE body reader lifts CHECK texts and compares the remaining
+CREATE TABLE body reader lifts every CHECK a constraint segment carries
+- first or trailing, named or unnamed - and compares the remaining
 words for equality, and its miss shape refuses the proof - the end-state
 that retires both is a SQLite surface that reports CHECK constraints as
 catalog facts. The CHECK atom family itself compares only bare-column
@@ -1175,40 +1183,75 @@ def parse_column_item(item: str) -> ColumnShape | None:
     return ColumnShape(name, " ".join(rest), tuple(checks))
 
 
+def constraint_name(token: str) -> bool:
+    """Whether one token can serve as the name after CONSTRAINT.
+
+    A bare identifier or a quoted identifier names a constraint; a
+    string literal, a number, or punctuation does not, and a segment
+    carrying such a token refuses instead of guessing at a name.
+    """
+    if is_bare_word(token):
+        return True
+    return token[0] in ('"', "`", "[")
+
+
 def parse_table_item(item: str):
-    """One body item: a ColumnShape, a ('check', expr), or a ('other', text)."""
+    """One body segment: a ColumnShape, or every constraint it carries.
+
+    A comma-free segment holds any number of juxtaposed table
+    constraints, each optionally named by CONSTRAINT <name>. The walk
+    reads the whole segment: it lifts every CHECK expression, keeps each
+    CONSTRAINT name and every PRIMARY/UNIQUE/FOREIGN body as comparison
+    text, and refuses any token outside that vocabulary, so nothing
+    behind a proved CHECK escapes the before and after differential.
+    """
     toks = sql_tokens(item)
     if not toks:
         return None
     if not is_bare_word(toks[0]) or toks[0].upper() not in TABLE_HEADS:
         return parse_column_item(item)
-    if word_is(toks[0], "CONSTRAINT"):
-        if len(toks) < 3:
+    out: list[tuple[str, str]] = []
+    i = 0
+    while i < len(toks):
+        group = i
+        if word_is(toks[i], "CONSTRAINT"):
+            if i + 1 >= len(toks) or not constraint_name(toks[i + 1]):
+                return None
+            i += 2
+        if (
+            i >= len(toks)
+            or not is_bare_word(toks[i])
+            or toks[i].upper() not in TABLE_HEADS
+        ):
             return None
-        toks = toks[2:]
-        if not is_bare_word(toks[0]) or toks[0].upper() not in TABLE_HEADS:
-            return None
-        toks = toks[1:]
-        head = toks[0].upper()
-    else:
-        head = toks[0].upper()
-    if head == "CHECK":
-        if len(toks) < 2 or toks[1] != "(":
-            return None
-        depth = 1
-        j = 2
-        while j < len(toks) and depth:
-            if toks[j] == "(":
-                depth += 1
-            elif toks[j] == ")":
-                depth -= 1
-            j += 1
-        if depth:
-            return None
-        return ("check", " ".join(toks[2 : j - 1]))
-    if head in ("PRIMARY", "UNIQUE", "FOREIGN"):
-        return ("other", " ".join(toks))
-    return None
+        head = toks[i].upper()
+        i += 1
+        if head == "CHECK":
+            if i >= len(toks) or toks[i] != "(":
+                return None
+            depth = 1
+            j = i + 1
+            while j < len(toks) and depth:
+                if toks[j] == "(":
+                    depth += 1
+                elif toks[j] == ")":
+                    depth -= 1
+                j += 1
+            if depth:
+                return None
+            if word_is(toks[group], "CONSTRAINT"):
+                # The name is schema text outside the CHECK expression:
+                # it repeats as comparison text beside the expression it
+                # names, so a renamed or newly named constraint refuses.
+                out.append(("other", " ".join(toks[group : group + 2])))
+            out.append(("check", " ".join(toks[i + 1 : j - 1])))
+            i = j
+            continue
+        if head in ("PRIMARY", "UNIQUE", "FOREIGN"):
+            out.append(("other", " ".join(toks[group:])))
+            return out
+        return None
+    return out
 
 
 def parse_table_shape(body: str) -> TableShape | None:
@@ -1222,10 +1265,12 @@ def parse_table_shape(body: str) -> TableShape | None:
             return None
         if isinstance(parsed, ColumnShape):
             columns.append(parsed)
-        elif parsed[0] == "check":
-            table_checks.append(parsed[1])
-        else:
-            table_other.append(parsed[1])
+            continue
+        for kind, text in parsed:
+            if kind == "check":
+                table_checks.append(text)
+            else:
+                table_other.append(text)
     if not columns:
         return None
     return TableShape(
@@ -1835,10 +1880,10 @@ def shape_widens_only(old: TableShape, new: TableShape, affinity_of) -> bool:
     """Whether new is old with only the CHECK family widened.
 
     Every column keeps its name and every non-CHECK word of its
-    definition, the non-CHECK table constraints and the tail (STRICT,
-    WITHOUT ROWID) repeat, and each column's CHECK set and the
-    table-level CHECK set widen under checks_widen with the affinity the
-    probe read from SQLite.
+    definition, the non-CHECK table constraints (with their CONSTRAINT
+    names) and the tail (STRICT, WITHOUT ROWID) repeat, and each
+    column's CHECK set and the table-level CHECK set widen under
+    checks_widen with the affinity the probe read from SQLite.
     """
     if len(old.columns) != len(new.columns):
         return False

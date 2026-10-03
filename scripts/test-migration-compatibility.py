@@ -4264,6 +4264,184 @@ expect_world(
 )
 
 
+# --- CON-488 retry-23: whole-statement constraint segments ---------------------
+# The body reader once lifted the first CHECK of a table-constraint segment
+# and dropped the text behind it, so a narrowed trailing CHECK rode through
+# behind a widened leading one, and a CONSTRAINT-named segment refused the
+# baseline outright. The walk now reads the whole segment: every CHECK is
+# lifted, each CONSTRAINT name and every PRIMARY/UNIQUE/FOREIGN body is
+# comparison text, and any token outside that vocabulary refuses the proof.
+
+TRAILING_PAIR = "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0) CHECK(n <= 10)"
+expect_world(
+    "a widened trailing CHECK pair stays additive",
+    small_base(TRAILING_PAIR),
+    small_rebuild(
+        TRAILING_PAIR,
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CHECK(n <= 20)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a narrowed trailing CHECK behind a widened one stays breaking",
+    small_base(TRAILING_PAIR),
+    small_rebuild(
+        TRAILING_PAIR,
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CHECK(n <= 5)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a narrowed CONSTRAINT-named trailing CHECK stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0) CONSTRAINT cap CHECK(n <= 10)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0) CONSTRAINT cap CHECK(n <= 10)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CONSTRAINT cap CHECK(n <= 5)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a dropped trailing CHECK widens",
+    small_base(TRAILING_PAIR),
+    small_rebuild(
+        TRAILING_PAIR,
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a novel trailing CHECK stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)",
+        TRAILING_PAIR,
+    ),
+    breaking=True,
+)
+
+# A comma-separated named constraint is the grammar's canonical segment, and
+# a juxtaposed one is the shape SQLite also accepts; both now read as
+# baselines the proof can hold, where before the repair each refused.
+expect_world(
+    "a widened comma-separated CONSTRAINT-named CHECK stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT lo CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT lo CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT lo CHECK(n >= -5)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a widened juxtaposed CONSTRAINT-named CHECK stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0) CONSTRAINT lo CHECK(n <= 10)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0) CONSTRAINT lo CHECK(n <= 10)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CONSTRAINT lo CHECK(n <= 20)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a named UNIQUE constraint repeats and stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT u UNIQUE(n)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT u UNIQUE(n)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT u UNIQUE(n)",
+    ),
+    breaking=False,
+)
+
+# The name is schema text outside the CHECK expression: it may not change,
+# appear, or disappear while the expression widens.
+expect_world(
+    "a renamed CONSTRAINT on a widened CHECK stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT cap CHECK(n <= 10)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT cap CHECK(n <= 10)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT lid CHECK(n <= 20)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "an unnamed CHECK that gains a CONSTRAINT name stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n <= 10)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n <= 10)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT cap CHECK(n <= 20)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a CONSTRAINT-named CHECK that loses its name stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT cap CHECK(n <= 10)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CONSTRAINT cap CHECK(n <= 10)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n <= 20)",
+    ),
+    breaking=True,
+)
+
+# Tokens a proved CHECK cannot shadow: a column fragment or a dangling
+# CONSTRAINT behind a lifted CHECK refuses the whole shape.
+expect_world(
+    "a column fragment behind a trailing CHECK stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) sneaky TEXT",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a dangling CONSTRAINT behind a trailing CHECK stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CONSTRAINT cap",
+    ),
+    breaking=True,
+)
+
+# SQLite conviction: the narrowed trailing pair kills the copy of an
+# old-valid row - the admission the pre-repair classifier made would have
+# left the migration's own INSERT failing at upgrade time.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(small_base(TRAILING_PAIR))
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 8)")
+    try:
+        connection.executescript(small_rebuild(
+            TRAILING_PAIR,
+            "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CHECK(n <= 5)",
+        ))
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the narrowed trailing CHECK copied its old-valid row")
+finally:
+    connection.close()
+
+# SQLite conviction: the widened pair keeps the copy lossless and the
+# old shape working - the old row returns at its rowid, and a write an
+# older binary would still accept lands after the rebuild.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(small_base(TRAILING_PAIR))
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 8)")
+    connection.executescript(small_rebuild(
+        TRAILING_PAIR,
+        "id INTEGER PRIMARY KEY, n INTEGER, CHECK(n >= -1) CHECK(n <= 20)",
+    ))
+    back = connection.execute("SELECT rowid, id, n FROM t").fetchall()
+    if back != [(1, 1, 8)]:
+        FAILURES.append(f"the widened trailing pair lost its rows: {back}")
+    connection.execute("INSERT INTO t (id, n) VALUES (2, 5)")
+    back = connection.execute("SELECT id, n FROM t ORDER BY id").fetchall()
+    if back != [(1, 8), (2, 5)]:
+        FAILURES.append(f"an old-shaped write after the rebuild did not land: {back}")
+finally:
+    connection.close()
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

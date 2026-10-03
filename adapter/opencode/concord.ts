@@ -164,6 +164,11 @@ function schemaName(ref: string): string {
 
 const hostSchemaStructuralKeys = new Set(["$defs", "$ref", "additionalProperties", "allOf", "anyOf", "definitions", "else", "if", "not", "oneOf", "properties", "required", "then"])
 
+// combinationKeys are the applicators the host cannot render. `not` and `if`
+// constrain or match; they contribute nothing a calling agent can act on and
+// are dropped. `then` contributes the conditional branch's admitted fields.
+const combinationKeys = new Set(["allOf", "anyOf", "if", "not", "oneOf", "then", "else"])
+
 function sameSchema(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
@@ -202,15 +207,18 @@ function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
   return result
 }
 
-// flattenHostSchema projects an authored payload schema into the host-safe
-// view. At merged object levels the projection stays permissive so one
-// multi-operation tool stays advertisable at bounded size. Bounded nodes —
-// array items and the variant oneOf they carry — keep their authored closed
-// structure instead: the item required set and additionalProperties survive,
-// and a oneOf keeps its branches rather than merging into one property bag
-// that would falsely admit every variant's fields at once. This is what lets
-// the advertised schema teach the admission rules ValidateOperationPayload
-// enforces; the store remains the closed admission boundary.
+// flattenHostSchema projects one authored payload schema into the host-safe
+// view. The host renders neither combinators nor Boolean constraints, so an
+// unbounded combination node (allOf/anyOf/oneOf/if-then) publishes as the
+// union of what the core admits: every branch's properties join the base,
+// and an allOf member's required — the only unconditional branch required —
+// joins the base required too. Conditional branch required stays out, so the
+// projection never demands a field the core only requires under a condition
+// the published view cannot name. Bounded nodes — array items and the
+// variant oneOf they carry — keep their authored closed structure instead.
+// Per operation the result states the same required set and the same
+// admitted fields ValidateOperationPayload enforces; the store remains the
+// closed admission boundary.
 function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounded = false): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
@@ -237,12 +245,35 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
     return result
   }
 
-  const combinations = ["oneOf", "anyOf", "allOf", "then", "else"]
-    .flatMap((key) => Array.isArray(schema[key]) ? schema[key] as unknown[] : schema[key] === undefined ? [] : [schema[key]])
-  if (combinations.length > 0) {
-    const base = Object.fromEntries(Object.entries(schema).filter(([key]) => !hostSchemaStructuralKeys.has(key)))
-    const branches = [base, ...combinations].map((branch) => flattenHostSchema(branch, resolving))
-    return mergeHostSchemas(branches)
+  const members: { schema: unknown; unconditional: boolean }[] = []
+  for (const key of ["oneOf", "anyOf"] as const) {
+    if (Array.isArray(schema[key])) members.push(...(schema[key] as unknown[]).map((branch) => ({ schema: branch, unconditional: false })))
+  }
+  if (Array.isArray(schema.allOf)) members.push(...(schema.allOf as unknown[]).map((branch) => ({ schema: branch, unconditional: true })))
+  if (schema.then !== undefined && schema.then !== null && typeof schema.then === "object") members.push({ schema: schema.then, unconditional: false })
+
+  if (members.length > 0) {
+    const own = Object.fromEntries(Object.entries(schema).filter(([key]) => !combinationKeys.has(key) && key !== "$defs" && key !== "$ref" && key !== "definitions" && key !== "not"))
+    const base = flattenHostSchema(own, resolving, bounded)
+    const properties: Record<string, unknown> = { ...((base.properties ?? {}) as Record<string, unknown>) }
+    const required = new Set<string>(Array.isArray(base.required) ? base.required as string[] : [])
+    for (const member of members) {
+      const flat = flattenHostSchema(member.schema, resolving, bounded)
+      for (const [name, property] of Object.entries((flat.properties ?? {}) as Record<string, unknown>)) {
+        const previous = properties[name]
+        properties[name] = previous === undefined ? property : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
+      }
+      if (member.unconditional && Array.isArray(flat.required)) {
+        for (const name of flat.required as string[]) required.add(name)
+      }
+    }
+    const result: JSONSchema = { ...base, properties }
+    if (schema.properties !== undefined || schema.type === "object" || Object.keys(properties).length > 0) {
+      result.type = "object"
+      result.required = [...required]
+      result.additionalProperties = schema.additionalProperties === false && base.additionalProperties !== true ? false : true
+    }
+    return result
   }
 
   const result: JSONSchema = {}
@@ -259,8 +290,8 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
     result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving, bounded)]))
     const authoredRequired = Array.isArray(schema.required) ? schema.required as string[] : []
     const authoredProperties = (schema.properties ?? {}) as Record<string, unknown>
-    result.required = bounded ? authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name)) : []
-    result.additionalProperties = bounded && schema.additionalProperties === false ? false : true
+    result.required = authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name))
+    result.additionalProperties = schema.additionalProperties === false ? false : true
   }
   return result
 }
@@ -268,20 +299,33 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  // The host receives one permissive request shape. ValidateOperationPayload
-  // remains the closed operation boundary because it runs after host delivery.
   const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
     ? "work_transition_action_public_input"
     : schemaName(operation.input_schema)
-  const input = mergeHostSchemas(operations.map((operation: any) => flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)])))
+  // The host receives one closed branch per operation: the branch names the
+  // operation with a const and states the required set and the admitted
+  // fields exactly as the core's admission enforces them. One branch per
+  // operation — never a merged union — so a caller reads what the chosen
+  // operation requires and refuses instead of what a sibling owns, and the
+  // operation const keeps every branch mutually exclusive.
+  const branches = operations.map((operation: any) => ({
+    type: "object",
+    additionalProperties: false,
+    required: ["operation", "input"],
+    properties: {
+      operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
+      input: flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)]),
+    },
+  }))
   return {
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
     properties: {
       operation: { type: "string", enum: operations.map((operation: any) => operation.id.slice(operation.id.indexOf(".") + 1)) },
-      input,
+      input: { type: "object" },
     },
+    oneOf: branches,
   }
 }
 

@@ -24,7 +24,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
+func TestAuditReclaimReportsCommittedEffectWithThePhysicalTree(t *testing.T) {
 	t.Parallel()
 	s, _, _, service, grant, _ := tiersFixture(t)
 	completeWork(t, s, "work-2")
@@ -45,25 +45,22 @@ func TestAuditReclaimResponseFailureReportsCommittedEffect(t *testing.T) {
 		t.Fatal("worktree_audit_reclaim is not registered")
 	}
 	raw, _ := json.Marshal(map[string]any{"product_id": "product-1", "default_ref": "main", "idempotency_key": "post-commit-budget"})
-	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Budget: budgetInput{MaxBytes: 1}}
+	r := runtime{Store: s, Authority: service, Envelope: mutationEnvelope(grant, scopeVersion), Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Reader: grant}
 	response, err := r.mutateWorktreeAuditReclaim(context.Background(), NewBase("post-commit", r.Tool, r.Operation), raw, grant, op)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil {
+	if response.Outcome != OutcomeOK {
 		t.Fatalf("response=%+v", response)
 	}
-	if response.Error.EffectState == EffectNone || response.Error.RetrySafe {
-		t.Fatalf("post-commit error lost effect classification: %+v", response.Error)
-	}
 	if response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].ID != "work-2" {
-		t.Fatalf("post-commit changed refs=%+v", response.ChangedRefs)
+		t.Fatalf("changed refs=%+v", response.ChangedRefs)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-1", "work-2")); !os.IsNotExist(err) {
-		t.Fatalf("reclaim effect was not committed before response failure: %v", err)
+		t.Fatalf("reclaim effect was not committed: %v", err)
 	}
 	if err := response.Validate(); err != nil {
-		t.Fatalf("post-commit response is not contract-valid: %v", err)
+		t.Fatalf("response is not contract-valid: %v", err)
 	}
 }
 
@@ -440,32 +437,20 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	}
 }
 
-func TestBudgetFieldsRefuseOrBoundResultsStructurally(t *testing.T) {
+func TestBudgetObjectIsRetiredEverywhereOnTheSurface(t *testing.T) {
 	t.Parallel()
-	base := NewBase("request", "concord_work_browse", "list")
-	meta := store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
-	items := []store.WorkItem{{ID: "one", Kind: "task", Title: "one", Lifecycle: "needed"}, {ID: "two", Kind: "task", Title: "two", Lifecycle: "needed"}}
-	response, err := (runtime{Tool: "concord_work_browse", Operation: "trace", Budget: budgetInput{MaxItems: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "budget_refused" {
-		t.Fatalf("max_items was ignored: %#v", response)
-	}
-	response, err = (runtime{Tool: "concord_work_browse", Operation: "trace", Budget: budgetInput{MaxBytes: 1}}).q3(base, store.Q3Result{ResultMeta: meta, Items: items[:1]})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "budget_refused" {
-		t.Fatalf("max_bytes was ignored: %#v", response)
-	}
-	ctx, cancel, budget, budgetErr := applyBudget(context.Background(), contractOpFor(t, "concord_work_browse", "list"), []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`))
-	defer cancel()
-	if budgetErr != nil || budget.MaxMillis != 1 {
-		t.Fatalf("max_millis was not accepted: budget=%#v err=%v", budget, budgetErr)
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("max_millis did not install a context deadline")
+	// CD-0038 amendment (2026-10-02): the result-size budget object is
+	// retired. Size is bounded by limit/page, time by requested_budget_seconds,
+	// so no result path consults a caller budget object and the seconds
+	// parser cannot resurrect one.
+	for _, op := range ContractOperations {
+		payload := []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`)
+		if err := ValidateOperationPayload(op.Tool, op.Operation, payload, false); err == nil {
+			t.Fatalf("%s admitted the retired budget object", op.ID)
+		}
+		if err := ValidateOperationPayload(op.Tool, op.Operation, []byte(`{}`), false); err != nil && strings.Contains(err.Error(), "budget") {
+			t.Fatalf("%s refusal names the retired object: %v", op.ID, err)
+		}
 	}
 }
 

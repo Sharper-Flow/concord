@@ -1045,31 +1045,6 @@
         }
       }
     },
-    "budget": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "max_bytes",
-        "max_items"
-      ],
-      "properties": {
-        "max_bytes": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65536
-        },
-        "max_items": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100
-        },
-        "max_millis": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 300000
-        }
-      }
-    },
     "field": {
       "type": "object",
       "additionalProperties": false,
@@ -1752,9 +1727,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1824,9 +1796,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1895,9 +1864,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1921,9 +1887,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -1957,9 +1920,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -1986,9 +1946,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "one_of": {
           "type": "string",
@@ -2051,9 +2008,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -2113,9 +2067,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -3086,9 +3037,6 @@
           "minimum": 1,
           "maximum": 3
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -3155,9 +3103,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "domain_id": {
           "$ref": "#/$defs/id"
@@ -4357,9 +4302,6 @@
         "initiative_work_id": {
           "$ref": "#/$defs/id"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -5260,9 +5202,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "source": {
           "$ref": "#/$defs/product_row_source"
@@ -6189,9 +6128,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6667,9 +6603,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -6840,9 +6773,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7004,9 +6934,6 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7088,9 +7015,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -7213,9 +7137,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -8352,7 +8273,7 @@
       }
     },
     "requested_budget_seconds": {
-      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; never part of the hidden call envelope or the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; the only agent-facing operation budget since the 2026-10-02 retirement of the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
       "type": "integer",
       "minimum": 1
     },
@@ -8970,9 +8891,6 @@
         },
         "limit": {
           "$ref": "#/$defs/limit"
-        },
-        "budget": {
-          "$ref": "#/$defs/budget"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"

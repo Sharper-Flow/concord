@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-design-bounded-task",
   "lane_id": "design",
   "lane_version": 1,
-  "lane_digest": "sha256:a2061098223cc1b9b31c62ed9ad2d92c97ef50c25f20802706fae026e4318804",
+  "lane_digest": "sha256:1178f4074a4212eb0e8a95a61aa74a52161b9a275f8a1ef52b5edf4f584c79ef",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

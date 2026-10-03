@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-implement-refuses-workflow-authority",
   "lane_id": "implement",
   "lane_version": 1,
-  "lane_digest": "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa",
+  "lane_digest": "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

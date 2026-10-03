@@ -2,6 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
+- **Amended:** 2026-10-02. The agent-facing result-size `budget` object
+  (`max_bytes`, `max_items`, and the legacy `max_millis` window) is retired
+  from the tool surface. D8 records the amendment.
 - **Scope:** Agent operation inputs and manifest bounds; TS7 budget refusal; issue #173
 - **Approval:** Operator selected per-operation manifest ceilings on 2026-08-17
 - **Related:** CD-0005, CD-0036 D4, TS1 AJ8, TS4
@@ -136,6 +139,24 @@ The input is optional and an old client can omit it. An old representation of
 so negotiation may omit that field for a supported old client. Relative to the major line that carries it, this change is a TS8 minor amendment. If bundled with CD-0037's major cutover it ships in that major; if
 shipped first, it is a minor on the current line. It never requires a second
 major by itself. The manifest, generated contracts, adapter, compatibility matrix, corpus, and digests move together.
+
+### D8. The agent-facing budget object is retired (2026-10-02 amendment)
+
+The result-size `budget` input object leaves the tool surface. No operation
+input declares `budget`, `max_bytes`, `max_items`, or `max_millis`. The D6
+millisecond compatibility window closes with it: the agent surface never
+carried a negotiated old client that sends milliseconds.
+
+Operation time is bounded only by `requested_budget_seconds`. Result size is
+bounded only by the operation's `limit` and `page` pagination inputs. The
+store keeps the canonical envelope cap, and workflow action field
+constraints keep their own `max_items` bound; neither is a caller budget.
+
+The retirement removes the live disagreement between the published schema
+and the core decoder: published inputs no longer name a field the decoder
+refuses. The conformance tests pin both halves. The ceiling refusal shape in
+D3, the typed `supported_budget_seconds`, and the `adjust_budget` recovery
+are unchanged.
 
 ## Rejected alternatives
 

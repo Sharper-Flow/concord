@@ -1,5 +1,5 @@
 ---
-description: Concord verify lane — Run independent verification and return deterministic pass or failure evidence. Does not edit repository source.
+description: Concord verify lane — Run independent verification and return deterministic pass or failure evidence. Dispatch through dispatch_worker when a contract's outcome predicates need execution evidence a non-author produced. Does not edit repository source.
 mode: all
 hidden: true
 tools:
@@ -24,7 +24,7 @@ permission:
 
 # concord-verify
 
-Run independent verification and return deterministic pass or failure evidence.
+Run independent verification and return deterministic pass or failure evidence. Dispatch through dispatch_worker when a contract's outcome predicates need execution evidence a non-author produced.
 
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not

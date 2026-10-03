@@ -8,6 +8,12 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const adapter = await import("./concord")
 
+// The published input is one closed branch per operation; the workflow_action
+// branch is the one whose required set names action_id.
+function actionInputBranch(schema: any): any {
+  return schema.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
+}
+
 function inspectHostSchema(value: unknown, path = "$", seen = new Set<unknown>()): void {
   if (typeof value !== "object" || value === null || seen.has(value)) return
   seen.add(value)
@@ -45,9 +51,20 @@ test("published request schemas are flattened and safe for host publication", ()
       required: ["operation", "input"],
       properties: {
         operation: { type: "string" },
-        input: { type: "object", required: [], additionalProperties: true },
+        input: { type: "object" },
       },
     })
+    const branches = schema.oneOf
+    expect(branches).toHaveLength(
+      contractOperations.filter((operation: any) => operation.tool === toolName).length,
+    )
+    for (const branch of branches) {
+      expect(branch.type).toBe("object")
+      expect(branch.additionalProperties).toBe(false)
+      expect(Array.isArray(branch.required)).toBe(true)
+      expect(branch.properties.input.type).toBe("object")
+      expect(branch.properties.input.additionalProperties).toBe(false)
+    }
     expect(schema.properties.operation.enum).toEqual(
       contractOperations.filter((operation: any) => operation.tool === toolName).map((operation: any) => operation.id.split(".")[1]),
     )
@@ -59,7 +76,7 @@ test("published workflow transition teaches every approve_contract admission rul
   // The advertised schema carries all four store admission rules; the store's
   // ValidateOperationPayload stays the closed boundary.
   expect(advertisedAdmissionTeachingGaps(schema)).toEqual([])
-  const items = schema.properties.input.properties.fields.properties.outcome_predicates.items
+  const items = actionInputBranch(schema).properties.fields.properties.outcome_predicates.items
   expect(items.required).toEqual(["predicate_id", "ordinal", "outcome_kind", "outcome_payload"])
   expect(items.additionalProperties).toBe(false)
   expect(items.properties.outcome_payload.oneOf.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
@@ -74,8 +91,8 @@ test("published workflow transition teaches every approve_contract admission rul
       expected_version: 2,
       action_id: "approve_contract",
       idempotency_key: "idem-admission-conformance",
-      premise: "Advertise the admission rules the store enforces.",
       fields: {
+        premise: "Advertise the admission rules the store enforces.",
         outcome_predicates: [{
           predicate_id: "predicate:admission-conformance",
           ordinal: 0,
@@ -100,7 +117,7 @@ test("published workflow transition teaches every approve_contract admission rul
 
 test("delivery-decidable-rule: the published schema teaches it and the gap check detects its removal", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
-  const fields = schema.properties.input.properties.fields.properties
+  const fields = actionInputBranch(schema).properties.fields.properties
   // CD-0184 teaches the rule at both authoring points: the outcome_predicates
   // array shared by approve_contract and supersede_contract, and the
   // add_condition hold bound.
@@ -112,13 +129,13 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   // Dropping either teaching from the published schema is a reported gap, so
   // generation and its tests fail on drift.
   const droppedPredicateRule = structuredClone(schema)
-  delete droppedPredicateRule.properties.input.properties.fields.properties.outcome_predicates.description
+  delete actionInputBranch(droppedPredicateRule).properties.fields.properties.outcome_predicates.description
   expect(advertisedAdmissionTeachingGaps(droppedPredicateRule)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184)",
   )
 
   const droppedWaitRule = structuredClone(schema)
-  delete droppedWaitRule.properties.input.properties.fields.properties.expected_within_seconds.description
+  delete actionInputBranch(droppedWaitRule).properties.fields.properties.expected_within_seconds.description
   expect(advertisedAdmissionTeachingGaps(droppedWaitRule)).toContain(
     "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",
   )
@@ -126,8 +143,8 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   // A description cut down to its marker phrases no longer carries the rule,
   // so it is a gap too.
   const reducedRules = structuredClone(schema)
-  reducedRules.properties.input.properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
-  reducedRules.properties.input.properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
+  actionInputBranch(reducedRules).properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
+  actionInputBranch(reducedRules).properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
   expect(advertisedAdmissionTeachingGaps(reducedRules)).toEqual(expect.arrayContaining([
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184)",
     "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)",

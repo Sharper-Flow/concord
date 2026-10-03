@@ -23,7 +23,7 @@ func TestAuditReclaimPostCommitFailureTruncatesBeyondEnvelopeCapacity(t *testing
 		changed[i] = ChangedRef{EntityKind: "work_item", ID: fmt.Sprintf("work-%02d", i), Version: "5"}
 	}
 
-	failure := coreError(base, "budget_refused", "mutation result exceeds requested max_bytes budget", "adjust_budget", false)
+	failure := coreError(base, "budget_refused", "requested_budget_seconds 600 exceeds supported 300", "adjust_budget", false)
 	failure.Error.SupportedBudgetSeconds = 300
 	mapped := auditReclaimPostCommitFailure(base, changed, failure)
 	if mapped.Outcome != OutcomeError || mapped.Error == nil {
@@ -107,7 +107,7 @@ func TestAuditReclaimBeyondChangedRefBoundReportsCommittedEffect(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"product_id": "product-1", "default_ref": "main", "idempotency_key": "audit-bound-pass-1", "limit": total,
 	})
-	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Budget: budgetInput{}, Reader: grant}
+	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "worktree_audit_reclaim", Reader: grant}
 	base := NewBase("audit-bound-pass-1", "concord_work_transition", "worktree_audit_reclaim")
 	response, err := r.mutateWorktreeAuditReclaim(ctx, base, raw, grant, op)
 	if err != nil {

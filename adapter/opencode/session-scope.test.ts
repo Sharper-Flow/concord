@@ -64,12 +64,18 @@ test("an unmanaged native Task preserves arguments and creates no Concord eviden
 test("managed scope refuses ordinary and Concord Tasks without a window", async () => {
   const fixture = host([session("scope-managed", true)])
   const plugin = await fixture.plugin()
-  for (const subagent_type of ["general", "explore", "concord-implement"]) {
+  for (const subagent_type of ["general", "explore"]) {
     const output = { args: { ...args(), subagent_type } }
     const original = structuredClone(output.args)
     await expect(plugin["tool.execute.before"](task("scope-managed"), output)).rejects.toThrow("no authorized dispatch window")
     expect(output.args).toEqual(original)
   }
+  // A lane Task without a window is refused by the dispatch-only lane rule,
+  // which names the correcting route: dispatch_worker opens the window.
+  const laneOutput = { args: { ...args(), subagent_type: "concord-implement" } }
+  const laneOriginal = structuredClone(laneOutput.args)
+  await expect(plugin["tool.execute.before"](task("scope-managed"), laneOutput)).rejects.toThrow("dispatch_worker")
+  expect(laneOutput.args).toEqual(laneOriginal)
 })
 
 test("managed participation survives agent changes and plugin recreation", async () => {
@@ -122,7 +128,7 @@ test("unmanaged sessions cannot invoke Concord lanes without authorization", asy
   const fixture = host([session("scope-direct")])
   const plugin = await fixture.plugin()
   const output = { args: { ...args(), subagent_type: "concord-research" } }
-  await expect(plugin["tool.execute.before"](task("scope-direct"), output)).rejects.toThrow("no authorized dispatch window")
+  await expect(plugin["tool.execute.before"](task("scope-direct"), output)).rejects.toThrow("dispatch_worker")
   expect(fixture.writes).toEqual([])
 })
 

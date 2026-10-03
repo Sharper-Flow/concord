@@ -3754,6 +3754,137 @@ expect_world(
 )
 
 
+# --- CON-488 retry-14: the proof reads SQLite's own catalog -----------------
+# Three admissions the last textual proof made and SQLite convicted. The
+# proof now replays the world in an in-memory SQLite database and compares
+# catalog facts, probe rows, and stored definitions, so each defect below
+# is refused by a fact SQLite itself reports, never by a wider lexer.
+
+# A quoted column named x+1 is not the expression x+1: the copy's SELECT
+# computes x plus 1 and moves 8 to 2, so the copy's column list cannot
+# pair the quoted name with the bare expression, and the row comparison
+# would convict the moved value even if the statement read clean.
+COMPUTED_COPY_BASE = (
+    'CREATE TABLE t (id INTEGER PRIMARY KEY,x INTEGER CHECK(x<=9),"x+1" INTEGER);'
+)
+COMPUTED_COPY_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO old_t;",
+        'CREATE TABLE t (id INTEGER PRIMARY KEY,x INTEGER CHECK(x<=10),"x+1" INTEGER);',
+        'INSERT INTO t (id,x,"x+1") SELECT id,x,x+1 FROM old_t;',
+        "DROP TABLE old_t;",
+    )
+)
+expect_world(
+    "a computed copy column is not the quoted column it names",
+    COMPUTED_COPY_BASE,
+    COMPUTED_COPY_REBUILD,
+    breaking=True,
+)
+
+# A dotless-i type word: SQLite folds names ASCII-only, so ıNTEXT carries
+# TEXT affinity while a Unicode uppercase would call it INTEGER. The
+# affinity comes from a SQLite probe, the moved numeric bound refuses on
+# a TEXT column, and SQLite itself rejects the old-valid row at the copy.
+UNICODE_TYPE = "\u0131NTEXT"
+UNICODE_TYPE_BASE = (
+    f"CREATE TABLE t (id INTEGER PRIMARY KEY,n {UNICODE_TYPE} CHECK(n<=9));"
+)
+UNICODE_TYPE_REBUILD = (
+    f"ALTER TABLE t RENAME TO scratch; "
+    f"CREATE TABLE t (id INTEGER PRIMARY KEY,n {UNICODE_TYPE} CHECK(n<=10)); "
+    f"INSERT INTO t (id,n) SELECT id,n FROM scratch; DROP TABLE scratch;"
+)
+expect_world(
+    "a unicode type word keeps its SQLite affinity and the bound stays breaking",
+    UNICODE_TYPE_BASE,
+    UNICODE_TYPE_REBUILD,
+    breaking=True,
+)
+with sqlite3.connect(":memory:") as connection:
+    connection.executescript(UNICODE_TYPE_BASE)
+    connection.execute("INSERT INTO t VALUES(1,'2')")
+    before = connection.execute("SELECT id,n,typeof(n) FROM t").fetchall()
+    try:
+        connection.executescript(UNICODE_TYPE_REBUILD)
+    except sqlite3.IntegrityError as error:
+        if before != [(1, "2", "text")]:
+            FAILURES.append(f"unicode-affinity probe row read {before!r}")
+    else:
+        FAILURES.append(
+            "SQLite accepted the narrowed unicode-affinity CHECK it must refuse"
+        )
+
+# PRıMARY is not PRIMARY: SQLite reads no primary key, so the table has no
+# rowid alias and the copy reassigns rowids (the review probe moved rowid
+# 42 to 1). The probe rows carry distinctive rowids, and the comparison
+# refuses the reassigned copy.
+UNICODE_PK = "PR\u0131MARY"
+expect_world(
+    "a unicode keyword is no primary key and the rowids stay breaking",
+    f"CREATE TABLE t (id INTEGER {UNICODE_PK} KEY,n INTEGER CHECK(n>=0));",
+    (
+        f"ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t (id INTEGER {UNICODE_PK} KEY,n INTEGER CHECK(n>=-1)); "
+        f"INSERT INTO t (id,n) SELECT id,n FROM scratch; DROP TABLE scratch;"
+    ),
+    breaking=True,
+)
+
+# The new positive this repair adds: a rebuild that restores an inbound
+# reference. The rename rewrites the neighbouring trigger onto the scratch
+# name; the migration drops and re-creates it with its old text, and the
+# catalog comparison proves the restoration byte for byte against the
+# stored definition SQLite kept. The textual replay could not carry a
+# rename's rewrite, so this shape stayed breaking on every earlier proof;
+# the SQLite replay proves it additive.
+INBOUND_RESTORE_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE u (m INTEGER); "
+    "CREATE TRIGGER g AFTER INSERT ON u BEGIN SELECT n FROM t; END;"
+)
+INBOUND_RESTORE_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+        "DROP TABLE scratch;",
+        "DROP TRIGGER g;",
+        "CREATE TRIGGER g AFTER INSERT ON u BEGIN SELECT n FROM t; END;",
+    )
+)
+expect_world(
+    "a restored inbound trigger lets the rebuild stay additive",
+    INBOUND_RESTORE_BASE,
+    INBOUND_RESTORE_REBUILD,
+    breaking=False,
+)
+
+# Old-shaped reads, writes, and row preservation across that proven-additive
+# rebuild: a reader built for the old schema (the columns, comparisons,
+# and rowids it knows) keeps answering, and a write in the old shape still
+# lands. This pins the additive claim itself, not just the classifier's
+# verdict.
+with sqlite3.connect(":memory:") as connection:
+    connection.executescript(INBOUND_RESTORE_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (42, 7)")
+    connection.execute("INSERT INTO t (id, n) VALUES (43, 0)")
+    connection.executescript(INBOUND_RESTORE_REBUILD)
+    rows = connection.execute("SELECT rowid, id, n FROM t ORDER BY rowid").fetchall()
+    if rows != [(42, 42, 7), (43, 43, 0)]:
+        FAILURES.append(f"old-shaped rowid reads moved: {rows!r}")
+    connection.execute("INSERT INTO t (id, n) VALUES (44, 1)")
+    if connection.execute("SELECT count(*) FROM t").fetchone()[0] != 3:
+        FAILURES.append("an old-shaped write after the rebuild failed")
+    if connection.execute("SELECT n FROM t WHERE id = 42").fetchone()[0] != 7:
+        FAILURES.append("an old-shaped value read after the rebuild failed")
+    trigger = connection.execute(
+        "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='g'"
+    ).fetchone()[0]
+    if "FROM t" not in trigger:
+        FAILURES.append(f"the restored trigger still names the scratch table: {trigger!r}")
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

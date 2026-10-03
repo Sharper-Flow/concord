@@ -4032,6 +4032,238 @@ with sqlite3.connect(":memory:") as connection:
         FAILURES.append(f"the restored trigger still names the scratch table: {trigger!r}")
 
 
+# --- CON-488 retry-19: SQLite-evaluated constraint values ---------------------
+# Two unsafe additive admissions the hand-written value reader made and
+# SQLite convicted. The membership split read lists on raw commas, so
+# ('a'',''b') - one string member to SQLite - parsed as two members and a
+# narrowing to ('a''','''b') classified additive. The same reader treated
+# the expression 'a'||'b' as one literal whose text runs edge to edge.
+# Members and bounds are now values SQLite itself evaluates: json_array
+# runs the whole list and refuses what it cannot read as constants or
+# what names a column, a companion select returns each fragment's runtime
+# value with its storage kind, and the member split rides the quote-aware
+# tokenizer's commas. Anything but single literal tokens - 'a'||'b', a
+# function, a column reference - leaves the family and can only repeat
+# its old text.
+
+def text_rebuild(old_columns: str, new_columns: str) -> str:
+    return (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({new_columns}); "
+        "INSERT INTO t (id, s) SELECT id, s FROM scratch; "
+        "DROP TABLE scratch;"
+    )
+
+
+# The escaped-comma narrowing: SQLite reads the old list as ONE member,
+# the string "a','b", and the new list as two, "a'" and "'b". The old
+# member never returns, so the rebuild stays breaking.
+IN_LITERAL_COMMA_BASE = small_base(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'',''b'))"
+)
+IN_LITERAL_COMMA_NARROW = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'',''b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a''','''b'))",
+)
+expect_world(
+    "an IN list whose member hides a comma cannot narrow through the split",
+    IN_LITERAL_COMMA_BASE,
+    IN_LITERAL_COMMA_NARROW,
+    breaking=True,
+)
+# SQLite conviction: the row "a','b" is old-valid, and the narrowed
+# rebuild cannot even copy it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(IN_LITERAL_COMMA_BASE)
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'a'',''b')")
+    try:
+        connection.executescript(IN_LITERAL_COMMA_NARROW)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the comma-hidden narrowing copied its old-valid row")
+finally:
+    connection.close()
+
+# The concatenation attack: SQLite evaluates the old member 'a'||'b' as
+# "ab", while the new list is one string member, "a' || 'b". An
+# expression member is outside the family, so the change can only repeat
+# its old text - and it does not.
+IN_CONCAT_BASE = small_base(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))"
+)
+IN_CONCAT_ATTACK = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'' || ''b'))",
+)
+expect_world(
+    "an IN member spelled as an expression is outside the family",
+    IN_CONCAT_BASE,
+    IN_CONCAT_ATTACK,
+    breaking=True,
+)
+# SQLite conviction: "ab" is old-valid, and the new single-string member
+# refuses it at the copy.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(IN_CONCAT_BASE)
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'ab')")
+    try:
+        connection.executescript(IN_CONCAT_ATTACK)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the concatenation attack copied its old-valid row")
+finally:
+    connection.close()
+# The unchanged expression repeats its old text and still proves equal.
+expect_world(
+    "an unchanged expression member still proves equal",
+    IN_CONCAT_BASE,
+    text_rebuild(
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+    ),
+    breaking=False,
+)
+
+# The new positive this repair adds: a member that carries a comma inside
+# its quotes. The raw-comma split read the old list as the two fragments
+# "'a" and "b'", neither a literal, so a sound widening stayed breaking;
+# the tokenizer's comma and SQLite's own evaluation admit it.
+IN_EMBEDDED_COMMA_WIDEN = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b','c'))",
+)
+expect_world(
+    "an IN member with an embedded comma still widens additively",
+    small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))"),
+    IN_EMBEDDED_COMMA_WIDEN,
+    breaking=False,
+)
+# Rows preserved, old-shaped writes landing, the new member accepted, and
+# the widened bound still refusing what it must.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))")
+    )
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'a,b')")
+    connection.executescript(IN_EMBEDDED_COMMA_WIDEN)
+    if connection.execute("SELECT id, s FROM t").fetchall() != [(1, "a,b")]:
+        FAILURES.append("the embedded-comma widening lost its row")
+    connection.execute("INSERT INTO t (id, s) VALUES (2, 'a,b')")
+    connection.execute("INSERT INTO t (id, s) VALUES (3, 'c')")
+    try:
+        connection.execute("INSERT INTO t (id, s) VALUES (4, 'd')")
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the embedded-comma widening admitted a non-member")
+finally:
+    connection.close()
+
+# The evaluated kind rides the affinity rule: the integer 9 and the real
+# 9.0 are one member only where the column compares numerically. Under
+# TEXT affinity SQLite renders them as '9' and '9.0', different text.
+expect_world(
+    "a real member covering an integer member under numeric affinity stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9.0))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9.0))",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9))",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a real member against an integer member under text affinity stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))",
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9))",
+    ),
+    breaking=True,
+)
+# SQLite conviction: under TEXT affinity the old member renders '9.0' and
+# the new one '9', so the copy of the old-valid row dies.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))")
+    )
+    connection.execute("INSERT INTO t (id, n) VALUES (1, '9.0')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))",
+                "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9))",
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the kind-changing member copied its old-valid row")
+finally:
+    connection.close()
+
+# The same evaluated-kind rule orders comparison bounds: one numeric
+# bound under numeric affinity, a refusal under text affinity.
+expect_world(
+    "a real bound covering an integer bound under numeric affinity stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9.0)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a real bound against an integer bound under text affinity stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9)",
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9.0)",
+    ),
+    breaking=True,
+)
+
+# A membership widening may change the list and nothing else: the CHECK
+# text outside the parenthesized list repeats byte for byte, so a changed
+# keyword case or column name refuses even when the list grows.
+expect_world(
+    "an IN widening that changes the keyword's case stays breaking",
+    small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'))"),
+    text_rebuild(
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'))",
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s in ('a','b'))",
+    ),
+    breaking=True,
+)
+
+# A bound or member that names a column never reaches evaluation: the
+# grammar admits single literal tokens only, and sqlite_constant_values
+# would refuse it as a no-such-column error besides.
+expect_world(
+    "a bound that names another column stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n)",
+        "id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n - 1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a member that names a column stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m))",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m, 1))",
+    ),
+    breaking=True,
+)
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

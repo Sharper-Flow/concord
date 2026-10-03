@@ -75,10 +75,23 @@ all of this:
   affinity - read from SQLite by probing a scratch column of the same
   declared type, never re-derived in Python - makes the comparison
   numeric, one equal-bound strictness loosening, or a grown membership
-  list. Equality, inequality, and text bounds have acceptance sets the
-  proof cannot order: a changed one must repeat its old text. A numeric
-  literal reads at its SQLite runtime value, so 9007199254740995.0 and
-  9007199254740995 are not one bound;
+  list whose CHECK text outside the list repeats byte for byte.
+  Equality, inequality, and text bounds have acceptance sets the
+  proof cannot order: a changed one must repeat its old text. Every
+  literal's value is a fact SQLite reports, never a derivation from
+  token spellings: an in-memory connection runs the whole membership
+  list (and each bound) through SELECT json_array(...), which a list
+  SQLite cannot read as constants, or one naming a column, raises and
+  refuses, and a companion select returns each fragment's runtime value
+  with its storage kind, so 9007199254740995.0 and 9007199254740995
+  are not one bound and the integer 9 is not the real 9.0. The JSON
+  text alone is not the value - SQLite prints a REAL with fifteen
+  significant digits - so the native values carry the exact doubles
+  the orderings compare. Members split on the quote-aware tokenizer's
+  commas, never on raw commas: a comma inside a string literal is a
+  character of that literal, ('a'',''b') is one member, and a list of
+  anything but single literal tokens - 'a'||'b', a function, a column
+  reference - leaves the family and can only repeat its old text;
 - the copy statement names every column of the recreated table, in
   order, on both sides of the SELECT, and each name on both sides is
   exactly one identifier token - bare, or quoted under SQLite's
@@ -107,19 +120,19 @@ CREATE TABLE body reader lifts CHECK texts and compares the remaining
 words for equality, and its miss shape refuses the proof - the end-state
 that retires both is a SQLite surface that reports CHECK constraints as
 catalog facts. The CHECK atom family itself compares only bare-column
-atoms against literal bounds, and refuses every other expression to
-unchanged text. Go-source reading (the migrations table extractor and
+atoms against single literal tokens, and refuses every other expression
+to unchanged text; the values inside that family are SQLite's own
+answers. Go-source reading (the migrations table extractor and
 the declaration parsers) parses Go, not SQL, because the checker reads
 the shipped source without executing the toolchain.
 """
 
 from __future__ import annotations
 
-import math
+import json
 import re
 import sqlite3
 import sys
-from fractions import Fraction
 from pathlib import Path
 from typing import NamedTuple
 
@@ -808,10 +821,13 @@ REBUILD_COPY = re.compile(
     rf"{SQL_SQ}FROM{SQL_NAME_SEP}({SQL_QUAL})$",
     re.IGNORECASE,
 )
-CHECK_LITERAL = rf"(?:'(?:[^']|'')*'|[+-]?[0-9]+(?:\.[0-9]+)?)"
+# One decimal number token, the numeric literal grammar the CHECK family
+# admits. Hex, exponents, and every other numeric spelling SQLite reads
+# stay outside the family and repeat their old text unchanged.
+CHECK_NUMBER = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
 CHECK_COMPARE = re.compile(
     rf"^({SQL_ID_START}{SQL_ID_CONT}*){SQL_SQ}(<=|>=|<>|!=|==|=|<|>)"
-    rf"{SQL_SQ}({CHECK_LITERAL})$",
+    rf"{SQL_SQ}([\s\S]+)$",
     re.IGNORECASE,
 )
 CHECK_MEMBERSHIP = re.compile(
@@ -822,74 +838,121 @@ TABLE_HEADS = ("CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK")
 SQL_WORD = rf"{SQL_ID_START}{SQL_ID_CONT}*"
 
 
-class CheckBound(NamedTuple):
-    """One CHECK literal: kind, SQLite runtime value, and source spelling.
+def is_literal_token(token: str) -> bool:
+    """Whether one token is a string literal or a decimal numeric literal."""
+    if token.startswith("'"):
+        return quoted_end(token, 0) == len(token)
+    return CHECK_NUMBER.fullmatch(token) is not None
 
-    value is what a comparison runs on: the unquoted text for a text
-    literal, and for a numeric literal the exact integer when the literal
-    fits int64, otherwise the IEEE-754 double SQLite reads the spelling
-    as, carried as that double's exact fraction. literal keeps the source
-    spelling, because affinity renders the value: a TEXT-affinity column
-    turns 9 into '9' but 9.0 into '9.0', so numerically equal spellings
-    accept different rows there.
+
+def literal_members(inner: str) -> list[str] | None:
+    """Split one IN list into single-literal members, or None outside the family.
+
+    The split rides the quote-aware tokenizer's commas, never raw commas:
+    a comma inside a string literal is a character of that literal, so
+    ('a'',''b') is one member and ('a''','''b') is two. Each member must
+    be exactly one literal token - 'a'||'b' is an expression whose value
+    SQLite computes, and a fragment that is not one literal token leaves
+    the family rather than be read in Python.
     """
+    members: list[str] = []
+    expect_member = True
+    for token in sql_tokens(inner):
+        if expect_member:
+            if not is_literal_token(token):
+                return None
+            members.append(token)
+        elif token != ",":
+            return None
+        expect_member = not expect_member
+    if expect_member or not members:
+        return None
+    return members
 
-    kind: str
-    value: object
-    literal: str
 
+def sqlite_constant_values(fragments: list[str]) -> list[tuple[str, object]] | None:
+    """Evaluate literal fragments in one in-memory SQLite connection.
 
-def check_bound(text: str) -> CheckBound | None:
-    """Return one literal's proof value, or None outside the family.
-
-    A numeric bound is read the way SQLite reads it: an integer that
-    fits int64 stays exact, and every other numeric literal parses to
-    its IEEE-754 double. Past 2**53 the spelling and the double part
-    company - 9007199254740995.0 reads as 9007199254740996 - so a
-    comparison on decimal spellings would call a narrowing an equality
-    and admit a rebuild that kills an old-valid row. A literal whose
-    double is not finite refuses the family rather than guess.
+    SQLite owns every value decision. SELECT json_array(<all fragments>)
+    runs the whole list as one expression: a fragment SQLite cannot read
+    as a constant, or one that names a column, raises and refuses. The
+    JSON text is not the value - SQLite prints a REAL with fifteen
+    significant digits, so 9007199254740996.0 would read back as a
+    different number - so a companion select returns each fragment's
+    runtime value as Python carries it, exact doubles included, and the
+    JSON output only corroborates the parse: its element count must equal
+    the member reader's, and each element's JSON type must agree with the
+    native value's. Every value rides with its storage kind, so the
+    integer 9 and the real 9.0 stay distinct the way affinity renders
+    them.
     """
-    text = text.strip(SQL_TRIM)
-    if len(text) >= 2 and text[0] == "'" and text[-1] == "'":
-        return CheckBound("text", text[1:-1].replace("''", "'"), text)
-    if not re.fullmatch(r"[+-]?[0-9]+(?:\.[0-9]+)?", text):
+    db = sqlite3.connect(":memory:")
+    try:
+        listed = db.execute(
+            f"SELECT json_array({', '.join(fragments)})"
+        ).fetchone()
+        row = db.execute(f"SELECT {', '.join(fragments)}").fetchone()
+    except (sqlite3.Error, ValueError):
         return None
-    if re.fullmatch(r"[+-]?[0-9]+", text):
-        value = int(text)
-        if -(2**63) <= value < 2**63:
-            return CheckBound("number", Fraction(value), text)
-        # SQLite converts an integer literal too large for int64 to REAL.
-    runtime = float(text)
-    if not math.isfinite(runtime):
+    finally:
+        db.close()
+    if listed is None or row is None or len(row) != len(fragments):
         return None
-    return CheckBound("number", Fraction(runtime), text)
+    try:
+        elements = json.loads(listed[0])
+    except ValueError:
+        return None
+    if not isinstance(elements, list) or len(elements) != len(fragments):
+        # SQLite's own comma split and the tokenizer's disagree, so the
+        # list the members came from is not the list SQLite parsed.
+        return None
+    values: list[tuple[str, object]] = []
+    for element, value in zip(elements, row):
+        if type(element) is not type(value) or type(value) not in (
+            int,
+            float,
+            str,
+        ):
+            return None
+        kind = {int: "integer", float: "real", str: "text"}[type(value)]
+        values.append((kind, value))
+    return values
 
 
 def parse_check_atom(expr: str):
     """Parse one supported CHECK atom, or return None outside the family.
 
     Supported: one bare column against one literal bound with a monotone
-    operator, and one bare column's membership list. Everything else -
-    compound expressions, functions, subqueries - is outside the family
-    and can only repeat the old text unchanged.
+    operator, and one bare column's membership list of single literal
+    tokens. Every literal's value comes from sqlite_constant_values, so
+    the atom carries SQLite's runtime values, never token-derived
+    guesses. An IN atom also carries the CHECK text outside its
+    parenthesized list; a widening must repeat that text byte for byte.
+    Everything else - compound expressions, functions, subqueries - is
+    outside the family and can only repeat the old text unchanged.
     """
     text = collapse_ws(expr)
     match = CHECK_COMPARE.match(text)
     if match:
-        bound = check_bound(match.group(3))
-        if bound is None:
+        bound_tokens = sql_tokens(match.group(3))
+        if len(bound_tokens) != 1 or not is_literal_token(bound_tokens[0]):
             return None
-        return ("cmp", fold_ascii(match.group(1)), match.group(2), bound)
+        values = sqlite_constant_values(bound_tokens)
+        if values is None or len(values) != 1:
+            return None
+        return ("cmp", fold_ascii(match.group(1)), match.group(2), values[0])
     match = CHECK_MEMBERSHIP.match(text)
     if match:
-        values = set()
-        for piece in match.group(2).split(","):
-            bound = check_bound(piece)
-            if bound is None:
-                return None
-            values.add(bound)
-        return ("in", fold_ascii(match.group(1)), frozenset(values))
+        members = literal_members(match.group(2))
+        if members is None:
+            return None
+        values = sqlite_constant_values(members)
+        if values is None:
+            return None
+        # The CHECK text around the list: a widening may change the list
+        # and nothing else, so the old side carries its own outside text.
+        outside = text[: match.start(2)] + text[match.end(2) :]
+        return ("in", fold_ascii(match.group(1)), outside, frozenset(values))
     return None
 
 
@@ -910,25 +973,25 @@ MONOTONE_OPERATORS = ("<=", ">=", "<", ">")
 NUMERIC_BOUND_AFFINITIES = frozenset(("INTEGER", "REAL", "NUMERIC", "BLOB"))
 
 
-def member_covers(old_bound: CheckBound, new_bound: CheckBound, affinity) -> bool:
+def member_covers(old_value, new_value, affinity) -> bool:
     """Whether one new member's match set contains one old member's.
 
-    The column and its collation are the same on both sides, so equal
-    text covers text. A numeric member matches its runtime value only
-    where the column's affinity compares numerically: a TEXT-affinity
-    column renders each literal as its own text - 9 becomes '9', but 9.0
-    becomes '9.0' - so there, and wherever the column's affinity is
-    unknown, only an identically spelled member covers.
+    The column and its collation are the same on both sides, so members
+    that agree in kind and value - both SQLite's answers - accept the
+    same rows under any affinity. Members that agree only as numbers,
+    the integer 9 against the real 9.0, match the same rows only where
+    the column's affinity compares numerically: a TEXT-affinity column
+    renders each as its own text, 9 as '9' but 9.0 as '9.0'.
     """
-    if old_bound.kind != new_bound.kind:
-        return False
-    if old_bound.kind == "text":
-        return old_bound.value == new_bound.value
-    if old_bound.literal == new_bound.literal:
+    if old_value == new_value:
         return True
-    if affinity not in NUMERIC_BOUND_AFFINITIES:
-        return False
-    return old_bound.value == new_bound.value
+    if (
+        old_value[0] in ("integer", "real")
+        and new_value[0] in ("integer", "real")
+        and affinity in NUMERIC_BOUND_AFFINITIES
+    ):
+        return old_value[1] == new_value[1]
+    return False
 
 
 def membership_covers(column: str, old_values, new_values, affinity_of) -> bool:
@@ -952,16 +1015,24 @@ def atom_widens(old_expr: str, new_expr: str, affinity_of) -> bool | None:
     The comparison's meaning comes from the column the atom names, so the
     proof reads that column's declared-type affinity before it orders any
     bound: affinity_of maps the folded column name to its affinity, and a
-    name it cannot resolve refuses. Numeric bounds carry their SQLite
-    runtime values, so a REAL bound and an INTEGER bound order the way
-    SQLite orders them, rounding and all.
+    name it cannot resolve refuses. A membership widening repeats the
+    CHECK text outside its parenthesized list byte for byte and covers
+    every old member under some new member, each member a value SQLite
+    evaluated with its storage kind. Bounds carry their SQLite runtime
+    values, so a REAL bound and an INTEGER bound order the way SQLite
+    orders them, rounding and all.
     """
     old = parse_check_atom(old_expr)
     new = parse_check_atom(new_expr)
     if old is None or new is None or old[0] != new[0] or old[1] != new[1]:
         return None
     if old[0] == "in":
-        return membership_covers(old[1], old[2], new[2], affinity_of)
+        if old[2] != new[2]:
+            # The list may grow, and nothing around it may change: the
+            # column, the keyword, and every spelling outside the list
+            # repeat, so SQLite compares the same column both sides.
+            return None
+        return membership_covers(old[1], old[3], new[3], affinity_of)
     old_op, old_bound = old[2], old[3]
     new_op, new_bound = new[2], new[3]
     if old_op not in MONOTONE_OPERATORS or new_op not in MONOTONE_OPERATORS:
@@ -974,7 +1045,10 @@ def atom_widens(old_expr: str, new_expr: str, affinity_of) -> bool | None:
             return True
         # A moved bound orders only where the column's affinity makes the
         # comparison numeric; an unknown column refuses.
-        if old_bound.kind != "number" or new_bound.kind != "number":
+        if old_bound[0] not in ("integer", "real") or new_bound[0] not in (
+            "integer",
+            "real",
+        ):
             return None
     else:
         # One strictness step admits a superset only at one bound and
@@ -985,10 +1059,13 @@ def atom_widens(old_expr: str, new_expr: str, affinity_of) -> bool | None:
             return None
         if old_bound == new_bound:
             return True
-        # A loosening whose spellings differ proves its equality the way a
-        # moved bound proves its order: only where the affinity compares
-        # numerically.
-        if old_bound.kind != "number" or new_bound.kind != "number":
+        # A loosening whose values differ in kind proves its equality the
+        # way a moved bound proves its order: only where the affinity
+        # compares numerically.
+        if old_bound[0] not in ("integer", "real") or new_bound[0] not in (
+            "integer",
+            "real",
+        ):
             return None
     affinity = affinity_of(old[1]) if affinity_of is not None else None
     if affinity not in NUMERIC_BOUND_AFFINITIES:
@@ -999,14 +1076,14 @@ def atom_widens(old_expr: str, new_expr: str, affinity_of) -> bool | None:
         # compares them, so the bound 9007199254740995.0 (the double
         # 9007199254740996) cannot move to 9007199254740995.
         return (
-            new_bound.value >= old_bound.value
+            new_bound[1] >= old_bound[1]
             if upper
-            else new_bound.value <= old_bound.value
+            else new_bound[1] <= old_bound[1]
         )
     # The loosening step admits a superset only while the inclusive bound
     # matches the strict one at runtime: x < 9007199254740995.0 widens to
     # x <= 9007199254740996, never to x <= 9007199254740995.
-    return new_bound.value == old_bound.value
+    return new_bound[1] == old_bound[1]
 
 
 def checks_widen(old_checks, new_checks, affinity_of=None) -> bool:

@@ -11806,6 +11806,15 @@
                         },
                         "minItems": 0,
                         "maxItems": 16
+                      },
+                      "out_of_scope": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "minItems": 0,
+                        "maxItems": 16
                       }
                     },
                     "required": [

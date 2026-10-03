@@ -313,6 +313,7 @@ type workflowProposalContent struct {
 	UserOutcomes  []string `json:"user_outcomes"`
 	Constraints   []string `json:"constraints,omitempty"`
 	OpenQuestions []string `json:"open_questions,omitempty"`
+	OutOfScope    []string `json:"out_of_scope,omitempty"`
 }
 
 type workflowProposalRecordedPayload struct {
@@ -323,17 +324,18 @@ type workflowProposalRecordedPayload struct {
 	UserOutcomes  []string `json:"user_outcomes"`
 	Constraints   []string `json:"constraints,omitempty"`
 	OpenQuestions []string `json:"open_questions,omitempty"`
+	OutOfScope    []string `json:"out_of_scope,omitempty"`
 }
 
 func (p workflowProposalRecordedPayload) content() workflowProposalContent {
-	return workflowProposalContent{Problem: p.Problem, Affected: p.Affected, Stakes: p.Stakes, UserOutcomes: p.UserOutcomes, Constraints: p.Constraints, OpenQuestions: p.OpenQuestions}
+	return workflowProposalContent{Problem: p.Problem, Affected: p.Affected, Stakes: p.Stakes, UserOutcomes: p.UserOutcomes, Constraints: p.Constraints, OpenQuestions: p.OpenQuestions, OutOfScope: p.OutOfScope}
 }
 
 func validateWorkflowProposalContent(content workflowProposalContent) error {
-	if !validWorkflowProseItem(content.Problem, 4096) || len(content.Affected) < 1 || len(content.Affected) > 16 || !validWorkflowProseItem(content.Stakes, 2048) || len(content.UserOutcomes) < 1 || len(content.UserOutcomes) > 16 || len(content.Constraints) > 16 || len(content.OpenQuestions) > 16 {
+	if !validWorkflowProseItem(content.Problem, 4096) || len(content.Affected) < 1 || len(content.Affected) > 16 || !validWorkflowProseItem(content.Stakes, 2048) || len(content.UserOutcomes) < 1 || len(content.UserOutcomes) > 16 || len(content.Constraints) > 16 || len(content.OpenQuestions) > 16 || len(content.OutOfScope) > 16 {
 		return newFailure(KindInvalidPayload, "workflow_proposal", "proposal document is missing required text or exceeds its bounds", false, "supply the bounded proposal document")
 	}
-	for _, values := range [][]string{content.Affected, content.UserOutcomes, content.Constraints, content.OpenQuestions} {
+	for _, values := range [][]string{content.Affected, content.UserOutcomes, content.Constraints, content.OpenQuestions, content.OutOfScope} {
 		seen := make(map[string]struct{}, len(values))
 		for _, value := range values {
 			if _, exists := seen[value]; exists {
@@ -347,7 +349,7 @@ func validateWorkflowProposalContent(content workflowProposalContent) error {
 			return newFailure(KindInvalidPayload, "workflow_proposal", "proposal affected entry is blank or exceeds 256 characters", false, "supply bounded affected entries")
 		}
 	}
-	for _, values := range [][]string{content.UserOutcomes, content.Constraints, content.OpenQuestions} {
+	for _, values := range [][]string{content.UserOutcomes, content.Constraints, content.OpenQuestions, content.OutOfScope} {
 		for _, value := range values {
 			if !validWorkflowProseItem(value, 512) {
 				return newFailure(KindInvalidPayload, "workflow_proposal", "proposal text entry is blank or exceeds 512 characters", false, "supply bounded proposal text")
@@ -372,7 +374,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
 	}
-	for _, name := range []string{"constraints", "open_questions"} {
+	for _, name := range []string{"constraints", "open_questions", "out_of_scope"} {
 		if value, present := fields[name]; present && strings.TrimSpace(string(value)) == "null" {
 			return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal optional list cannot be null", false, "supply an array or omit the optional list")
 		}
@@ -381,6 +383,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 	content.UserOutcomes = nonNilStrings(content.UserOutcomes)
 	content.Constraints = nonNilStrings(content.Constraints)
 	content.OpenQuestions = nonNilStrings(content.OpenQuestions)
+	content.OutOfScope = nonNilStrings(content.OutOfScope)
 	return content, nil
 }
 
@@ -1803,10 +1806,11 @@ func foldWorkflowProposalRecorded(ctx context.Context, tx *sql.Tx, event Event) 
 	p.UserOutcomes = nonNilStrings(p.UserOutcomes)
 	p.Constraints = nonNilStrings(p.Constraints)
 	p.OpenQuestions = nonNilStrings(p.OpenQuestions)
+	p.OutOfScope = nonNilStrings(p.OutOfScope)
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Problem, workflowJSON(p.Affected), p.Stakes, workflowJSON(p.UserOutcomes), workflowJSON(p.Constraints), workflowJSON(p.OpenQuestions), event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,out_of_scope,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Problem, workflowJSON(p.Affected), p.Stakes, workflowJSON(p.UserOutcomes), workflowJSON(p.Constraints), workflowJSON(p.OpenQuestions), workflowJSON(p.OutOfScope), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow proposal")
 }
 

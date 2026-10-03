@@ -2883,6 +2883,153 @@ finally:
     connection.close()
 
 
+# --- CON-488 copy-proof regressions -------------------------------------------
+# Two admissions SQLite convicted that a uniform probe could not see. A
+# declared column named rowid shadows the alias, so SELECT rowid copies
+# the declared column and the hidden rowid 42 returns as 1. A quoted
+# column named "a * b" matches the expression SELECT a * b, and the
+# stored 100 returns as 6. The copy proof admits only single identifier
+# tokens on both lists, seeds cells distinct per column and per row, and
+# reads and seeds the hidden rowid through an alias the table's own
+# columns leave unshadowed; a table shadowing all three spellings hides
+# its rowid from every SELECT and refuses.
+
+DECLARED_ROWID_BASE = small_base("rowid TEXT, n INTEGER CHECK(n >= 0)")
+DECLARED_ROWID_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    "CREATE TABLE t (rowid TEXT, n INTEGER CHECK(n >= -1)); "
+    "INSERT INTO t (rowid, n) SELECT rowid, n FROM scratch; "
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a declared rowid column shadows the alias: the copy stays breaking",
+    DECLARED_ROWID_BASE,
+    DECLARED_ROWID_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: the copy carries the declared column, and the fresh
+# table answers the hidden rowid 42 at a fresh implicit 1.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(DECLARED_ROWID_BASE)
+    connection.execute("INSERT INTO t(_rowid_, rowid, n) VALUES (42, 'p', 3)")
+    connection.executescript(DECLARED_ROWID_REBUILD)
+    got = connection.execute("SELECT _rowid_, rowid, n FROM t").fetchone()
+    if got != (1, "p", 3):
+        FAILURES.append(
+            f"declared-rowid conviction returned {got}, want (1, 'p', 3)"
+        )
+finally:
+    connection.close()
+
+EXPRESSION_COPY_BASE = small_base(
+    'id INTEGER PRIMARY KEY, a INTEGER, b INTEGER, "a * b" INTEGER, '
+    "n INTEGER CHECK(n >= 0)"
+)
+EXPRESSION_COPY_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    'CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER, "a * b" INTEGER, '
+    "n INTEGER CHECK(n >= -1)); "
+    'INSERT INTO t (id, a, b, "a * b", n) SELECT id, a, b, a * b, n FROM scratch; '
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a quoted name matched by an expression stays breaking",
+    EXPRESSION_COPY_BASE,
+    EXPRESSION_COPY_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: the expression overwrites the stored 100 with 6.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(EXPRESSION_COPY_BASE)
+    connection.execute("INSERT INTO t VALUES (42, 2, 3, 100, 3)")
+    connection.executescript(EXPRESSION_COPY_REBUILD)
+    got = connection.execute('SELECT a, b, "a * b" FROM t').fetchone()
+    if got != (2, 3, 6):
+        FAILURES.append(
+            f"expression-copy conviction returned {got}, want (2, 3, 6)"
+        )
+finally:
+    connection.close()
+
+# A table that shadows every spelling hides its rowid from every SELECT:
+# no probe can prove the copy carried it, so the rebuild refuses.
+expect_world(
+    "a table shadowing every rowid spelling stays breaking",
+    small_base("rowid TEXT, oid TEXT, _rowid_ TEXT, n INTEGER CHECK(n >= 0)"),
+    (
+        "ALTER TABLE t RENAME TO scratch; "
+        "CREATE TABLE t (rowid TEXT, oid TEXT, _rowid_ TEXT, "
+        "n INTEGER CHECK(n >= -1)); "
+        "INSERT INTO t (rowid, oid, _rowid_, n) "
+        "SELECT rowid, oid, _rowid_, n FROM scratch; "
+        "DROP TABLE scratch;"
+    ),
+    breaking=True,
+)
+
+# Adjacent escapes the same token rule closes: each SELECT item below is
+# more than one identifier token, and each copy stays breaking whether
+# the token rule refuses the item or the item leaves the proved shape.
+COPY_ESCAPE_BASE = small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+
+
+def copy_escape(name: str, select_items: str) -> None:
+    expect_world(
+        name,
+        COPY_ESCAPE_BASE,
+        (
+            "ALTER TABLE t RENAME TO scratch; "
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)); "
+            f"INSERT INTO t (id, n) SELECT {select_items} FROM scratch; "
+            "DROP TABLE scratch;"
+        ),
+        breaking=True,
+    )
+
+
+copy_escape("an aliased copy item stays breaking", "id, n AS n")
+copy_escape("an implicitly aliased copy item stays breaking", "id, n m")
+copy_escape("a COLLATE copy item stays breaking", "id, n COLLATE BINARY")
+copy_escape("a parenthesized copy item stays breaking", "id, (n)")
+copy_escape("a table-qualified copy item stays breaking", "id, scratch.n")
+copy_escape("a cast copy item stays breaking", "id, CAST(n AS INTEGER)")
+
+# The token rule admits the name it should: one quoted identifier token
+# that names the source column copies losslessly and stays additive.
+ODD_NAME_BASE = small_base(
+    'id INTEGER PRIMARY KEY, "odd col" INTEGER, n INTEGER CHECK(n >= 0)'
+)
+ODD_NAME_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    'CREATE TABLE t (id INTEGER PRIMARY KEY, "odd col" INTEGER, '
+    "n INTEGER CHECK(n >= -1)); "
+    'INSERT INTO t (id, "odd col", n) SELECT id, "odd col", n FROM scratch; '
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a quoted single-token copy of an odd-named column stays additive",
+    ODD_NAME_BASE,
+    ODD_NAME_REBUILD,
+    breaking=False,
+)
+# SQLite conviction: the quoted token is the column, not a string
+# literal, and the odd-named value returns across the rebuild.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ODD_NAME_BASE)
+    connection.execute("INSERT INTO t VALUES (7, 100, 3)")
+    connection.executescript(ODD_NAME_REBUILD)
+    got = connection.execute('SELECT id, "odd col", n FROM t').fetchone()
+    if got != (7, 100, 3):
+        FAILURES.append(
+            f"odd-name conviction returned {got}, want (7, 100, 3)"
+        )
+finally:
+    connection.close()
+
+
 # The rebuild shape must survive real SQLite: rows are preserved, old-shaped
 # reads and writes keep working, the widened CHECK accepts what the old one
 # refused, and the restored trigger still guards writes.

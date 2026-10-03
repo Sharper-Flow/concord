@@ -17,6 +17,7 @@ refusal of a declaration with nothing to describe.
 from __future__ import annotations
 
 import importlib.util
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -1645,6 +1646,953 @@ expect_entries(
     "\t\tSQL:      `SELECT 1;`,\n\t},\n}\n",
     [1, 2],
 )
+
+
+# --- CON-488: same-shape CHECK-widening rebuilds -----------------------------
+# Widening a CHECK in SQLite needs the rebuild shape: rename the table away,
+# recreate it under its old name, copy the rows losslessly, drop the scratch
+# copy, and recreate every index, trigger, and view the table carried. The
+# classifier admits that shape as additive only against a structurally proved
+# before-world; everything it cannot prove stays breaking.
+
+REBUILD_TRIGGER_SQL = (
+    "CREATE TRIGGER attempts_guard BEFORE INSERT ON attempts FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'attempts is fold-only') "
+    "WHERE NEW.id = 'forbidden'; END;"
+)
+
+REBUILD_BASE_SQL = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+
+REBUILD_CREATE_TEMPLATE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' {state}, "
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));"
+)
+
+REBUILD_COPY = (
+    "INSERT INTO attempts (id, state, n) "
+    "SELECT id, state, n FROM attempts_v108;"
+)
+
+
+def rebuild_sql(
+    *,
+    state_check="CHECK(state IN ('open','closed','archived'))",
+    n_check="CHECK(n >= 0)",
+    create=REBUILD_CREATE_TEMPLATE,
+    copy=REBUILD_COPY,
+    index_sql="CREATE INDEX attempts_state ON attempts(state);",
+    trigger_sql=REBUILD_TRIGGER_SQL,
+    prelude="DROP TRIGGER IF EXISTS attempts_guard;",
+    after_rename=(),
+    after_copy=(),
+    extra=(),
+):
+    parts = [
+        prelude,
+        "ALTER TABLE attempts RENAME TO attempts_v108;",
+        *after_rename,
+        create.format(state=state_check, n=n_check),
+        copy,
+        *after_copy,
+        "DROP TABLE attempts_v108;",
+        index_sql,
+        trigger_sql,
+        *extra,
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def rebuild_entries(*, base=REBUILD_BASE_SQL, base_version=108, rebuild=None,
+                    rebuild_version=109):
+    sql = rebuild_sql() if rebuild is None else rebuild
+    entries = [entry(base_version, base)] if base else []
+    entries.append(entry(rebuild_version, sql))
+    return check.migrations(fold_source(*entries))
+
+
+expect_evaluate(
+    "a supported CHECK-widening rebuild stays additive",
+    rebuild_entries(),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a supported numeric bound widening stays additive",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= -5)")),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a removed CHECK widens",
+    rebuild_entries(rebuild=rebuild_sql(n_check="")),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an unchanged same-shape rebuild stays additive",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            state_check="CHECK(state IN ('open','closed'))",
+            n_check="CHECK(n >= 0)",
+        )
+    ),
+    failures=0,
+    breaking=[],
+)
+
+
+# Fail closed: narrowing, novelty, and shape the supported family cannot prove.
+expect_evaluate(
+    "a narrowed CHECK bound stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= 10)")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a novel CHECK stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            state_check=(
+                "CHECK(state IN ('open','closed','archived')), "
+                "CHECK(length(state) > 0)"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a compound CHECK widening stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            n_check=(
+                "CHECK((n >= 0 AND state IN ('open')) OR "
+                "(n >= -1 AND state IN ('closed','archived')))"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an altered column default stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "DEFAULT 'open'", "DEFAULT 'archived'")
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an altered column type stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}")
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an added column stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "PRIMARY KEY(id));",
+                "probe TEXT NOT NULL DEFAULT '', PRIMARY KEY(id));",
+            ),
+            copy=(
+                "INSERT INTO attempts (id, state, n, probe) "
+                "SELECT id, state, n, '' FROM attempts_v108;"
+            ),
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a reordered column stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=(
+                "CREATE TABLE attempts ("
+                "n INTEGER NOT NULL CHECK(n >= 0), id TEXT NOT NULL, "
+                "state TEXT NOT NULL DEFAULT 'open' "
+                "CHECK(state IN ('open','closed','archived')), "
+                "PRIMARY KEY(id));"
+            ),
+            copy=(
+                "INSERT INTO attempts (n, id, state) "
+                "SELECT n, id, state FROM attempts_v108;"
+            ),
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a filtered copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state, n) "
+                "SELECT id, state, n FROM attempts_v108 WHERE n > 0;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an INSERT OR IGNORE copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT OR IGNORE INTO attempts (id, state, n) "
+                "SELECT id, state, n FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a short copy list stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state) "
+                "SELECT id, state FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a computed copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state, n) "
+                "SELECT substr(id, 1, 8), state, n FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unrestored index stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(index_sql="")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unrestored trigger stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(trigger_sql="")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an extra trigger stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=(
+                "CREATE TRIGGER attempts_probe AFTER INSERT ON attempts "
+                "FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'no'); END;",
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an un-dropped view stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE VIEW attempts_open AS SELECT id FROM attempts "
+            "WHERE state = 'open';"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unknown baseline stays breaking",
+    rebuild_entries(base=None),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a conditional baseline stays breaking",
+    rebuild_entries(
+        base=(
+            "CREATE TABLE IF NOT EXISTS attempts ("
+            "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+            "CHECK(state IN ('open','closed')), "
+            "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+
+# --- CON-488 counterexample regressions --------------------------------------
+# Each case here failed against the first cut of the proof: it read a
+# strictness step as widening in the narrowing direction, admitted equality
+# and text-bound changes whose acceptance sets it cannot order, let writes
+# around the copy erase the rows the copy claims to move, ignored inbound
+# foreign keys and triggers that a rename rewrites onto the scratch name,
+# and missed view references written as string literals.
+
+# n >= 0 to n > 0 cuts the boundary value out: an old-valid write dies.
+expect_evaluate(
+    "a strictness-narrowed CHECK stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n > 0)")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an upper strictness narrowing stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n <= 10)"),
+        rebuild=rebuild_sql(n_check="CHECK(n < 10)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# The true strictness direction admits exactly the old set plus the boundary.
+expect_evaluate(
+    "an equal-bound strictness widening stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n > 0)"),
+        rebuild=rebuild_sql(n_check="CHECK(n >= 0)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an upper strictness widening stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n < 10)"),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 10)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+# Equality and inequality sets are not order-convex: x = 5 against x = 3,
+# or x != 5 against x != 3, accept disjoint or incomparable sets whatever
+# the bounds do.
+expect_evaluate(
+    "a changed equality CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n = 5)"),
+        rebuild=rebuild_sql(n_check="CHECK(n = 3)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a changed inequality CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n != 5)"),
+        rebuild=rebuild_sql(n_check="CHECK(n != 3)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# Text bounds compare under the column's collation, which the proof cannot
+# read; only a verbatim repeat is decidable.
+expect_evaluate(
+    "a changed text-bound CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(state IN ('open','closed'))", "CHECK(state < 'm')"
+        ),
+        rebuild=rebuild_sql(state_check="CHECK(state < 'z')"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+
+# --- CON-488 affinity regressions --------------------------------------------
+# A bound's meaning comes from the column the CHECK names: SQLite applies
+# the column's declared-type affinity to the bound before comparing, so a
+# TEXT-affinity column reads n <= 9 against '9' lexicographically, and the
+# numeric order 9 < 10 proves nothing ('2' passes n <= 9 and dies on
+# n <= 10). The proof therefore binds each atom to its referenced column
+# and orders a moved bound only where that column's affinity makes the
+# comparison numeric.
+
+TEXT_N_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0)", "n TEXT NOT NULL CHECK(n <= 9)"
+)
+TEXT_N_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}"
+)
+expect_evaluate(
+    "a numeric bound widening on a TEXT column stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE,
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 10)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a numeric bound move on a TEXT column stays breaking in both directions",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n >= 5)"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n >= 0)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# The bound itself never moves in a strictness step, so the loosening needs
+# no order at all: it stays decidable for every affinity.
+expect_evaluate(
+    "an equal-bound strictness loosening on a TEXT column stays additive",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n < 9)"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 9)"
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an equal-bound text loosening on a TEXT column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(state IN ('open','closed'))", "CHECK(state < 'm')"
+        ),
+        rebuild=rebuild_sql(state_check="CHECK(state <= 'm')"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a bound type change on a numeric column stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= '0')")),
+    failures=1,
+    breaking=[109],
+)
+# A column with no declared type has BLOB affinity: text and blobs sort
+# above every number, so either bound rejects them and the numeric
+# subset ordering holds.
+expect_evaluate(
+    "a numeric bound widening on an untyped column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "n INTEGER NOT NULL CHECK(n >= 0)", "n CHECK(n <= 9)"
+        ),
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "n INTEGER NOT NULL {n}", "n {n}"
+            ),
+            n_check="CHECK(n <= 10)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# A growing membership list stays a superset of the listed values whatever
+# affinity compares the elements.
+expect_evaluate(
+    "a growing numeric membership on a TEXT column stays additive",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n IN (1,2))"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n IN (1,2,3))"
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# Table-level CHECKs bind through the same column lookup.
+TABLE_N_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));",
+    "n TEXT NOT NULL, PRIMARY KEY(id), CHECK(n <= 9));",
+)
+TABLE_N_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id));",
+    "n TEXT NOT NULL, PRIMARY KEY(id), {n});",
+)
+expect_evaluate(
+    "a numeric bound widening on a TEXT table CHECK stays breaking",
+    rebuild_entries(
+        base=TABLE_N_BASE,
+        rebuild=rebuild_sql(
+            create=TABLE_N_TEMPLATE, n_check="CHECK(n <= 10)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a numeric bound widening on an INTEGER table CHECK stays additive",
+    rebuild_entries(
+        base=TABLE_N_BASE.replace(
+            "n TEXT NOT NULL", "n INTEGER NOT NULL"
+        ).replace("CHECK(n <= 9)", "CHECK(n >= 0)"),
+        rebuild=rebuild_sql(
+            create=TABLE_N_TEMPLATE.replace(
+                "n TEXT NOT NULL", "n INTEGER NOT NULL"
+            ),
+            n_check="CHECK(n >= -5)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# A column-level CHECK can name another column, so the atom binds to the
+# column it references, not the column that carries it.
+CROSS_CREATE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL {id}, state TEXT NOT NULL DEFAULT 'open' {state}, "
+    "{n}, PRIMARY KEY(id));"
+)
+expect_evaluate(
+    "a cross-column widening over a TEXT column stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "id TEXT NOT NULL,", 'id TEXT NOT NULL CHECK(n <= 5),'
+        ).replace("n INTEGER NOT NULL CHECK(n >= 0)", "n TEXT NOT NULL"),
+        rebuild=rebuild_sql(
+            create=CROSS_CREATE.replace(
+                "{id}", "CHECK(n <= 10)"
+            ).replace("{n},", "n TEXT NOT NULL,"),
+            n_check="",
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a cross-column widening over an INTEGER column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "id TEXT NOT NULL,", "id TEXT NOT NULL CHECK(n <= 5),"
+        ),
+        rebuild=rebuild_sql(
+            create=CROSS_CREATE.replace("{id}", "CHECK(n <= 10)"),
+            n_check="n INTEGER NOT NULL CHECK(n >= 0)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+
+# A write anywhere beside the rebuild shape is unproved: before the rename
+# it erases the rows the copy will claim to move losslessly.
+expect_evaluate(
+    "a delete before the rename stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(prelude="DELETE FROM attempts;")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an update before the rename stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            prelude="UPDATE attempts SET state = 'open' WHERE id = 'x';"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a pragma before the rename stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(prelude="PRAGMA foreign_keys = OFF;")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a write between the rename and the recreation stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(after_rename=("DELETE FROM attempts_v108;",))),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a write between the copy and the drop stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(after_copy=("DELETE FROM attempts_v108;",))),
+    failures=1,
+    breaking=[109],
+)
+# A write that never names the rebuilt table still erases it through a
+# trigger on the table it does name.
+MEDIATED_BASE = (
+    REBUILD_BASE_SQL
+    + "CREATE TABLE attempts_log (id TEXT PRIMARY KEY);"
+    + "CREATE TRIGGER attempts_log_guard AFTER INSERT ON attempts_log "
+    "FOR EACH ROW BEGIN DELETE FROM attempts; END;"
+)
+expect_evaluate(
+    "a trigger-mediated write before the rename stays breaking",
+    rebuild_entries(
+        base=MEDIATED_BASE,
+        rebuild=rebuild_sql(prelude="INSERT INTO attempts_log VALUES ('x');"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# A rename rewrites every inbound foreign key and trigger body onto the
+# scratch name, and nothing restores them: an inbound reference keeps the
+# rebuild breaking.
+expect_evaluate(
+    "an inbound foreign key stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE TABLE attempts_children ("
+            "id TEXT PRIMARY KEY, attempts_id TEXT NOT NULL "
+            "REFERENCES attempts(id));"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an inbound trigger on another table stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE TABLE attempts_log (id TEXT PRIMARY KEY);"
+            + "CREATE TRIGGER attempts_log_guard AFTER INSERT ON attempts_log "
+            "FOR EACH ROW BEGIN INSERT INTO attempts VALUES ('x'); END;"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# SQLite accepts a string literal where an identifier is expected, and a
+# rename rewrites FROM 'attempts' onto the scratch name, so a single-quoted
+# reference is a reference: the rebuild must restore such a view.
+QUOTED_VIEW_SQL = (
+    "CREATE VIEW attempts_open AS SELECT id FROM 'attempts' "
+    "WHERE state = 'open';"
+)
+expect_evaluate(
+    "a single-quoted view reference stays breaking",
+    rebuild_entries(base=REBUILD_BASE_SQL + QUOTED_VIEW_SQL),
+    failures=1,
+    breaking=[109],
+)
+QUOTED_VIEW_RESTORE_SQL = "\n".join(
+    (
+        "DROP TRIGGER IF EXISTS attempts_guard;",
+        "DROP VIEW IF EXISTS attempts_open;",
+        "ALTER TABLE attempts RENAME TO attempts_v108;",
+        REBUILD_CREATE_TEMPLATE.format(
+            state="CHECK(state IN ('open','closed','archived'))",
+            n="CHECK(n >= 0)",
+        ),
+        REBUILD_COPY,
+        "DROP TABLE attempts_v108;",
+        "CREATE INDEX attempts_state ON attempts(state);",
+        REBUILD_TRIGGER_SQL,
+        QUOTED_VIEW_SQL,
+    )
+)
+expect_evaluate(
+    "a restored single-quoted view stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL + QUOTED_VIEW_SQL,
+        rebuild=QUOTED_VIEW_RESTORE_SQL,
+    ),
+    failures=0,
+    breaking=[],
+)
+
+
+def applies_entry(version, sql):
+    return (
+        f"\t{{\n\t\tVersion: {version},\n\t\tName: \"m{version}\",\n"
+        "\t\tApplies: func(ctx context.Context, q queryer) (bool, error) "
+        "{ return false, nil },\n"
+        f"\t\tSQL: `{sql}`,\n\t}},\n"
+    )
+
+
+expect_evaluate(
+    "a rebuild after a conditional migration stays breaking",
+    check.migrations(
+        fold_source(applies_entry(108, "SELECT 1;"), entry(109, rebuild_sql()))
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a stray write to the rebuilt table stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=("UPDATE attempts SET state = 'archived' WHERE id = 'x';",)
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a second rename in one migration stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=("ALTER TABLE attempts RENAME TO attempts_again;",)
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a column added to a rebuilt table owes the fold declaration",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            n_check="CHECK(n >= 10)",
+            extra=(
+                "ALTER TABLE main.attempts ADD COLUMN probe TEXT NOT NULL "
+                "DEFAULT '';",
+                "CREATE INDEX attempts_probe ON attempts(probe);",
+            ),
+        )
+    ),
+    failures=2,
+    breaking=[109],
+)
+
+
+# The rebuild shape must survive real SQLite: rows are preserved, old-shaped
+# reads and writes keep working, the widened CHECK accepts what the old one
+# refused, and the restored trigger still guards writes.
+REBUILD_ROUNDTRIP_BASE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+
+
+def rebuild_roundtrip(name, *, rebuild, probes, insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 1), "
+        "('b', 'closed', 0);"), base=REBUILD_ROUNDTRIP_BASE):
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(base)
+        connection.execute(insert)
+        connection.executescript(rebuild)
+        probes(connection, name)
+    finally:
+        connection.close()
+
+
+def widening_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    connection.execute("SELECT id FROM attempts;").fetchall()
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', 2);")
+    if connection.execute(
+        "SELECT 1 FROM pragma_index_list('attempts') "
+        "WHERE name = 'attempts_state'"
+    ).fetchone() is None:
+        FAILURES.append(f"{name}: index not restored")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('d', 'archived', 3);")
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(f"{name}: widened CHECK refused: {err}")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES "
+            "('forbidden', 'open', 4);")
+    except sqlite3.IntegrityError as err:
+        if "fold-only" not in str(err):
+            FAILURES.append(f"{name}: trigger error changed: {err}")
+    else:
+        FAILURES.append(f"{name}: restored trigger did not guard")
+
+
+rebuild_roundtrip(
+    "a widening rebuild preserves rows and dependents in SQLite",
+    rebuild=rebuild_sql(),
+    probes=widening_probes,
+)
+
+
+def narrowing_probes(connection, name):
+    # This is why the classifier refuses a narrowed rebuild: SQLite applies
+    # it happily, the rows survive, and a write the old shape allowed dies.
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('z', 'open', 1);")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(f"{name}: narrowed CHECK admitted an old-shape write")
+
+
+rebuild_roundtrip(
+    "a narrowed rebuild makes old-shape writes fail in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n >= 10)"),
+    probes=narrowing_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 10), "
+        "('b', 'closed', 11);"
+    ),
+)
+
+
+def strictness_narrowing_probes(connection, name):
+    # The coordinator's counterexample: >= 0 to > 0 drops the boundary
+    # value, so a write the old shape accepted dies on the new table.
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('z', 'open', 0);")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(
+        f"{name}: strictness-narrowed CHECK admitted an old-valid write")
+
+
+rebuild_roundtrip(
+    "a strictness-narrowed rebuild makes an old-valid write fail in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n > 0)"),
+    probes=strictness_narrowing_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 1), "
+        "('b', 'closed', 2);"
+    ),
+)
+
+
+def quoted_view_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;").fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    if connection.execute(
+        "SELECT id FROM attempts_open ORDER BY id;").fetchall() != [("a",)]:
+        FAILURES.append(f"{name}: restored view does not read")
+
+
+rebuild_roundtrip(
+    "a restored single-quoted view reads in SQLite",
+    rebuild=QUOTED_VIEW_RESTORE_SQL,
+    probes=quoted_view_probes,
+    base=REBUILD_ROUNDTRIP_BASE + QUOTED_VIEW_SQL,
+)
+
+
+# The affinity trap is a database fact, not a parser quirk: under TEXT
+# affinity SQLite reads the bound as text, so the coordinator's rebuild
+# cannot even copy the old rows, and the classifier's refusal matches it.
+TEXT_ROUNDTRIP_BASE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n TEXT NOT NULL CHECK(n <= 9), PRIMARY KEY(id));"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+TEXT_N_ROUNDTRIP_CREATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}"
+)
+TEXT_WIDEN_REBUILD = rebuild_sql(
+    create=TEXT_N_ROUNDTRIP_CREATE, n_check="CHECK(n <= 10)"
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(TEXT_ROUNDTRIP_BASE)
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', '2');")
+    try:
+        connection.executescript(TEXT_WIDEN_REBUILD)
+    except sqlite3.IntegrityError as err:
+        if "CHECK" not in str(err):
+            FAILURES.append(
+                f"the TEXT-affinity rebuild failed for the wrong reason: {err}"
+            )
+    else:
+        FAILURES.append(
+            "the refused TEXT-affinity rebuild copied an old value in SQLite"
+        )
+finally:
+    connection.close()
+
+
+# The additive TEXT loosening survives real SQLite: rows written under the
+# old shape read back unchanged, old-shaped writes keep working, and the
+# boundary value the strict form refused is the only new acceptance.
+def text_loosen_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", "2"), ("b", "closed", "8")]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', '9');")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('d', 'closed', '4');")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES "
+            "('e', 'open', '95');")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(
+        f"{name}: loosened CHECK admitted past its bound: '95' <= '9'")
+
+
+rebuild_roundtrip(
+    "a TEXT-affinity strictness loosening preserves rows in SQLite",
+    rebuild=rebuild_sql(
+        create=TEXT_N_ROUNDTRIP_CREATE, n_check="CHECK(n <= 9)"
+    ),
+    probes=text_loosen_probes,
+    base=TEXT_ROUNDTRIP_BASE.replace("CHECK(n <= 9)", "CHECK(n < 9)"),
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', '2'), "
+        "('b', 'closed', '8');"),
+)
+
+# The shipped manifest keeps its recorded compatibility floor: migration 111
+# widens a compound CHECK the supported family cannot prove, so it stays
+# breaking, and the live check passes without weakening any guard.
+with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
+    live_source = handle.read()
+live_failures, live_breaking = check.evaluate(check.migrations(live_source))
+if live_failures:
+    FAILURES.append(f"live manifest drew refusals: {live_failures}")
+if max(live_breaking, default=0) != 111:
+    FAILURES.append(
+        f"live compatibility floor moved: {max(live_breaking, default=0)}")
+if 110 not in live_breaking or 111 not in live_breaking:
+    FAILURES.append(
+        f"shipped rebuild migrations left breaking: {live_breaking}")
 
 
 def main() -> int:

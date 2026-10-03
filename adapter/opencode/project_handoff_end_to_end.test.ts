@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
@@ -222,7 +222,15 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
     await git(repo, "add", ".")
     await git(repo, "commit", "--quiet", "-m", "fixture")
     await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
-    await git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    // The bootstrap preflight and the resume freshness sample both fetch
+    // origin's default branch, so the remote maps onto a local bare
+    // repository through insteadOf: every fetch stays hermetic while the
+    // URL stays one ResolveProject accepts.
+    const bareOrigin = join(root, `origin-${basename(repo)}.git`)
+    await git(root, "init", "--quiet", "--bare", "--initial-branch=main", bareOrigin)
+    await git(repo, "config", `url.${bareOrigin}.insteadOf`, "https://example.invalid/synthetic.git")
+    await git(repo, "push", "--quiet", "origin", "main")
+    await git(repo, "fetch", "--quiet", "origin")
     await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
   }
   const runJSON = async (command: string, value: JSONRecord, cwd?: string): Promise<JSONRecord> => {

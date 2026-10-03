@@ -61,7 +61,19 @@ func cleanHandoffRepo(t *testing.T) string {
 	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "base").Run(); err != nil {
 		t.Fatal(err)
 	}
-	_ = exec.Command("git", "-C", repo, "update-ref", "refs/remotes/origin/main", "HEAD").Run()
+	// The claim preflight fetches origin's default branch, so the fixture
+	// seeds a real local bare origin the fetch can reach.
+	origin := repo + "-origin.git"
+	if err := exec.Command("git", "-C", repo, "init", "--quiet", "--bare", "-b", "main", origin).Run(); err != nil {
+		t.Fatal(err)
+	}
+	_ = exec.Command("git", "-C", repo, "remote", "add", "origin", origin).Run()
+	if err := exec.Command("git", "-C", repo, "push", "--quiet", "origin", "main").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", repo, "fetch", "--quiet", "origin").Run(); err != nil {
+		t.Fatal(err)
+	}
 	_ = exec.Command("git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main").Run()
 	return repo
 }

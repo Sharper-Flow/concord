@@ -250,7 +250,7 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "execution",
-    inputs: { task: "do the bounded thing", context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", context: "", constraints: [], binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "bounded_findings" } },
   }
   const windows = () => dispatchWindows()
   const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })

@@ -110,7 +110,11 @@ func TestClaimLandingReleasesEveryWorkItemRow(t *testing.T) {
 }
 
 func TestLegacyRowReleasesOnEndedRecordingProcess(t *testing.T) {
-	t.Parallel()
+	// This test pins the package-level hostLeaseWallStart seam, so it must
+	// not run in parallel: a leaked pin makes every concurrent test's live
+	// lease appear to start after its occupancy row, which releases rows
+	// other tests are proving stay held. Sequential tests finish and clean
+	// their pin before the parallel batch resumes.
 	s, git, _ := worktreeFixture(t)
 	// A live lease exists, and every live lease started after the row was
 	// recorded: the recording process has ended, so the row releases.
@@ -168,5 +172,43 @@ func TestLegacyRowStaysOnUnreadableLeaseSet(t *testing.T) {
 	}
 	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", "wt-op-1"); got != "ses-old" {
 		t.Fatalf("unreadable lease set released the row: %q", got)
+	}
+}
+
+func TestLegacyRowStaysWhenLeaseStartSitsInsideWallStartSkew(t *testing.T) {
+	// This test pins the package-level hostLeaseWallStart seam, so it must
+	// not run in parallel: a leaked pin makes every concurrent test's live
+	// lease appear to start after its occupancy row, which releases rows
+	// other tests are proving stay held. Sequential tests finish and clean
+	// their pin before the parallel batch resumes.
+	s, git, _ := worktreeFixture(t)
+	// WallStart's approximation reads /proc ticks, the system uptime, and
+	// the wall clock in separate instants, so a deschedule between those
+	// reads can push a long-lived process's computed start past a row that
+	// was recorded seconds ago. A computed start inside the skew bound
+	// proves nothing: the row must stay and the reclaim must refuse.
+	writeProtectingHostLease(t, s)
+	req := baseClaim(git)
+	req.SessionRef = "ses-old"
+	req.Now = time.Now().UTC()
+	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	previous := hostLeaseWallStart
+	hostLeaseWallStart = func(int) (time.Time, error) { return time.Now().Add(30 * time.Second), nil }
+	t.Cleanup(func() { hostLeaseWallStart = previous })
+
+	seedWorktreeLifecycle(t, s)
+	_, err := s.ReclaimWorktree(context.Background(), WorktreeReclaimRequest{
+		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
+		PrincipalRef: "principal-1", RequestID: "req-legacy-skew", ExpectedVersion: 4,
+		Now: time.Unix(40, 0).UTC(), Runner: git,
+	})
+	failure, ok := err.(*Failure)
+	if !ok || failure.Kind != KindWorktreeOwnershipConflict {
+		t.Fatalf("err=%v, want worktree_ownership_conflict", err)
+	}
+	if got := worktreeOccupancyByEntry(t, s, WorktreeSetID("work-w"), "project-w", "wt-op-1"); got != "ses-old" {
+		t.Fatalf("a computed start inside the skew bound released the row: %q", got)
 	}
 }

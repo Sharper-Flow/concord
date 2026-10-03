@@ -897,11 +897,21 @@ func hostLeaseSetFromContext(ctx context.Context) (HostLeaseSet, bool) {
 // time. It is a package variable so tests can pin the conversion.
 var hostLeaseWallStart = hostlease.WallStart
 
+// wallStartSkewBound is the conservative bound on hostlease.WallStart's
+// approximation error. WallStart derives the start from /proc ticks, the
+// system uptime, and the wall clock read in separate instants, so a
+// deschedule between those reads can push the computed start later than the
+// process's true start. The release comparison must hold WallStart to the
+// precision it can prove: a lease whose computed start sits within this
+// bound of the row's recorded_at proves nothing, and the row stays.
+const wallStartSkewBound = time.Minute
+
 // legacyOccupancyRowEnded applies the one release rule a legacy row admits
 // (CD-0179): every live host lease started after the row's recorded_at, so
 // no process alive today existed when the row was recorded and its recording
 // process has ended. An unreadable lease set, an unreadable process start,
-// or a live lease that predates the row releases nothing and reports false.
+// a live lease that predates the row, or a lease whose computed start is
+// within WallStart's skew of the row releases nothing and reports false.
 func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 	if set.Err != nil {
 		return false
@@ -915,7 +925,7 @@ func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 		if err != nil {
 			return false
 		}
-		if !started.After(recorded) {
+		if !started.After(recorded.Add(wallStartSkewBound)) {
 			return false
 		}
 	}

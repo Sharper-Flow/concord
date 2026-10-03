@@ -76,8 +76,7 @@ func setupProjectHandoffFixture(t *testing.T) projectHandoffFixture {
 		}
 		gitRunStore(t, repo, "add", "tracked.txt")
 		gitRunStore(t, repo, "commit", "-m", "base")
-		gitRunStore(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-		gitRunStore(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+		seedRealGitOrigin(t, repo)
 	}
 	normalizedW, err := NormalizeProjectLocator(LocatorCanonicalPath, repoW)
 	if err != nil {
@@ -1892,8 +1891,7 @@ func TestProjectHandoffIdentityStaysWithinThePublishedIDBound(t *testing.T) {
 	}
 	gitRunStore(t, repo, "add", "tracked.txt")
 	gitRunStore(t, repo, "commit", "-m", "base")
-	gitRunStore(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-	gitRunStore(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	seedRealGitOrigin(t, repo)
 	normalized, err := NormalizeProjectLocator(LocatorCanonicalPath, repo)
 	if err != nil {
 		t.Fatal(err)

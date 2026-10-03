@@ -7668,9 +7668,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_project_retirement_input": {
       "additionalProperties": false,
       "properties": {
-        "budget": {
-          "$ref": "#/$defs/budget"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },

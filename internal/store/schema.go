@@ -5558,6 +5558,22 @@ CREATE TRIGGER law_cross_source_relations_guard_update BEFORE UPDATE ON law_cros
 CREATE TRIGGER law_cross_source_relations_guard_delete BEFORE DELETE ON law_cross_source_relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'law_cross_source_relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:        114,
+		Name:           "workflow_proposal_out_of_scope",
+		Breaking:       false,
+		FoldMaintained: "origin",
+		SQL: `
+-- The proposal's excluded scope travels beside its sibling prose lists
+-- (CD-0202). The column is additive and defaulted: every row a store that
+-- predates this step holds reads as an empty list, and SQLite verifies the
+-- new JSON CHECK over the defaulted rows at apply time. The fold is
+-- insert-only: foldWorkflowProposalRecorded writes the column once from the
+-- event payload (nonNilStrings guarantees a JSON array), no fold updates the
+-- row afterward, and RebuildFromLog derives the same bytes.
+ALTER TABLE workflow_proposal_records ADD COLUMN out_of_scope TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(out_of_scope) AND json_type(out_of_scope)='array');
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

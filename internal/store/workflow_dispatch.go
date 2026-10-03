@@ -801,6 +801,9 @@ func workflowProposalRecordedEvents(definition WorkflowDefinition, request Workf
 	if proposal.OpenQuestions != nil {
 		values["open_questions"] = proposal.OpenQuestions
 	}
+	if proposal.OutOfScope != nil {
+		values["out_of_scope"] = proposal.OutOfScope
+	}
 	return []Event{workflowTypedEvent(eventID, WorkflowProposalRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 

@@ -43,7 +43,7 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 21},
+		{"workflow.implementation", "proposal", "discovery", 22},
 		{"workflow.break_fix", "reproduce", "diagnose", 19},
 	}
 	for _, testCase := range cases {

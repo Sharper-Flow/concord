@@ -1045,6 +1045,39 @@ func implementationAcceptDeliveryV21() WorkflowDefinition {
 	return withCurrentAcceptDelivery(d)
 }
 
+// proposalOutOfScopeActionFields restates record_proposal's payload beside the
+// new optional out_of_scope prose list (CD-0202). The base fields stay owned
+// by the shared policy table, and builtinActionPolicies itself stays
+// byte-identical, so every released definition digest holds.
+func proposalOutOfScopeActionFields() []WorkflowPayloadField {
+	fields := make([]WorkflowPayloadField, 0, len(builtinActionPolicies["record_proposal"].Payload.Fields)+1)
+	fields = append(fields, builtinActionPolicies["record_proposal"].Payload.Fields...)
+	return append(fields, actionProseListField("out_of_scope", false, 0, 16, "proposal_text"))
+}
+
+// withCurrentProposalOutOfScope restates record_proposal's payload as the
+// out-of-scope-carrying contract. Released versions keep the payload they
+// were pinned under.
+func withCurrentProposalOutOfScope(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "record_proposal" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: proposalOutOfScopeActionFields()}
+	}
+	return definition
+}
+
+// implementationProposalOutOfScopeV22 ships the CD-0202 out_of_scope
+// declaration. The definition content stays the predecessor's; the only
+// content change is record_proposal's declared payload.
+func implementationProposalOutOfScopeV22() WorkflowDefinition {
+	d := implementationAcceptDeliveryV21()
+	d.Version = 22
+	return withCurrentProposalOutOfScope(d)
+}
+
 func breakFixAcceptDeliveryV19() WorkflowDefinition {
 	d := breakFixVerdictBatchV18()
 	d.Version = 19

@@ -87,6 +87,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationConfirmPremiseV19(),
 		implementationVerdictBatchV20(),
 		implementationAcceptDeliveryV21(),
+		implementationProposalOutOfScopeV22(),
 	}
 }
 

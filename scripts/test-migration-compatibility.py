@@ -17,6 +17,7 @@ refusal of a declaration with nothing to describe.
 from __future__ import annotations
 
 import importlib.util
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -1645,6 +1646,2638 @@ expect_entries(
     "\t\tSQL:      `SELECT 1;`,\n\t},\n}\n",
     [1, 2],
 )
+
+
+# --- CON-488: same-shape CHECK-widening rebuilds -----------------------------
+# Widening a CHECK in SQLite needs the rebuild shape: rename the table away,
+# recreate it under its old name, copy the rows losslessly, drop the scratch
+# copy, and recreate every index, trigger, and view the table carried. The
+# classifier admits that shape as additive only against a structurally proved
+# before-world; everything it cannot prove stays breaking. The fixture table
+# is WITHOUT ROWID because a plain rowid table's implicit rowids are identity
+# the column copy does not carry: rows the old shape addressed at their
+# rowids would answer at fresh ones, so only a rowid-alias column or a
+# WITHOUT ROWID shape proves the copy lossless (pinned in the identity
+# regressions below).
+
+REBUILD_TRIGGER_SQL = (
+    "CREATE TRIGGER attempts_guard BEFORE INSERT ON attempts FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'attempts is fold-only') "
+    "WHERE NEW.id = 'forbidden'; END;"
+)
+
+REBUILD_BASE_SQL = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+
+REBUILD_CREATE_TEMPLATE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' {state}, "
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;"
+)
+
+REBUILD_COPY = (
+    "INSERT INTO attempts (id, state, n) "
+    "SELECT id, state, n FROM attempts_v108;"
+)
+
+
+def rebuild_sql(
+    *,
+    state_check="CHECK(state IN ('open','closed','archived'))",
+    n_check="CHECK(n >= 0)",
+    create=REBUILD_CREATE_TEMPLATE,
+    copy=REBUILD_COPY,
+    index_sql="CREATE INDEX attempts_state ON attempts(state);",
+    trigger_sql=REBUILD_TRIGGER_SQL,
+    prelude="DROP TRIGGER IF EXISTS attempts_guard;",
+    after_rename=(),
+    after_copy=(),
+    extra=(),
+):
+    parts = [
+        prelude,
+        "ALTER TABLE attempts RENAME TO attempts_v108;",
+        *after_rename,
+        create.format(state=state_check, n=n_check),
+        copy,
+        *after_copy,
+        "DROP TABLE attempts_v108;",
+        index_sql,
+        trigger_sql,
+        *extra,
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def rebuild_entries(*, base=REBUILD_BASE_SQL, base_version=108, rebuild=None,
+                    rebuild_version=109):
+    sql = rebuild_sql() if rebuild is None else rebuild
+    entries = [entry(base_version, base)] if base else []
+    entries.append(entry(rebuild_version, sql))
+    return check.migrations(fold_source(*entries))
+
+
+expect_evaluate(
+    "a supported CHECK-widening rebuild stays additive",
+    rebuild_entries(),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a supported numeric bound widening stays additive",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= -5)")),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a removed CHECK widens",
+    rebuild_entries(rebuild=rebuild_sql(n_check="")),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an unchanged same-shape rebuild stays additive",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            state_check="CHECK(state IN ('open','closed'))",
+            n_check="CHECK(n >= 0)",
+        )
+    ),
+    failures=0,
+    breaking=[],
+)
+
+
+# Fail closed: narrowing, novelty, and shape the supported family cannot prove.
+expect_evaluate(
+    "a narrowed CHECK bound stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= 10)")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a novel CHECK stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            state_check=(
+                "CHECK(state IN ('open','closed','archived')), "
+                "CHECK(length(state) > 0)"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a compound CHECK widening stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            n_check=(
+                "CHECK((n >= 0 AND state IN ('open')) OR "
+                "(n >= -1 AND state IN ('closed','archived')))"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an altered column default stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "DEFAULT 'open'", "DEFAULT 'archived'")
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an altered column type stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}")
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an added column stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "PRIMARY KEY(id)) WITHOUT ROWID;",
+                "probe TEXT NOT NULL DEFAULT '', PRIMARY KEY(id)) WITHOUT ROWID;",
+            ),
+            copy=(
+                "INSERT INTO attempts (id, state, n, probe) "
+                "SELECT id, state, n, '' FROM attempts_v108;"
+            ),
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a reordered column stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            create=(
+                "CREATE TABLE attempts ("
+                "n INTEGER NOT NULL CHECK(n >= 0), id TEXT NOT NULL, "
+                "state TEXT NOT NULL DEFAULT 'open' "
+                "CHECK(state IN ('open','closed','archived')), "
+                "PRIMARY KEY(id)) WITHOUT ROWID;"
+            ),
+            copy=(
+                "INSERT INTO attempts (n, id, state) "
+                "SELECT n, id, state FROM attempts_v108;"
+            ),
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a filtered copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state, n) "
+                "SELECT id, state, n FROM attempts_v108 WHERE n > 0;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an INSERT OR IGNORE copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT OR IGNORE INTO attempts (id, state, n) "
+                "SELECT id, state, n FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a short copy list stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state) "
+                "SELECT id, state FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a computed copy stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            copy=(
+                "INSERT INTO attempts (id, state, n) "
+                "SELECT substr(id, 1, 8), state, n FROM attempts_v108;"
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unrestored index stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(index_sql="")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unrestored trigger stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(trigger_sql="")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an extra trigger stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=(
+                "CREATE TRIGGER attempts_probe AFTER INSERT ON attempts "
+                "FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'no'); END;",
+            )
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an un-dropped view stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE VIEW attempts_open AS SELECT id FROM attempts "
+            "WHERE state = 'open';"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an unknown baseline stays breaking",
+    rebuild_entries(base=None),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a conditional baseline stays breaking",
+    rebuild_entries(
+        base=(
+            "CREATE TABLE IF NOT EXISTS attempts ("
+            "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+            "CHECK(state IN ('open','closed')), "
+            "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id));"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+
+# --- CON-488 counterexample regressions --------------------------------------
+# Each case here failed against the first cut of the proof: it read a
+# strictness step as widening in the narrowing direction, admitted equality
+# and text-bound changes whose acceptance sets it cannot order, let writes
+# around the copy erase the rows the copy claims to move, ignored inbound
+# foreign keys and triggers that a rename rewrites onto the scratch name,
+# and missed view references written as string literals.
+
+# n >= 0 to n > 0 cuts the boundary value out: an old-valid write dies.
+expect_evaluate(
+    "a strictness-narrowed CHECK stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n > 0)")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an upper strictness narrowing stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n <= 10)"),
+        rebuild=rebuild_sql(n_check="CHECK(n < 10)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# The true strictness direction admits exactly the old set plus the boundary.
+expect_evaluate(
+    "an equal-bound strictness widening stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n > 0)"),
+        rebuild=rebuild_sql(n_check="CHECK(n >= 0)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an upper strictness widening stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n < 10)"),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 10)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+# Equality and inequality sets are not order-convex: x = 5 against x = 3,
+# or x != 5 against x != 3, accept disjoint or incomparable sets whatever
+# the bounds do.
+expect_evaluate(
+    "a changed equality CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n = 5)"),
+        rebuild=rebuild_sql(n_check="CHECK(n = 3)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a changed inequality CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace("CHECK(n >= 0)", "CHECK(n != 5)"),
+        rebuild=rebuild_sql(n_check="CHECK(n != 3)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# Text bounds compare under the column's collation, which the proof cannot
+# read; only a verbatim repeat is decidable.
+expect_evaluate(
+    "a changed text-bound CHECK stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(state IN ('open','closed'))", "CHECK(state < 'm')"
+        ),
+        rebuild=rebuild_sql(state_check="CHECK(state < 'z')"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+
+# --- CON-488 affinity regressions --------------------------------------------
+# A bound's meaning comes from the column the CHECK names: SQLite applies
+# the column's declared-type affinity to the bound before comparing, so a
+# TEXT-affinity column reads n <= 9 against '9' lexicographically, and the
+# numeric order 9 < 10 proves nothing ('2' passes n <= 9 and dies on
+# n <= 10). The proof therefore binds each atom to its referenced column
+# and orders a moved bound only where that column's affinity makes the
+# comparison numeric.
+
+TEXT_N_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0)", "n TEXT NOT NULL CHECK(n <= 9)"
+)
+TEXT_N_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}"
+)
+expect_evaluate(
+    "a numeric bound widening on a TEXT column stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE,
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 10)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a numeric bound move on a TEXT column stays breaking in both directions",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n >= 5)"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n >= 0)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+# The bound itself never moves in a strictness step, so the loosening needs
+# no order at all: it stays decidable for every affinity.
+expect_evaluate(
+    "an equal-bound strictness loosening on a TEXT column stays additive",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n < 9)"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 9)"
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "an equal-bound text loosening on a TEXT column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(state IN ('open','closed'))", "CHECK(state < 'm')"
+        ),
+        rebuild=rebuild_sql(state_check="CHECK(state <= 'm')"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a bound type change on a numeric column stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(n_check="CHECK(n >= '0')")),
+    failures=1,
+    breaking=[109],
+)
+# A column with no declared type has BLOB affinity: text and blobs sort
+# above every number, so either bound rejects them and the numeric
+# subset ordering holds.
+expect_evaluate(
+    "a numeric bound widening on an untyped column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "n INTEGER NOT NULL CHECK(n >= 0)", "n CHECK(n <= 9)"
+        ),
+        rebuild=rebuild_sql(
+            create=REBUILD_CREATE_TEMPLATE.replace(
+                "n INTEGER NOT NULL {n}", "n {n}"
+            ),
+            n_check="CHECK(n <= 10)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# A growing membership list stays a superset of the listed values whatever
+# affinity compares the elements.
+expect_evaluate(
+    "a growing numeric membership on a TEXT column stays additive",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n IN (1,2))"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n IN (1,2,3))"
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# Table-level CHECKs bind through the same column lookup.
+TABLE_N_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n TEXT NOT NULL, PRIMARY KEY(id), CHECK(n <= 9)) WITHOUT ROWID;",
+)
+TABLE_N_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n TEXT NOT NULL, PRIMARY KEY(id), {n}) WITHOUT ROWID;",
+)
+expect_evaluate(
+    "a numeric bound widening on a TEXT table CHECK stays breaking",
+    rebuild_entries(
+        base=TABLE_N_BASE,
+        rebuild=rebuild_sql(
+            create=TABLE_N_TEMPLATE, n_check="CHECK(n <= 10)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a numeric bound widening on an INTEGER table CHECK stays additive",
+    rebuild_entries(
+        base=TABLE_N_BASE.replace(
+            "n TEXT NOT NULL", "n INTEGER NOT NULL"
+        ).replace("CHECK(n <= 9)", "CHECK(n >= 0)"),
+        rebuild=rebuild_sql(
+            create=TABLE_N_TEMPLATE.replace(
+                "n TEXT NOT NULL", "n INTEGER NOT NULL"
+            ),
+            n_check="CHECK(n >= -5)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+# A column-level CHECK can name another column, so the atom binds to the
+# column it references, not the column that carries it.
+CROSS_CREATE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL {id}, state TEXT NOT NULL DEFAULT 'open' {state}, "
+    "{n}, PRIMARY KEY(id)) WITHOUT ROWID;"
+)
+expect_evaluate(
+    "a cross-column widening over a TEXT column stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "id TEXT NOT NULL,", 'id TEXT NOT NULL CHECK(n <= 5),'
+        ).replace("n INTEGER NOT NULL CHECK(n >= 0)", "n TEXT NOT NULL"),
+        rebuild=rebuild_sql(
+            create=CROSS_CREATE.replace(
+                "{id}", "CHECK(n <= 10)"
+            ).replace("{n},", "n TEXT NOT NULL,"),
+            n_check="",
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a cross-column widening over an INTEGER column stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "id TEXT NOT NULL,", "id TEXT NOT NULL CHECK(n <= 5),"
+        ),
+        rebuild=rebuild_sql(
+            create=CROSS_CREATE.replace("{id}", "CHECK(n <= 10)"),
+            n_check="n INTEGER NOT NULL CHECK(n >= 0)",
+        ),
+    ),
+    failures=0,
+    breaking=[],
+)
+
+
+# --- CON-488 numeric-literal regressions --------------------------------------
+# A numeric bound is proved at its SQLite runtime value, not its decimal
+# spelling: an integer literal that fits int64 is exact, and every other
+# numeric literal is the IEEE-754 double SQLite reads it as. Past 2**53 the
+# spelling and the double part company - 9007199254740995.0 rounds up to
+# 9007199254740996 - so a spelling-level comparison calls a narrowing an
+# equality and admits a rebuild that kills an old-valid row. Membership has
+# the same trap through affinity: a TEXT-affinity column renders each literal
+# as its own text, so 9 and 9.0 are different members there whatever their
+# numeric equality.
+
+expect_evaluate(
+    "a REAL-to-INTEGER bound move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+TABLE_REAL_BASE = REBUILD_BASE_SQL.replace(
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), CHECK(n <= 9007199254740995.0)) "
+    "WITHOUT ROWID;",
+)
+TABLE_REAL_TEMPLATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}, PRIMARY KEY(id)) WITHOUT ROWID;",
+    "n INTEGER NOT NULL, PRIMARY KEY(id), {n}) WITHOUT ROWID;",
+)
+expect_evaluate(
+    "a REAL-to-INTEGER table CHECK move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=TABLE_REAL_BASE,
+        rebuild=rebuild_sql(
+            create=TABLE_REAL_TEMPLATE, n_check="CHECK(n <= 9007199254740995)"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a REAL-to-INTEGER strictness move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n < 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a REAL-to-INTEGER membership move at the precision boundary stays breaking",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n IN (9007199254740995.0, 5))"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n IN (9007199254740995, 5, 6))"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a same-value REAL re-spelling on a TEXT column stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE,
+        rebuild=rebuild_sql(create=TEXT_N_TEMPLATE, n_check="CHECK(n <= 9.0)"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a same-value REAL re-spelling in a TEXT membership stays breaking",
+    rebuild_entries(
+        base=TEXT_N_BASE.replace("CHECK(n <= 9)", "CHECK(n IN (9))"),
+        rebuild=rebuild_sql(
+            create=TEXT_N_TEMPLATE, n_check="CHECK(n IN (9.0, 10))"
+        ),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# The sound directions stay provable: widening the INTEGER spelling to the
+# REAL one admits only values the old bound refused, and a REAL bound may
+# move to the INTEGER spelling its double equals.
+expect_evaluate(
+    "an INTEGER-to-REAL bound widening at the precision boundary stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995.0)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a runtime-equal REAL-to-INTEGER bound move stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740996)"),
+    ),
+    failures=0,
+    breaking=[],
+)
+expect_evaluate(
+    "a runtime-equal membership move at the precision boundary stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL.replace(
+            "CHECK(n >= 0)", "CHECK(n IN (9007199254740995.0, 5))"
+        ),
+        rebuild=rebuild_sql(n_check="CHECK(n IN (9007199254740996, 5, 6))"),
+    ),
+    failures=0,
+    breaking=[],
+)
+
+# A write anywhere beside the rebuild shape is unproved: before the rename
+# it erases the rows the copy will claim to move losslessly.
+expect_evaluate(
+    "a delete before the rename stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(prelude="DELETE FROM attempts;")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an update before the rename stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            prelude="UPDATE attempts SET state = 'open' WHERE id = 'x';"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a pragma before the rename stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(prelude="PRAGMA foreign_keys = OFF;")),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a write between the rename and the recreation stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(after_rename=("DELETE FROM attempts_v108;",))),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a write between the copy and the drop stays breaking",
+    rebuild_entries(rebuild=rebuild_sql(after_copy=("DELETE FROM attempts_v108;",))),
+    failures=1,
+    breaking=[109],
+)
+# A write that never names the rebuilt table still erases it through a
+# trigger on the table it does name.
+MEDIATED_BASE = (
+    REBUILD_BASE_SQL
+    + "CREATE TABLE attempts_log (id TEXT PRIMARY KEY);"
+    + "CREATE TRIGGER attempts_log_guard AFTER INSERT ON attempts_log "
+    "FOR EACH ROW BEGIN DELETE FROM attempts; END;"
+)
+expect_evaluate(
+    "a trigger-mediated write before the rename stays breaking",
+    rebuild_entries(
+        base=MEDIATED_BASE,
+        rebuild=rebuild_sql(prelude="INSERT INTO attempts_log VALUES ('x');"),
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# A rename rewrites every inbound foreign key and trigger body onto the
+# scratch name, and nothing restores them: an inbound reference keeps the
+# rebuild breaking.
+expect_evaluate(
+    "an inbound foreign key stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE TABLE attempts_children ("
+            "id TEXT PRIMARY KEY, attempts_id TEXT NOT NULL "
+            "REFERENCES attempts(id));"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "an inbound trigger on another table stays breaking",
+    rebuild_entries(
+        base=(
+            REBUILD_BASE_SQL
+            + "CREATE TABLE attempts_log (id TEXT PRIMARY KEY);"
+            + "CREATE TRIGGER attempts_log_guard AFTER INSERT ON attempts_log "
+            "FOR EACH ROW BEGIN INSERT INTO attempts VALUES ('x'); END;"
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+
+# SQLite accepts a string literal where an identifier is expected, and a
+# rename rewrites FROM 'attempts' onto the scratch name, so a single-quoted
+# reference is a reference: the rebuild must restore such a view.
+QUOTED_VIEW_SQL = (
+    "CREATE VIEW attempts_open AS SELECT id FROM 'attempts' "
+    "WHERE state = 'open';"
+)
+expect_evaluate(
+    "a single-quoted view reference stays breaking",
+    rebuild_entries(base=REBUILD_BASE_SQL + QUOTED_VIEW_SQL),
+    failures=1,
+    breaking=[109],
+)
+QUOTED_VIEW_RESTORE_SQL = "\n".join(
+    (
+        "DROP TRIGGER IF EXISTS attempts_guard;",
+        "DROP VIEW IF EXISTS attempts_open;",
+        "ALTER TABLE attempts RENAME TO attempts_v108;",
+        REBUILD_CREATE_TEMPLATE.format(
+            state="CHECK(state IN ('open','closed','archived'))",
+            n="CHECK(n >= 0)",
+        ),
+        REBUILD_COPY,
+        "DROP TABLE attempts_v108;",
+        "CREATE INDEX attempts_state ON attempts(state);",
+        REBUILD_TRIGGER_SQL,
+        QUOTED_VIEW_SQL,
+    )
+)
+expect_evaluate(
+    "a restored single-quoted view stays additive",
+    rebuild_entries(
+        base=REBUILD_BASE_SQL + QUOTED_VIEW_SQL,
+        rebuild=QUOTED_VIEW_RESTORE_SQL,
+    ),
+    failures=0,
+    breaking=[],
+)
+
+
+def applies_entry(version, sql):
+    return (
+        f"\t{{\n\t\tVersion: {version},\n\t\tName: \"m{version}\",\n"
+        "\t\tApplies: func(ctx context.Context, q queryer) (bool, error) "
+        "{ return false, nil },\n"
+        f"\t\tSQL: `{sql}`,\n\t}},\n"
+    )
+
+
+expect_evaluate(
+    "a rebuild after a conditional migration stays breaking",
+    check.migrations(
+        fold_source(applies_entry(108, "SELECT 1;"), entry(109, rebuild_sql()))
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a stray write to the rebuilt table stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=("UPDATE attempts SET state = 'archived' WHERE id = 'x';",)
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a second rename in one migration stays breaking",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            extra=("ALTER TABLE attempts RENAME TO attempts_again;",)
+        )
+    ),
+    failures=1,
+    breaking=[109],
+)
+expect_evaluate(
+    "a column added to a rebuilt table owes the fold declaration",
+    rebuild_entries(
+        rebuild=rebuild_sql(
+            n_check="CHECK(n >= 10)",
+            extra=(
+                "ALTER TABLE main.attempts ADD COLUMN probe TEXT NOT NULL "
+                "DEFAULT '';",
+                "CREATE INDEX attempts_probe ON attempts(probe);",
+            ),
+        )
+    ),
+    failures=2,
+    breaking=[109],
+)
+
+
+# --- CON-488 identity and replay regressions ---------------------------------
+# Five counterexamples the first proof admitted and SQLite convicted. Each
+# names an identity or replay fact the shape comparison cannot see: a quoted
+# type word changes which comparisons a bound orders, a rename rewrites
+# inbound references onto the scratch name, a conditional CREATE over an
+# existing dependent is the no-op SQLite runs, an AUTOINCREMENT high-water
+# mark lives outside the copied rows, and a rowid table without a rowid
+# alias answers copied rows at fresh implicit rowids.
+
+def expect_world(name: str, base: str, sql: str, breaking: bool) -> None:
+    world = check.World()
+    for statement in check.statements(base):
+        world.apply(statement)
+    reasons = check.classify(sql, world)
+    if bool(reasons) != breaking:
+        want = "breaking" if breaking else "additive"
+        FAILURES.append(f"{name}: classified {reasons or 'additive'}, want {want}")
+
+
+def small_rebuild(old_columns: str, new_columns: str) -> str:
+    return (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({new_columns}); "
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch; "
+        "DROP TABLE scratch;"
+    )
+
+
+def small_base(columns: str) -> str:
+    return f"CREATE TABLE t ({columns});"
+
+
+# A quoted type word is the name it quotes: SQLite applies TEXT affinity to
+# n "TEXT", so n <= 9 reads against '9' lexicographically and the numeric
+# order 9 < 10 proves nothing. The moved bound refuses; the unchanged one
+# still admits, which is what ties the refusal to the affinity and not to
+# the quoting.
+QUOTED_TYPE_BASE = small_base('id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)')
+expect_world(
+    "a quoted type name applies its affinity: a moved bound stays breaking",
+    QUOTED_TYPE_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 10)',
+    ),
+    breaking=True,
+)
+expect_world(
+    "a quoted type name with an unchanged bound stays additive",
+    QUOTED_TYPE_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+    ),
+    breaking=False,
+)
+# A quoted column name rides the same rule: the affinity reads the name the
+# quotes carry, not the quoting.
+expect_world(
+    "a quoted column name applies its affinity: a moved bound stays breaking",
+    small_base('id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 9)'),
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 9)',
+        'id INTEGER PRIMARY KEY, "n" TEXT CHECK(n <= 10)',
+    ),
+    breaking=True,
+)
+# SQLite conviction: the copy itself dies, because '5' <= '10' is false
+# under the TEXT affinity the quoted spelling applies.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(QUOTED_TYPE_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, '5')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 9)',
+                'id INTEGER PRIMARY KEY, n "TEXT" CHECK(n <= 10)',
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append(
+            "the quoted-type rebuild copied a row SQLite refuses "
+            "('5' <= '10' is false as text)"
+        )
+finally:
+    connection.close()
+
+# A rename rewrites every inbound foreign key onto the new name. The replay
+# carries a foreign reference only as stale text, so a rename an inbound
+# foreign key can see poisons the world: the rebuild loses its baseline and
+# keeps the breaking classification.
+RENAMED_FK_BASE = (
+    "CREATE TABLE parent (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE child (pid INTEGER REFERENCES parent(id)); "
+    "ALTER TABLE parent RENAME TO t;"
+)
+expect_world(
+    "a rename under an inbound foreign key keeps the rebuild breaking",
+    RENAMED_FK_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: child's reference followed parent to t, the rebuild's
+# rename drove it onto scratch, and the scratch drop stranded it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(RENAMED_FK_BASE)
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (1, 0);"
+        "INSERT INTO child (pid) VALUES (1);"
+    )
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    stranded = connection.execute("PRAGMA foreign_key_check").fetchall()
+    if not stranded:
+        FAILURES.append("the renamed-FK rebuild left no stranded reference")
+finally:
+    connection.close()
+
+# A conditional CREATE over an existing dependent is the no-op SQLite runs:
+# the old definition survives, so a view that reads t keeps reading t even
+# after a conditional re-declaration over other. The rebuild must restore
+# the definition SQLite kept, and one that does not stays breaking.
+CONDITIONAL_VIEW_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE other (id INTEGER PRIMARY KEY); "
+    "CREATE VIEW v AS SELECT id FROM t; "
+    "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM other;"
+)
+expect_world(
+    "a conditional view no-op keeps the old definition the rebuild must restore",
+    CONDITIONAL_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a rebuild that drops and restores the no-op view stays additive",
+    CONDITIONAL_VIEW_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "CREATE VIEW v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: without the restore, v still names the table the
+# rename drove onto scratch, and the drop killed it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_VIEW_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the conditional no-op view survived the rebuild")
+finally:
+    connection.close()
+
+# The same namespace rule holds a trigger: a conditional re-declaration over
+# a trigger that exists on another table is the no-op SQLite runs, so the
+# guard never lands on the rebuilt table and no restore is owed.
+CONDITIONAL_TRIGGER_BASE = (
+    "CREATE TABLE a (id INTEGER PRIMARY KEY); "
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TRIGGER guard AFTER INSERT ON a BEGIN SELECT RAISE(ABORT, 'no'); END; "
+    "CREATE TRIGGER IF NOT EXISTS guard AFTER INSERT ON t "
+    "BEGIN SELECT RAISE(ABORT, 'no'); END;"
+)
+expect_world(
+    "a conditional trigger no-op lands on neither table",
+    CONDITIONAL_TRIGGER_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_TRIGGER_BASE)
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'guard'"
+    ).fetchone() is None:
+        FAILURES.append("the no-op trigger vanished")
+    try:
+        connection.execute("INSERT INTO a (id) VALUES (2)")
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the no-op trigger stopped guarding its own table")
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+finally:
+    connection.close()
+
+# An AUTOINCREMENT column's high-water mark lives in sqlite_sequence, not
+# in the rows: the rename moves the sequence entry onto the scratch name
+# and the scratch drop deletes it. The copy restores every row and still
+# resets the next implicit id, so the column refuses the proof.
+AUTOINCREMENT_BASE = small_base(
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)"
+)
+expect_world(
+    "an AUTOINCREMENT column keeps the rebuild breaking",
+    AUTOINCREMENT_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: rows 1 and 100 in, 100 deleted, the sequence holds
+# 100; after the proved-shape copy it holds 1 and the next id is 2, not
+# 101 - the reuse the refusal prevents.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(AUTOINCREMENT_BASE)
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (1, 0);"
+        "INSERT INTO t (id, n) VALUES (100, 0);"
+        "DELETE FROM t WHERE id = 100;"
+    )
+    before = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 't'"
+    ).fetchone()[0]
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    after = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 't'"
+    ).fetchone()[0]
+    connection.execute("INSERT INTO t (n) VALUES (0)")
+    next_id = connection.execute("SELECT max(id) FROM t").fetchone()[0]
+    if not (before == 100 and after == 1 and next_id == 2):
+        FAILURES.append(
+            "AUTOINCREMENT state: "
+            f"before {before}, after {after}, next id {next_id}"
+        )
+finally:
+    connection.close()
+
+# A rowid table without a rowid alias answers copied rows at fresh implicit
+# rowids: a row the old shape addressed as 42 the new shape answers at 1.
+# Only an alias column the copy writes by name proves the copy lossless.
+ROWID_BASE = small_base("id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+expect_world(
+    "a rowid table without an alias keeps the rebuild breaking",
+    ROWID_BASE,
+    small_rebuild(
+        "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction: rowid 42 comes back as 1.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ROWID_BASE)
+    connection.execute("INSERT INTO t (rowid, id, n) VALUES (42, 'old', 0)")
+    connection.executescript(
+        small_rebuild(
+            "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id TEXT PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    rowid = connection.execute("SELECT rowid FROM t").fetchone()[0]
+    if rowid != 1:
+        FAILURES.append(f"implicit rowid moved to {rowid}, expected 1")
+finally:
+    connection.close()
+
+# The documented alias spellings prove the copy lossless. Inline
+# INTEGER PRIMARY KEY and INTEGER PRIMARY KEY ASC alias the rowid, and a
+# single-column table-level PRIMARY KEY over the INTEGER column aliases it
+# with ASC, DESC, or neither; the inline DESC spelling is the documented
+# exception and aliases nothing, so it refuses.
+expect_world(
+    "an inline rowid-alias widening stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "an inline ASC alias widening stays additive",
+    small_base("id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY ASC, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a table-level DESC alias widening stays additive",
+    small_base("id INTEGER, n INTEGER CHECK(n >= 0), PRIMARY KEY(id DESC)"),
+    small_rebuild(
+        "id INTEGER, n INTEGER CHECK(n >= 0), PRIMARY KEY(id DESC)",
+        "id INTEGER, n INTEGER CHECK(n >= -1), PRIMARY KEY(id DESC)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "an inline DESC alias is no alias: the rebuild stays breaking",
+    small_base("id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= 0)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY DESC, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+# SQLite conviction for the admitted alias shape: rowids the operator chose
+# survive the copy, and old-shaped writes keep working.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+    )
+    connection.executescript(
+        "INSERT INTO t (id, n) VALUES (5, 0); INSERT INTO t (id, n) VALUES (42, 0);"
+    )
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    rows = connection.execute("SELECT rowid, id FROM t ORDER BY rowid").fetchall()
+    if rows != [(5, 5), (42, 42)]:
+        FAILURES.append(f"alias rowids not preserved: {rows}")
+    connection.execute("INSERT INTO t (n) VALUES (0)")
+    next_id = connection.execute("SELECT max(id) FROM t").fetchone()[0]
+    if next_id != 43:
+        FAILURES.append(f"alias next id {next_id}, expected 43")
+finally:
+    connection.close()
+
+
+# --- CON-488 copy-proof regressions -------------------------------------------
+# Two admissions SQLite convicted that a uniform probe could not see. A
+# declared column named rowid shadows the alias, so SELECT rowid copies
+# the declared column and the hidden rowid 42 returns as 1. A quoted
+# column named "a * b" matches the expression SELECT a * b, and the
+# stored 100 returns as 6. The copy proof admits only single identifier
+# tokens on both lists, seeds cells distinct per column and per row, and
+# reads and seeds the hidden rowid through an alias the table's own
+# columns leave unshadowed; a table shadowing all three spellings hides
+# its rowid from every SELECT and refuses.
+
+DECLARED_ROWID_BASE = small_base("rowid TEXT, n INTEGER CHECK(n >= 0)")
+DECLARED_ROWID_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    "CREATE TABLE t (rowid TEXT, n INTEGER CHECK(n >= -1)); "
+    "INSERT INTO t (rowid, n) SELECT rowid, n FROM scratch; "
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a declared rowid column shadows the alias: the copy stays breaking",
+    DECLARED_ROWID_BASE,
+    DECLARED_ROWID_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: the copy carries the declared column, and the fresh
+# table answers the hidden rowid 42 at a fresh implicit 1.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(DECLARED_ROWID_BASE)
+    connection.execute("INSERT INTO t(_rowid_, rowid, n) VALUES (42, 'p', 3)")
+    connection.executescript(DECLARED_ROWID_REBUILD)
+    got = connection.execute("SELECT _rowid_, rowid, n FROM t").fetchone()
+    if got != (1, "p", 3):
+        FAILURES.append(
+            f"declared-rowid conviction returned {got}, want (1, 'p', 3)"
+        )
+finally:
+    connection.close()
+
+EXPRESSION_COPY_BASE = small_base(
+    'id INTEGER PRIMARY KEY, a INTEGER, b INTEGER, "a * b" INTEGER, '
+    "n INTEGER CHECK(n >= 0)"
+)
+EXPRESSION_COPY_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    'CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER, "a * b" INTEGER, '
+    "n INTEGER CHECK(n >= -1)); "
+    'INSERT INTO t (id, a, b, "a * b", n) SELECT id, a, b, a * b, n FROM scratch; '
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a quoted name matched by an expression stays breaking",
+    EXPRESSION_COPY_BASE,
+    EXPRESSION_COPY_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: the expression overwrites the stored 100 with 6.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(EXPRESSION_COPY_BASE)
+    connection.execute("INSERT INTO t VALUES (42, 2, 3, 100, 3)")
+    connection.executescript(EXPRESSION_COPY_REBUILD)
+    got = connection.execute('SELECT a, b, "a * b" FROM t').fetchone()
+    if got != (2, 3, 6):
+        FAILURES.append(
+            f"expression-copy conviction returned {got}, want (2, 3, 6)"
+        )
+finally:
+    connection.close()
+
+# A table that shadows every spelling hides its rowid from every SELECT:
+# no probe can prove the copy carried it, so the rebuild refuses.
+expect_world(
+    "a table shadowing every rowid spelling stays breaking",
+    small_base("rowid TEXT, oid TEXT, _rowid_ TEXT, n INTEGER CHECK(n >= 0)"),
+    (
+        "ALTER TABLE t RENAME TO scratch; "
+        "CREATE TABLE t (rowid TEXT, oid TEXT, _rowid_ TEXT, "
+        "n INTEGER CHECK(n >= -1)); "
+        "INSERT INTO t (rowid, oid, _rowid_, n) "
+        "SELECT rowid, oid, _rowid_, n FROM scratch; "
+        "DROP TABLE scratch;"
+    ),
+    breaking=True,
+)
+
+# Adjacent escapes the same token rule closes: each SELECT item below is
+# more than one identifier token, and each copy stays breaking whether
+# the token rule refuses the item or the item leaves the proved shape.
+COPY_ESCAPE_BASE = small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)")
+
+
+def copy_escape(name: str, select_items: str) -> None:
+    expect_world(
+        name,
+        COPY_ESCAPE_BASE,
+        (
+            "ALTER TABLE t RENAME TO scratch; "
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)); "
+            f"INSERT INTO t (id, n) SELECT {select_items} FROM scratch; "
+            "DROP TABLE scratch;"
+        ),
+        breaking=True,
+    )
+
+
+copy_escape("an aliased copy item stays breaking", "id, n AS n")
+copy_escape("an implicitly aliased copy item stays breaking", "id, n m")
+copy_escape("a COLLATE copy item stays breaking", "id, n COLLATE BINARY")
+copy_escape("a parenthesized copy item stays breaking", "id, (n)")
+copy_escape("a table-qualified copy item stays breaking", "id, scratch.n")
+copy_escape("a cast copy item stays breaking", "id, CAST(n AS INTEGER)")
+
+# The token rule admits the name it should: one quoted identifier token
+# that names the source column copies losslessly and stays additive.
+ODD_NAME_BASE = small_base(
+    'id INTEGER PRIMARY KEY, "odd col" INTEGER, n INTEGER CHECK(n >= 0)'
+)
+ODD_NAME_REBUILD = (
+    "ALTER TABLE t RENAME TO scratch; "
+    'CREATE TABLE t (id INTEGER PRIMARY KEY, "odd col" INTEGER, '
+    "n INTEGER CHECK(n >= -1)); "
+    'INSERT INTO t (id, "odd col", n) SELECT id, "odd col", n FROM scratch; '
+    "DROP TABLE scratch;"
+)
+expect_world(
+    "a quoted single-token copy of an odd-named column stays additive",
+    ODD_NAME_BASE,
+    ODD_NAME_REBUILD,
+    breaking=False,
+)
+# SQLite conviction: the quoted token is the column, not a string
+# literal, and the odd-named value returns across the rebuild.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ODD_NAME_BASE)
+    connection.execute("INSERT INTO t VALUES (7, 100, 3)")
+    connection.executescript(ODD_NAME_REBUILD)
+    got = connection.execute('SELECT id, "odd col", n FROM t').fetchone()
+    if got != (7, 100, 3):
+        FAILURES.append(
+            f"odd-name conviction returned {got}, want (7, 100, 3)"
+        )
+finally:
+    connection.close()
+
+
+# The rebuild shape must survive real SQLite: rows are preserved, old-shaped
+# reads and writes keep working, the widened CHECK accepts what the old one
+# refused, and the restored trigger still guards writes.
+REBUILD_ROUNDTRIP_BASE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n INTEGER NOT NULL CHECK(n >= 0), PRIMARY KEY(id)) WITHOUT ROWID;"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+
+
+def rebuild_roundtrip(name, *, rebuild, probes, insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 1), "
+        "('b', 'closed', 0);"), base=REBUILD_ROUNDTRIP_BASE):
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(base)
+        connection.execute(insert)
+        connection.executescript(rebuild)
+        probes(connection, name)
+    finally:
+        connection.close()
+
+
+def widening_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    connection.execute("SELECT id FROM attempts;").fetchall()
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', 2);")
+    if connection.execute(
+        "SELECT 1 FROM pragma_index_list('attempts') "
+        "WHERE name = 'attempts_state'"
+    ).fetchone() is None:
+        FAILURES.append(f"{name}: index not restored")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('d', 'archived', 3);")
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(f"{name}: widened CHECK refused: {err}")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES "
+            "('forbidden', 'open', 4);")
+    except sqlite3.IntegrityError as err:
+        if "fold-only" not in str(err):
+            FAILURES.append(f"{name}: trigger error changed: {err}")
+    else:
+        FAILURES.append(f"{name}: restored trigger did not guard")
+
+
+rebuild_roundtrip(
+    "a widening rebuild preserves rows and dependents in SQLite",
+    rebuild=rebuild_sql(),
+    probes=widening_probes,
+)
+
+
+def narrowing_probes(connection, name):
+    # This is why the classifier refuses a narrowed rebuild: SQLite applies
+    # it happily, the rows survive, and a write the old shape allowed dies.
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('z', 'open', 1);")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(f"{name}: narrowed CHECK admitted an old-shape write")
+
+
+rebuild_roundtrip(
+    "a narrowed rebuild makes old-shape writes fail in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n >= 10)"),
+    probes=narrowing_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 10), "
+        "('b', 'closed', 11);"
+    ),
+)
+
+
+def strictness_narrowing_probes(connection, name):
+    # The coordinator's counterexample: >= 0 to > 0 drops the boundary
+    # value, so a write the old shape accepted dies on the new table.
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('z', 'open', 0);")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(
+        f"{name}: strictness-narrowed CHECK admitted an old-valid write")
+
+
+rebuild_roundtrip(
+    "a strictness-narrowed rebuild makes an old-valid write fail in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n > 0)"),
+    probes=strictness_narrowing_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', 1), "
+        "('b', 'closed', 2);"
+    ),
+)
+
+
+def quoted_view_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;").fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    if connection.execute(
+        "SELECT id FROM attempts_open ORDER BY id;").fetchall() != [("a",)]:
+        FAILURES.append(f"{name}: restored view does not read")
+
+
+rebuild_roundtrip(
+    "a restored single-quoted view reads in SQLite",
+    rebuild=QUOTED_VIEW_RESTORE_SQL,
+    probes=quoted_view_probes,
+    base=REBUILD_ROUNDTRIP_BASE + QUOTED_VIEW_SQL,
+)
+
+
+# The affinity trap is a database fact, not a parser quirk: under TEXT
+# affinity SQLite reads the bound as text, so the coordinator's rebuild
+# cannot even copy the old rows, and the classifier's refusal matches it.
+TEXT_ROUNDTRIP_BASE = (
+    "CREATE TABLE attempts ("
+    "id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'open' "
+    "CHECK(state IN ('open','closed')), "
+    "n TEXT NOT NULL CHECK(n <= 9), PRIMARY KEY(id)) WITHOUT ROWID;"
+    "CREATE INDEX attempts_state ON attempts(state);"
+    + REBUILD_TRIGGER_SQL
+)
+TEXT_N_ROUNDTRIP_CREATE = REBUILD_CREATE_TEMPLATE.replace(
+    "n INTEGER NOT NULL {n}", "n TEXT NOT NULL {n}"
+)
+TEXT_WIDEN_REBUILD = rebuild_sql(
+    create=TEXT_N_ROUNDTRIP_CREATE, n_check="CHECK(n <= 10)"
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(TEXT_ROUNDTRIP_BASE)
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', '2');")
+    try:
+        connection.executescript(TEXT_WIDEN_REBUILD)
+    except sqlite3.IntegrityError as err:
+        if "CHECK" not in str(err):
+            FAILURES.append(
+                f"the TEXT-affinity rebuild failed for the wrong reason: {err}"
+            )
+    else:
+        FAILURES.append(
+            "the refused TEXT-affinity rebuild copied an old value in SQLite"
+        )
+finally:
+    connection.close()
+
+
+# The additive TEXT loosening survives real SQLite: rows written under the
+# old shape read back unchanged, old-shaped writes keep working, and the
+# boundary value the strict form refused is the only new acceptance.
+def text_loosen_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", "2"), ("b", "closed", "8")]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', '9');")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('d', 'closed', '4');")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES "
+            "('e', 'open', '95');")
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(
+        f"{name}: loosened CHECK admitted past its bound: '95' <= '9'")
+
+
+rebuild_roundtrip(
+    "a TEXT-affinity strictness loosening preserves rows in SQLite",
+    rebuild=rebuild_sql(
+        create=TEXT_N_ROUNDTRIP_CREATE, n_check="CHECK(n <= 9)"
+    ),
+    probes=text_loosen_probes,
+    base=TEXT_ROUNDTRIP_BASE.replace("CHECK(n <= 9)", "CHECK(n < 9)"),
+    insert=(
+        "INSERT INTO attempts (id, state, n) VALUES ('a', 'open', '2'), "
+        "('b', 'closed', '8');"),
+)
+
+# The precision trap is a database fact, not a parser quirk: the old REAL
+# bound rounds up to the double 9007199254740996, so 9007199254740996 is
+# old-valid, and a rebuild to the INTEGER spelling 9007199254740995 cannot
+# even copy that row. The classifier refuses exactly this pair.
+PRECISION_NARROW_BASE = REBUILD_ROUNDTRIP_BASE.replace(
+    "CHECK(n >= 0)", "CHECK(n <= 9007199254740995.0)"
+)
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(PRECISION_NARROW_BASE)
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('a', 'open', 9007199254740996);"
+        )
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(
+            "the REAL bound refused the value its double admits "
+            f"(9007199254740996): {err}"
+        )
+    else:
+        try:
+            connection.executescript(
+                rebuild_sql(n_check="CHECK(n <= 9007199254740995)")
+            )
+        except sqlite3.IntegrityError as err:
+            if "check" not in str(err).lower():
+                FAILURES.append(
+                    "the precision-narrowed rebuild failed for the wrong "
+                    f"reason: {err}"
+                )
+        else:
+            FAILURES.append(
+                "the refused REAL-to-INTEGER rebuild copied the old-valid "
+                "row 9007199254740996 in SQLite"
+            )
+finally:
+    connection.close()
+
+
+# The sound direction survives SQLite: widening the INTEGER spelling to the
+# REAL double admits only values the old bound refused, old-shaped rows and
+# writes keep working, the boundary value 9007199254740996 is the new
+# acceptance, and the restored index and trigger still hold.
+def precision_widen_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 9007199254740995)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+        return
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('b', 'open', 9007199254740995);"
+    )
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('c', 'closed', 9007199254740996);"
+    )
+    if connection.execute(
+        "SELECT 1 FROM pragma_index_list('attempts') "
+        "WHERE name = 'attempts_state'"
+    ).fetchone() is None:
+        FAILURES.append(f"{name}: index not restored")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('forbidden', 'open', 1);"
+        )
+    except sqlite3.IntegrityError as err:
+        if "fold-only" not in str(err):
+            FAILURES.append(f"{name}: trigger error changed: {err}")
+    else:
+        FAILURES.append(f"{name}: restored trigger did not guard")
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) "
+            "VALUES ('d', 'open', 9007199254740997);"
+        )
+    except sqlite3.IntegrityError:
+        return
+    FAILURES.append(f"{name}: widened CHECK admitted past its bound")
+
+
+rebuild_roundtrip(
+    "a precision-boundary widening preserves rows and dependents in SQLite",
+    rebuild=rebuild_sql(n_check="CHECK(n <= 9007199254740995.0)"),
+    probes=precision_widen_probes,
+    insert=(
+        "INSERT INTO attempts (id, state, n) "
+        "VALUES ('a', 'open', 9007199254740995);"
+    ),
+    base=REBUILD_ROUNDTRIP_BASE.replace(
+        "CHECK(n >= 0)", "CHECK(n <= 9007199254740995)"
+    ),
+)
+
+
+# --- CON-488 retry-11: view and quoted-token regressions ---------------------
+# Three unsafe additive admissions the earlier proof carried, each with the
+# SQLite fact that convicted it: a view created before its table vanished
+# from the replay, DROP TABLE removed surviving views so a conditional
+# CREATE VIEW pretended restoration, and whitespace inside double-quoted
+# CHECK tokens collapsed, so a narrowed string constraint proved equal.
+
+# SQLite stores CREATE VIEW as text and parses it at query time, so a view
+# may precede its table. Nothing attaches such a view to the table, so the
+# rename strands it on the scratch name and the scratch drop leaves it
+# broken: the rebuild owes it a drop and a restoration.
+FORWARD_VIEW_BASE = (
+    "CREATE VIEW v AS SELECT id FROM t;"
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+)
+expect_world(
+    "a view born before its table keeps an unrestored rebuild breaking",
+    FORWARD_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a view born before its table, dropped and restored, stays additive",
+    FORWARD_VIEW_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "CREATE VIEW v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: the unrestored forward view reads the dropped scratch
+# name after the rebuild.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(FORWARD_VIEW_BASE)
+    connection.executescript(
+        small_rebuild(
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+            "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+        )
+    )
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the forward view survived the rebuild unbroken")
+finally:
+    connection.close()
+
+# DROP TABLE leaves surviving views standing, so a conditional CREATE VIEW
+# over the stranded view is the no-op SQLite runs: even when it repeats the
+# view's exact old text it restores nothing.
+CONDITIONAL_REBUILD_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;"
+)
+CONDITIONAL_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+        "DROP TABLE scratch;",
+        "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;",
+    )
+)
+expect_world(
+    "a conditional re-creation over a stranded view stays breaking",
+    CONDITIONAL_REBUILD_BASE,
+    CONDITIONAL_REBUILD,
+    breaking=True,
+)
+expect_world(
+    "a stranded view dropped after the scratch drop stays additive",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            "CREATE VIEW IF NOT EXISTS v AS SELECT id FROM t;",
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: after the conditional no-op the view still names the
+# dropped scratch name.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(CONDITIONAL_REBUILD_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 0)")
+    connection.executescript(CONDITIONAL_REBUILD)
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the conditional re-creation revived the stranded view")
+finally:
+    connection.close()
+
+# A restored view must repeat its definition byte for byte: a difference
+# inside a double-quoted token is a different view text in sqlite_master.
+expect_world(
+    "a restored view differing inside a quoted token is no restoration",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            'CREATE VIEW IF NOT EXISTS v AS SELECT "id" FROM t;',
+        )
+    ),
+    breaking=True,
+)
+
+# A view naming nothing the rebuild touched must survive untouched.
+OTHER_TABLE_VIEW_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE TABLE other (id INTEGER PRIMARY KEY);"
+    "CREATE VIEW other_open AS SELECT id FROM other;"
+)
+expect_world(
+    "an untouched view on another table survives the rebuild additively",
+    OTHER_TABLE_VIEW_BASE,
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a dropped-and-unrestored unrelated view keeps the rebuild breaking",
+    OTHER_TABLE_VIEW_BASE,
+    "DROP VIEW other_open;\n"
+    + small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1)",
+    ),
+    breaking=True,
+)
+
+# SQLite's one namespace holds tables and dependent names together: a
+# rename cannot land on a surviving view's name, and a view cannot take
+# the rebuilt table's own name.
+expect_world(
+    "a rename onto a surviving view's name keeps the rebuild breaking",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));"
+    "CREATE VIEW reserved AS SELECT id FROM t;",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO reserved;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM reserved;",
+            "DROP TABLE reserved;",
+        )
+    ),
+    breaking=True,
+)
+expect_world(
+    "a view over the rebuilt table's own name is no restoration",
+    CONDITIONAL_REBUILD_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+            "DROP VIEW IF EXISTS v;",
+            "CREATE VIEW t AS SELECT id FROM v;",
+        )
+    ),
+    breaking=True,
+)
+# A conditional table creation over a view's name is the no-op SQLite runs,
+# so it builds no table a later rename-rebuild can prove against: the view
+# survives as a view, and the rebuild of a nonexistent table is refused.
+expect_world(
+    "a conditional table creation over a view's name proves no rebuild",
+    "CREATE VIEW t AS SELECT id FROM base;"
+    "CREATE TABLE base (id INTEGER PRIMARY KEY);",
+    "\n".join(
+        (
+            "CREATE TABLE IF NOT EXISTS t "
+            "(id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));",
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=True,
+)
+
+# Whitespace inside a double-quoted token is data. SQLite reads a
+# double-quoted token that names no identifier as the string it spells, so
+# "a  b" and "a b" are different constraints and neither proves the other.
+QUOTED_TOKEN_BASE = small_base(
+    'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")'
+)
+expect_world(
+    'a double-quoted CHECK token narrowed inside its quotes stays breaking',
+    QUOTED_TOKEN_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a b")',
+    ),
+    breaking=True,
+)
+expect_world(
+    "an identical double-quoted CHECK token still proves equal",
+    QUOTED_TOKEN_BASE,
+    small_rebuild(
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+        'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+    ),
+    breaking=False,
+)
+# SQLite conviction: the narrowed rebuild cannot even copy the old row,
+# because 'a  b' fails CHECK(n = "a b") under the string fallback.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(QUOTED_TOKEN_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (1, 'a  b')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a  b")',
+                'id INTEGER PRIMARY KEY, n TEXT CHECK(n = "a b")',
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append('the narrowed quoted-token rebuild copied "a  b"')
+finally:
+    connection.close()
+
+# The restored forward view survives real SQLite: rows are preserved in
+# their old shape, old-shaped reads and writes keep working, the widened
+# CHECK admits the new state, and the view reads again.
+FORWARD_ROUNDTRIP_BASE = (
+    "CREATE VIEW attempts_open AS SELECT id FROM attempts WHERE state = 'open';"
+    + REBUILD_ROUNDTRIP_BASE
+)
+
+
+def forward_view_probes(connection, name):
+    rows = connection.execute(
+        "SELECT id, state, n FROM attempts ORDER BY id;"
+    ).fetchall()
+    if rows != [("a", "open", 1), ("b", "closed", 0)]:
+        FAILURES.append(f"{name}: rows not preserved: {rows}")
+        return
+    if connection.execute(
+        "SELECT id FROM attempts_open ORDER BY id;"
+    ).fetchall() != [("a",)]:
+        FAILURES.append(f"{name}: restored forward view does not read")
+    connection.execute(
+        "INSERT INTO attempts (id, state, n) VALUES ('c', 'open', 2);"
+    )
+    try:
+        connection.execute(
+            "INSERT INTO attempts (id, state, n) VALUES ('d', 'archived', 3);"
+        )
+    except sqlite3.IntegrityError as err:
+        FAILURES.append(f"{name}: widened CHECK refused the new state: {err}")
+
+
+rebuild_roundtrip(
+    "a restored forward view reads and old-shaped writes keep working",
+    rebuild="\n".join(
+        (
+            "DROP VIEW IF EXISTS attempts_open;",
+            "DROP TRIGGER IF EXISTS attempts_guard;",
+            "ALTER TABLE attempts RENAME TO attempts_v108;",
+            REBUILD_CREATE_TEMPLATE.format(
+                state="CHECK(state IN ('open','closed','archived'))",
+                n="CHECK(n >= 0)",
+            ),
+            REBUILD_COPY,
+            "DROP TABLE attempts_v108;",
+            "CREATE INDEX attempts_state ON attempts(state);",
+            REBUILD_TRIGGER_SQL,
+            "CREATE VIEW attempts_open AS "
+            "SELECT id FROM attempts WHERE state = 'open';",
+        )
+    ),
+    probes=forward_view_probes,
+    base=FORWARD_ROUNDTRIP_BASE,
+)
+
+# --- CON-488 retry-12: escaped tokens and self-referencing renames ------------
+# Three unsafe additive admissions the earlier proof carried, each with the
+# SQLite fact that convicted it. A doubled quote inside a quoted identifier is
+# one character of its name, but the token scanners split it apart, so a
+# changed column name and declared type parsed identical to the old one and
+# the copy wrote the string literal 'p' where the old value was. An escaped
+# table name never met the reference scan's raw-text eye, so a stranded view
+# proved restored. And a rename rewrites the renamed table's own foreign key
+# onto the new name, which the replay carried as its old text and a later
+# proof read as a baseline the real database no longer had.
+
+# A column renamed through an escaped token: "p""q" (the column p"q) and
+# "p" "q" (the column p with a quoted type word) split into the same token
+# stream, so the proof must refuse what the parser cannot tell apart.
+ESCAPED_COLUMN_BASE = small_base(
+    'id INTEGER PRIMARY KEY, "p""q" TEXT NOT NULL, n INTEGER CHECK(n >= 0)'
+)
+ESCAPED_COLUMN_ATTACK = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        'CREATE TABLE t (id INTEGER PRIMARY KEY, "p" "q" TEXT NOT NULL, '
+        "n INTEGER CHECK(n >= -1));",
+        'INSERT INTO t (id, p, n) SELECT id, "p", n FROM scratch;',
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "a column renamed through an escaped token stays breaking",
+    ESCAPED_COLUMN_BASE,
+    ESCAPED_COLUMN_ATTACK,
+    breaking=True,
+)
+# The copy names the new column p, which the scratch table does not carry:
+# SQLite falls back to reading "p" as the string literal it spells, so the
+# rebuild runs, the column is renamed, and every old value is lost.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ESCAPED_COLUMN_BASE)
+    connection.execute('INSERT INTO t (id, "p""q", n) VALUES (1, \'real\', 5)')
+    connection.executescript(ESCAPED_COLUMN_ATTACK)
+    columns = [row[1] for row in connection.execute("PRAGMA table_info(t)")]
+    if columns != ["id", "p", "n"]:
+        FAILURES.append(
+            f"the escaped-token attack kept its columns: {columns}")
+    rows = connection.execute("SELECT id, p, n FROM t").fetchall()
+    if rows != [(1, "p", 5)]:
+        FAILURES.append(
+            f"the escaped-token attack kept an old value: {rows}")
+finally:
+    connection.close()
+# The same escape on both sides keeps one identity and still widens.
+expect_world(
+    "an identically escaped column still widens additively",
+    ESCAPED_COLUMN_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            'CREATE TABLE t (id INTEGER PRIMARY KEY, "p""q" TEXT NOT NULL, '
+            "n INTEGER CHECK(n >= -1));",
+            'INSERT INTO t (id, "p""q", n) SELECT id, "p""q", n FROM scratch;',
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# A semicolon or a comment marker inside an escaped token is content: it
+# cuts no statement, opens no comment, and a rebuild carrying the token
+# still proves its shape.
+ESCAPED_MARKER_BASE = small_base(
+    'id INTEGER PRIMARY KEY, d TEXT NOT NULL DEFAULT "a"";--b", '
+    "n INTEGER CHECK(n >= 0)"
+)
+if len(check.statements(
+    'CREATE TABLE t (d TEXT NOT NULL DEFAULT "a"";--b");'
+)) != 1:
+    FAILURES.append("a semicolon inside an escaped token split a statement")
+expect_world(
+    "an escaped semicolon inside a default cuts no statement",
+    ESCAPED_MARKER_BASE,
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            'CREATE TABLE t (id INTEGER PRIMARY KEY, '
+            'd TEXT NOT NULL DEFAULT "a"";--b", n INTEGER CHECK(n >= -1));',
+            "INSERT INTO t (id, d, n) SELECT id, d, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# A table named through an escaped spelling strands a view that names it the
+# same way: SQLite rewrites the view onto the scratch name at the rename, so
+# the rebuild owes the view a drop and a restoration.
+ESCAPED_TABLE_BASE = (
+    'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); '
+    'CREATE VIEW v AS SELECT id FROM "t""x";'
+)
+ESCAPED_TABLE_REBUILD = "\n".join(
+    (
+        'ALTER TABLE "t""x" RENAME TO scratch;',
+        'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));',
+        'INSERT INTO "t""x" (id, n) SELECT id, n FROM scratch;',
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "an escaped view reference strands like any other",
+    ESCAPED_TABLE_BASE,
+    ESCAPED_TABLE_REBUILD,
+    breaking=True,
+)
+expect_world(
+    "an escaped view reference dropped and restored stays additive",
+    ESCAPED_TABLE_BASE,
+    "\n".join(
+        (
+            "DROP VIEW IF EXISTS v;",
+            'ALTER TABLE "t""x" RENAME TO scratch;',
+            'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));',
+            'INSERT INTO "t""x" (id, n) SELECT id, n FROM scratch;',
+            "DROP TABLE scratch;",
+            'CREATE VIEW v AS SELECT id FROM "t""x";',
+        )
+    ),
+    breaking=False,
+)
+# SQLite conviction: the unrestored view names the dropped scratch name.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(ESCAPED_TABLE_BASE)
+    connection.executescript(ESCAPED_TABLE_REBUILD)
+    try:
+        connection.execute("SELECT * FROM v").fetchall()
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append("the escaped-name view survived the rebuild unbroken")
+finally:
+    connection.close()
+# An inbound trigger that names the table through an escaped spelling is an
+# inbound reference the rename rewrites onto the scratch name.
+expect_world(
+    "an inbound trigger through an escaped spelling keeps the rebuild breaking",
+    'CREATE TABLE "t""x" (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); '
+    "CREATE TABLE log (id INTEGER PRIMARY KEY); "
+    'CREATE TRIGGER g AFTER INSERT ON log BEGIN DELETE FROM "t""x"; END;',
+    ESCAPED_TABLE_REBUILD,
+    breaking=True,
+)
+# Escaped spellings ride the whole proof: a backticked name with a doubled
+# backtick is one identifier, in the rename, the references, and the proof.
+expect_world(
+    "a backticked escaped name proves its rebuild",
+    "CREATE TABLE `a``b` (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE `a``b` RENAME TO scratch;",
+            "CREATE TABLE `a``b` (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO `a``b` (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# SQLite rewrites a renamed table's own foreign key onto the new name, and
+# the replay carries the old text: a prior self-referencing rename leaves a
+# fictitious baseline, and a proof read from it admits a rebuild whose
+# foreign key targets a table that no longer exists.
+SELF_FK_RENAME_BASE = (
+    "CREATE TABLE parent (id INTEGER PRIMARY KEY, "
+    "pid INTEGER REFERENCES parent(id), n INTEGER CHECK(n >= 0)); "
+    "ALTER TABLE parent RENAME TO t;"
+)
+SELF_FK_FICTITIOUS_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+        "pid INTEGER REFERENCES parent(id), n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, pid, n) SELECT id, pid, n FROM scratch;",
+        "DROP TABLE scratch;",
+    )
+)
+expect_world(
+    "a prior self-referencing rename poisons the baseline",
+    SELF_FK_RENAME_BASE,
+    SELF_FK_FICTITIOUS_REBUILD,
+    breaking=True,
+)
+# SQLite conviction: migrations run inside one transaction with foreign keys
+# enforced, and the copy against the vanished parent table cannot even run.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(SELF_FK_RENAME_BASE)
+    connection.execute("INSERT INTO t (id, pid, n) VALUES (1, NULL, 0)")
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = ON")
+    if connection.execute("PRAGMA foreign_keys").fetchone() != (1,):
+        FAILURES.append("the conviction could not enable foreign keys")
+    try:
+        connection.executescript(SELF_FK_FICTITIOUS_REBUILD)
+    except sqlite3.OperationalError:
+        pass
+    else:
+        FAILURES.append(
+            "the fictitious-baseline rebuild copied rows against a "
+            "nonexistent parent table"
+        )
+finally:
+    connection.close()
+# A self-referencing table rebuilt without any prior rename fails closed
+# too: the copy through a self-reference is lossless only when the stored
+# rows satisfy the key, and that is data state the shape cannot prove.
+expect_world(
+    "a self-referencing table keeps its rebuild breaking",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+    "pid INTEGER REFERENCES t(id), n INTEGER CHECK(n >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, "
+            "pid INTEGER REFERENCES t(id), n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, pid, n) SELECT id, pid, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=True,
+)
+# A rename that rewrites nothing stays faithful: the table and its trigger
+# name only other tables, the replay carries them truly, and a later
+# rebuild of a different table against that world still proves.
+expect_world(
+    "a rebuild beside a clean prior rename stays additive",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TRIGGER g AFTER INSERT ON t BEGIN SELECT 1; END; "
+    "ALTER TABLE t RENAME TO u; "
+    "CREATE TABLE other (id INTEGER PRIMARY KEY, m INTEGER CHECK(m >= 0));",
+    "\n".join(
+        (
+            "ALTER TABLE other RENAME TO other_scratch;",
+            "CREATE TABLE other (id INTEGER PRIMARY KEY, m INTEGER CHECK(m >= -1));",
+            "INSERT INTO other (id, m) SELECT id, m FROM other_scratch;",
+            "DROP TABLE other_scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+# The reference scan reads whole tokens at their unquoted value, the way
+# SQLite rewrites them: a value string that merely contains the name is not
+# a reference, so a view carrying one is not stranded by the rename.
+expect_world(
+    "a view naming the table only inside a longer string stays additive",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE VIEW notes AS SELECT 'see t here' AS label;",
+    "\n".join(
+        (
+            "ALTER TABLE t RENAME TO scratch;",
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+            "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+            "DROP TABLE scratch;",
+        )
+    ),
+    breaking=False,
+)
+
+
+# --- CON-488 retry-14: the proof reads SQLite's own catalog -----------------
+# Three admissions the last textual proof made and SQLite convicted. The
+# proof now replays the world in an in-memory SQLite database and compares
+# catalog facts, probe rows, and stored definitions, so each defect below
+# is refused by a fact SQLite itself reports, never by a wider lexer.
+
+# A quoted column named x+1 is not the expression x+1: the copy's SELECT
+# computes x plus 1 and moves 8 to 2, so the copy's column list cannot
+# pair the quoted name with the bare expression, and the row comparison
+# would convict the moved value even if the statement read clean.
+COMPUTED_COPY_BASE = (
+    'CREATE TABLE t (id INTEGER PRIMARY KEY,x INTEGER CHECK(x<=9),"x+1" INTEGER);'
+)
+COMPUTED_COPY_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO old_t;",
+        'CREATE TABLE t (id INTEGER PRIMARY KEY,x INTEGER CHECK(x<=10),"x+1" INTEGER);',
+        'INSERT INTO t (id,x,"x+1") SELECT id,x,x+1 FROM old_t;',
+        "DROP TABLE old_t;",
+    )
+)
+expect_world(
+    "a computed copy column is not the quoted column it names",
+    COMPUTED_COPY_BASE,
+    COMPUTED_COPY_REBUILD,
+    breaking=True,
+)
+
+# A dotless-i type word: SQLite folds names ASCII-only, so ıNTEXT carries
+# TEXT affinity while a Unicode uppercase would call it INTEGER. The
+# affinity comes from a SQLite probe, the moved numeric bound refuses on
+# a TEXT column, and SQLite itself rejects the old-valid row at the copy.
+UNICODE_TYPE = "\u0131NTEXT"
+UNICODE_TYPE_BASE = (
+    f"CREATE TABLE t (id INTEGER PRIMARY KEY,n {UNICODE_TYPE} CHECK(n<=9));"
+)
+UNICODE_TYPE_REBUILD = (
+    f"ALTER TABLE t RENAME TO scratch; "
+    f"CREATE TABLE t (id INTEGER PRIMARY KEY,n {UNICODE_TYPE} CHECK(n<=10)); "
+    f"INSERT INTO t (id,n) SELECT id,n FROM scratch; DROP TABLE scratch;"
+)
+expect_world(
+    "a unicode type word keeps its SQLite affinity and the bound stays breaking",
+    UNICODE_TYPE_BASE,
+    UNICODE_TYPE_REBUILD,
+    breaking=True,
+)
+with sqlite3.connect(":memory:") as connection:
+    connection.executescript(UNICODE_TYPE_BASE)
+    connection.execute("INSERT INTO t VALUES(1,'2')")
+    before = connection.execute("SELECT id,n,typeof(n) FROM t").fetchall()
+    try:
+        connection.executescript(UNICODE_TYPE_REBUILD)
+    except sqlite3.IntegrityError as error:
+        if before != [(1, "2", "text")]:
+            FAILURES.append(f"unicode-affinity probe row read {before!r}")
+    else:
+        FAILURES.append(
+            "SQLite accepted the narrowed unicode-affinity CHECK it must refuse"
+        )
+
+# PRıMARY is not PRIMARY: SQLite reads no primary key, so the table has no
+# rowid alias and the copy reassigns rowids (the review probe moved rowid
+# 42 to 1). The probe rows carry distinctive rowids, and the comparison
+# refuses the reassigned copy.
+UNICODE_PK = "PR\u0131MARY"
+expect_world(
+    "a unicode keyword is no primary key and the rowids stay breaking",
+    f"CREATE TABLE t (id INTEGER {UNICODE_PK} KEY,n INTEGER CHECK(n>=0));",
+    (
+        f"ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t (id INTEGER {UNICODE_PK} KEY,n INTEGER CHECK(n>=-1)); "
+        f"INSERT INTO t (id,n) SELECT id,n FROM scratch; DROP TABLE scratch;"
+    ),
+    breaking=True,
+)
+
+# The new positive this repair adds: a rebuild that restores an inbound
+# reference. The rename rewrites the neighbouring trigger onto the scratch
+# name; the migration drops and re-creates it with its old text, and the
+# catalog comparison proves the restoration byte for byte against the
+# stored definition SQLite kept. The textual replay could not carry a
+# rename's rewrite, so this shape stayed breaking on every earlier proof;
+# the SQLite replay proves it additive.
+INBOUND_RESTORE_BASE = (
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= 0)); "
+    "CREATE TABLE u (m INTEGER); "
+    "CREATE TRIGGER g AFTER INSERT ON u BEGIN SELECT n FROM t; END;"
+)
+INBOUND_RESTORE_REBUILD = "\n".join(
+    (
+        "ALTER TABLE t RENAME TO scratch;",
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, n INTEGER CHECK(n >= -1));",
+        "INSERT INTO t (id, n) SELECT id, n FROM scratch;",
+        "DROP TABLE scratch;",
+        "DROP TRIGGER g;",
+        "CREATE TRIGGER g AFTER INSERT ON u BEGIN SELECT n FROM t; END;",
+    )
+)
+expect_world(
+    "a restored inbound trigger lets the rebuild stay additive",
+    INBOUND_RESTORE_BASE,
+    INBOUND_RESTORE_REBUILD,
+    breaking=False,
+)
+
+# Old-shaped reads, writes, and row preservation across that proven-additive
+# rebuild: a reader built for the old schema (the columns, comparisons,
+# and rowids it knows) keeps answering, and a write in the old shape still
+# lands. This pins the additive claim itself, not just the classifier's
+# verdict.
+with sqlite3.connect(":memory:") as connection:
+    connection.executescript(INBOUND_RESTORE_BASE)
+    connection.execute("INSERT INTO t (id, n) VALUES (42, 7)")
+    connection.execute("INSERT INTO t (id, n) VALUES (43, 0)")
+    connection.executescript(INBOUND_RESTORE_REBUILD)
+    rows = connection.execute("SELECT rowid, id, n FROM t ORDER BY rowid").fetchall()
+    if rows != [(42, 42, 7), (43, 43, 0)]:
+        FAILURES.append(f"old-shaped rowid reads moved: {rows!r}")
+    connection.execute("INSERT INTO t (id, n) VALUES (44, 1)")
+    if connection.execute("SELECT count(*) FROM t").fetchone()[0] != 3:
+        FAILURES.append("an old-shaped write after the rebuild failed")
+    if connection.execute("SELECT n FROM t WHERE id = 42").fetchone()[0] != 7:
+        FAILURES.append("an old-shaped value read after the rebuild failed")
+    trigger = connection.execute(
+        "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='g'"
+    ).fetchone()[0]
+    if "FROM t" not in trigger:
+        FAILURES.append(f"the restored trigger still names the scratch table: {trigger!r}")
+
+
+# --- CON-488 retry-19: SQLite-evaluated constraint values ---------------------
+# Two unsafe additive admissions the hand-written value reader made and
+# SQLite convicted. The membership split read lists on raw commas, so
+# ('a'',''b') - one string member to SQLite - parsed as two members and a
+# narrowing to ('a''','''b') classified additive. The same reader treated
+# the expression 'a'||'b' as one literal whose text runs edge to edge.
+# Members and bounds are now values SQLite itself evaluates: json_array
+# runs the whole list and refuses what it cannot read as constants or
+# what names a column, a companion select returns each fragment's runtime
+# value with its storage kind, and the member split rides the quote-aware
+# tokenizer's commas. Anything but single literal tokens - 'a'||'b', a
+# function, a column reference - leaves the family and can only repeat
+# its old text.
+
+def text_rebuild(old_columns: str, new_columns: str) -> str:
+    return (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({new_columns}); "
+        "INSERT INTO t (id, s) SELECT id, s FROM scratch; "
+        "DROP TABLE scratch;"
+    )
+
+
+# The escaped-comma narrowing: SQLite reads the old list as ONE member,
+# the string "a','b", and the new list as two, "a'" and "'b". The old
+# member never returns, so the rebuild stays breaking.
+IN_LITERAL_COMMA_BASE = small_base(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'',''b'))"
+)
+IN_LITERAL_COMMA_NARROW = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'',''b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a''','''b'))",
+)
+expect_world(
+    "an IN list whose member hides a comma cannot narrow through the split",
+    IN_LITERAL_COMMA_BASE,
+    IN_LITERAL_COMMA_NARROW,
+    breaking=True,
+)
+# SQLite conviction: the row "a','b" is old-valid, and the narrowed
+# rebuild cannot even copy it.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(IN_LITERAL_COMMA_BASE)
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'a'',''b')")
+    try:
+        connection.executescript(IN_LITERAL_COMMA_NARROW)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the comma-hidden narrowing copied its old-valid row")
+finally:
+    connection.close()
+
+# The concatenation attack: SQLite evaluates the old member 'a'||'b' as
+# "ab", while the new list is one string member, "a' || 'b". An
+# expression member is outside the family, so the change can only repeat
+# its old text - and it does not.
+IN_CONCAT_BASE = small_base(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))"
+)
+IN_CONCAT_ATTACK = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'' || ''b'))",
+)
+expect_world(
+    "an IN member spelled as an expression is outside the family",
+    IN_CONCAT_BASE,
+    IN_CONCAT_ATTACK,
+    breaking=True,
+)
+# SQLite conviction: "ab" is old-valid, and the new single-string member
+# refuses it at the copy.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(IN_CONCAT_BASE)
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'ab')")
+    try:
+        connection.executescript(IN_CONCAT_ATTACK)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the concatenation attack copied its old-valid row")
+finally:
+    connection.close()
+# The unchanged expression repeats its old text and still proves equal.
+expect_world(
+    "an unchanged expression member still proves equal",
+    IN_CONCAT_BASE,
+    text_rebuild(
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'||'b'))",
+    ),
+    breaking=False,
+)
+
+# The new positive this repair adds: a member that carries a comma inside
+# its quotes. The raw-comma split read the old list as the two fragments
+# "'a" and "b'", neither a literal, so a sound widening stayed breaking;
+# the tokenizer's comma and SQLite's own evaluation admit it.
+IN_EMBEDDED_COMMA_WIDEN = text_rebuild(
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))",
+    "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b','c'))",
+)
+expect_world(
+    "an IN member with an embedded comma still widens additively",
+    small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))"),
+    IN_EMBEDDED_COMMA_WIDEN,
+    breaking=False,
+)
+# Rows preserved, old-shaped writes landing, the new member accepted, and
+# the widened bound still refusing what it must.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a,b'))")
+    )
+    connection.execute("INSERT INTO t (id, s) VALUES (1, 'a,b')")
+    connection.executescript(IN_EMBEDDED_COMMA_WIDEN)
+    if connection.execute("SELECT id, s FROM t").fetchall() != [(1, "a,b")]:
+        FAILURES.append("the embedded-comma widening lost its row")
+    connection.execute("INSERT INTO t (id, s) VALUES (2, 'a,b')")
+    connection.execute("INSERT INTO t (id, s) VALUES (3, 'c')")
+    try:
+        connection.execute("INSERT INTO t (id, s) VALUES (4, 'd')")
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the embedded-comma widening admitted a non-member")
+finally:
+    connection.close()
+
+# The evaluated kind rides the affinity rule: the integer 9 and the real
+# 9.0 are one member only where the column compares numerically. Under
+# TEXT affinity SQLite renders them as '9' and '9.0', different text.
+expect_world(
+    "a real member covering an integer member under numeric affinity stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9.0))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9.0))",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (9))",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a real member against an integer member under text affinity stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))",
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9))",
+    ),
+    breaking=True,
+)
+# SQLite conviction: under TEXT affinity the old member renders '9.0' and
+# the new one '9', so the copy of the old-valid row dies.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))")
+    )
+    connection.execute("INSERT INTO t (id, n) VALUES (1, '9.0')")
+    try:
+        connection.executescript(
+            small_rebuild(
+                "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9.0))",
+                "id INTEGER PRIMARY KEY, n TEXT CHECK(n IN (9))",
+            )
+        )
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        FAILURES.append("the kind-changing member copied its old-valid row")
+finally:
+    connection.close()
+
+# The same evaluated-kind rule orders comparison bounds: one numeric
+# bound under numeric affinity, a refusal under text affinity.
+expect_world(
+    "a real bound covering an integer bound under numeric affinity stays additive",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9)",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n <= 9.0)",
+    ),
+    breaking=False,
+)
+expect_world(
+    "a real bound against an integer bound under text affinity stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9)",
+        "id INTEGER PRIMARY KEY, n TEXT CHECK(n <= 9.0)",
+    ),
+    breaking=True,
+)
+
+# A membership widening may change the list and nothing else: the CHECK
+# text outside the parenthesized list repeats byte for byte, so a changed
+# keyword case or column name refuses even when the list grows.
+expect_world(
+    "an IN widening that changes the keyword's case stays breaking",
+    small_base("id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'))"),
+    text_rebuild(
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s IN ('a'))",
+        "id INTEGER PRIMARY KEY, s TEXT CHECK(s in ('a','b'))",
+    ),
+    breaking=True,
+)
+
+# A bound or member that names a column never reaches evaluation: the
+# grammar admits single literal tokens only, and sqlite_constant_values
+# would refuse it as a no-such-column error besides.
+expect_world(
+    "a bound that names another column stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n)"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n)",
+        "id INTEGER PRIMARY KEY, n INTEGER, m INTEGER CHECK(m >= n - 1)",
+    ),
+    breaking=True,
+)
+expect_world(
+    "a member that names a column stays breaking",
+    small_base("id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m))"),
+    small_rebuild(
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m))",
+        "id INTEGER PRIMARY KEY, n INTEGER CHECK(n IN (m, 1))",
+    ),
+    breaking=True,
+)
+
+
+# The shipped manifest keeps its recorded compatibility floor: migration 111
+# widens a compound CHECK the supported family cannot prove, so it stays
+# breaking, and the live check passes without weakening any guard.
+with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
+    live_source = handle.read()
+live_failures, live_breaking = check.evaluate(check.migrations(live_source))
+if live_failures:
+    FAILURES.append(f"live manifest drew refusals: {live_failures}")
+if max(live_breaking, default=0) != 111:
+    FAILURES.append(
+        f"live compatibility floor moved: {max(live_breaking, default=0)}")
+if 110 not in live_breaking or 111 not in live_breaking:
+    FAILURES.append(
+        f"shipped rebuild migrations left breaking: {live_breaking}")
 
 
 def main() -> int:

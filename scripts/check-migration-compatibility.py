@@ -34,11 +34,104 @@ for every migration above RULE_FLOOR this validator holds that declaration to
 its closed vocabulary and to its consequences. The declaration is the
 author's signed claim beside the SQL: this checker cannot derive it, only
 refuse one that contradicts the SQL's shape or its own terms.
+
+Widening a CHECK constraint has one SQLite shape: rename the table away,
+recreate it under its old name, copy the rows losslessly, drop the scratch
+copy, and recreate every index, trigger, and view the table carried. An
+older binary stays correct across such a rebuild, yet the rename and the
+drop name objects an older binary knows, so the rebuild reads as breaking
+and raises the compatibility floor. evaluate() therefore replays each
+migration into a World that is an in-memory SQLite database executing the
+statements as they run (CD-0055 D2: the tool that parses SQL owns every
+schema fact), and a rebuild stays additive only when a trial that clones
+that world, seeds probe rows through the rebuilt table's own constraints,
+runs the candidate migration, and compares SQLite-derived facts proves
+all of this:
+
+- every schema object outside the rebuilt table returns with its exact
+  stored definition (sqlite_schema rows compared byte for byte, so a
+  rename's rewrite of an inbound foreign key, trigger body, or view - and
+  any un-restored dependent or stranded view - refuses the proof);
+- the table's PRAGMA table_xinfo (name, type, notnull, default, pk,
+  hidden), foreign_key_list, and index_list/index_xinfo facts are
+  unchanged;
+- neither side carries AUTOINCREMENT state: the sequence high-water mark
+  lives in sqlite_sequence, outside the copied rows, so any
+  sqlite_sequence entry for the table on either side refuses;
+- the seeded rows return exactly, rowids included: the rows carry a
+  distinct value in every cell - distinct per column and per row, so a
+  copy that transforms a value has nothing to impersonate - and the
+  rowid is read and seeded through one of SQLite's three spellings
+  (rowid, oid, _rowid_) that the table's own declared columns leave
+  unshadowed (PRAGMA table_xinfo): a declared column of such a name is
+  that column, not the hidden integer. A table that shadows all three
+  spellings hides its rowid from every SELECT and refuses; a table
+  with no rowid (WITHOUT ROWID, decided by SQLite refusing the alias
+  select) carries its identity in its key; an empty rowid table proves
+  nothing and refuses;
+- the stored CREATE definitions differ only inside CHECK constraints,
+  which must widen inside the decidable family: same column, one numeric
+  bound moved under one monotone operator where the referenced column's
+  affinity - read from SQLite by probing a scratch column of the same
+  declared type, never re-derived in Python - makes the comparison
+  numeric, one equal-bound strictness loosening, or a grown membership
+  list whose CHECK text outside the list repeats byte for byte.
+  Equality, inequality, and text bounds have acceptance sets the
+  proof cannot order: a changed one must repeat its old text. Every
+  literal's value is a fact SQLite reports, never a derivation from
+  token spellings: an in-memory connection runs the whole membership
+  list (and each bound) through SELECT json_array(...), which a list
+  SQLite cannot read as constants, or one naming a column, raises and
+  refuses, and a companion select returns each fragment's runtime value
+  with its storage kind, so 9007199254740995.0 and 9007199254740995
+  are not one bound and the integer 9 is not the real 9.0. The JSON
+  text alone is not the value - SQLite prints a REAL with fifteen
+  significant digits - so the native values carry the exact doubles
+  the orderings compare. Members split on the quote-aware tokenizer's
+  commas, never on raw commas: a comma inside a string literal is a
+  character of that literal, ('a'',''b') is one member, and a list of
+  anything but single literal tokens - 'a'||'b', a function, a column
+  reference - leaves the family and can only repeat its old text;
+- the copy statement names every column of the recreated table, in
+  order, on both sides of the SELECT, and each name on both sides is
+  exactly one identifier token - bare, or quoted under SQLite's
+  identifier quoting. A SELECT item that spells an expression the same
+  text names (a * b against a column "a * b") evaluates that
+  expression, so anything beyond one token - an alias, a cast, a
+  COLLATE, a parenthesized name, a table-qualified name - refuses.
+
+An unknown baseline (a poisoned world), a narrowed or novel CHECK, an
+altered column, default, key, or foreign-key shape, unsupported SQL, a
+lossy copy, or a dependent that does not return keeps the migration
+breaking. The migration may carry nothing beside the rebuild shape:
+dependent drops before the rename, the rename, the recreation, one
+copy, the scratch drop, then restorations - a write anywhere else can
+erase the rows the copy claims to move. A conditional migration, an
+unreadable entry, or one statement the replay cannot interpret poisons
+the world, and poisoned worlds prove nothing: a proof read from an
+uncertain before-state would admit a shape an older binary never saw.
+
+Remaining textual pieces, each a CD-0055 D3 declared exception with the
+same failure class (silent corruption invisible where it is authored)
+and a named structural end-state: the statement splitter and head-word
+recognizers read only enough to route a statement to a rule, and their
+miss shape is fail-closed ("unclassified statement" stays breaking); the
+CREATE TABLE body reader lifts CHECK texts and compares the remaining
+words for equality, and its miss shape refuses the proof - the end-state
+that retires both is a SQLite surface that reports CHECK constraints as
+catalog facts. The CHECK atom family itself compares only bare-column
+atoms against single literal tokens, and refuses every other expression
+to unchanged text; the values inside that family are SQLite's own
+answers. Go-source reading (the migrations table extractor and
+the declaration parsers) parses Go, not SQL, because the checker reads
+the shipped source without executing the toolchain.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -76,7 +169,7 @@ SQL_SQ = f"{SQL_SPACE}*"
 SQL_NOT_SPACE = "[^ \\t\\n\\f\\r]"
 SQL_TRIM = " \t\n\f\r"
 SQL_REF = (
-    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`[^`]*`|'(?:[^']|'')*'"
+    rf"(?:\"(?:[^\"]|\"\")*\"|\[[^\]]*\]|`(?:[^`]|``)*`|'(?:[^']|'')*'"
     rf"|{SQL_ID_START}{SQL_ID_CONT}*)"
 )
 SQL_QUAL = rf"(?:{SQL_REF}(?:{SQL_SQ}\.{SQL_SQ}{SQL_REF})*)"
@@ -95,6 +188,30 @@ DROP_TABLE = re.compile(
     rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?{SQL_NAME_SEP}({SQL_QUAL})",
     re.IGNORECASE,
 )
+
+
+def quoted_end(text: str, start: int) -> int:
+    """Return the index just past the quoted token opening at start.
+
+    The scan reads the token the way SQLite does: a doubled quote inside a
+    double-quoted, single-quoted, or backticked token is one character of
+    its content, never a boundary, and a bracket token closes at its first
+    right bracket. An unterminated token runs to the text's end, which the
+    caller refuses rather than guesses at.
+    """
+    quote = text[start]
+    if quote == "[":
+        close = text.find("]", start + 1)
+        return len(text) if close < 0 else close + 1
+    i, n = start + 1, len(text)
+    while i < n:
+        if text[i] == quote:
+            if i + 1 < n and text[i + 1] == quote:
+                i += 2
+                continue
+            return i + 1
+        i += 1
+    return n
 
 
 def sql_parts(ref: str) -> list[str]:
@@ -326,11 +443,9 @@ def statements(sql: str) -> list[str]:
             stmt_open = True
             continue
         if ch in ('"', "`", "["):
-            close = "]" if ch == "[" else ch
-            j = sql.find(close, i + 1)
-            j = n - 1 if j < 0 else j
-            current.append(sql[i : j + 1])
-            i = j + 1
+            j = quoted_end(sql, i)
+            current.append(sql[i:j])
+            i = j
             stmt_open = True
             continue
         if sql.startswith("--", i):
@@ -383,6 +498,7 @@ def track_born(
     statement: str,
     *,
     shadow_safe: bool = False,
+    reborn: frozenset[tuple[str, str]] = frozenset(),
 ) -> tuple | None:
     """Apply one statement's table-lifetime effect to the born sets.
 
@@ -406,7 +522,7 @@ def track_born(
     match = DROP_TABLE.match(statement)
     if match:
         retired = resolve_born(match.group(1), born)
-        if retired is None:
+        if retired is None or retired in reborn:
             return ("preexisting_drop", match.group(1))
         born.discard(retired)
         conditional.discard(retired)
@@ -426,7 +542,7 @@ def track_born(
                 # pre-existing temp shadow takes the rename, so the
                 # migration's own main identity does not move.
                 return None
-            if retired is not None:
+            if retired is not None and retired not in reborn:
                 moved = (retired[0], sql_table_key(rename.group(1))[1])
                 born.discard(retired)
                 born.add(moved)
@@ -438,23 +554,1359 @@ def track_born(
     return None
 
 
-def classify(sql: str) -> list[str]:
+def unquote_name(part: str) -> str:
+    """Strip SQL identifier quoting and resolve its doubled escapes."""
+    if len(part) >= 2 and part[0] == part[-1] and part[0] in ('"', "'", "`"):
+        return part[1:-1].replace(part[0] * 2, part[0])
+    if len(part) >= 2 and part[0] == "[" and part[-1] == "]":
+        return part[1:-1]
+    return part
+
+
+def bare_name(ref: str) -> str | None:
+    """Return one unqualified, unquoted, folded name, or None.
+
+    A single-quoted token is a string, not a name, and a dotted reference
+    is qualified, so both refuse: the CHECK parsers need bare columns
+    exactly.
+    """
+    text = ref.strip(SQL_TRIM)
+    if not text or text[0] == "'":
+        return None
+    parts = sql_parts(text)
+    if len(parts) != 1:
+        return None
+    return fold_ascii(unquote_name(parts[0]))
+
+
+def copy_column_name(item: str) -> str | None:
+    """One identifier token naming a copy column, or None.
+
+    Both lists of a proved copy hold column names: an item admits only
+    when the whole item is one identifier token - bare, or quoted under
+    SQLite's identifier quoting. A SELECT item is an expression SQLite
+    evaluates, and one that spells an expression the same text names
+    (a * b against a column "a * b") evaluates it, so everything beyond
+    one token refuses: an alias, a cast, a COLLATE, a parenthesized
+    name, a table-qualified name, a string literal. The replayed trial
+    remains the backstop for anything the token rule cannot see.
+    """
+    text = item.strip(SQL_TRIM)
+    if not text or text[0] == "'":
+        return None
+    if text[0] in ('"', "`", "["):
+        if quoted_end(text, 0) != len(text):
+            return None
+        return fold_ascii(unquote_name(text))
+    if re.fullmatch(rf"{SQL_ID_START}{SQL_ID_CONT}*", text) is None:
+        return None
+    return fold_ascii(text)
+
+
+def collapse_ws(text: str) -> str:
+    """Collapse whitespace runs to single spaces, outside quoted tokens.
+
+    A quoted token keeps every byte: a string, a double-quoted identifier,
+    a backticked or bracketed name, and its doubled escapes all survive
+    verbatim, whatever whitespace they carry. SQLite reads a double-quoted
+    token that names no identifier as the string it spells, so two CHECK
+    bodies that differ inside a quoted token are different checks, and a
+    normalization that equated them would widen against values SQLite
+    never saw.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in ('"', "'", "`", "["):
+            close = "]" if ch == "[" else ch
+            j = i + 1
+            while j < n:
+                k = text.find(close, j)
+                if k < 0:
+                    j = n
+                    break
+                if close != "]" and k + 1 < n and text[k + 1] == close:
+                    j = k + 2
+                    continue
+                j = k + 1
+                break
+            out.append(text[i : min(j, n)])
+            i = min(j, n)
+            continue
+        if ch in SQL_TRIM:
+            j = i
+            while j < n and text[j] in SQL_TRIM:
+                j += 1
+            out.append(" ")
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out).strip(SQL_TRIM)
+
+
+def paren_span(text: str, start: int) -> tuple[str, int] | None:
+    """Return (inner, index after close) for the group opening at start.
+
+    The scan is literal-aware: a paren inside a string or a quoted
+    identifier is a character, and comments hold none. None means the
+    group never closes, which the parser refuses rather than guesses.
+    """
+    depth = 0
+    i, n = start, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if text[j] == "'" and j + 1 < n and text[j + 1] == "'":
+                    j += 2
+                    continue
+                if text[j] == "'":
+                    break
+                j += 1
+            i = j + 1
+            continue
+        if ch in ('"', "`", "["):
+            i = quoted_end(text, i)
+            continue
+        if text.startswith("--", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j + 1
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : i], i + 1
+        i += 1
+    return None
+
+
+def sql_tokens(text: str) -> list[str]:
+    """Split one fragment into refs, strings, words, and punctuation.
+
+    A quoted reference or a string literal is one token; bare identifiers,
+    numbers, and single punctuation are their own tokens. Shape
+    comparisons rejoin these with single spaces, so fragments the same
+    lexer reads the same compare the same whatever spacing the source
+    carried.
+    """
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in SQL_TRIM:
+            i += 1
+            continue
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if text[j] == "'" and j + 1 < n and text[j + 1] == "'":
+                    j += 2
+                    continue
+                if text[j] == "'":
+                    break
+                j += 1
+            out.append(text[i : min(j + 1, n)])
+            i = j + 1
+            continue
+        if ch in ('"', "`", "["):
+            j = quoted_end(text, i)
+            out.append(text[i:j])
+            i = j
+            continue
+        match = re.match(SQL_ID_START + SQL_ID_CONT + "*", text[i:])
+        if match:
+            out.append(match.group(0))
+            i += match.end()
+            continue
+        match = re.match(r"<=|>=|<>|!=|==|\|\|", text[i:])
+        if match:
+            out.append(match.group(0))
+            i += match.end()
+            continue
+        match = re.match(r"[0-9][0-9]*(?:\.[0-9]+)?", text[i:])
+        signed = re.match(r"[-+][0-9][0-9]*(?:\.[0-9]+)?", text[i:])
+        if signed and (
+            not out
+            or out[-1] in ("(", ",")
+            or out[-1] in ("<=", ">=", "<>", "!=", "==", "=", "<", ">")
+        ):
+            # A sign binds to the number only where no binary minus can
+            # stand: after an open paren, a comma, or a comparison.
+            out.append(signed.group(0))
+            i += signed.end()
+            continue
+        if match:
+            out.append(match.group(0))
+            i += match.end()
+            continue
+        out.append(ch)
+        i += 1
+    return out
+
+
+def split_top_level(text: str) -> list[str]:
+    """Split on commas at paren depth zero, outside literals."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "'":
+            j = i + 1
+            while j < n:
+                if text[j] == "'" and j + 1 < n and text[j + 1] == "'":
+                    j += 2
+                    continue
+                if text[j] == "'":
+                    break
+                j += 1
+            current.append(text[i : min(j + 1, n)])
+            i = j + 1
+            continue
+        if ch in ('"', "`", "["):
+            j = quoted_end(text, i)
+            current.append(text[i:j])
+            i = j
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            piece = "".join(current).strip(SQL_TRIM)
+            if piece:
+                parts.append(piece)
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    tail = "".join(current).strip(SQL_TRIM)
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+IF_EXISTS_RE = re.compile(rf"IF{SQL_SP}EXISTS", re.IGNORECASE)
+IF_NOT_EXISTS_RE = re.compile(rf"IF{SQL_SP}NOT{SQL_SP}EXISTS", re.IGNORECASE)
+DROP_TABLE_MAYBE = re.compile(
+    rf"^DROP{SQL_SP}TABLE(?:{SQL_SP}IF{SQL_SP}EXISTS)?"
+    rf"{SQL_NAME_SEP}({SQL_QUAL})$",
+    re.IGNORECASE,
+)
+DROP_DEPENDENT = re.compile(
+    rf"^DROP{SQL_SP}(INDEX|TRIGGER|VIEW)((?:{SQL_SP}IF{SQL_SP}EXISTS)?)"
+    rf"{SQL_NAME_SEP}({SQL_QUAL})$",
+    re.IGNORECASE,
+)
+ADD_COLUMN_DEF = re.compile(
+    rf"^ADD{SQL_NAME_SEP}(?:COLUMN{SQL_NAME_SEP})?([\s\S]+)$", re.IGNORECASE
+)
+# Matched against the whitespace-collapsed copy statement: INSERT INTO new
+# (columns) SELECT columns FROM scratch. OR IGNORE, a WHERE, or any other
+# clause fails the pattern, and a failed pattern fails the proof.
+REBUILD_COPY = re.compile(
+    rf"^INSERT{SQL_SQ}INTO{SQL_NAME_SEP}({SQL_QUAL}){SQL_NAME_SEP}\("
+    rf"([^()]*)\){SQL_NAME_SEP}SELECT{SQL_NAME_SEP}([^()]*)"
+    rf"{SQL_SQ}FROM{SQL_NAME_SEP}({SQL_QUAL})$",
+    re.IGNORECASE,
+)
+# One decimal number token, the numeric literal grammar the CHECK family
+# admits. Hex, exponents, and every other numeric spelling SQLite reads
+# stay outside the family and repeat their old text unchanged.
+CHECK_NUMBER = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+CHECK_COMPARE = re.compile(
+    rf"^({SQL_ID_START}{SQL_ID_CONT}*){SQL_SQ}(<=|>=|<>|!=|==|=|<|>)"
+    rf"{SQL_SQ}([\s\S]+)$",
+    re.IGNORECASE,
+)
+CHECK_MEMBERSHIP = re.compile(
+    rf"^({SQL_ID_START}{SQL_ID_CONT}*){SQL_SQ}IN{SQL_SQ}\(([^()]*)\)$",
+    re.IGNORECASE,
+)
+TABLE_HEADS = ("CONSTRAINT", "PRIMARY", "UNIQUE", "FOREIGN", "CHECK")
+SQL_WORD = rf"{SQL_ID_START}{SQL_ID_CONT}*"
+
+
+def is_literal_token(token: str) -> bool:
+    """Whether one token is a string literal or a decimal numeric literal."""
+    if token.startswith("'"):
+        return quoted_end(token, 0) == len(token)
+    return CHECK_NUMBER.fullmatch(token) is not None
+
+
+def literal_members(inner: str) -> list[str] | None:
+    """Split one IN list into single-literal members, or None outside the family.
+
+    The split rides the quote-aware tokenizer's commas, never raw commas:
+    a comma inside a string literal is a character of that literal, so
+    ('a'',''b') is one member and ('a''','''b') is two. Each member must
+    be exactly one literal token - 'a'||'b' is an expression whose value
+    SQLite computes, and a fragment that is not one literal token leaves
+    the family rather than be read in Python.
+    """
+    members: list[str] = []
+    expect_member = True
+    for token in sql_tokens(inner):
+        if expect_member:
+            if not is_literal_token(token):
+                return None
+            members.append(token)
+        elif token != ",":
+            return None
+        expect_member = not expect_member
+    if expect_member or not members:
+        return None
+    return members
+
+
+def sqlite_constant_values(fragments: list[str]) -> list[tuple[str, object]] | None:
+    """Evaluate literal fragments in one in-memory SQLite connection.
+
+    SQLite owns every value decision. SELECT json_array(<all fragments>)
+    runs the whole list as one expression: a fragment SQLite cannot read
+    as a constant, or one that names a column, raises and refuses. The
+    JSON text is not the value - SQLite prints a REAL with fifteen
+    significant digits, so 9007199254740996.0 would read back as a
+    different number - so a companion select returns each fragment's
+    runtime value as Python carries it, exact doubles included, and the
+    JSON output only corroborates the parse: its element count must equal
+    the member reader's, and each element's JSON type must agree with the
+    native value's. Every value rides with its storage kind, so the
+    integer 9 and the real 9.0 stay distinct the way affinity renders
+    them.
+    """
+    db = sqlite3.connect(":memory:")
+    try:
+        listed = db.execute(
+            f"SELECT json_array({', '.join(fragments)})"
+        ).fetchone()
+        row = db.execute(f"SELECT {', '.join(fragments)}").fetchone()
+    except (sqlite3.Error, ValueError):
+        return None
+    finally:
+        db.close()
+    if listed is None or row is None or len(row) != len(fragments):
+        return None
+    try:
+        elements = json.loads(listed[0])
+    except ValueError:
+        return None
+    if not isinstance(elements, list) or len(elements) != len(fragments):
+        # SQLite's own comma split and the tokenizer's disagree, so the
+        # list the members came from is not the list SQLite parsed.
+        return None
+    values: list[tuple[str, object]] = []
+    for element, value in zip(elements, row):
+        if type(element) is not type(value) or type(value) not in (
+            int,
+            float,
+            str,
+        ):
+            return None
+        kind = {int: "integer", float: "real", str: "text"}[type(value)]
+        values.append((kind, value))
+    return values
+
+
+def parse_check_atom(expr: str):
+    """Parse one supported CHECK atom, or return None outside the family.
+
+    Supported: one bare column against one literal bound with a monotone
+    operator, and one bare column's membership list of single literal
+    tokens. Every literal's value comes from sqlite_constant_values, so
+    the atom carries SQLite's runtime values, never token-derived
+    guesses. An IN atom also carries the CHECK text outside its
+    parenthesized list; a widening must repeat that text byte for byte.
+    Everything else - compound expressions, functions, subqueries - is
+    outside the family and can only repeat the old text unchanged.
+    """
+    text = collapse_ws(expr)
+    match = CHECK_COMPARE.match(text)
+    if match:
+        bound_tokens = sql_tokens(match.group(3))
+        if len(bound_tokens) != 1 or not is_literal_token(bound_tokens[0]):
+            return None
+        values = sqlite_constant_values(bound_tokens)
+        if values is None or len(values) != 1:
+            return None
+        return ("cmp", fold_ascii(match.group(1)), match.group(2), values[0])
+    match = CHECK_MEMBERSHIP.match(text)
+    if match:
+        members = literal_members(match.group(2))
+        if members is None:
+            return None
+        values = sqlite_constant_values(members)
+        if values is None:
+            return None
+        # The CHECK text around the list: a widening may change the list
+        # and nothing else, so the old side carries its own outside text.
+        outside = text[: match.start(2)] + text[match.end(2) :]
+        return ("in", fold_ascii(match.group(1)), outside, frozenset(values))
+    return None
+
+
+# Widening compares bounds only over operators whose acceptance sets order
+# with the bound. Equality and inequality sets are not order-convex: x = 5
+# against x = 3, or x != 5 against x != 3, accept disjoint or incomparable
+# sets whatever the bounds do, so a changed equality CHECK can only repeat
+# its old text.
+MONOTONE_OPERATORS = ("<=", ">=", "<", ">")
+
+# Affinities under which a numeric bound orders the accepted set. The
+# comparison rules apply affinity before comparing: a numeric-affinity
+# column compares its bound numerically, and a BLOB-affinity column stores
+# text and blobs above every number, so each rejects them under either
+# bound and the numeric subset ordering holds. A TEXT-affinity column
+# applies TEXT affinity to the bound, so n <= 9 compares against '9'
+# lexicographically and 9 < 10 proves nothing about '9' versus '10'.
+NUMERIC_BOUND_AFFINITIES = frozenset(("INTEGER", "REAL", "NUMERIC", "BLOB"))
+
+
+def member_covers(old_value, new_value, affinity) -> bool:
+    """Whether one new member's match set contains one old member's.
+
+    The column and its collation are the same on both sides, so members
+    that agree in kind and value - both SQLite's answers - accept the
+    same rows under any affinity. Members that agree only as numbers,
+    the integer 9 against the real 9.0, match the same rows only where
+    the column's affinity compares numerically: a TEXT-affinity column
+    renders each as its own text, 9 as '9' but 9.0 as '9.0'.
+    """
+    if old_value == new_value:
+        return True
+    if (
+        old_value[0] in ("integer", "real")
+        and new_value[0] in ("integer", "real")
+        and affinity in NUMERIC_BOUND_AFFINITIES
+    ):
+        return old_value[1] == new_value[1]
+    return False
+
+
+def membership_covers(column: str, old_values, new_values, affinity_of) -> bool:
+    """Whether every old member matches under some new member.
+
+    SQLite reads x IN (...) as one equality per element under the
+    column's affinity, so the lists compare member by member: a list
+    larger than the old one is not yet a superset.
+    """
+    affinity = affinity_of(column) if affinity_of is not None else None
+    return all(
+        any(member_covers(bound, other, affinity) for other in new_values)
+        for bound in old_values
+    )
+
+
+def atom_widens(old_expr: str, new_expr: str, affinity_of) -> bool | None:
+    """Whether new_expr accepts every value old_expr accepts, or None when
+    the pair leaves the supported family.
+
+    The comparison's meaning comes from the column the atom names, so the
+    proof reads that column's declared-type affinity before it orders any
+    bound: affinity_of maps the folded column name to its affinity, and a
+    name it cannot resolve refuses. A membership widening repeats the
+    CHECK text outside its parenthesized list byte for byte and covers
+    every old member under some new member, each member a value SQLite
+    evaluated with its storage kind. Bounds carry their SQLite runtime
+    values, so a REAL bound and an INTEGER bound order the way SQLite
+    orders them, rounding and all.
+    """
+    old = parse_check_atom(old_expr)
+    new = parse_check_atom(new_expr)
+    if old is None or new is None or old[0] != new[0] or old[1] != new[1]:
+        return None
+    if old[0] == "in":
+        if old[2] != new[2]:
+            # The list may grow, and nothing around it may change: the
+            # column, the keyword, and every spelling outside the list
+            # repeat, so SQLite compares the same column both sides.
+            return None
+        return membership_covers(old[1], old[3], new[3], affinity_of)
+    old_op, old_bound = old[2], old[3]
+    new_op, new_bound = new[2], new[3]
+    if old_op not in MONOTONE_OPERATORS or new_op not in MONOTONE_OPERATORS:
+        return None
+    upper = old_op in ("<", "<=")
+    if upper != (new_op in ("<", "<=")):
+        return None
+    if old_op == new_op:
+        if old_bound == new_bound:
+            return True
+        # A moved bound orders only where the column's affinity makes the
+        # comparison numeric; an unknown column refuses.
+        if old_bound[0] not in ("integer", "real") or new_bound[0] not in (
+            "integer",
+            "real",
+        ):
+            return None
+    else:
+        # One strictness step admits a superset only at one bound and
+        # only in the loosening direction: x < a widens to x <= a, and
+        # x > a to x >= a. The opposite step cuts the boundary value out
+        # and narrows.
+        if (old_op, new_op) not in (("<", "<="), (">", ">=")):
+            return None
+        if old_bound == new_bound:
+            return True
+        # A loosening whose values differ in kind proves its equality the
+        # way a moved bound proves its order: only where the affinity
+        # compares numerically.
+        if old_bound[0] not in ("integer", "real") or new_bound[0] not in (
+            "integer",
+            "real",
+        ):
+            return None
+    affinity = affinity_of(old[1]) if affinity_of is not None else None
+    if affinity not in NUMERIC_BOUND_AFFINITIES:
+        return None
+    if old_op == new_op:
+        # Same operator: x < a accepts a superset as a grows, x > a as a
+        # shrinks. The runtime values order the bounds the way SQLite
+        # compares them, so the bound 9007199254740995.0 (the double
+        # 9007199254740996) cannot move to 9007199254740995.
+        return (
+            new_bound[1] >= old_bound[1]
+            if upper
+            else new_bound[1] <= old_bound[1]
+        )
+    # The loosening step admits a superset only while the inclusive bound
+    # matches the strict one at runtime: x < 9007199254740995.0 widens to
+    # x <= 9007199254740996, never to x <= 9007199254740995.
+    return new_bound[1] == old_bound[1]
+
+
+def checks_widen(old_checks, new_checks, affinity_of=None) -> bool:
+    """Whether the new CHECK set accepts a superset of the old set.
+
+    Every new check must pair with an old check on the same column: equal
+    text, or a widened bound or grown membership inside the family. Old
+    checks the new table drops are widenings; any unpaired new check is
+    narrowing; any expression outside the family must repeat the old text
+    exactly or the pairing refuses.
+    """
+    unused = [collapse_ws(c) for c in old_checks]
+    for new in new_checks:
+        text = collapse_ws(new)
+        if text in unused:
+            unused.remove(text)
+            continue
+        pair = next(
+            (c for c in unused if atom_widens(c, new, affinity_of)), None
+        )
+        if pair is None:
+            return False
+        unused.remove(pair)
+    return True
+
+
+class ColumnShape(NamedTuple):
+    """One column of a replayed CREATE TABLE: name, non-CHECK text, CHECKs."""
+
+    name: str
+    rest: str
+    checks: tuple[str, ...]
+
+
+class TableShape(NamedTuple):
+    """One table's replayed definition, CHECKs carried apart for widening."""
+
+    columns: tuple[ColumnShape, ...]
+    table_checks: tuple[str, ...]
+    table_other: tuple[str, ...]
+    tail: str
+
+
+def is_bare_word(token: str) -> bool:
+    return bool(re.match(SQL_WORD + r"$", token)) and token[0] != "'"
+
+
+def word_is(token: str, keyword: str) -> bool:
+    return is_bare_word(token) and token.upper() == keyword
+
+
+def parse_column_item(item: str) -> ColumnShape | None:
+    """Parse one column definition, or None outside the vocabulary.
+
+    The name leads; CHECK groups are lifted and the remaining constraint
+    text is kept as one normalized token join, so old and new shapes
+    compare equal only when the words match in the same order.
+    """
+    toks = sql_tokens(item)
+    if len(toks) < 2:
+        return None
+    name = bare_name(toks[0])
+    if name is None or is_bare_word(toks[0]) and toks[0].upper() in TABLE_HEADS:
+        return None
+    checks: list[str] = []
+    rest: list[str] = []
+    i = 1
+    while i < len(toks):
+        if (
+            word_is(toks[i], "CHECK")
+            and i + 1 < len(toks)
+            and toks[i + 1] == "("
+        ):
+            depth = 1
+            j = i + 2
+            while j < len(toks) and depth:
+                if toks[j] == "(":
+                    depth += 1
+                elif toks[j] == ")":
+                    depth -= 1
+                j += 1
+            if depth:
+                return None
+            checks.append(" ".join(toks[i + 2 : j - 1]))
+            i = j
+            continue
+        rest.append(toks[i])
+        i += 1
+    return ColumnShape(name, " ".join(rest), tuple(checks))
+
+
+def parse_table_item(item: str):
+    """One body item: a ColumnShape, a ('check', expr), or a ('other', text)."""
+    toks = sql_tokens(item)
+    if not toks:
+        return None
+    if not is_bare_word(toks[0]) or toks[0].upper() not in TABLE_HEADS:
+        return parse_column_item(item)
+    if word_is(toks[0], "CONSTRAINT"):
+        if len(toks) < 3:
+            return None
+        toks = toks[2:]
+        if not is_bare_word(toks[0]) or toks[0].upper() not in TABLE_HEADS:
+            return None
+        toks = toks[1:]
+        head = toks[0].upper()
+    else:
+        head = toks[0].upper()
+    if head == "CHECK":
+        if len(toks) < 2 or toks[1] != "(":
+            return None
+        depth = 1
+        j = 2
+        while j < len(toks) and depth:
+            if toks[j] == "(":
+                depth += 1
+            elif toks[j] == ")":
+                depth -= 1
+            j += 1
+        if depth:
+            return None
+        return ("check", " ".join(toks[2 : j - 1]))
+    if head in ("PRIMARY", "UNIQUE", "FOREIGN"):
+        return ("other", " ".join(toks))
+    return None
+
+
+def parse_table_shape(body: str) -> TableShape | None:
+    """Parse a CREATE TABLE body, or None outside the known vocabulary."""
+    columns: list[ColumnShape] = []
+    table_checks: list[str] = []
+    table_other: list[str] = []
+    for item in split_top_level(body):
+        parsed = parse_table_item(item)
+        if parsed is None:
+            return None
+        if isinstance(parsed, ColumnShape):
+            columns.append(parsed)
+        elif parsed[0] == "check":
+            table_checks.append(parsed[1])
+        else:
+            table_other.append(parsed[1])
+    if not columns:
+        return None
+    return TableShape(
+        tuple(columns), tuple(table_checks), tuple(table_other), ""
+    )
+
+
+def create_table_shape(statement: str):
+    """Return (key, temp, conditional, shape) for one CREATE TABLE.
+
+    shape None marks a table whose columns the statement does not declare
+    (AS SELECT): the table exists, its shape is unknown, and no rebuild
+    proof may use it as a baseline. None means the statement leaves the
+    recognized vocabulary entirely.
+    """
+    match = CREATE_TABLE.match(statement)
+    if not match:
+        return None
+    prefix = statement[: match.start(1)]
+    temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", prefix, re.IGNORECASE))
+    conditional = bool(CONDITIONAL_CREATE.search(prefix))
+    rest = statement[match.end(1) :].strip(SQL_TRIM)
+    if not rest:
+        return None
+    key = sql_table_key(match.group(1), temp)
+    if rest[0] == "(":
+        span = paren_span(rest, 0)
+        if span is None:
+            return None
+        body, end = span
+        head = body.strip(SQL_TRIM)
+        if re.match(SQL_WORD, head, re.IGNORECASE) and head.split()[0].upper() in (
+            "SELECT",
+            "WITH",
+        ):
+            return (key, temp, conditional, None)
+        shape = parse_table_shape(body)
+        if shape is None:
+            return None
+        tail = collapse_ws(rest[end:])
+        return (key, temp, conditional, shape._replace(tail=tail))
+    if re.match(rf"AS{SQL_SQ}", rest, re.IGNORECASE):
+        return (key, temp, conditional, None)
+    return None
+
+
+DEPENDENT_CREATE = re.compile(
+    rf"^CREATE{SQL_SP}(?:UNIQUE{SQL_SP})?(?:INDEX|TRIGGER|VIEW)"
+    rf"(?:{SQL_SP}IF{SQL_SP}NOT{SQL_SP}EXISTS)?{SQL_NAME_SEP}{SQL_QUAL}",
+    re.IGNORECASE,
+)
+
+
+def quote_ident(name: str) -> str:
+    """Quote one schema object name the way a PRAGMA reference needs it."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _master(schema: str) -> str:
+    return "sqlite_temp_master" if schema == "temp" else "sqlite_master"
+
+
+def table_row(db, schema: str, name: str):
+    """The (exact name, sql) master row of one table, or None.
+
+    The lookup compares names the way SQLite does, ASCII-only case
+    folding, so the folded identity the SQL readers derive finds the row
+    and the row's exact spelling serves every PRAGMA and SELECT that
+    follows.
+    """
+    return db.execute(
+        f"SELECT name, sql FROM {_master(schema)} "
+        "WHERE type='table' AND name = ? COLLATE NOCASE",
+        (name,),
+    ).fetchone()
+
+
+def catalog(db) -> list:
+    """Every user object of both schemas as (schema, type, name, tbl_name, sql)."""
+    rows = []
+    for master, schema in (
+        ("sqlite_master", "main"),
+        ("sqlite_temp_master", "temp"),
+    ):
+        rows.extend(
+            (schema, kind, name, tbl, sql)
+            for kind, name, tbl, sql in db.execute(
+                f"SELECT type, name, tbl_name, sql FROM {master} "
+                "WHERE substr(name, 1, 7) <> 'sqlite_'"
+            )
+        )
+    return sorted(rows, key=repr)
+
+
+def index_facts(db, exact: str) -> list:
+    """Every index of one table with its origin flags and column details."""
+    facts = []
+    for row in db.execute(f"PRAGMA index_list({quote_ident(exact)})"):
+        columns = db.execute(
+            f"PRAGMA index_xinfo({quote_ident(row[1])})"
+        ).fetchall()
+        facts.append((row[1], row[2], row[3], row[4], tuple(columns)))
+    return sorted(facts, key=repr)
+
+
+def row_image(db, exact: str, alias: str = "rowid"):
+    """Every row with its rowid, or without it when the table has none.
+
+    The rowid is read through an alias spelling the table leaves
+    unshadowed: on a table that declares a rowid column, SELECT rowid
+    returns that column, so a shadowed spelling would image the
+    declared column and hide the integer the copy must carry. The
+    alias select failing is SQLite's own word that the table is
+    WITHOUT ROWID, so the rowid and rowid-less images never mix.
+    """
+    try:
+        return (
+            "rowid",
+            sorted(
+                db.execute(
+                    f"SELECT {alias}, * FROM {quote_ident(exact)}"
+                ).fetchall(),
+                key=repr,
+            ),
+        )
+    except sqlite3.Error:
+        return (
+            "plain",
+            sorted(
+                db.execute(f"SELECT * FROM {quote_ident(exact)}").fetchall(),
+                key=repr,
+            ),
+        )
+
+
+def sequence_row(db, exact: str):
+    """The sqlite_sequence entry of one table, or None when there is none."""
+    try:
+        return db.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name = ?", (exact,)
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+
+
+def probed_affinity(db, declared: str) -> str | None:
+    """The affinity SQLite itself applies to one declared type.
+
+    A scratch column of the declared type takes a text and then an
+    integer, and typeof of each read is the affinity decision. No Python
+    re-derivation of the affinity rules can drift from SQLite's here: a
+    dotless-i type word is one known drift, where SQLite's ASCII-only
+    folding reads a TEXT affinity a Unicode uppercase would call
+    INTEGER. INTEGER and NUMERIC affinities answer alike and share the
+    NUMERIC answer; every rule that reads an affinity orders only the
+    numeric/text/blob/real split, which the probe answers exactly. None
+    means the probe could not run, and an unknown affinity refuses every
+    widened-bound pairing.
+    """
+    if not declared.strip(SQL_TRIM):
+        return "BLOB"
+    try:
+        db.execute("DROP TABLE IF EXISTS probe_affinity")
+        db.execute(f"CREATE TABLE probe_affinity(col {declared})")
+        db.execute("INSERT INTO probe_affinity(col) VALUES('1')")
+        text_read = db.execute(
+            "SELECT typeof(col) FROM probe_affinity"
+        ).fetchone()[0]
+        db.execute("DELETE FROM probe_affinity")
+        db.execute("INSERT INTO probe_affinity(col) VALUES(1)")
+        number_read = db.execute(
+            "SELECT typeof(col) FROM probe_affinity"
+        ).fetchone()[0]
+        db.execute("DROP TABLE probe_affinity")
+    except sqlite3.Error:
+        return None
+    pair = (text_read, number_read)
+    if pair == ("text", "text"):
+        return "TEXT"
+    if pair == ("text", "integer"):
+        return "BLOB"
+    if pair == ("real", "real"):
+        return "REAL"
+    if pair[0] in ("integer", "real"):
+        return "NUMERIC"
+    return None
+
+
+def probed_affinities(db, xinfo_rows) -> object:
+    """An affinity lookup for one table's columns, from SQLite probes."""
+
+    def affinity_of(column: str):
+        for row in xinfo_rows:
+            if row[6] == 0 and fold_ascii(row[1]) == column:
+                return probed_affinity(db, row[2])
+        return None
+
+    return affinity_of
+
+
+# Distinctive rowids for probe rows: fresh implicit rowids start from 1,
+# so a copy that reassigns them can never reproduce these by accident.
+PROBE_ROWIDS = (842137, 842139)
+
+# SQLite's three spellings of the hidden rowid, case-insensitive. A user
+# column that declares one of these names is that column and never the
+# integer, so the proof reads and seeds the rowid through the first
+# spelling the table's own columns leave free.
+ROWID_ALIASES = ("rowid", "oid", "_rowid_")
+
+
+def rowid_alias(xinfo_rows) -> str | None:
+    """One rowid alias spelling no declared column shadows, or None.
+
+    SQLite reads rowid, oid, and _rowid_ as the hidden rowid until a
+    user column declares that name, and then the name is the column. A
+    table whose columns shadow all three spellings hides its rowid
+    from every SELECT, so no probe can prove a copy carried it.
+    """
+    declared = {fold_ascii(row[1]) for row in xinfo_rows if row[6] == 0}
+    for alias in ROWID_ALIASES:
+        if fold_ascii(alias) not in declared:
+            return alias
+    return None
+
+
+NUMERIC_TYPE_WORD = re.compile(r"INT|REAL|FLOA|DOUB|NUM|BOOL", re.IGNORECASE)
+
+
+def probe_value_candidates(declared: str, pk: bool, index: int, rowid: int) -> list:
+    """SQL literal candidates for one probe cell, best first.
+
+    Every candidate is distinct per column, per row, and per attempt.
+    A first proof seeded uniform values, and a copy that transformed
+    one - an expression the copy's own text spells - returned every
+    column's shared value and passed as lossless. Distinct cells leave
+    a transformation nothing to impersonate, so the row comparison
+    convicts it on the values SQLite returns.
+    """
+    if NUMERIC_TYPE_WORD.search(declared) or pk:
+        return [str(rowid * 100 + index * 3 + attempt) for attempt in range(3)]
+    return [f"'p{rowid}x{index}k{attempt}'" for attempt in range(3)]
+
+
+def seed_probe_rows(db, exact: str, alias: str) -> None:
+    """Seed probe rows, suspending the table's own triggers.
+
+    The triggers drop and return by their stored definitions, so the
+    schema the candidate migration replays against is byte-identical to
+    the one the rows were seeded into; a trigger that will not come back
+    raises, and the caller refuses the proof. A row no candidate
+    satisfies is skipped: a table left empty proves no rowid identity,
+    and the caller refuses that proof too. The rowid rides the given
+    alias - one spelling the table's own columns leave unshadowed - so
+    the seed writes the hidden integer itself, not a declared column
+    that shadows it.
+    """
+    triggers = db.execute(
+        "SELECT name, sql FROM sqlite_schema WHERE type='trigger' "
+        "AND tbl_name = ? COLLATE NOCASE",
+        (exact,),
+    ).fetchall()
+    for name, _ in triggers:
+        db.execute(f"DROP TRIGGER {quote_ident(name)}")
+    try:
+        columns = [
+            (row[1], row[2], row[5])
+            for row in db.execute(f"PRAGMA table_xinfo({quote_ident(exact)})")
+            if row[6] == 0
+        ]
+        target = quote_ident(exact)
+        alias_name = quote_ident(alias)
+        for rowid in PROBE_ROWIDS:
+            for use_rowid in (True, False):
+                names = ([alias_name] if use_rowid else []) + [
+                    quote_ident(column) for column, _, _ in columns
+                ]
+                for attempt in range(3):
+                    values = ([str(rowid)] if use_rowid else []) + [
+                        probe_value_candidates(
+                            declared, bool(pk), index, rowid
+                        )[attempt]
+                        for index, (_, declared, pk) in enumerate(columns)
+                    ]
+                    statement = (
+                        f"INSERT INTO {target}({', '.join(names)}) "
+                        f"VALUES({', '.join(values)})"
+                    )
+                    try:
+                        db.execute("SAVEPOINT probe_seed")
+                        db.execute(statement)
+                        db.execute("RELEASE probe_seed")
+                        break
+                    except sqlite3.Error:
+                        db.execute("ROLLBACK TO probe_seed")
+                        db.execute("RELEASE probe_seed")
+                else:
+                    continue
+                break
+    finally:
+        for _, sql in triggers:
+            db.execute(sql)
+
+
+class World:
+    """The replayed schema state a rebuild proof reads its baseline from.
+
+    The world is an in-memory SQLite database that has executed every
+    earlier migration's statements, so every schema fact a proof compares
+    is one SQLite itself maintains: a rename's reference rewrites, a
+    conditional CREATE's no-op over an existing name, and a dependent's
+    stored definition all replay exactly as SQLite runs them. poisoned
+    marks a state the replay can no longer vouch for - a statement
+    SQLite refused, a conditional migration that may not have run, an
+    unreadable entry - and a poisoned world proves nothing: a proof read
+    from an uncertain before-state would admit a shape an older binary
+    never saw.
+    """
+
+    def __init__(self) -> None:
+        self.db = sqlite3.connect(":memory:")
+        self.poisoned = False
+
+    def apply(self, statement: str) -> None:
+        if self.poisoned or not statement.strip(SQL_TRIM):
+            return
+        try:
+            self.db.executescript(statement)
+        except sqlite3.Error:
+            self.poisoned = True
+
+    def resolve(self, ref: str) -> tuple[str, str] | None:
+        """Resolve one reference to a replayed table, temp before main."""
+        schema, name = sql_table_key(ref)
+        if len(sql_parts(ref)) >= 2:
+            return (schema, name) if table_row(self.db, schema, name) else None
+        for schema in ("temp", "main"):
+            if table_row(self.db, schema, name):
+                return (schema, name)
+        return None
+
+    def plainkey(self, ref: str) -> tuple[str, str]:
+        """Resolve one reference's identity without requiring it to exist.
+
+        The rename-away scratch table exists only after the rename, so
+        the rebuild scan names it against the before-world, where it is
+        absent: this resolves the name temp-before-main the way SQLite
+        would.
+        """
+        schema, name = sql_table_key(ref)
+        if len(sql_parts(ref)) < 2 and table_row(self.db, "temp", name):
+            return ("temp", name)
+        return (schema, name)
+
+    @property
+    def objects(self) -> dict:
+        """Every dependent object's name under SQLite's one namespace."""
+        out: dict = {}
+        for master in ("sqlite_master", "sqlite_temp_master"):
+            for kind, name in self.db.execute(
+                f"SELECT type, name FROM {master} "
+                "WHERE type IN ('index','trigger','view') "
+                "AND substr(name, 1, 7) <> 'sqlite_'"
+            ):
+                out[fold_ascii(name)] = kind
+        return out
+
+
+def rebuild_scan(stmts: list[str], world: World):
+    """Find a rename-away rebuild and prove or refuse it.
+
+    Returns (consumed, reborn) when the proof holds: the consumed
+    statements classify as additive and the reborn name classifies as
+    pre-existing. A candidate that fails its proof returns (set(),
+    reborn): every statement keeps today's classification, and the
+    recreated name still owes the pre-existing rules an older binary's
+    knowledge earns. None means no rename-away recreation of a known
+    table happens in this migration.
+
+    The proof admits one shape and nothing beside it: dependent drops
+    before the rename, the rename, the recreation, one copy, the scratch
+    drop, then restorations. A write anywhere else in the migration can
+    erase the rows the copy claims to move, and any other statement
+    carries no proof, so both refuse. Whether the restorations truly
+    restore is not read from the statements at all: the trial replay
+    below compares the SQLite catalog before and after the migration.
+    """
+    if world.poisoned:
+        return None
+    renames = []
+    for i, statement in enumerate(stmts):
+        match = ALTER.match(statement)
+        if not match:
+            continue
+        rename = RENAMES.match(match.group(2).strip(SQL_TRIM))
+        if not rename:
+            continue
+        key = world.resolve(match.group(1))
+        if key is None:
+            continue
+        moved = (key[0], sql_table_key(rename.group(1))[1])
+        if table_row(world.db, moved[0], moved[1]):
+            continue
+        renames.append((i, key, moved))
+    if not renames:
+        return None
+    if len(renames) > 1:
+        # Two rebuilt identities in one migration cannot be proved apart;
+        # both recreated names still owe the pre-existing rules.
+        return (set(), frozenset(key for _, key, _ in renames))
+    at_rename, key, moved = renames[0]
+    reborn = frozenset((key,))
+    for j in range(at_rename):
+        # Only dropping dependents is provable before the rename; a write
+        # here can erase the rows the copy will claim to move, and every
+        # other statement is unproved.
+        if DROP_DEPENDENT.match(stmts[j]) is None:
+            return (set(), reborn)
+    # The recreated table must appear under the old name directly after the
+    # rename: the scratch carries the only live rows, and nothing between
+    # the two statements is provable.
+    at_create = None
+    for j in range(at_rename + 1, len(stmts)):
+        match = CREATE_TABLE.match(stmts[j])
+        if match is None:
+            return (set(), reborn)
+        prefix = stmts[j][: match.start(1)]
+        if CONDITIONAL_CREATE.search(prefix):
+            return (set(), reborn)
+        temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", prefix, re.IGNORECASE))
+        if sql_table_key(match.group(1), temp) != key:
+            return (set(), reborn)
+        at_create = j
+        break
+    if at_create is None:
+        return None
+    # After the recreation: exactly one copy, the scratch drop, then the
+    # restorations. Anything else in the stretch is unproved.
+    at_copy = None
+    copy_match = None
+    at_drop = None
+    for j in range(at_create + 1, len(stmts)):
+        statement = stmts[j]
+        copy = REBUILD_COPY.match(collapse_ws(statement))
+        if copy is not None:
+            if at_copy is not None or at_drop is not None:
+                return (set(), reborn)
+            at_copy, copy_match = j, copy
+            continue
+        drop = DROP_TABLE_MAYBE.match(statement)
+        if drop is not None and world.plainkey(drop.group(1)) == moved:
+            if at_drop is not None:
+                return (set(), reborn)
+            at_drop = j
+            continue
+        if at_drop is not None and (
+            DROP_DEPENDENT.match(statement) is not None
+            or DEPENDENT_CREATE.match(statement) is not None
+        ):
+            # Restorations, and the drop-and-recreation of a view the
+            # rename stranded on the scratch name, follow the scratch
+            # drop; whether every object truly returns is the catalog
+            # comparison below.
+            continue
+        return (set(), reborn)
+    if at_copy is None or at_drop is None:
+        return (set(), reborn)
+    if not rebuild_proves(world, stmts, key, moved, copy_match):
+        return (set(), reborn)
+    return set(range(len(stmts))), reborn
+
+
+def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
+    """The SQLite-replay proof for one rename-away rebuild candidate.
+
+    A trial database clones the replayed world, seeds probe rows through
+    the rebuilt table's own constraints, snapshots every catalog fact,
+    runs the candidate migration, and compares. The proof holds only
+    when every schema object outside the table returns byte-identical,
+    the table's PRAGMA facts are unchanged, no AUTOINCREMENT state
+    exists on either side, the seeded rows - distinct in every cell,
+    rowids included, read through an unshadowed rowid alias - return,
+    the stored definitions differ only by CHECKs that widen inside the
+    supported family under SQLite-probed affinity, and the copy names
+    every column as one identifier token on both sides. Any refusal
+    keeps the migration breaking.
+    """
+    before_row = table_row(world.db, key[0], key[1])
+    if before_row is None:
+        return False
+    exact, before_sql = before_row
+    trial = sqlite3.connect(":memory:")
+    world.db.backup(trial)
+    try:
+        # Probe rows carry identity and losslessness, never validity: the
+        # textual family below owns CHECK widening, so the trial reads
+        # them through CHECK enforcement the way a recovery tool would.
+        trial.executescript("PRAGMA ignore_check_constraints = ON;")
+        before_xinfo = trial.execute(
+            f"PRAGMA table_xinfo({quote_ident(exact)})"
+        ).fetchall()
+        alias = rowid_alias(before_xinfo)
+        if alias is None:
+            # All three spellings are declared columns: every SELECT
+            # reads a declared column, so nothing can prove the copy
+            # carried the hidden rowid.
+            return False
+        seed_probe_rows(trial, exact, alias)
+        before_catalog = catalog(trial)
+        before_fk = trial.execute(
+            f"PRAGMA foreign_key_list({quote_ident(exact)})"
+        ).fetchall()
+        before_index = index_facts(trial, exact)
+        before_sequence = sequence_row(trial, exact)
+        before_rows = row_image(trial, exact, alias)
+        trial.executescript(";\n".join(stmts) + ";")
+    except sqlite3.Error:
+        return False
+    after_row = table_row(trial, key[0], key[1])
+    if after_row is None:
+        return False
+    _, after_sql = after_row
+    if any(fold_ascii(row[2]) == fold_ascii(exact) for row in before_fk):
+        # The table carries a self-referencing foreign key: the store runs
+        # migrations under immediate foreign-key checking, so a copy that
+        # inserts rows referencing later rows fails at runtime, and the
+        # shape cannot prove the stored rows' insertion order.
+        return False
+    try:
+        after_catalog = catalog(trial)
+        after_xinfo = trial.execute(
+            f"PRAGMA table_xinfo({quote_ident(exact)})"
+        ).fetchall()
+        after_fk = trial.execute(
+            f"PRAGMA foreign_key_list({quote_ident(exact)})"
+        ).fetchall()
+        after_index = index_facts(trial, exact)
+        after_sequence = sequence_row(trial, exact)
+        after_rows = row_image(trial, exact, alias)
+    except sqlite3.Error:
+        return False
+    if table_row(trial, moved[0], moved[1]):
+        return False
+    # Every object outside the rebuilt table returns with its exact
+    # stored definition: a rename rewrote every inbound foreign key,
+    # trigger body, and view onto the scratch name, so an un-restored
+    # reference - and any other quiet schema change - refuses here.
+    def other_objects(rows):
+        return [
+            row
+            for row in rows
+            if not (row[0] == key[0] and row[1] == "table" and fold_ascii(row[2]) == key[1])
+        ]
+
+    if other_objects(before_catalog) != other_objects(after_catalog):
+        return False
+    if before_xinfo != after_xinfo:
+        return False
+    if before_fk != after_fk:
+        return False
+    if before_index != after_index:
+        return False
+    if before_sequence is not None or after_sequence is not None:
+        # The AUTOINCREMENT high-water mark lives in sqlite_sequence,
+        # outside the copied rows: any such state on either side - a
+        # rename leaving it on the scratch name, or a recreation adding
+        # one - refuses.
+        return False
+    if before_rows[0] == "rowid" and not before_rows[1]:
+        # An empty rowid table proves nothing about rowid identity.
+        return False
+    if before_rows != after_rows:
+        return False
+    old_created = create_table_shape(before_sql)
+    new_created = create_table_shape(after_sql)
+    if old_created is None or new_created is None:
+        return False
+    old_shape, new_shape = old_created[3], new_created[3]
+    if old_shape is None or new_shape is None:
+        return False
+    if not shape_widens_only(
+        old_shape, new_shape, probed_affinities(trial, before_xinfo)
+    ):
+        return False
+    insert_columns = [
+        copy_column_name(p) for p in split_top_level(copy_match.group(2))
+    ]
+    select_columns = [
+        copy_column_name(p) for p in split_top_level(copy_match.group(3))
+    ]
+    if None in insert_columns or None in select_columns:
+        # An item beyond one identifier token is an expression or a
+        # qualified name SQLite evaluates, never a plain column copy.
+        return False
+    if insert_columns != [c.name for c in new_shape.columns]:
+        return False
+    if select_columns != insert_columns:
+        return False
+    if world.plainkey(copy_match.group(1)) != key or world.plainkey(
+        copy_match.group(4)
+    ) != moved:
+        return False
+    return True
+
+
+def shape_widens_only(old: TableShape, new: TableShape, affinity_of) -> bool:
+    """Whether new is old with only the CHECK family widened.
+
+    Every column keeps its name and every non-CHECK word of its
+    definition, the non-CHECK table constraints and the tail (STRICT,
+    WITHOUT ROWID) repeat, and each column's CHECK set and the
+    table-level CHECK set widen under checks_widen with the affinity the
+    probe read from SQLite.
+    """
+    if len(old.columns) != len(new.columns):
+        return False
+    for old_column, new_column in zip(old.columns, new.columns):
+        if old_column.name != new_column.name:
+            return False
+        if old_column.rest != new_column.rest:
+            return False
+    for old_column, new_column in zip(old.columns, new.columns):
+        if not checks_widen(old_column.checks, new_column.checks, affinity_of):
+            return False
+    if old.table_other != new.table_other or old.tail != new.tail:
+        return False
+    return checks_widen(old.table_checks, new.table_checks, affinity_of)
+
+def classify(sql: str, world: World | None = None) -> list[str]:
     """Return the reasons this migration breaks an older binary, if any.
 
-    A table created by this same migration is invisible to an older binary, so
-    dropping it, indexing it, or putting a trigger on it breaks nothing.
+    A table created by this same migration is invisible to an older binary,
+    so dropping it, indexing it, or putting a trigger on it breaks nothing -
+    unless the name is a rebuilt identity: a rename-away recreation frees a
+    name an older binary knows, so the born rules stop applying to it and
+    the pre-existing rules take over (reborn). With a replayed world, a
+    rebuild whose shape proof holds classifies as additive; an unproved
+    statement keeps the classification below, and the proof refuses on an
+    unknown baseline, a narrowed or novel CHECK, an altered column,
+    default, key, or foreign-key shape, an inbound reference from another
+    table, an unproved write, unsupported SQL, a lossy copy, or a
+    dependent that does not return.
     """
+    stmts = statements(sql)
+    scanned = rebuild_scan(stmts, world) if world is not None else None
+    consumed = scanned[0] if scanned else set()
+    reborn = scanned[1] if scanned else frozenset()
     born: set[tuple[str, str]] = set()
     scratch: set[tuple[str, str]] = set()
     reasons: list[str] = []
-    for statement in statements(sql):
+    for i, statement in enumerate(stmts):
         if not statement:
             continue
-        event = track_born(born, scratch, statement)
+        if i in consumed:
+            track_born(born, scratch, statement, reborn=reborn)
+            continue
+        event = track_born(born, scratch, statement, reborn=reborn)
         if event and event[0] == "preexisting_drop":
             reasons.append(f"drops the pre-existing table {event[1]}")
             continue
-        if event is not None or CREATE_TABLE.match(statement) or DROP_TABLE.match(statement):
+        if CREATE_TABLE.match(statement):
+            match = CREATE_TABLE.match(statement)
+            prefix = statement[: match.start(1)]
+            temp = bool(re.search(r"\b(?:TEMP|TEMPORARY)\b", prefix, re.IGNORECASE))
+            key = sql_table_key(match.group(1), temp)
+            if (
+                world is not None
+                and not world.poisoned
+                and key[0] == "main"
+                and key[1] in world.objects
+            ):
+                # SQLite's one namespace: a conditional CREATE over the
+                # dependent object's name is the no-op SQLite runs and an
+                # unconditional one the error it raises. Either way the
+                # name an older binary knows stays a dependent object, and
+                # no table can be proved under it.
+                reasons.append(
+                    f"re-creates the pre-existing dependent object {match.group(1)} as a table"
+                )
+            continue
+        if event is not None or DROP_TABLE.match(statement):
             continue
         match = DROP_INDEX.match(statement)
         if match:
@@ -462,7 +1914,8 @@ def classify(sql: str) -> list[str]:
         match = ALTER.match(statement)
         if match:
             table, rest = match.group(1), match.group(2).strip(SQL_TRIM)
-            if resolves_to_born(table, born):
+            owned = resolve_born(table, born)
+            if owned is not None and owned not in reborn:
                 continue
             if ADD_COLUMN.match(rest):
                 continue
@@ -470,14 +1923,16 @@ def classify(sql: str) -> list[str]:
             continue
         match = INDEX_ON.match(statement)
         if match:
-            if match.group(1) and not resolves_to_born(match.group(2), born):
+            owned = resolve_born(match.group(2), born)
+            if match.group(1) and (owned is None or owned in reborn):
                 reasons.append(
                     f"adds a unique index to the pre-existing table {match.group(2)}"
                 )
             continue
         match = TRIGGER_ON.match(statement)
         if match:
-            if not resolves_to_born(match.group(1), born):
+            owned = resolve_born(match.group(1), born)
+            if owned is None or owned in reborn:
                 reasons.append(
                     f"adds a trigger to the pre-existing table {match.group(1)}"
                 )
@@ -656,17 +2111,22 @@ def declares_breaking(entry: str) -> bool:
     return bool(run) and len(run) == 1 and run[0].kind == "ident" and run[0].text == "true"
 
 
-def adds_preexisting_column(sql: str) -> bool:
+def adds_preexisting_column(sql: str, world: World | None = None) -> bool:
     """Return whether any statement adds a column to a table the migration
     did not create.
 
     A FoldMaintained declaration describes exactly this shape: a column on a
-    table an older binary's fold generation already writes.
+    table an older binary's fold generation already writes. A rebuilt name
+    is such a table: the migration freed a name an older binary knows and
+    created a table under it again, so the fold duty reaches it too.
     """
+    stmts = statements(sql)
+    scanned = rebuild_scan(stmts, world) if world is not None else None
+    reborn = scanned[1] if scanned else frozenset()
     born: set[tuple[str, str]] = set()
     conditional: set[tuple[str, str]] = set()
-    for statement in statements(sql):
-        track_born(born, conditional, statement, shadow_safe=True)
+    for statement in stmts:
+        track_born(born, conditional, statement, shadow_safe=True, reborn=reborn)
         match = ALTER.match(statement)
         if match:
             ref = match.group(1)
@@ -675,8 +2135,9 @@ def adds_preexisting_column(sql: str) -> bool:
             # one resolves temp before main at runtime, so this migration's
             # own main table does not own it: a pre-existing temp shadow
             # takes the statement, and connection-local tables are invisible
-            # here. Only a temp-born name is provably owned unqualified.
-            provably_owned = key is not None and (
+            # here. A reborn name is pre-existing for this duty. Only a
+            # temp-born, unrebuilt name is provably owned unqualified.
+            provably_owned = key is not None and key not in reborn and (
                 len(sql_parts(ref)) >= 2 or key[0] == "temp"
             )
             if provably_owned and key not in conditional:
@@ -830,12 +2291,18 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     Returns the refusal messages and the versions whose SQL, or whose advance
     declaration, breaks an older binary. Migrations at or below RULE_FLOOR
     predate the FoldMaintained field and are held to the statement rules
-    alone.
+    alone. A World replays each migration's schema effect as it runs, so
+    a later rebuild can prove itself against the schema its predecessors
+    produced; a conditional migration, an unreadable entry, or one
+    statement the replay cannot interpret poisons that world, and a
+    poisoned world proves nothing.
     """
     failures: list[str] = []
     breaking_versions: list[int] = []
+    world = World()
     for version, entry, sql in entries:
         if version == UNSUPPORTED_ELEMENT:
+            world.poisoned = True
             label = " ".join(entry.split())[:60]
             failures.append(
                 f"migration list element {label} is not a composite literal; "
@@ -843,6 +2310,7 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
             )
             continue
         if version < 0:
+            world.poisoned = True
             name_run = field_run(entry, "Name")
             label = "<unnamed>"
             if name_run and len(name_run) == 1 and name_run[0].kind in ("string", "raw"):
@@ -855,13 +2323,18 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
         declared = declares_breaking(entry)
         fold = fold_maintained(entry)
         if not sql_field_sound(entry):
+            world.poisoned = True
             failures.append(
                 f"migration {version} carries an SQL field that is not one raw "
                 "string literal; the checker refuses to read it"
             )
-        reasons = classify(sql)
+        if field_run(entry, "Applies") is not None:
+            # A conditional migration may not have run, so the world
+            # cannot vouch for the schema its successors prove against.
+            world.poisoned = True
+        reasons = classify(sql, world)
         if version > RULE_FLOOR:
-            adds_column = adds_preexisting_column(sql)
+            adds_column = adds_preexisting_column(sql, world)
             if adds_column and not fold:
                 failures.append(
                     f"migration {version} adds a column to a pre-existing table "
@@ -897,6 +2370,10 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
             )
         if reasons:
             breaking_versions.append(version)
+        # The world replays what ran, not what was allowed: the proof
+        # for a later rebuild reads this state as its baseline.
+        for statement in statements(sql):
+            world.apply(statement)
     return failures, breaking_versions
 
 

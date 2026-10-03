@@ -243,7 +243,10 @@ class AgentProjectionTests(unittest.TestCase):
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
-        self.assertIn("mode: all", projection)
+        # CD-0184 registry descriptions: a utility is a coordinator-native
+        # Task, so it generates subagent-only and never as a primary agent.
+        self.assertIn("mode: subagent", projection)
+        self.assertNotIn("mode: all", projection)
         self.assertIn("  bash: true", projection)
         self.assertIn("  read: false", projection)
         self.assertIn("  task: false", projection)

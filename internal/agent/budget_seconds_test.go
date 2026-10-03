@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// CD-0038 D1/D3/D4/D6: the seconds budget is a shared input, refuses against
-// the declared ceiling before any effect, becomes a real deadline when
-// accepted, and must agree with the legacy millisecond field when both are
-// sent.
+// CD-0038 D1/D3/D4 and its 2026-10-02 amendment: the seconds budget is the
+// only agent-facing operation budget, refuses against the declared ceiling
+// before any effect, and becomes a real deadline when accepted. The
+// result-size budget object is retired: size is bounded by limit/page.
 
 func budgetOpFor(t *testing.T) ContractOperation {
 	t.Helper()
@@ -61,7 +61,6 @@ func TestWorktreeVerifyAdmitsThe1800SecondBudget(t *testing.T) {
 	t.Parallel()
 	// CON-317: the measured 367.08s verification lane fixes the
 	// worktree_verify ceiling at 1800 under the CD-0038 D2 evidence clause.
-	// The legacy max_millis cap stays where it was.
 	op := contractOpFor(t, "concord_work_transition", "worktree_verify")
 	if op.SupportedBudgetSeconds != 1800 {
 		t.Fatalf("worktree_verify ceiling = %d, want the CON-317-evidenced 1800", op.SupportedBudgetSeconds)
@@ -84,10 +83,6 @@ func TestWorktreeVerifyAdmitsThe1800SecondBudget(t *testing.T) {
 	_, _, over, _ := applyBudget(context.Background(), op, []byte(`{"requested_budget_seconds":1801}`))
 	if !over.CeilingRefused {
 		t.Fatalf("1801s not marked over-ceiling: %#v", over)
-	}
-	_, _, _, legacy := applyBudget(context.Background(), op, []byte(`{"budget":{"max_millis":300001}}`))
-	if legacy == nil || legacy.kind != "budget_refused" {
-		t.Fatalf("legacy millisecond bound moved: %#v", legacy)
 	}
 }
 
@@ -140,29 +135,21 @@ func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
 	}
 }
 
-func TestApplyBudgetEnforcesMillisecondAgreement(t *testing.T) {
+func TestApplyBudgetRetiresTheBudgetObject(t *testing.T) {
 	t.Parallel()
-	// CD-0038 D6: both denominations may be sent only when they express one
-	// exact duration. No rounding, no preference rule.
-	_, _, _, mismatch := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":30,"budget":{"max_millis":29999}}`))
-	if mismatch == nil || mismatch.kind != "invalid_input" {
-		t.Fatalf("disagreeing denominations accepted: %#v", mismatch)
-	}
-	ctx, cancel, budget, agreed := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"requested_budget_seconds":30,"budget":{"max_millis":30000}}`))
+	// CD-0038 amendment (2026-10-02): the agent-facing budget object is
+	// retired. Closed input validation refuses it before applyBudget runs, so
+	// the seconds field is the only budget this parser can see.
+	ctx, cancel, budget, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"budget":{"max_bytes":1,"max_items":1},"requested_budget_seconds":2}`))
 	defer cancel()
-	if agreed != nil || budget.MaxMillis != 30000 || budget.RequestedSeconds != 30 {
-		t.Fatalf("agreeing denominations refused: %#v %v", budget, agreed)
+	if failure != nil {
+		t.Fatalf("retired budget object reached the seconds parser: %v", failure)
+	}
+	if budget.RequestedSeconds != 2 {
+		t.Fatalf("requested seconds not parsed beside the retired object: %#v", budget)
 	}
 	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("agreed budget installed no deadline")
-	}
-}
-
-func TestApplyBudgetKeepsLegacyMillisecondBound(t *testing.T) {
-	t.Parallel()
-	_, _, _, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"budget":{"max_millis":300001}}`))
-	if failure == nil || failure.kind != "budget_refused" {
-		t.Fatalf("legacy millisecond bound lost: %#v", failure)
+		t.Fatal("requested seconds beside the retired object installed no deadline")
 	}
 }
 

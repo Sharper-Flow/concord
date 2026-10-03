@@ -69,6 +69,17 @@ def load_manifest() -> tuple[dict, str]:
     utility_ids = [utility["id"] for utility in manifest["utilities"]]
     if len(set(utility_ids)) != len(utility_ids) or set(ids) & set(utility_ids):
         raise ValueError("utility registry must contain unique ids that do not collide with lanes")
+    # The host renders the generated description as the only routing surface a
+    # coordinator reads before the first Task call (OpenCode: the description
+    # states what the agent does and when to use it). Every purpose therefore
+    # states the what and carries an explicit when-clause: utilities say Use,
+    # dispatch-only lanes say Dispatch.
+    for entry in manifest["lanes"]:
+        if "Dispatch" not in entry["purpose"]:
+            raise ValueError(f"lane {entry['id']} purpose states no Dispatch when-clause: {entry['purpose']!r}")
+    for entry in manifest["utilities"]:
+        if "Use" not in entry["purpose"]:
+            raise ValueError(f"utility {entry['id']} purpose states no Use when-clause: {entry['purpose']!r}")
     unknown_tools = sorted({tool for utility in manifest["utilities"] for tool in utility["allowed_tools"] if tool not in UTILITY_TOOL_KEYS})
     if unknown_tools:
         raise ValueError(f"utility registry names unknown tool(s): {unknown_tools}")
@@ -758,7 +769,7 @@ def utility_projection(utility: dict) -> str:
         body_text += "\n\n" + execute_source_lookup_instructions().strip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
-mode: all
+mode: subagent
 hidden: true
 tools:
 {chr(10).join(tools)}

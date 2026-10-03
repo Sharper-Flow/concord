@@ -86,15 +86,56 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   if (JSON.stringify(request.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request fields are not required`)
   const operation = object(request.properties.operation, `${toolName} operation`)
   if (JSON.stringify(operation.enum) !== JSON.stringify(expected.map((candidate: any) => candidate.id.slice(candidate.id.indexOf(".") + 1)))) fail(`${toolName} operation enum differs from the generated contract`)
-  const input = object(request.properties.input, `${toolName} input`)
-  if (input.type !== "object" || input.additionalProperties !== true || input.required.length !== 0) fail(`${toolName} input is not a permissive object`)
+  // The published request is one closed branch per operation: the branch
+  // names the operation with a const and its input states the required set
+  // and the admitted fields the core enforces. The const keeps branches
+  // mutually exclusive, and no branch admits a field a sibling operation owns.
+  const requestBranches = request.oneOf
+  if (!Array.isArray(requestBranches)) fail(`${toolName} request carries no per-operation branches`)
+  if (requestBranches.length !== expected.length) fail(`${toolName} publishes ${requestBranches.length} request branches for ${expected.length} operations`)
+  const operationEnum = operation.enum as string[]
+  for (const [index, branch] of requestBranches.entries()) {
+    if (typeof branch !== "object" || branch === null) fail(`${toolName} request branch ${index} is not an object`)
+    const node = object(branch, `${toolName} request branch ${index}`)
+    if (node.type !== "object" || node.additionalProperties !== false) fail(`${toolName} request branch ${index} is not a closed object`)
+    if (JSON.stringify(node.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request branch ${index} does not require exactly operation and input`)
+    const branchProperties = object(node.properties, `${toolName} request branch ${index} properties`)
+    if (JSON.stringify(Object.keys(branchProperties)) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request branch ${index} exposes fields outside operation and input`)
+    const branchOperation = object(branchProperties.operation, `${toolName} request branch ${index} operation`)
+    if (branchOperation.const !== operationEnum[index]) fail(`${toolName} request branch ${index} does not name ${operationEnum[index]}`)
+    const input = object(branchProperties.input, `${toolName} request branch ${index} input`)
+    if (input.type !== "object") fail(`${toolName} request branch ${index} input is not an object`)
+    const branchRequired: unknown = input.required
+    if (!Array.isArray(branchRequired)) fail(`${toolName} input branch ${index} states no required set`)
+    const inputProperties = object(input.properties, `${toolName} input branch ${index} properties`)
+    if (Object.keys(inputProperties).length === 0) fail(`${toolName} input branch ${index} names no fields`)
+    if (input.additionalProperties !== false) fail(`${toolName} input branch ${index} is not closed`)
+    for (const name of branchRequired) {
+      if (!(name in inputProperties)) fail(`${toolName} input branch ${index} requires unknown field ${name}`)
+    }
+  }
 }
 
 const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
 const workDefineRequest = object(object(workDefineRoot.properties, "work define properties").request, "work define request")
-const urgencyProperty = object(object(object(workDefineRequest.properties, "work define request properties").input, "work define input").properties, "work define input properties").urgency
-const urgency = object(urgencyProperty, "capture urgency")
+const captureInput = object(object(object(object(workDefineRequest.oneOf[0], "capture request branch").properties, "capture request properties").input, "capture input"), "capture input")
+if (JSON.stringify(captureInput.required) !== JSON.stringify(["title", "value_statement", "kind", "project_ids", "idempotency_key"])) fail("capture required set does not match the generated contract")
+const urgency = object(object(captureInput.properties, "capture input properties").urgency, "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
+
+// The transition action branch must name every field the core admits for the
+// workflow_action operation, including the conditional ones the merged
+// projection used to drop.
+const transitionRoot = publishedArgsSchema(work_transition.args, "work transition schema")
+const transitionRequest = object(object(transitionRoot.properties, "work transition properties").request, "work transition request")
+if (!Array.isArray(transitionRequest.oneOf)) fail("work transition request carries no branch list")
+const transitionBranches = (transitionRequest.oneOf as unknown[]).map((branch) => object(branch, "action request branch"))
+const actionBranch = transitionBranches.find((branch) => object(branch.properties, "action request properties").operation.const === "workflow_action")
+if (actionBranch === undefined) fail("concord_work_transition publishes no workflow_action branch")
+const actionProperties = Object.keys(object(object(actionBranch.properties, "action request properties").input, "action input").properties)
+for (const field of ["action_id", "selected_choice", "decision_context_digest", "fields", "requested_budget_seconds"]) {
+  if (!actionProperties.includes(field)) fail(`the published workflow_action branch does not name ${field}`)
+}
 
 // The watcher is a direct tool: its args are the published argument fields
 // themselves, not a root schema. The host publishes each key of args as one

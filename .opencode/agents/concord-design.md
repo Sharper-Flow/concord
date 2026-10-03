@@ -1,5 +1,5 @@
 ---
-description: Concord design lane — Implement visual UI and UX changes for one approved bounded task and report design evidence. Edits only files inside the approved contract scope.
+description: Concord design lane — Implement visual UI and UX changes for one approved bounded task and report design evidence. Dispatch through dispatch_worker when an approved contract premise names a visual surface change. Edits only files inside the approved contract scope.
 mode: all
 hidden: true
 tools:
@@ -24,7 +24,7 @@ permission:
 
 # concord-design
 
-Implement visual UI and UX changes for one approved bounded task and report design evidence.
+Implement visual UI and UX changes for one approved bounded task and report design evidence. Dispatch through dispatch_worker when an approved contract premise names a visual surface change.
 
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not

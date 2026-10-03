@@ -152,7 +152,14 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       if (input.tool !== TASK_TOOL_ID) return
       const windows = dispatchWindows()
       const concordLane = agentLanes.some((lane) => output.args.subagent_type === `concord-${lane.id}`)
-      if (windows.has(input.sessionID) || concordLane) {
+      // A lane runs only inside the window an authorized dispatch_worker
+      // opened. Without one, a direct lane Task is exactly the coordinator
+      // Task-list competition the registry forbids: the call is refused with
+      // the correcting route instead of consuming a lane's attempt unbound.
+      if (concordLane && !windows.has(input.sessionID)) {
+        throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; issue the dispatch_worker action first, then repeat this Task call inside the window it opens`)
+      }
+      if (windows.has(input.sessionID)) {
         await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID))
         return
       }

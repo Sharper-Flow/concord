@@ -239,11 +239,11 @@ func TestWorkerCompletedV1UpcastsToLegacyUnavailableAndReplaysIdentically(t *tes
 func TestBuiltinLaneObligationsAreClosedAndMatchGeneratedDigests(t *testing.T) {
 	t.Parallel()
 	wantDigests := map[string]string{
-		"research":  "sha256:69f0271ffb9e14808aaf5d420e19f49928fe660a7336ad254f4f19486e90e2c3",
-		"implement": "sha256:8e773bc93eea48493500b58f118deee9f91efb26a0213ea1e415cac7b716cbaa",
-		"design":    "sha256:a2061098223cc1b9b31c62ed9ad2d92c97ef50c25f20802706fae026e4318804",
-		"review":    "sha256:139ba516f8744a6bfc9d1b26bda766dd270d12625a7bcc4610894141d216c5a6",
-		"verify":    "sha256:1fda1ccd5f1e9f9add9dc5ecbe6776be9d5a4c83a377edbd7e2b8b4aaf5dfb71",
+		"research":  "sha256:4091e91c9c095b96be54aba40d9704d97ab025238663409768fcf205c171102f",
+		"implement": "sha256:f4dad03f0b94430af796eecc1c53740d6441286c78879b46bee17ec79ce604e5",
+		"design":    "sha256:1178f4074a4212eb0e8a95a61aa74a52161b9a275f8a1ef52b5edf4f584c79ef",
+		"review":    "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
+		"verify":    "sha256:807c155cf9e41729c4f7446c60b965ecb5519082d0611b67454b4db707e3bfd6",
 	}
 	definitions := BuiltinLaneDefinitions()
 	if len(definitions) != len(wantDigests) {

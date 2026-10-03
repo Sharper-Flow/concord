@@ -1,5 +1,5 @@
 ---
-description: Concord implement lane — Implement one approved bounded engineering task and report verification. Edits only files inside the approved contract scope.
+description: Concord implement lane — Implement one approved bounded engineering task and report verification. Dispatch through dispatch_worker when an approved contract premise needs an isolated worktree change with evidence. Edits only files inside the approved contract scope.
 mode: all
 hidden: true
 tools:
@@ -24,7 +24,7 @@ permission:
 
 # concord-implement
 
-Implement one approved bounded engineering task and report verification.
+Implement one approved bounded engineering task and report verification. Dispatch through dispatch_worker when an approved contract premise needs an isolated worktree change with evidence.
 
 This is a bounded Concord worker lane. Follow the supplied `agent-lane-packet.v1`
 packet and return only the `agent-lane-report.v1` report for this attempt. Do not

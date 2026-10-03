@@ -1,6 +1,6 @@
 ---
-description: Concord lookup utility — Research bounded external questions and return source-backed findings.
-mode: all
+description: Concord lookup utility — Research bounded external questions and return source-backed findings. Use when a claim about a library, platform, or current public information needs a reachable source; never for repository-internal questions.
+mode: subagent
 hidden: true
 tools:
   bash: false
@@ -37,7 +37,7 @@ permission:
 
 # concord-lookup
 
-Research bounded external questions and return source-backed findings.
+Research bounded external questions and return source-backed findings. Use when a claim about a library, platform, or current public information needs a reachable source; never for repository-internal questions.
 
 This is a read-only external lookup utility. Return source-backed findings for
 the parent. Do not inspect or edit the repository, mutate Concord state, mutate

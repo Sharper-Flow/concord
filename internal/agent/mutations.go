@@ -3109,7 +3109,7 @@ func (r runtime) mutateWorktreeAuditReclaim(ctx context.Context, base Envelope, 
 		PrincipalRef: grant.PrincipalRef,
 		RequestID:    in.IdempotencyKey,
 		Now:          r.Authority.now(),
-		Limit:        r.boundedLimit(in.Limit),
+		Limit:        in.Limit,
 	})
 	if err != nil {
 		return auditReclaimPostCommitFailure(base, auditReclaimChangedRefs(result.Rows), failureEnvelope(base, err)), nil
@@ -4833,16 +4833,10 @@ func currentLifecycle(ctx context.Context, tx *store.Transaction, id string) (st
 
 // mutationResult is the sole producer for inline and replayed mutation success.
 // It validates the exact tool/operation result before the envelope can cross the
-// agent boundary, including caller budgets and the canonical envelope cap.
+// agent boundary, including the canonical envelope cap.
 func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) Envelope {
 	if err := ValidateOperationPayload(r.Tool, r.Operation, payload, true); err != nil {
 		return coreError(base, "malformed_response", fmt.Sprintf("mutation result failed closed-schema validation: %v", err), "contact_operator", false)
-	}
-	if r.Budget.MaxBytes > 0 && len(payload) > r.Budget.MaxBytes {
-		return r.budgetRefusal(base, "mutation result exceeds requested max_bytes budget")
-	}
-	if r.Budget.MaxItems > 0 && maxArrayLength(payload) > r.Budget.MaxItems {
-		return r.budgetRefusal(base, "mutation result exceeds requested max_items budget")
 	}
 	response := NewOKMutation(base, payload, changed, intents)
 	if err := response.Validate(); err != nil {

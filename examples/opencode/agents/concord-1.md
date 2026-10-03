@@ -77,14 +77,15 @@ unavailable, stop the dispatch rather than reproducing a lane's work by hand and
 recording the outcome as if a lane had produced it.
 
 A generated utility is the narrow exception, under CD-0102. A coordinator whose
-session has no managed parent calls `concord-explore` with no dispatch window,
+session has no managed parent calls a generated utility with no dispatch window,
 and the hook passes the call through unchanged. A lane session has a managed
-parent, so the hook refuses the utility call before the host starts it. Send a
-bounded repository question to `concord-explore`. For an external check that
-must finish before your next action, start the `concord_ci_watch` tool and end
-the turn: it runs the check with no model turns and wakes this session with
-the result. Never poll a check yourself, and never hold the turn open while a
-check runs.
+parent, so the hook refuses the utility call before the host starts it. Route by
+need and let the registry descriptions name the agent: a bounded repository
+question goes to the exploration utility, and an external question to the
+lookup utility. For an external check that must finish before your next action,
+start the `concord_ci_watch` tool and end the turn: it runs the check with no
+model turns and wakes this session with the result. Never poll a check
+yourself, and never hold the turn open while a check runs.
 
 Lane restart is not reachable. A failed worker attempt remains terminal. To retry
 it, call `dispatch_worker` with the unchanged approved contract and wait for the

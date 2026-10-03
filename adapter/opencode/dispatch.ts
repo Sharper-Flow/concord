@@ -546,6 +546,24 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
       if (!validateSchema(branch, value, root, path, failures)) return false
     }
   }
+  // oneOf admits exactly one branch, mirroring the store's payload validator.
+  // The published tool request schema discriminates its per-operation branches
+  // by operation const, so an input matching zero or several branches is a
+  // call the published contract cannot name. Zero-match failures carry the
+  // branches' own reasons, so a caller learns what to repair.
+  if (Array.isArray(schema.oneOf)) {
+    const branchFailures: string[][] = []
+    const matched: number[] = []
+    for (const [index, branch] of schema.oneOf.entries()) {
+      const branchFailure: string[] = []
+      if (validateSchema(branch, value, root, path, branchFailure)) matched.push(index)
+      branchFailures.push(branchFailure)
+    }
+    if (matched.length !== 1) {
+      const reasons = branchFailures.flatMap((reasons_, index) => reasons_.map((reason) => `branch ${index}: ${reason}`))
+      return fail(`matches ${matched.length} oneOf branches ([${matched.join(", ")}]); exactly one is required${reasons.length > 0 ? `: ${reasons.slice(0, 8).join("; ")}` : ""}`)
+    }
+  }
   // if/then/else applies exactly one branch: then when the condition holds,
   // else when it does not, nothing when the applied branch is absent. The
   // condition validates with a throwaway failure collector so a failed

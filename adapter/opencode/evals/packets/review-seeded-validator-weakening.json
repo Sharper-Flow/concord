@@ -3,7 +3,7 @@
   "attempt_id": "attempt:eval-review-seeded-validator-weakening",
   "lane_id": "review",
   "lane_version": 1,
-  "lane_digest": "sha256:139ba516f8744a6bfc9d1b26bda766dd270d12625a7bcc4610894141d216c5a6",
+  "lane_digest": "sha256:3a4cd631ddffb655e6a432bb186af0dfe70113031a79c4d45487f53412f2f15d",
   "work_id": "work:eval-harness",
   "step_id": "execution",
   "inputs": {

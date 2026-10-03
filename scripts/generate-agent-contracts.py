@@ -851,10 +851,14 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // outcome tokens) and the CD-0184 delivery-decidable rule. CD-0184 is
 // authoring guidance only: the store does not refuse a predicate for it. The
 // store's ValidateOperationPayload stays the closed admission boundary; this
-// checks only what the advertised surface teaches.
+// checks only what the advertised surface teaches. The published request is
+// one closed branch per operation; the workflow_action branch is the one
+// whose operation const names it.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
-  const items = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.items;
+  const requestBranches: any[] = Array.isArray((published as any)?.oneOf) ? (published as any).oneOf : [];
+  const actionInput = requestBranches.find((branch) => branch?.properties?.operation?.const === "workflow_action")?.properties?.input;
+  const items = actionInput?.properties?.fields?.properties?.outcome_predicates?.items;
   const required: string[] = Array.isArray(items?.required) ? items.required : [];
   for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {{
     if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${{field}}`);
@@ -880,11 +884,11 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }}
-  const delivery: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.outcome_predicates?.description;
+  const delivery: unknown = actionInput?.properties?.fields?.properties?.outcome_predicates?.description;
   if (delivery !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
     gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
   }}
-  const wait: unknown = (published as any)?.properties?.input?.properties?.fields?.properties?.expected_within_seconds?.description;
+  const wait: unknown = actionInput?.properties?.fields?.properties?.expected_within_seconds?.description;
   if (wait !== {json.dumps(DELIVERY_RULE_WAIT_DESCRIPTION)}) {{
     gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
   }}

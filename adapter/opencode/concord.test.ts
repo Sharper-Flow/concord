@@ -93,29 +93,54 @@ test("published tool arguments expose a host-safe request shape", () => {
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
     expect(published.properties.operation.enum, toolName).toEqual(expected)
+    // The published input is one closed branch per operation, in contract
+    // order: the branch states the required set and the admitted fields the
+    // core enforces. No branch carries a sibling operation's fields.
     expect(published.properties.input.type, toolName).toBe("object")
-    expect(published.properties.input.additionalProperties, toolName).toBe(true)
-    expect(published.properties.input.required, toolName).toEqual([])
+    const branches = published.oneOf
+    expect(branches, toolName).toHaveLength(expected.length)
+    for (const [index, branch] of branches.entries()) {
+      expect(branch.type, toolName).toBe("object")
+      expect(branch.additionalProperties, toolName).toBe(false)
+      expect(branch.properties.operation.const, toolName).toBe(expected[index])
+      expect(branch.properties.input.type, toolName).toBe("object")
+      expect(branch.properties.input.additionalProperties, toolName).toBe(false)
+      expect(Array.isArray(branch.properties.input.required), toolName).toBe(true)
+      expect(Object.keys(branch.properties.input.properties).length, toolName).toBeGreaterThan(0)
+    }
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
     expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
-    if (toolName === "concord_work_transition") {
-      // The outcome_payload variant union is the one bounded oneOf the host
-      // is published; every other tool stays union-free.
-      expect(JSON.stringify(published), toolName).toContain('"oneOf"')
-    } else {
-      expect(JSON.stringify(published), toolName).not.toContain('"oneOf"')
+    for (const branch of branches) {
+      // The request-level discriminator union is the one oneOf every tool
+      // carries. Inside an input, only the workflow_action branch's bounded
+      // outcome_payload variant union survives; every other branch stays
+      // union-free below the branch level.
+      const inputJson = JSON.stringify(branch.properties.input)
+      if (branch.properties.operation.const === "workflow_action") {
+        expect(inputJson, toolName).toContain('"oneOf"')
+      } else {
+        expect(inputJson, toolName).not.toContain('"oneOf"')
+      }
     }
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  expect(published.properties.input.properties.urgency.enum).toEqual(["standard", "expedite"])
+  const captureInput = published.oneOf[0].properties.input
+  expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
+  expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const payloadVariants = transition.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
+  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // The conditional action fields the merged projection used to drop are
+  // named by the branch, so a calling agent can read them before calling.
+  for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
+    expect(actionBranch.properties[field], field).toBeObject()
+  }
   // The approval premise an author writes is the published action field, so
   // it carries the unit guidance: code points, the UTF-8 byte admission, and
   // its distinction from packet and model-token limits.
-  const premise = transition.properties.input.properties.fields.properties.premise
+  const premise = actionBranch.properties.fields.properties.premise
   expect(premise.maxLength).toBe(4_096)
   expect(premise.description).toContain("Unicode code points")
   expect(premise.description).toContain("UTF-8 bytes")
@@ -962,7 +987,8 @@ test("host publication round-trips check predicate payloads unchanged", async ()
     },
   }
   const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const payloadVariants = published.properties.input.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
+  const actionBranch: any = published.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
+  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })

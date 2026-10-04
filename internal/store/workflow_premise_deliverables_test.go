@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -126,4 +127,118 @@ func scenarioActorRef(scenario workflowScenario) string {
 		return ""
 	}
 	return ref
+}
+
+// seedPremiseDeliverablesInvestigation records the investigation artifact the
+// operator question requires at the acceptance step, so the question stands
+// open and the deliverables gate is the confirmation's only refusal. The
+// corpus Product holds one work item, so the artifact needs only name the
+// current Domain the corpus replay already registered.
+func seedPremiseDeliverablesInvestigation(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	var domainID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT domain_id FROM domains WHERE product_id='product' AND status='current' ORDER BY domain_id LIMIT 1`).Scan(&domainID); err != nil {
+		t.Fatalf("read the corpus Domain: %v", err)
+	}
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("d", 16), []string{domainID})
+}
+
+// premiseDeliverablesOperator is the operator identity the confirmation's
+// boundary requires.
+func premiseDeliverablesOperator(grant workflowCorpusGrant) WorkflowActor {
+	return WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: "agent:operator-signed", SessionRef: "session:operator-signed", ActorClass: ActorOperator}
+}
+
+// premiseDeliverablesConfirmation builds the operator's confirmation request
+// against the open question: the selected choice and the question's decision
+// context digest, so the deliverables gate is the request's only refusal.
+func premiseDeliverablesConfirmation(t *testing.T, s *Store, workID string, operator WorkflowActor) WorkflowActionPreflightRequest {
+	t.Helper()
+	pin := issue1013Pin(t, s, workID)
+	if pin.PendingOperatorDecision == nil || pin.PendingOperatorDecision.ActionID != "confirm_premise" {
+		t.Fatalf("acceptance pin question = %+v, withheld = %+v; want the open confirm_premise question", pin.PendingOperatorDecision, pin.WithheldOperatorDecision)
+	}
+	return WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "confirm_premise", Actor: operator, Payload: json.RawMessage(`{}`),
+		SelectedChoice: "confirm", DecisionContextDigest: pin.PendingOperatorDecision.DecisionContextDigest,
+	}
+}
+
+// replayPremiseQuestionAtAcceptance replays the WF04 corpus setup without the
+// named event kinds, places the instance at its acceptance step, and records
+// the investigation artifact, so the confirm_premise question stands open and
+// the deliverables gate is the confirmation's only refusal.
+func replayPremiseQuestionAtAcceptance(t *testing.T, drop ...string) (*Store, string, WorkflowActor) {
+	t.Helper()
+	ctx := context.Background()
+	corpus := readWorkflowScenarioCorpus(t)
+	var scenario workflowScenario
+	for _, candidate := range corpus.Scenarios {
+		if candidate.ID == "WF04-weaker-delivery" {
+			scenario = candidate
+			break
+		}
+	}
+	if scenario.ID == "" {
+		t.Fatal("WF04 is missing from the corpus")
+	}
+	registered, err := BuiltinWorkflowDefinitionForRef(scenario.Request.DefinitionPin.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped := map[string]bool{}
+	for _, kind := range drop {
+		dropped[kind] = true
+	}
+	history := make([]workflowCorpusEvent, 0, len(scenario.Setup.EventHistory))
+	for _, event := range scenario.Setup.EventHistory {
+		if !dropped[event.Kind] {
+			history = append(history, event)
+		}
+	}
+	setup := scenario.Setup
+	setup.EventHistory = history
+	store := openTemp(t)
+	if err := replayWorkflowCorpusSetup(ctx, store, setup, registered, scenarioActorRef(scenario), true); err != nil {
+		t.Fatal(err)
+	}
+	workID := scenario.Setup.FixtureRefs.WorkItem
+	var step string
+	if err := store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	if step != "acceptance" {
+		if err := applyProjectionCorruptionFault(ctx, store, projectionCorruptionFaultInput{WorkID: workID, Target: "workflow_instances", Field: "current_step", Value: "acceptance"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedPremiseDeliverablesInvestigation(t, store, workID)
+	return store, workID, premiseDeliverablesOperator(scenario.Request.Grant)
+}
+
+// TestPreflightRefusesConfirmationMissingMandatedDeliverables pins the same
+// deliverables gate on the read-only preflight: behind an open operator
+// question, the preflight refuses the confirmation whose mandated
+// deliverables are missing with the same refusal the confirmation's own
+// boundary applies, and stops refusing once the deliverables stand, so the
+// surface a caller asks before acting agrees with the boundary that enforces.
+func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Without the verdict: the preflight refuses the confirmation with the
+	// verdict refusal the confirmation's own boundary applies.
+	s, workID, operator := replayPremiseQuestionAtAcceptance(t, "workflow.verdict_recorded", "workflow.premise_confirmed")
+	preflightErr := InspectWorkflowActionAdmission(ctx, s, premiseDeliverablesConfirmation(t, s, workID, operator))
+	var failure *Failure
+	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict") {
+		t.Fatalf("preflight confirm_premise without the verdict = %v, want KindMissingEvidence naming the verdict", preflightErr)
+	}
+
+	// With the verdict and every required evidence kind bound, the preflight
+	// admits the confirmation: the gate refuses only the missing deliverables.
+	s2, workID2, operator2 := replayPremiseQuestionAtAcceptance(t, "workflow.premise_confirmed")
+	if err := InspectWorkflowActionAdmission(ctx, s2, premiseDeliverablesConfirmation(t, s2, workID2, operator2)); err != nil {
+		t.Fatalf("preflight confirm_premise with full deliverables refused: %v", err)
+	}
 }

@@ -383,7 +383,7 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 	return nil
 }
 
-func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
+func workflowCompletionContract(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
 	var result workflowCompletionContractData
 	var required, mandates, modifies string
 	activeVersion, activeErr := activeWorkflowContractVersion(ctx, tx, workID, "complete_workflow")
@@ -455,7 +455,7 @@ func workflowCompletionContract(ctx context.Context, tx *sql.Tx, registry Defini
 	return result, definition.Definition, nil
 }
 
-func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
+func VerifyWorkflowInstanceDefinitionTx(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
@@ -497,7 +497,7 @@ func verifyWorkflowDefinitionPinForFold(ctx context.Context, registry Definition
 // verdict at confirm_premise follows the declared failure edge to refine
 // (#1062) rather than wedging the item, while clause 6 still refuses such
 // verdicts at complete. One verdict per predicate id, latest per predicate.
-func missingPredicateVerdicts(ctx context.Context, tx *sql.Tx, workID string) ([]string, error) {
+func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
 	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		return nil, err
@@ -664,7 +664,7 @@ func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, re
 // verdict and every required evidence kind durably bound. Once the step
 // advances, no declared action can produce them, so the confirmation is the
 // last point the requirement can be enforced.
-func requireAcceptanceDeliverables(ctx context.Context, tx *sql.Tx, workID string) error {
+func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
 	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -1037,7 +1037,7 @@ func workflowEvidenceKindBound(ctx context.Context, q queryer, workID, kind stri
 	return false, nil
 }
 
-func latestWorkflowVerdict(ctx context.Context, tx *sql.Tx, workID string) (*workflowVerdictRecordedPayload, error) {
+func latestWorkflowVerdict(ctx context.Context, tx queryer, workID string) (*workflowVerdictRecordedPayload, error) {
 	var raw []byte
 	if err := tx.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
@@ -1132,8 +1132,21 @@ func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID
 	return workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, "", 0)
 }
 
+// workflowLateVerdictRecoveryStep reports whether the step hosts the late
+// record_verdict route: the terminal step, whose completion demands the
+// verdicts, or a step that does not declare record_verdict but hosts the
+// premise question, whose confirmation demands them (CD-0204). Either way
+// the instance is past every step that declares record_verdict.
+func workflowLateVerdictRecoveryStep(definition WorkflowDefinition, currentStep string) bool {
+	if containsString(definition.StepGraph.TerminalSteps, currentStep) {
+		return true
+	}
+	action, ok := workflowOperatorQuestionAction(definition, currentStep)
+	return ok && action == "confirm_premise" && !stepDeclaresAction(definition, currentStep, "record_verdict")
+}
+
 func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, requestedPredicateID string, requestedContractVersion int64) (bool, error) {
-	if !containsString(definition.StepGraph.TerminalSteps, currentStep) {
+	if !workflowLateVerdictRecoveryStep(definition, currentStep) {
 		return false, nil
 	}
 	verified := false

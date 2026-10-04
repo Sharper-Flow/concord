@@ -13,6 +13,7 @@
   definition content and digests; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope (CD-0186)
 - **Related:** CD-0090, CD-0133, CD-0166, CD-0173, CD-0186
+- **Amended by:** [CD-0204](CD-0204-the-acceptance-gate-is-one-admission-condition-and-a-missing-verdict-records-late.md) at D2's consequence: a frozen ops runbook that reaches cleanup without a verdict records the verdict there through the late verdict route before it confirms the premise.
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
   change until the law holds. The operator approved the fix of all three

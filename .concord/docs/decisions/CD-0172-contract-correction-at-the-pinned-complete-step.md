@@ -8,6 +8,7 @@
 - **Amends:** CD-0133 at its correction checkpoint, and CD-0030 D1 for the one scoped reader D6 adds
 - **Preserves:** CD-0143's unhealthy-verdict route, released workflow definitions, definition digests, predecessor contracts, verdict history, worker attempt history, and operator authority
 - **Amended by:** [CD-0186](CD-0186-cd-0172-d1-limits-only-its-correction-route.md) at D1's last sentence: the refusal limits only the complete-step correction route, and the ordinary stale recovery re-pin at a non-correction complete step stays admitted.
+- **Amended by:** [CD-0203](CD-0203-the-admission-model-folds-every-condition-and-three-strands-recover.md) at D1's contract count: the route admits one or more active contracts, so a duplicated projection at the complete step recovers through the same shared gate instead of refusing.
 
 ## Context
 

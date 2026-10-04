@@ -1,0 +1,38 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestContractStepAdvancesOnlyThroughItsApproval"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCompleteStepCorrectionRecoversDuplicateProjection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFrozenOpsRunbookCleanupOpensThePremiseQuestion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRegisteredStepsAdmitTheirApprovalRequiredActions"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRegisteredNonTerminalStepsCanAdvance"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWellFormedAdmissionStateHasNonContinuityExit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+    }
+  ],
+  "id": "CD-0203",
+  "state": "satisfied"
+}

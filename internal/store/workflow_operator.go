@@ -164,20 +164,11 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	if err != nil {
 		return nil, err
 	}
-	step := workflowStep(entry.Definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
+	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return nil, nil
 	}
-	for _, candidate := range step.Actions {
-		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID != candidate || action.Approval != ActionApprovalRequired {
-				continue
-			}
-			question, _, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, currentStep, workVersion, definition, contract)
-			return question, questionErr
-		}
-	}
-	return nil, nil
+	question, _, questionErr := workflowOperatorQuestionTx(ctx, tx, workID, currentStep, workVersion, definition, contract)
+	return question, questionErr
 }
 
 func workflowOperatorQuestion(workID string, workVersion int64, definition WorkflowReadDefinition, contract WorkflowReadContract, actionID string) *WorkflowOperatorQuestion {
@@ -211,25 +202,18 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 	if err != nil {
 		return nil, nil, err
 	}
-	step := workflowStep(entry.Definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
+	actionID, ok := workflowOperatorQuestionAction(entry.Definition, currentStep)
+	if !ok {
 		return nil, nil, nil
 	}
-	for _, candidate := range step.Actions {
-		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
-					var failure *Failure
-					if failureAs(err, &failure) && failure.Kind == KindMissingEvidence {
-						return nil, &WorkflowOperatorQuestionWithheld{ActionID: action.ID, Reason: failure.Detail, Remedy: failure.RecoveryAction}, nil
-					}
-					return nil, nil, err
-				}
-				return workflowOperatorQuestion(workID, workVersion, definition, contract, action.ID), nil, nil
-			}
+	if err := requireRecordedInvestigationArtifact(ctx, q, workID); err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindMissingEvidence {
+			return nil, &WorkflowOperatorQuestionWithheld{ActionID: actionID, Reason: failure.Detail, Remedy: failure.RecoveryAction}, nil
 		}
+		return nil, nil, err
 	}
-	return nil, nil, nil
+	return workflowOperatorQuestion(workID, workVersion, definition, contract, actionID), nil, nil
 }
 
 // requireRecordedInvestigationArtifactSnapshot runs the investigation-artifact
@@ -469,24 +453,12 @@ func validateWorkflowOperatorSelectionTx(ctx context.Context, tx *sql.Tx, regist
 	if err != nil {
 		return newFailure(KindInvariantViolation, "workflow_operator_question", "workflow self-repair classification is unavailable", false, "rebuild projections from the event log")
 	}
-	step := workflowStep(entry.Definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
+	if !workflowOperatorDecisionPending(entry.Definition, currentStep) {
 		return newFailure(KindStaleRequiresReview, "workflow_operator_question", "the operator question is no longer available for this action", false, "refresh_context")
 	}
-	question := (*WorkflowOperatorQuestion)(nil)
-	for _, candidate := range step.Actions {
-		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				question, _, err = workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
-				if err != nil {
-					return err
-				}
-				break
-			}
-		}
-		if question != nil {
-			break
-		}
+	question, _, err := workflowOperatorQuestionTx(ctx, tx, request.WorkID, currentStep, workVersion, definition, contract)
+	if err != nil {
+		return err
 	}
 	if question == nil {
 		if artifactErr := requireRecordedInvestigationArtifact(ctx, tx, request.WorkID); artifactErr != nil {

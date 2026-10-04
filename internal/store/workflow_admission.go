@@ -452,6 +452,17 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 		return decision
 	}
+	// The contract step is left only through the approval it hosts. An
+	// advancing action there with no active contract would move the instance
+	// past the only step that binds one, and completion refuses without a
+	// contract, so the work could never finish. Version-1 research declares
+	// frame_research in advance mode beside approve_contract on its frame step.
+	if state.ActiveContracts == 0 && actionID != "approve_contract" && workflowActionAdvancesStep(definition, actionID) {
+		if contractStep, err := workflowDefinitionContractStep(definition); err == nil && contractStep == state.Step {
+			decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "the contract step advances only through its contract approval", false, "approve the workflow contract before advancing")
+			return decision
+		}
+	}
 	// The dispatch hold is the fold's own advance rule: while a dispatched
 	// worker holds the step's advance, every advancing action refuses except
 	// the accept that dispositions its report. Hold-moded actions — another
@@ -498,23 +509,39 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 }
 
 // workflowOperatorDecisionPending reports whether the step's shape can carry
-// an open operator question at all: a human checkpoint declaring an
-// approval-required action. The investigation artifact's presence — the one
-// condition the shape cannot answer — is the caller's queryer read, so the
-// fold stays inside the caller's transaction.
+// an open operator question at all. The investigation artifact's presence —
+// the one condition the shape cannot answer — is the caller's queryer read,
+// so the fold stays inside the caller's transaction.
 func workflowOperatorDecisionPending(definition WorkflowDefinition, currentStep string) bool {
+	_, ok := workflowOperatorQuestionAction(definition, currentStep)
+	return ok
+}
+
+// workflowOperatorQuestionAction names the approval-required action the
+// operator question at one step serves. A human checkpoint opens the question
+// for its first approval-required action. confirm_premise is answered only
+// through that question, so a step that declares it opens the question
+// whatever its kind: version-1 to version-4 ops runbooks declare it on an
+// internal-SQLite cleanup step, and without the question their only edge out
+// of cleanup could never be taken (CD-0203 D2). Every other approval-required
+// action off a human checkpoint, such as request_correction at a delivery
+// gate, opens no question.
+func workflowOperatorQuestionAction(definition WorkflowDefinition, currentStep string) (string, bool) {
 	step := workflowStep(definition, currentStep)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
-		return false
+	if step == nil {
+		return "", false
 	}
 	for _, candidate := range step.Actions {
+		if step.Kind != WorkflowStepHumanCheckpoint && candidate != "confirm_premise" {
+			continue
+		}
 		for _, action := range definition.ActionDefinitions {
 			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				return true
+				return candidate, true
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 // workflowAdmitSupersede classifies one supersede_contract request's recovery
@@ -535,10 +562,9 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 	}
 	atCompleteStep := workflowCompleteStepCorrectionStep(definition, state.Step)
 	if atCompleteStep {
-		if state.ActiveContracts > 1 {
-			decision.Failure = newFailure(KindInvariantViolation, "workflow_action", "duplicate contract recovery is unavailable at the pinned complete step", false, "run duplicate recovery on a declared earlier step")
-			return decision
-		}
+		// A duplicated projection at this step recovers through the same
+		// complete-step correction: the successor names every active version
+		// and the instance returns to its external-effect step (CD-0203 D1).
 		decision.RecoveryRoute = state.CompleteStepCorrection
 		if !decision.RecoveryRoute {
 			decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "contract recovery is available only for a stale workflow contract", false, "continue the current contract or request terminal work")

@@ -1724,16 +1724,17 @@ func TestCompleteStepCorrectionStaleLawStaysBehindTheGate(t *testing.T) {
 	}
 }
 
-// TestCompleteStepCorrectionDuplicateRecoveryUnreachable keeps the separate
-// duplicate recovery on its declared earlier steps: at the pinned complete
-// step a duplicate contract projection refuses discovery and preflight instead
-// of admitting the recovery route (CD-0172 D1). The reachable duplicate
-// recovery at an earlier step stays covered by
-// TestDuplicateActiveContractsRecoverWithExactPredecessorSet.
-func TestCompleteStepCorrectionDuplicateRecoveryUnreachable(t *testing.T) {
+// TestCompleteStepCorrectionRecoversDuplicateProjection proves a duplicated
+// contract projection at the pinned complete step keeps an exit: the
+// complete-step correction admits it once the contradiction record exists,
+// the successor names every active version, and the instance returns to its
+// external-effect step under one active contract (CD-0203 D1). Before the
+// contradiction record, the shared gate refuses as for one contract. The
+// loader's fold matches the abstract model before and after the recovery.
+func TestCompleteStepCorrectionRecoversDuplicateProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "complete-correction-duplicate"
-	fixture, _ := seedCompleteStepCorrection(t, workID, "workflow.break_fix", "verify", "complete")
+	fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
 	s := fixture.store
 	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
@@ -1766,6 +1767,7 @@ func TestCompleteStepCorrectionDuplicateRecoveryUnreachable(t *testing.T) {
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowLawProjection(t, s)
 	var activeCount int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&activeCount); err != nil {
 		t.Fatal(err)
@@ -1773,37 +1775,86 @@ func TestCompleteStepCorrectionDuplicateRecoveryUnreachable(t *testing.T) {
 	if activeCount != 2 {
 		t.Fatalf("duplicate fixture active contracts = %d, want 2", activeCount)
 	}
-	pin := issue1013Pin(t, s, workID)
-	if issue1013HasIntent(pin, "supersede_contract") {
-		t.Fatalf("duplicate complete-step pin advertises refused supersession: %#v", pin.NextValidIntents)
+	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	model := admissionModelState{step: "complete", debt: ReviewDebtNone, contracts: 2, verdict: "ok", artifact: true}
+	conformanceCheckpoint(t, s, workID, def, model, "duplicate at the complete step")
+	if issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
+		t.Fatal("duplicate complete-step pin advertises supersession before the contradiction record")
+	}
+	duplicateRecovery := json.RawMessage(strings.Replace(string(completeStepSuccessorPayload(workID)), `"contract_version":2,`, `"contract_version":3,"predecessor_contract_versions":[1,2],`, 1))
+	err = issue1013Preflight(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
+		t.Fatalf("duplicate recovery without the contradiction record = %v, want the complete-step gate refusal", err)
 	}
 
-	if _, _, err := WorkflowActionDefinitionFor(context.Background(), s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err == nil {
-		t.Fatal("discovery offered contract recovery at the complete step with a duplicate projection")
+	recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
+	model.observed = true
+	conformanceCheckpoint(t, s, workID, def, model, "duplicate with the contradiction record")
+	if !issue1013HasIntent(issue1013Pin(t, s, workID), "supersede_contract") {
+		t.Fatal("duplicate complete-step pin withholds the admitted correction")
 	}
-	if err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), fixture.owner); err == nil {
-		t.Fatal("read-only preflight admitted the complete-step correction with a duplicate projection")
+	if err := issue1013Preflight(t, s, workID, "supersede_contract", duplicateRecovery, fixture.owner); err != nil {
+		t.Fatalf("preflight refused the duplicate complete-step correction: %v", err)
 	}
-	duplicateRecovery, payloadErr := json.Marshal(map[string]any{
-		"contract_version": 3, "predecessor_contract_versions": []int64{1, 2}, "premise": "recovered premise",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}}, "required_evidence": []string{"verification"}, "route_conventions": []string{},
-		"spec_mandate": []string{}, "law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1,
-		"rigor_class":      "prototype_internal",
-		"supersede_reason": "repair the duplicate projection", "audit_evidence": []string{"evidence:duplicate-recovery"},
+	if err := runDuplicateRecoveryWithApproval(t, s, workID, duplicateRecovery, fixture.owner); err != nil {
+		t.Fatalf("duplicate complete-step correction: %v", err)
+	}
+	if step, state, _, _, _ := completeStepInstancePin(t, s, workID); step != "repair" || state != "running" {
+		t.Fatalf("instance after duplicate correction: step=%q state=%q, want repair/running", step, state)
+	}
+	var active []int64
+	rows, err := s.DatabaseForTesting().Query(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var version int64
+		if err := rows.Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		active = append(active, version)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 || active[0] != 3 {
+		t.Fatalf("active contracts after duplicate correction = %v, want [3]", active)
+	}
+	model = admissionSuccessor(def, model, "supersede_contract")
+	conformanceCheckpoint(t, s, workID, def, model, "after the duplicate correction")
+}
+
+// runDuplicateRecoveryWithApproval runs a duplicate-contract supersession as
+// the approved operator route records it: the operator actor names the
+// one-use approval, and the request carries the approval binding the fold
+// re-checks for self-consistency.
+func runDuplicateRecoveryWithApproval(t *testing.T, s *Store, workID string, payload json.RawMessage, owner WorkflowActor) error {
+	t.Helper()
+	approvalRef := strings.Repeat("a", 64)
+	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/" + workID + "-recovery", ActorClass: ActorOperator}
+	version := verdictItemVersion(t, s, workID)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	operationID := fmt.Sprintf("duplicate-recovery-%s-%d", workID, version)
+	_, err = applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "supersede_contract", Payload: payload, Actor: owner, OperatorActor: &operator,
+		OperatorApprovalRef: approvalRef, ApprovalOperationDigest: "sha256:" + strings.Repeat("c", 64), ApprovalScopeJSON: `{}`,
+		ApprovalVersionsJSON: `{"work_id":"` + workID + `"}`, ApprovalConsequence: "recovery",
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: testManifestDigest, Now: time.Unix(20, version).UTC(),
 	})
-	if payloadErr != nil {
-		t.Fatal(payloadErr)
+	if err != nil {
+		return err
 	}
-	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "supersede_contract", Payload: duplicateRecovery, Actor: fixture.owner,
-	})
-	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "duplicate contract recovery is unavailable at the pinned complete step" {
-		t.Fatalf("duplicate recovery admission at the complete step = %v, want the complete-step duplicate refusal", err)
-	}
+	return tx.Commit()
 }
 
 // TestCompleteStepCorrectionSurvivesRebuildFromLog proves the fold's return

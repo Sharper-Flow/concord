@@ -107,7 +107,7 @@ nodes without exact module and `/go.mod` checksums in `go.sum` are not inventory
 entries. Every group records exact versions, roles, accepted license families,
 license-file paths, and SHA-256 hashes; graph-only license files are checked-in
 bounded evidence while runtime/test files remain verified against the actual
-module cache. Its artifact SHA-256 is `1be1197ba31fbca355209b7094435b8801f7ba430a525f315d7d95b9ea0cb257`.
+module cache. Its artifact SHA-256 is `738b7d0c0a142d5425d7a4aae3e1af0cd1b387451a49967040458fd0290caef3`.
 
 The inventory test compares the artifact with both derived closures, validates
 each module's exact `go.sum` module and `/go.mod` checksums, and re-reads each

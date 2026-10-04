@@ -208,7 +208,7 @@
     },
     {
       "module": "golang.org/x/sync",
-      "version": "v0.22.0",
+      "version": "v0.23.0",
       "role": "runtime transitive",
       "license": [
         {
@@ -220,7 +220,7 @@
     },
     {
       "module": "golang.org/x/sys",
-      "version": "v0.47.0",
+      "version": "v0.48.0",
       "role": "runtime transitive",
       "license": [
         {

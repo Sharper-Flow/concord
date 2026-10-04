@@ -571,7 +571,7 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 // step of a break-fix or implementation workflow admits operator-approved
 // contract correction. Every condition is state the action boundary, work pin,
 // and preflight can read without the successor payload: the work item is
-// nonterminal, exactly one approved contract is active, no worker attempt is
+// nonterminal, at least one approved contract is active, no worker attempt is
 // unsettled, and a same-work observation was recorded after the latest
 // recorded verdict. Any other work kind or pinned shape refuses.
 func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
@@ -589,7 +589,10 @@ func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, wor
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&contracts); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect the active workflow contract", true, "retry once the workflow projection is readable", err)
 	}
-	if contracts != 1 {
+	// A duplicated projection takes the same route: the successor names
+	// every active version, so the correction both repairs the projection
+	// and returns the instance (CD-0203 D1).
+	if contracts == 0 {
 		return false, nil
 	}
 	unsettled, err := workflowUnsettledWorkerAttempt(ctx, q, workID, subject)
@@ -1453,6 +1456,25 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	return out, nil
 }
 
+// workflowActionOmitsGenericCompletion names the actions whose typed event is
+// the durable action boundary: they append no generic completion, so the
+// completed-action fold never moves the step on them, whatever execution mode
+// a pinned definition declares (CD-0112 D1).
+func workflowActionOmitsGenericCompletion(actionID string) bool {
+	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract"
+}
+
+// workflowActionAdvancesStep reports whether a completed action moves the
+// instance to the next step: the fold advances on an advance-mode generic
+// completion and on nothing else.
+func workflowActionAdvancesStep(definition WorkflowDefinition, actionID string) bool {
+	if workflowActionOmitsGenericCompletion(actionID) {
+		return false
+	}
+	mode, ok := workflowActionExecutionMode(definition, actionID)
+	return ok && mode == ActionAdvance
+}
+
 // appendGenericWorkflowCompletion appends the generic WorkflowActionCompleted
 // event. Continuity's typed event is the durable action boundary; appending a
 // generic completion after it would make the checkpoint immediately stale, so
@@ -1466,7 +1488,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 // boundary quotes on its signed assertion, so the core returns it to the
 // adapter rather than letting the adapter compute it.
 func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoch int64, events []Event) ([]Event, string, error) {
-	if in.request.ActionID == "checkpoint_context" || in.request.ActionID == "cross_context_boundary" || in.request.ActionID == "supersede_contract" || in.lateVerdictRecovery {
+	if workflowActionOmitsGenericCompletion(in.request.ActionID) || in.lateVerdictRecovery {
 		return events, "", nil
 	}
 	resultVersion := in.request.ExpectedVersion + int64(len(events)) + 1

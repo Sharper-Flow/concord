@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a300fd8f5cb40e6ebd97b0d2c4d6da10b27dbe85ac7d2d36460b6020753481a9",
+  "sha256": "sha256:bedd04f2d7d6f43cc9cc759d0582487f484b5da945777da1b832d7860f8997f0",
   "status": "accepted",
   "summary": "Operator-approved contract correction extends to the pinned complete step of a break-fix or implementation workflow: a nonterminal item, one active contract, no unsettled attempt, and a same-work observation recorded after the latest verdict admit the typed supersession, whose successor carries the reserved complete_step_correction convention, returns the instance to repair or execution under the unchanged pinned definition, and accepts no predecessor verdict and no predecessor evidence binding, because the supersession bounds the evidence history. The cutoff is ancestry state: a later ordinary successor of a corrected contract keeps the bound, so dropping the route marker restores nothing, and only fresh post-cutoff evidence and verdicts re-establish a contract. Duplicate recovery and stale-law recovery stay behind the same shared admission at that step. Fresh delivery, fresh required evidence, an independent review, and a fresh verdict are the only path back to completion. The predicate reads the observation's existence and ordering only, and CD-0143's unhealthy-verdict route stays unchanged.",
   "tags": [

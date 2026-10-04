@@ -1,0 +1,50 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-a34cc66a55b7544aa4a6ebf3",
+    "tier": "legislated"
+  },
+  "date": "2026-10-04T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/workflow_admission.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_operator.go",
+    "internal/store/product_row.go",
+    "internal/store/workflow_admission_liveness_test.go",
+    "internal/store/workflow_admission_conformance_test.go",
+    "internal/store/workflow_approval_step_kind_test.go",
+    "internal/store/workflow_correction_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0203",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0203-the-admission-model-folds-every-condition-and-three-strands-recover.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:faf01f83ded4b7eddb29c2d57f3b3ff8924d93a0251ab0f022da6e04a7eac823",
+  "status": "accepted",
+  "summary": "The liveness, well-formed-exit, and conformance checks fold every condition workflowAdmit reads over all registered definition versions, and the three strands they found recover: an advancing action with no active contract refuses at the contract step except approve_contract; the complete-step correction admits one or more active contracts so a duplicated projection recovers through the same shared gate; and the operator question opens for confirm_premise on any step that declares it, so frozen ops runbooks leave their internal-SQLite cleanup step. No definition version changes.",
+  "tags": [
+    "workflow",
+    "workflow-engine",
+    "admission",
+    "liveness"
+  ],
+  "title": "The admission model folds every condition and three strands recover"
+}

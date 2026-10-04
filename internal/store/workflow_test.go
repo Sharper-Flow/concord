@@ -874,7 +874,15 @@ func seedWorkflowLaw(t *testing.T, s *Store) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
+	seedWorkflowLawProjection(t, s)
+}
+
+// seedWorkflowLawProjection writes the synthetic law home and law subject
+// rows the fixture keeps outside the log. A test that rebuilds from the log
+// calls it again, because the rebuild cannot refold rows no event recorded.
+func seedWorkflowLawProjection(t *testing.T, s *Store) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT OR IGNORE INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('product','project','workflow-law-locator'); INSERT OR IGNORE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:one','spec','accepted','.concord/docs/spec.md','Synthetic test law','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','test'); DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 }

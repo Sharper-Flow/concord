@@ -13,9 +13,61 @@ import (
 	"testing"
 )
 
-// conformanceCheckpoint maps the loaded admission state onto the abstract
-// model state and compares the two.
-func conformanceCheckpoint(t *testing.T, s *Store, definition WorkflowDefinition, step string, want admissionModelState, label string) {
+// admissionConformanceView is the part of the folded admission state that
+// workflowAdmit reads and the abstract model folds. The ready review's
+// identity is compared by presence, because the model names a synthetic
+// attempt, and its settling flag only beside a ready review. Three read
+// fields stay out: the breaking notices and open external conditions, which
+// the model holds at zero, and the evidence-binding recovery, an exit the
+// model does not count. The raw attempt lifecycle and latest disposition are
+// loaded for callers but never decided on; the hold and recovery flags they
+// feed are compared instead.
+type admissionConformanceView struct {
+	Step                        string
+	Lifecycle                   string
+	InstanceState               string
+	CorrectionWorkflow          bool
+	ReviewStep                  bool
+	ActiveContracts             int64
+	LawPinStale                 bool
+	DesignStale                 bool
+	ReviewDebt                  WorkflowReviewDebt
+	ReadyReview                 bool
+	ReadyReviewSettles          bool
+	LateVerdictRoute            bool
+	WorkerFailureRecovery       bool
+	CorrectionRecovery          bool
+	CorrectionRequestRecovery   bool
+	CorrectionEscalated         bool
+	SameStepFailedAttempts      int64
+	DispatchHold                bool
+	PendingOperatorDecision     bool
+	CompleteStepCorrection      bool
+	ContractCorrectionAvailable bool
+}
+
+func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
+	view := admissionConformanceView{
+		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
+		CorrectionWorkflow: state.CorrectionWorkflow, ReviewStep: state.ReviewStep,
+		ActiveContracts: state.ActiveContracts, LawPinStale: state.LawPinStale, DesignStale: state.DesignStale,
+		ReviewDebt: state.ReviewDebt, ReadyReview: state.ReadyReviewAttemptID != "",
+		LateVerdictRoute: state.LateVerdictRoute, WorkerFailureRecovery: state.WorkerFailureRecovery,
+		CorrectionRecovery: state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
+		CorrectionEscalated: state.CorrectionEscalated, SameStepFailedAttempts: state.SameStepFailedAttempts,
+		DispatchHold: state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
+		CompleteStepCorrection: state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
+	}
+	if view.ReadyReview {
+		view.ReadyReviewSettles = state.ReadyReviewSettles
+	}
+	return view
+}
+
+// conformanceCheckpoint folds the work item's admission state through the
+// real tx-scoped loader and compares it with the model state lifted through
+// the same rules the liveness checks decide over.
+func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, txErr := s.db.BeginTx(ctx, nil)
@@ -23,34 +75,30 @@ func conformanceCheckpoint(t *testing.T, s *Store, definition WorkflowDefinition
 		t.Fatalf("%s: begin: %v", label, txErr)
 	}
 	defer func() { _ = tx.Rollback() }()
-	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, "admission-conformance", definition, step, "workflow_admission_conformance_test")
+	var step string
+	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatalf("%s: read step: %v", label, err)
+	}
+	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}
-	got := admissionModelState{step: loaded.Step, debt: loaded.ReviewDebt, ready: loaded.ReadyReviewVerdict}
-	if loaded.ReadyReviewAttemptID != "" && loaded.ReadyReviewVerdict == "" {
-		// The loader folds a ready pre-CD-0197 review with an absent verdict;
-		// the model names that state ready "absent".
-		got.ready = "absent"
-	}
-	if got != want {
-		t.Fatalf("%s: loaded state %+v (step %q debt %q ready %q) != abstract successor %+v", label, loaded, got.step, got.debt, got.ready, want)
+	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(admissionWorkflowState(definition, want))
+	if got != model {
+		t.Fatalf("%s: loaded fold %+v != abstract successor %s lifted to %+v", label, got, want, model)
 	}
 }
 
 // TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept replays the
 // CON-796 witness path on the current break-fix definition and asserts, at
-// every checkpoint, that the loader's folded state equals the abstract
-// successor of the previous state under the action just performed.
+// every checkpoint, that the loader's fold equals the abstract successor of
+// the previous state under the action just performed, lifted through the
+// rules the liveness checks decide over.
 func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T) {
 	const workID = "admission-conformance"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
-	definition, defErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
-	def := definition.Definition
+	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
 	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
 		t.Fatal(err)
@@ -58,61 +106,55 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	acceptor := reviewGateAcceptor(workID)
 	at := int64(100)
 
-	model := admissionModelState{step: "repair", debt: ReviewDebtNone}
+	// The fixture parks the item at repair under one approved contract.
+	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
+	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
 
-	// start_repair: the step-entry advance moves repair's start, and the
-	// model's successor for an advance-mode action follows the same forward
-	// edge. The model state keeps its step "repair" because the engine's
-	// start action opens the epoch without leaving the step; the checkpoint
-	// asserts that equality, not an assumption.
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	conformanceCheckpoint(t, s, def, "repair", model, "after start_repair")
+	model = admissionSuccessor(def, model, "start_repair")
+	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
 
-	// The repair attempt dispatches and completes; no review debt exists, so
-	// the model state is unchanged.
+	// The repair attempt dispatches and completes: the completed attempt
+	// holds the step until its accept.
 	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair", "repair", 1, reviewGateLane(t, "implementation"), ownerRef, at)
 	at += 2
-	conformanceCheckpoint(t, s, def, "repair", model, "after repair dispatch")
+	model = admissionSuccessor(def, model, "dispatch_worker")
+	conformanceCheckpoint(t, s, workID, def, model, "after repair dispatch")
 
-	// The repair accept advances to refine.
 	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair", 1, acceptor); err != nil {
 		t.Fatalf("accept repair: %v", err)
 	}
 	model = admissionSuccessor(def, model, "accept_worker_result")
-	conformanceCheckpoint(t, s, def, "refine", model, "after repair accept")
+	conformanceCheckpoint(t, s, workID, def, model, "after repair accept")
 
-	// start_refine opens the refinement epoch; the step stays refine.
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	conformanceCheckpoint(t, s, def, "refine", model, "after start_refine")
+	model = admissionSuccessor(def, model, "start_refine")
+	conformanceCheckpoint(t, s, workID, def, model, "after start_refine")
 
-	// The first review attempt completes and the acceptor rejects it: the
-	// rejection opens the post-rejection review debt.
+	// The first review completes and the acceptor rejects it: the rejection
+	// opens the post-rejection review debt.
 	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":review-1", "refine", 1, reviewGateLane(t, "review"), ownerRef, at)
 	at += 2
-	conformanceCheckpoint(t, s, def, "refine", model, "after review dispatch")
+	model = admissionSuccessor(def, model, "dispatch_worker")
+	conformanceCheckpoint(t, s, workID, def, model, "after review dispatch")
 	reviewGateRejectResult(t, s, workID, "attempt:"+workID+":review-1", 1, acceptor)
 	model = admissionSuccessor(def, model, "reject_worker_result")
-	conformanceCheckpoint(t, s, def, "refine", model, "after rejection")
+	conformanceCheckpoint(t, s, workID, def, model, "after rejection")
 
 	// A fresh review of the repaired result completes with a ship verdict:
 	// the model's dispatch move names the settling review ready.
 	reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":review-2", 1, reviewGateLane(t, "review"), ownerRef, "ship", at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
-	conformanceCheckpoint(t, s, def, "refine", model, "after settling review completion")
+	conformanceCheckpoint(t, s, workID, def, model, "after settling review completion")
 
-	// The ready review's acceptance is the combined accept: it names the
-	// ready attempt's identity and asserts delivery, so it settles the debt
-	// and advances to the delivery gate in one action. The pure model's
-	// accept move stands for that identity-satisfying route.
+	// The ready review's acceptance names the ready attempt and asserts
+	// delivery, so it settles the debt and advances to the delivery gate.
 	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", 1, acceptor); err != nil {
 		t.Fatalf("accept the settling review: %v", err)
 	}
 	model = admissionSuccessor(def, model, "accept_worker_result")
-	conformanceCheckpoint(t, s, def, "delivery", model, "after settling accept")
-
-	// The settled debt leaves the fold debt-free: the model and the loader
-	// agree the repaired result may advance to delivery.
-	if model.debt != ReviewDebtNone {
-		t.Fatalf("settling accept left model debt %q", model.debt)
+	conformanceCheckpoint(t, s, workID, def, model, "after settling accept")
+	if model.debt != ReviewDebtNone || model.step != "delivery" {
+		t.Fatalf("settling accept left model step %q debt %q", model.step, model.debt)
 	}
 }

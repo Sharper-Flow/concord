@@ -394,19 +394,8 @@ func productRowStepRequiresApprovalCached(registry DefinitionRegistry, ref strin
 			cache[key] = entry
 		}
 	}
-	step := workflowStep(entry.Definition, currentStep)
-	deliveryGate := workflowStepIsDeliveryGate(step)
-	if step == nil || step.Kind != WorkflowStepHumanCheckpoint {
-		return false, currentStep, deliveryGate, nil
-	}
-	for _, candidate := range step.Actions {
-		for _, action := range entry.Definition.ActionDefinitions {
-			if action.ID == candidate && action.Approval == ActionApprovalRequired {
-				return true, currentStep, deliveryGate, nil
-			}
-		}
-	}
-	return false, currentStep, deliveryGate, nil
+	deliveryGate := workflowStepIsDeliveryGate(workflowStep(entry.Definition, currentStep))
+	return workflowOperatorDecisionPending(entry.Definition, currentStep), currentStep, deliveryGate, nil
 }
 
 func (w productRowWork) attentionKind() string {

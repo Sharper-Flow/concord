@@ -13,7 +13,7 @@ import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, ob
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
-import { armTurnMoveBoundary } from "./turn-move-boundary"
+import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
@@ -1792,8 +1792,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // the fact of the move. A rendered handoff appends the bounded job and
       // next action so the receiving session holds both without the envelope.
       output: renderedHandoff
-        ? `${moveNoticeText(target.worktree.path)} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
-        : moveNoticeText(target.worktree.path),
+        ? `${moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
+        : moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID)),
       // The remote Linear check rides the resume result into the envelope so
       // the resuming session sees remote drift before it acts.
       ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
@@ -2054,7 +2054,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
         // is replaced before the result drains the queue. The notice rides
         // the composed answer here rather than the re-land envelope, whose
         // output this sequence discards.
-        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath))
+        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath, dispatchRequiresNextTurn(context.sessionID)))
         steps.push(`work_start: the session re-landed in ${relandPath ?? "the claimed worktree"}`)
       } else {
         const failure = record(relanded) && record(relanded.error) ? relanded.error : null
@@ -2205,7 +2205,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   // The confirmed move is a fact the agent must act on, so the result this
   // call encodes carries the notice: the new path, the paths-under-it rule,
   // and the surfaces the move made stale.
-  recordMoveNotice(context.sessionID, moveNoticeText(path))
+  recordMoveNotice(context.sessionID, moveNoticeText(path, dispatchRequiresNextTurn(context.sessionID)))
   return envelope
 }
 
@@ -2339,7 +2339,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   // The verified landing moved the session to the registered main checkout,
   // so the result this call encodes carries the move notice.
-  recordMoveNotice(context.sessionID, moveNoticeText(destination))
+  recordMoveNotice(context.sessionID, moveNoticeText(destination, dispatchRequiresNextTurn(context.sessionID)))
   return envelope
 }
 

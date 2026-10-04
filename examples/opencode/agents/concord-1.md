@@ -181,8 +181,9 @@ To resume an existing item in this Project, call `concord_work_start` with its
 worktree or bootstraps the missing canonical one and moves this session
 automatically. After a move, use the returned absolute path for reads, edits,
 and the shell working directory for the rest of the turn; the pre-move `<env>`
-directory is stale, and a turn-move boundary closes dispatch and the native
-question tool until the next operator message. If a landing is unconfirmed,
+directory is stale. When the result names an active turn-move boundary,
+dispatch and the native question tool stay closed until the next operator
+message; ask in normal chat and end the turn. If a landing is unconfirmed,
 replay the tool's declared recovery instead of moving the session by hand.
 
 Ask one material question per turn, with the context and concise options it

@@ -10,7 +10,7 @@ import { configureCoreBinary } from "./dispatch"
 import { manifestDigest } from "./generated-contracts"
 import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_relate, work_transition } from "./concord"
 import { resetClaimedWorktrees } from "./claimed-worktree"
-import { resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { recordMoveNotice, resetMoveNotices, takeMoveNotice } from "./move-notice"
 
 configureCoreBinary("concord")
@@ -57,13 +57,20 @@ const coreEnvelope = (tool: string, operation: string, fields: Record<string, un
   warnings: [], evidence_refs: [], replayed: false, changed_refs: [], next_valid_intents: [], ...fields,
 })
 
-function expectMoveNotice(notice: string | null, path: string): void {
+const BOUNDARY_SENTENCE = "A turn-move boundary is active: the native question tool and dispatch stay closed until the next operator message"
+
+// Every recorded notice follows a landing the host read back, so none carries
+// unconfirmed-landing recovery; the boundary sentence appears exactly when the
+// route armed the turn-move boundary.
+function expectMoveNotice(notice: string | null, path: string, boundaryActive = true): void {
   expect(notice).not.toBeNull()
   expect(notice).toContain(`Concord moved this session to ${path}`)
   expect(notice).toContain(`Use paths under ${path} for reads, edits, and the shell working directory`)
   expect(notice).toContain("The <env> working directory and the pre-move checkout are stale until the next turn")
-  expect(notice).toContain("A turn-move boundary is active for the rest of this turn: the native question tool and dispatch stay closed until the next operator message clears it")
-  expect(notice).toContain("If this landing was not confirmed, replay the worktree claim to retry the move; do not move the session by hand")
+  expect(notice).not.toContain("not confirmed")
+  expect(notice).not.toContain("replay")
+  if (boundaryActive) expect(notice).toContain(BOUNDARY_SENTENCE)
+  else expect(notice).not.toContain("turn-move boundary")
 }
 
 function leaseRunner() {
@@ -154,6 +161,15 @@ describe("a confirmed worktree_claim move records the move notice", () => {
     // The envelope itself stays schema-clean: the notice rides the output
     // layer, not the published closed envelope.
     expect(envelope.output).toBeUndefined()
+  })
+
+  test("a claim whose tool context already runs at the destination arms no boundary and names none", async () => {
+    await bindHost(() => ({ status: 204, body: null }), () => ({ status: 200, body: { directory: "/claimed" } }), landingOnlyRunner())
+    const landedContext = { ...claimContext(), directory: "/claimed" } as Parameters<typeof moveSessionToClaimedWorktree>[1]
+    const envelope = await moveSessionToClaimedWorktree(claimArgs(), landedContext, claimOkEnvelope())
+    expect(envelope.outcome).toBe("ok")
+    expect(dispatchRequiresNextTurn("session-1")).toBe(false)
+    expectMoveNotice(takeMoveNotice("session-1"), "/claimed", false)
   })
 
   test("a landing mismatch refuses and records no notice", async () => {

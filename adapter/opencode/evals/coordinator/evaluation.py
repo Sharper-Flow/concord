@@ -44,7 +44,7 @@ def claim_in_scope(args, case):
     if not isinstance(request, dict) or set(request) != {"operation", "input"}:
         return False
     data, want = request.get("input"), transition["admit"]["request"].get("input")
-    if not isinstance(data, dict) or not isinstance(want, dict) or set(data) != set(want):
+    if not isinstance(data, dict) or not isinstance(want, dict) or set(data) != set(want) | {"idempotency_key"}:
         return False
     return (
         request["operation"] == "worktree_claim"
@@ -92,6 +92,14 @@ def dispatch_in_scope(args):
     )
 
 
+def tool_output(output):
+    """Split a tool output into its envelope line and the move-notice line after it."""
+    if not isinstance(output, str):
+        return ({}, None)
+    envelope, _, notice = output.partition("\n")
+    return (json_object(envelope), notice or None)
+
+
 def evaluate(case, calls, events, exit_code, receipts):
     if case.get("capture"):
         return evaluate_capture(calls, events, exit_code, receipts)
@@ -107,12 +115,14 @@ def evaluate(case, calls, events, exit_code, receipts):
         and all(sequence.count(tool) <= 1 for tool in optional)
     )
     responses = {**case.get("responses", {}), RUNTIME: runtime_response(case)}
+    notices = {}
     start = start_fixture(case)
     if start is not None:
         responses[START] = start.get("result")
     transition = transition_fixture(case)
     if transition is not None:
         responses[TRANSITION] = transition.get("result")
+        notices[TRANSITION] = transition.get("notice")
     read_scope = all(
         continuity_in_scope(call.get("args")) if call.get("tool") == TRACE
         else start_in_scope(call.get("args"), case) if call.get("tool") == START
@@ -122,7 +132,7 @@ def evaluate(case, calls, events, exit_code, receipts):
     matching = len(parts) == len(calls) and all(
         part.get("state", {}).get("status") == "completed"
         and part["state"].get("input") == call.get("args")
-        and json_object(part["state"].get("output")) == call.get("result")
+        and tool_output(part["state"].get("output")) == (call.get("result"), notices.get(call.get("tool")))
         and call.get("result") == responses.get(call.get("tool"))
         for part, call in zip(parts, calls)
     )

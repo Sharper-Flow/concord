@@ -1,11 +1,16 @@
 """Synthetic evaluator unit tests, not coordinator behavioral evidence."""
 import copy
 import json
+import re
 import unittest
+from pathlib import Path
 
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
                         evaluate, start_in_scope)
-from scenarios import SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
+from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
+                       move_notice, runtime_response)
+
+MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
 
 
 def dispatch_args():
@@ -20,16 +25,20 @@ def start_args(case):
 
 
 def claim_args(case):
-    return copy.deepcopy(case["transition"]["admit"]), copy.deepcopy(case["transition"]["result"])
+    args = copy.deepcopy(case["transition"]["admit"])
+    args["request"]["input"]["idempotency_key"] = "fixture-claim"
+    return args, copy.deepcopy(case["transition"]["result"])
 
 
 def observation(case):
     calls, events = [], []
     for tool in case.get("required", []):
+        notice = None
         if tool == START:
             args, result = start_args(case)
         elif tool == TRANSITION and "transition" in case:
             args, result = claim_args(case)
+            notice = case["transition"].get("notice")
         elif tool == TRANSITION:
             args, result = dispatch_args(), case["responses"][tool]
         elif tool == TRACE:
@@ -40,7 +49,8 @@ def observation(case):
             args, result = {}, case["responses"][tool]
         calls.append({"tool": tool, "args": args, "result": result})
         events.append({"type": "tool_use", "part": {"tool": tool, "state": {
-            "status": "completed", "input": args, "output": json.dumps(result),
+            "status": "completed", "input": args,
+            "output": json.dumps(result) + (f"\n{notice}" if notice else ""),
         }}})
     events.extend([
         {"type": "text", "part": {"text": json.dumps({**case["expected"], "context_receipts": {"source": "nonce"}})}},
@@ -201,9 +211,49 @@ class EvaluationTests(unittest.TestCase):
     def test_move_result_mismatch_fails(self):
         case = SCENARIOS["default-checkout-resume"]
         calls, events = observation(case)
-        calls[0]["result"]["move"]["landing"] = "unconfirmed"
+        calls[0]["result"]["worktree_path"] = "/synthetic/elsewhere"
         events[0]["part"]["state"]["output"] = json.dumps(calls[0]["result"])
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_claim_output_must_carry_the_move_notice_line(self):
+        case = SCENARIOS["same-repository-second-project"]
+        for output in (json.dumps(case["transition"]["result"]),
+                       json.dumps(case["transition"]["result"]) + "\n" + move_notice("/synthetic/elsewhere", True)):
+            with self.subTest(output=output[-40:]):
+                calls, events = observation(case)
+                events[0]["part"]["state"]["output"] = output
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_dispatch_after_an_armed_boundary_fails(self):
+        # The claim notice names an active turn-move boundary, so a dispatch
+        # in the same turn is outside the admitted sequence.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = observation(case)
+        refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
+        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        events.insert(1, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
+            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+        }}})
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_same_turn_replay_of_an_unlanded_resume_fails(self):
+        case = SCENARIOS["stale-context-turn-boundary"]
+        calls, events = observation(case)
+        calls.append(copy.deepcopy(calls[0]))
+        events.insert(1, copy.deepcopy(events[0]))
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_notice_doubles_match_the_adapter_source(self):
+        # The doubles must stay production-shaped: the adapter's notice text
+        # in move-notice.ts is the source the fixture copies.
+        source = MOVE_NOTICE_SOURCE.read_text()
+        constant = re.search(r'TURN_MOVE_BOUNDARY_NOTICE =\s*"([^"]+)"', source)
+        template = re.search(r'const notice = `([^`]+)`', source)
+        self.assertIsNotNone(constant)
+        self.assertIsNotNone(template)
+        self.assertEqual(BOUNDARY_NOTICE, constant.group(1))
+        self.assertEqual(move_notice("/p", False), template.group(1).replace("${newPath}", "/p"))
+        self.assertEqual(move_notice("/p", True), f"{move_notice('/p', False)} {BOUNDARY_NOTICE}")
 
     def test_resume_without_fixture_stays_unauthorized(self):
         case = SCENARIOS["authority-denial"]

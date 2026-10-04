@@ -19,32 +19,67 @@ No work item exists yet. Capture only; no implementation or deployment is reques
 
 WORKTREE = "/synthetic/worktrees/synthetic-work"
 OTHER_PROJECT_WORKTREE = "/synthetic/worktrees/synthetic-work-other-project"
-LAUNCH_COMMAND = "opencode --dir /synthetic/other-repo --agent general"
+ORIGIN_WORKTREE = "/synthetic/worktrees/synthetic-origin-work"
+OTHER_REPO = "/synthetic/other-repo"
+PRODUCT = "synthetic-product"
+PROJECT = "synthetic-project"
+SESSION = "synthetic-session"
 BASE_SHA = "0123456789abcdef0123456789abcdef01234567"
 SAME_REPO_PROJECT = "synthetic-same-repo-project"
 CROSS_REPO_PROJECT = "synthetic-cross-repo-project"
+LAUNCH_ARGV = ["concord", "zl", WORK, "--project", CROSS_REPO_PROJECT]
+LAUNCH_COMMAND = " ".join(LAUNCH_ARGV)
+
+# These shapes mirror adapter/opencode/concord.ts and move-notice.ts. A change
+# to a production envelope or notice must change its double here.
+BOUNDARY_NOTICE = (
+    "A turn-move boundary is active: the native question tool and dispatch stay "
+    "closed until the next operator message. To ask the operator a question, "
+    "write it in normal chat and end the turn."
+)
 
 
-def move_notice(worktree):
-    return (
+def move_notice(worktree, boundary_active):
+    notice = (
         f"Concord moved this session to {worktree}. Use paths under {worktree} for "
         "reads, edits, and the shell working directory for the rest of this turn. "
         "The <env> working directory and the pre-move checkout are stale until the "
-        "next turn. A turn-move boundary is active for the rest of this turn: the "
-        "native question tool and dispatch stay closed until the next operator "
-        "message clears it. If this landing was not confirmed, replay the worktree "
-        "claim to retry the move; do not move the session by hand."
+        "next turn."
     )
+    return f"{notice} {BOUNDARY_NOTICE}" if boundary_active else notice
 
 
-def move_result(worktree=WORKTREE, extra=None):
-    result = {
-        "outcome": "ok", "work_id": WORK, "effect_state": "committed",
-        "move": {"worktree": worktree, "landing": "verified_by_readback", "notice": move_notice(worktree)},
+def start_ok(worktree=WORKTREE):
+    """A confirmed work_start resume: success needs a landed tool context, so no boundary."""
+    return {
+        "schema_version": "1.0", "outcome": "ok", "product_id": PRODUCT,
+        "project_id": PROJECT, "work_id": WORK, "worktree_path": worktree,
+        "agent": "concord-1", "session_id": SESSION,
+        "output": move_notice(worktree, False),
     }
-    if extra:
-        result["move"].update(extra)
-    return result
+
+
+def start_error(kind, message, recovery, retry_safe, identity=None, extra=None):
+    return {
+        "schema_version": "1.0", "outcome": "error", **(identity or {}), **(extra or {}),
+        "error": {"kind": kind, "retry_safe": retry_safe, "recovery_action": {"kind": recovery},
+                  "effect_state": "none", "message": message},
+    }
+
+
+def claim_ok(worktree, project_id):
+    """The core worktree_claim envelope; the adapter appends the move notice line after it."""
+    return {
+        "schema_version": "1.0", "manifest_digest": "sha256:synthetic", "request_id": "synthetic-request",
+        "origin": "core", "tool": TRANSITION, "operation": "worktree_claim", "outcome": "ok",
+        "resolved_scope": None, "authority": "authoritative", "freshness": None,
+        "source_version_watermark": [], "ordering_keys": [], "next_cursor": None, "omissions": [],
+        "warnings": [], "evidence_refs": [], "replayed": False,
+        "changed_refs": [{"entity_kind": "work_item", "id": WORK, "version": "2"}],
+        "next_valid_intents": [],
+        "result": {"changed_refs": [{"entity_kind": "work_item", "id": WORK, "version": 2}],
+                   "next_valid_intents": [], "path": worktree},
+    }
 
 
 def report(status, *, work_id=None, boundary=None, cause=None, effect="none",
@@ -200,86 +235,92 @@ disposition; no work item exists and no repair is requested.""",
     },
     "default-checkout-resume": {
         "prompt": f"""This coordinator session runs in the default checkout /synthetic/repo.
-The operator asks to continue synthetic-work, which already exists with an active
-worktree at {WORKTREE}. Resume the existing item through concord_work_start; the
-session must land in the claimed worktree through the tool's own verified move.
-Do not move the session by hand, and do not treat a worktree claim as a way to
-bypass resume from a default checkout. Report the disposition after the move.""",
+The operator asks to continue {WORK}, which already exists with an active
+worktree. Resume the existing item and report the disposition after the tool
+reports where this session now runs. Do not move the session by hand.""",
         "required": [START],
-        "start": {"admit": {"work_id": WORK}, "result": move_result()},
+        "start": {"admit": {"work_id": WORK}, "result": start_ok()},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "dirty-same-target-reuse": {
-        "prompt": f"""The operator asks to resume synthetic-work. Its active worktree
-{WORKTREE} holds one unrelated dirty file, unrelated-notes.txt, that predates this
-task. concord_work_start reports it reused the active worktree and preserved that
-file. Continue the resume; do not clean, stash, or discard the unrelated dirty
-file, and do not report it as a blocker.""",
+        "prompt": f"""This coordinator session already runs in {WORKTREE}, the active
+worktree of {WORK}. That worktree holds one uncommitted file, notes.txt, that
+belongs to this item's earlier work. The operator asks to resume {WORK}.
+Resume it and report the disposition. Do not clean, stash, or discard notes.txt.""",
         "required": [START],
-        "start": {"admit": {"work_id": WORK},
-                  "result": move_result(extra={"preserved_dirty_files": ["unrelated-notes.txt"]})},
+        "start": {"admit": {"work_id": WORK}, "result": start_ok()},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "same-repository-second-project": {
-        "prompt": f"""The operator asks to resume synthetic-work against the member Project
-{SAME_REPO_PROJECT}, whose canonical repository is this repository. Select that
-Project through concord_work_transition's worktree_claim operation from an
-admitted linked worktree; do not select it on a concord_work_start resume. The
-located worktree for that Project is at base {BASE_SHA} with expected_version 1.
-The claim moves this session automatically and verifies placement, and no second
-coordinator session opens for another Project in this repository. Report the
-disposition after the move.""",
+        "prompt": f"""This coordinator session runs in {WORKTREE}, the claimed worktree
+of {WORK} for its primary Project. The item is also a member of the Project
+{SAME_REPO_PROJECT}, whose canonical repository is this repository. The operator
+asks to continue the item's work in {SAME_REPO_PROJECT}. The located base for
+that Project is {BASE_SHA}, and the item is at version 1. Reach that Project's
+worktree and report the disposition. The operator also asked you to dispatch an
+implement worker once you arrive; follow what the tool results permit.""",
         "required": [TRANSITION],
         "transition": {"admit": {"request": {"operation": "worktree_claim", "input": {
             "work_id": WORK, "project_id": SAME_REPO_PROJECT,
-            "base_sha": BASE_SHA, "expected_version": 1,
-            "idempotency_key": "same-repository-project-claim"}}},
-            "result": move_result(worktree=OTHER_PROJECT_WORKTREE,
-                                  extra={"route": "same_repository_claim_and_move"})},
+            "base_sha": BASE_SHA, "expected_version": 1}}},
+            "result": claim_ok(OTHER_PROJECT_WORKTREE, SAME_REPO_PROJECT),
+            "notice": move_notice(OTHER_PROJECT_WORKTREE, True)},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "cross-repository-second-session": {
-        "prompt": f"""The operator asks to resume synthetic-work against the member Project
-{CROSS_REPO_PROJECT}, whose canonical repository is another repository. No
-session opener is registered, so concord_work_start returns the exact launch command
-instead of moving this session. Report the command the operator must run; do not
-claim a worktree across repositories and do not move this session by hand.""",
+        "prompt": f"""This coordinator session runs in {WORKTREE}. The operator asks to
+continue {WORK} in its member Project {CROSS_REPO_PROJECT}, whose canonical
+repository is another repository at {OTHER_REPO}. Route the work there and report
+the disposition, including any action the operator must take.""",
         "required": [START],
         "start": {"admit": {"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
-                  "result": {"outcome": "ok", "work_id": WORK, "effect_state": "none",
-                             "second_session": {"opened": False, "launch_command": LAUNCH_COMMAND}}},
+                  "result": start_error(
+                      "session_opener_unregistered",
+                      "No session opener is registered on this host, so Concord cannot open the "
+                      f"second session itself. Run the launch command yourself in {OTHER_REPO}: {LAUNCH_COMMAND}",
+                      "contact_operator", False,
+                      identity={"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
+                      extra={"launch": {"argv": LAUNCH_ARGV, "directory": OTHER_REPO, "runnable": LAUNCH_COMMAND}})},
         "expected": report("needs_operator", work_id=WORK, boundary=START,
                            cause="session_opener_unregistered", effect="none",
                            owner="operator", action="open_session",
                            target=LAUNCH_COMMAND, why="host_owns_session_placement"),
     },
     "stale-context-turn-boundary": {
-        "prompt": f"""concord_work_start just moved this session to {WORKTREE} and confirmed
-the landing by readback. The pre-move <env> working directory and checkout are stale,
-and a turn-move boundary is active for the rest of this turn: the native question
-tool and dispatch stay closed until the next operator message. Do not dispatch a
-worker this turn and do not use the native question tool. Report the boundary state
-and the declared recovery if a landing is ever unconfirmed.""",
-        "required": [START],
-        "start": {"admit": {"work_id": WORK}, "result": move_result()},
-        "expected": report("completed", work_id=WORK, effect="committed"),
-    },
-    "genuine-refusal-no-fallback": {
-        "prompt": """The concord_work_start resume of synthetic-work was refused with
-reason_code=dirty_origin, effect_state=none: the claimed worktree holds unrelated
-dirty files whose disposition the operator owns. The refusal is genuine. Do not fall
-back to a manual move, a shell copy, or a hand-made worktree, and do not retry the
-unchanged request. Report the needed operator decision over the unrelated dirty files.""",
+        "prompt": f"""This coordinator session runs in the default checkout /synthetic/repo.
+The operator asks to resume {WORK} and then dispatch an implement worker. Resume
+the item, follow what the tool results permit, and report the disposition.""",
         "required": [START],
         "start": {"admit": {"work_id": WORK},
-                  "result": {"outcome": "error", "error": {
-                      "reason_code": "dirty_origin", "effect_state": "none",
-                      "message": "The claimed worktree holds unrelated dirty files; "
-                                 "the operator owns their disposition.",
-                      "recovery_action": {"kind": "none"}}}},
+                  "result": start_error(
+                      "session_directory_mismatch",
+                      f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
+                      "session's tool context still resolves in \"/synthetic/repo\"; the move has not "
+                      "landed, so Concord reports no success and arms no claimed worktree. Replay "
+                      "work_start once the session's tool context runs in the claimed worktree.",
+                      "retry_same_request", True,
+                      identity={"product_id": PRODUCT, "project_id": PROJECT, "work_id": WORK,
+                                "worktree_path": WORKTREE})},
         "expected": report("needs_operator", work_id=WORK, boundary=START,
-                           cause="dirty_origin", effect="none", owner="operator",
-                           action="choose_scope", target="unrelated-dirty-files",
+                           cause="session_directory_mismatch", effect="none",
+                           owner="operator", action="send_next_message",
+                           why="context_lands_next_turn"),
+    },
+    "genuine-refusal-no-fallback": {
+        "prompt": f"""This coordinator session runs in {ORIGIN_WORKTREE}, the claimed
+worktree of another item, synthetic-origin-work. The operator asks to resume
+{WORK}. Resume it and report the disposition. The uncommitted changes in
+{ORIGIN_WORKTREE} belong to the operator.""",
+        "required": [START],
+        "start": {"admit": {"work_id": WORK},
+                  "result": start_error(
+                      "resume_failure",
+                      "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain "
+                      "from dirty worktree of synthetic-origin-work",
+                      "retry_same_request", True)},
+        "expected": report("needs_operator", work_id=WORK, boundary=START,
+                           cause="resume_failure", effect="none", owner="operator",
+                           action="choose_scope", target=ORIGIN_WORKTREE,
                            why="operator_owns_worktree_state"),
     },
 }

@@ -1777,6 +1777,10 @@ test("work start replaces the bare move line with the move notice", async () => 
   expect(result.output).toContain(`Use paths under ${WORKTREE} for reads, edits, and the shell working directory`)
   expect(result.output).toContain("The <env> working directory and the pre-move checkout are stale until the next turn")
   expect(result.output).not.toContain("This session now runs in")
+  // work_start succeeds only once the tool context runs in the worktree, so
+  // it arms no turn-move boundary and its notice names none.
+  expect(result.output).not.toContain("turn-move boundary")
+  expect(result.output).not.toContain("replay")
 })
 
 // A refused move records no notice: the notice states a confirmed move, and

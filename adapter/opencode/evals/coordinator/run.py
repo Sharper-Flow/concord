@@ -20,10 +20,11 @@ cause: the verified reason_code, unknown when undiagnosed, or null on success;
 effect_state: none, committed, or uncertain;
 recovery_owner: operator, maintainer, agent, or none;
 operator_action: an object with kind (none, supply_credential, choose_scope,
-approve_changed_scope, reload_session, open_session) and target (the exact prerequisite name or null);
+approve_changed_scope, reload_session, open_session, send_next_message) and target (the exact prerequisite name or null);
 why_agent_cannot: no_credential_authority, intent_belongs_to_operator,
 scope_needs_approval, no_admitted_route, reload_outside_session,
-host_owns_session_placement, operator_owns_worktree_state, or none;
+host_owns_session_placement, operator_owns_worktree_state, context_lands_next_turn,
+or none;
 context_receipts: all entries supplied by your instructions.
 Choose these values from the observations, not from this format instruction.
 Completed means the bounded diagnostic or action task succeeded, not that a
@@ -46,9 +47,12 @@ const startConfig = STARTCONFIG;
 const transitionConfig = TRANSITIONCONFIG;
 const trace = TRACE;
 const capture = CAPTURE;
-function result(name, args, value) {
+// notice mirrors the adapter's move-notice line, appended after the envelope
+// line exactly as appendMoveNotice does on a confirmed transition move.
+function result(name, args, value, notice) {
   appendFileSync(trace, JSON.stringify({tool:name, args, result:value}) + "\n");
-  return {title:"Synthetic observation", output:JSON.stringify(value), metadata:{synthetic:true}};
+  const output = JSON.stringify(value) + (notice ? "\n" + notice : "");
+  return {title:"Synthetic observation", output, metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
 const invalidStart = {outcome:"error", error:{kind:"invalid_input", effect_state:"none", recovery_action:{kind:"correct_request"}, message:"Resume takes work_id with an optional project_id only; capture fields and resume fields cannot combine."}};
@@ -111,12 +115,13 @@ export const work_transition = recordingTool("concord_work_transition", {
         && data.fields.lane_id === "implement" && data.idempotency_key.trim();
     } else if (args.request.operation === "worktree_claim" && transitionConfig !== null) {
       const want = transitionConfig.admit.request.input;
-      admitted = Object.keys(data).length === Object.keys(want).length
+      admitted = Object.keys(data).length === Object.keys(want).length + 1
         && ["work_id","project_id","base_sha","expected_version"].every(key => data[key] === want[key])
         && typeof data.idempotency_key === "string" && data.idempotency_key.trim() !== "";
       if (admitted) value = transitionConfig.result;
     }
-    return result("concord_work_transition", args, admitted ? value : refused);
+    const notice = admitted && args.request.operation === "worktree_claim" ? transitionConfig.notice : undefined;
+    return result("concord_work_transition", args, admitted ? value : refused, notice);
   },
 });
 '''

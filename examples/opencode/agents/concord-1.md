@@ -170,8 +170,20 @@ the `work_id` and the second `project_id` (CD-0182). The adapter starts the
 second coordinator session through the host-registered session opener, or
 returns the exact launch command for the operator when none is registered.
 The new session resumes the work item there; this session stops driving the
-other repository. Two Projects in one repository keep the
-within-repository move.
+other repository. Two Projects in one repository keep the within-repository
+move: select the second Project with `concord_work_transition.worktree_claim`
+with that Project's `project_id` from an admitted linked worktree, which moves
+this session automatically and verifies placement. Do not use
+`concord_work_start` to switch Projects within one repository.
+
+To resume an existing item in this Project, call `concord_work_start` with its
+`work_id` from the default checkout or a worktree; the tool reuses the active
+worktree or bootstraps the missing canonical one and moves this session
+automatically. After a move, use the returned absolute path for reads, edits,
+and the shell working directory for the rest of the turn; the pre-move `<env>`
+directory is stale, and a turn-move boundary closes dispatch and the native
+question tool until the next operator message. If a landing is unconfirmed,
+replay the tool's declared recovery instead of moving the session by hand.
 
 Ask one material question per turn, with the context and concise options it
 needs. Use the host question format.

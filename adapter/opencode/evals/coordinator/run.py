@@ -43,6 +43,7 @@ import { appendFileSync } from "node:fs";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
 const responses = RESPONSES;
 const startConfig = STARTCONFIG;
+const transitionConfig = TRANSITIONCONFIG;
 const trace = TRACE;
 const capture = CAPTURE;
 function result(name, args, value) {
@@ -95,14 +96,27 @@ export const work_trace = recordingTool("concord_work_trace", {
 });
 export const work_transition = recordingTool("concord_work_transition", {
   description:productionTransition.description,
-  args:{request:tool.schema.strictObject({operation:tool.schema.literal("workflow_action"), input:tool.schema.strictObject({
-    work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string(),
-    idempotency_key:tool.schema.string(), fields:tool.schema.strictObject({lane_id:tool.schema.string()}),
+  args:{request:tool.schema.strictObject({operation:tool.schema.enum(["workflow_action","worktree_claim"]), input:tool.schema.strictObject({
+    work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
+    idempotency_key:tool.schema.string(), fields:tool.schema.strictObject({lane_id:tool.schema.string()}).optional(),
+    project_id:tool.schema.string().optional(), base_sha:tool.schema.string().optional(),
   })})},
   async execute(args) {
     const data = args.request.input;
-    const admitted = data.work_id === "synthetic-work" && data.expected_version === 1 && data.action_id === "dispatch_worker" && data.fields.lane_id === "implement" && data.idempotency_key.trim();
-    return result("concord_work_transition", args, admitted ? responses.concord_work_transition ?? refused : refused);
+    let admitted = false;
+    let value = responses.concord_work_transition ?? refused;
+    if (args.request.operation === "workflow_action") {
+      admitted = data.work_id === "synthetic-work" && data.expected_version === 1
+        && data.action_id === "dispatch_worker" && data.fields !== undefined
+        && data.fields.lane_id === "implement" && data.idempotency_key.trim();
+    } else if (args.request.operation === "worktree_claim" && transitionConfig !== null) {
+      const want = transitionConfig.admit.request.input;
+      admitted = Object.keys(data).length === Object.keys(want).length
+        && ["work_id","project_id","base_sha","expected_version"].every(key => data[key] === want[key])
+        && typeof data.idempotency_key === "string" && data.idempotency_key.trim() !== "";
+      if (admitted) value = transitionConfig.result;
+    }
+    return result("concord_work_transition", args, admitted ? value : refused);
   },
 });
 '''
@@ -185,6 +199,7 @@ def run_case(args, name, source, originals):
         "SOURCE": json.dumps(str(args.repo.resolve() / "adapter/opencode/concord.ts")),
         "RESPONSES": json.dumps(case.get("responses", {})),
         "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
+        "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
         "CAPTURE": json.dumps(case.get("capture", False)),
     }

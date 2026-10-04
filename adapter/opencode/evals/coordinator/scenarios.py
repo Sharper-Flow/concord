@@ -20,22 +20,27 @@ No work item exists yet. Capture only; no implementation or deployment is reques
 WORKTREE = "/synthetic/worktrees/synthetic-work"
 OTHER_PROJECT_WORKTREE = "/synthetic/worktrees/synthetic-work-other-project"
 LAUNCH_COMMAND = "opencode --dir /synthetic/other-repo --agent general"
+BASE_SHA = "0123456789abcdef0123456789abcdef01234567"
+SAME_REPO_PROJECT = "synthetic-same-repo-project"
+CROSS_REPO_PROJECT = "synthetic-cross-repo-project"
 
-MOVE_NOTICE = (
-    f"Concord moved this session to {WORKTREE}. Use paths under {WORKTREE} for "
-    "reads, edits, and the shell working directory for the rest of this turn. "
-    "The <env> working directory and the pre-move checkout are stale until the "
-    "next turn. A turn-move boundary is active for the rest of this turn: the "
-    "native question tool and dispatch stay closed until the next operator "
-    "message clears it. If this landing was not confirmed, replay the worktree "
-    "claim to retry the move; do not move the session by hand."
-)
+
+def move_notice(worktree):
+    return (
+        f"Concord moved this session to {worktree}. Use paths under {worktree} for "
+        "reads, edits, and the shell working directory for the rest of this turn. "
+        "The <env> working directory and the pre-move checkout are stale until the "
+        "next turn. A turn-move boundary is active for the rest of this turn: the "
+        "native question tool and dispatch stay closed until the next operator "
+        "message clears it. If this landing was not confirmed, replay the worktree "
+        "claim to retry the move; do not move the session by hand."
+    )
 
 
 def move_result(worktree=WORKTREE, extra=None):
     result = {
         "outcome": "ok", "work_id": WORK, "effect_state": "committed",
-        "move": {"worktree": worktree, "landing": "verified_by_readback", "notice": MOVE_NOTICE},
+        "move": {"worktree": worktree, "landing": "verified_by_readback", "notice": move_notice(worktree)},
     }
     if extra:
         result["move"].update(extra)
@@ -216,25 +221,31 @@ file, and do not report it as a blocker.""",
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "same-repository-second-project": {
-        "prompt": """The operator asks to resume synthetic-work against the member Project
-synthetic-same-repo-project, whose canonical repository is this repository. Select
-that Project on the concord_work_start resume and stay on the claim-and-move route:
-no second coordinator session is opened for another Project in the same repository.
-Report the disposition after the move.""",
-        "required": [START],
-        "start": {"admit": {"work_id": WORK, "project_id": "synthetic-same-repo-project"},
-                  "result": move_result(worktree=OTHER_PROJECT_WORKTREE,
-                                        extra={"route": "same_repository_claim_and_move"})},
+        "prompt": f"""The operator asks to resume synthetic-work against the member Project
+{SAME_REPO_PROJECT}, whose canonical repository is this repository. Select that
+Project through concord_work_transition's worktree_claim operation from an
+admitted linked worktree; do not select it on a concord_work_start resume. The
+located worktree for that Project is at base {BASE_SHA} with expected_version 1.
+The claim moves this session automatically and verifies placement, and no second
+coordinator session opens for another Project in this repository. Report the
+disposition after the move.""",
+        "required": [TRANSITION],
+        "transition": {"admit": {"request": {"operation": "worktree_claim", "input": {
+            "work_id": WORK, "project_id": SAME_REPO_PROJECT,
+            "base_sha": BASE_SHA, "expected_version": 1,
+            "idempotency_key": "same-repository-project-claim"}}},
+            "result": move_result(worktree=OTHER_PROJECT_WORKTREE,
+                                  extra={"route": "same_repository_claim_and_move"})},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "cross-repository-second-session": {
         "prompt": f"""The operator asks to resume synthetic-work against the member Project
-synthetic-cross-repo-project, whose canonical repository is another repository. No
+{CROSS_REPO_PROJECT}, whose canonical repository is another repository. No
 session opener is registered, so concord_work_start returns the exact launch command
 instead of moving this session. Report the command the operator must run; do not
 claim a worktree across repositories and do not move this session by hand.""",
         "required": [START],
-        "start": {"admit": {"work_id": WORK, "project_id": "synthetic-cross-repo-project"},
+        "start": {"admit": {"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
                   "result": {"outcome": "ok", "work_id": WORK, "effect_state": "none",
                              "second_session": {"opened": False, "launch_command": LAUNCH_COMMAND}}},
         "expected": report("needs_operator", work_id=WORK, boundary=START,

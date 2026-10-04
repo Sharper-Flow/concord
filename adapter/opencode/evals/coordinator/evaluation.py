@@ -2,7 +2,11 @@
 from capture_evaluation import evaluate as evaluate_capture, json_object
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
-ADMITTED_PROJECT_IDS = ("synthetic-same-repo-project", "synthetic-cross-repo-project")
+# work_start resume selects a member Project in another repository only
+# (cmd/concord/work_resume.go: the invocation must resolve to the requested
+# Project). A member Project in the same repository is selected through the
+# worktree_claim route instead, so its project id is never admitted here.
+ADMITTED_RESUME_PROJECT_IDS = ("synthetic-cross-repo-project",)
 
 
 def start_fixture(case):
@@ -18,7 +22,38 @@ def start_in_scope(args, case):
     if set(args) != set(admit) or args.get("work_id") != WORK:
         return False
     project_id = args.get("project_id")
-    return project_id is None or project_id in ADMITTED_PROJECT_IDS
+    return project_id is None or project_id in ADMITTED_RESUME_PROJECT_IDS
+
+
+def transition_fixture(case):
+    transition = case.get("transition")
+    if not isinstance(transition, dict) or not isinstance(transition.get("admit"), dict):
+        return None
+    admit = transition["admit"]
+    request = admit.get("request")
+    if not isinstance(request, dict) or request.get("operation") != "worktree_claim":
+        return None
+    return transition
+
+
+def claim_in_scope(args, case):
+    transition = transition_fixture(case)
+    if transition is None or not isinstance(args, dict) or set(args) != {"request"}:
+        return False
+    request = args["request"]
+    if not isinstance(request, dict) or set(request) != {"operation", "input"}:
+        return False
+    data, want = request.get("input"), transition["admit"]["request"].get("input")
+    if not isinstance(data, dict) or not isinstance(want, dict) or set(data) != set(want):
+        return False
+    return (
+        request["operation"] == "worktree_claim"
+        and data.get("work_id") == want.get("work_id")
+        and data.get("project_id") == want.get("project_id")
+        and data.get("base_sha") == want.get("base_sha")
+        and data.get("expected_version") == want.get("expected_version")
+        and isinstance(data.get("idempotency_key"), str) and bool(data["idempotency_key"].strip())
+    )
 
 
 def continuity_in_scope(args):
@@ -75,6 +110,9 @@ def evaluate(case, calls, events, exit_code, receipts):
     start = start_fixture(case)
     if start is not None:
         responses[START] = start.get("result")
+    transition = transition_fixture(case)
+    if transition is not None:
+        responses[TRANSITION] = transition.get("result")
     read_scope = all(
         continuity_in_scope(call.get("args")) if call.get("tool") == TRACE
         else start_in_scope(call.get("args"), case) if call.get("tool") == START
@@ -91,7 +129,9 @@ def evaluate(case, calls, events, exit_code, receipts):
     unauthorized = [part for part in parts if (
         part.get("tool") == START and not start_in_scope(part.get("state", {}).get("input"), case)
         or part.get("tool") == TRANSITION and (
-            TRANSITION not in required or not dispatch_in_scope(part.get("state", {}).get("input"))
+            TRANSITION not in required
+            or not (dispatch_in_scope(part.get("state", {}).get("input"))
+                    or claim_in_scope(part.get("state", {}).get("input"), case))
         )
     )]
     texts = [event.get("part", {}).get("text") for event in events if event.get("type") == "text"]

@@ -3,7 +3,8 @@ import copy
 import json
 import unittest
 
-from evaluation import dispatch_in_scope, continuity_in_scope, evaluate, start_in_scope
+from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
+                        evaluate, start_in_scope)
 from scenarios import SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 
@@ -18,11 +19,17 @@ def start_args(case):
     return copy.deepcopy(case["start"]["admit"]), copy.deepcopy(case["start"]["result"])
 
 
+def claim_args(case):
+    return copy.deepcopy(case["transition"]["admit"]), copy.deepcopy(case["transition"]["result"])
+
+
 def observation(case):
     calls, events = [], []
     for tool in case.get("required", []):
         if tool == START:
             args, result = start_args(case)
+        elif tool == TRANSITION and "transition" in case:
+            args, result = claim_args(case)
         elif tool == TRANSITION:
             args, result = dispatch_args(), case["responses"][tool]
         elif tool == TRACE:
@@ -131,11 +138,12 @@ class EvaluationTests(unittest.TestCase):
                 self.assertEqual(continuity_in_scope(args), valid)
 
     def test_resume_scope_gates(self):
-        case = SCENARIOS["same-repository-second-project"]
+        case = SCENARIOS["cross-repository-second-session"]
         args, _ = start_args(case)
         self.assertTrue(start_in_scope(args, case))
         for change, valid in (
             ({"project_id": "synthetic-foreign-project"}, False),
+            ({"project_id": "synthetic-same-repo-project"}, False),
             ({"work_id": "foreign-work"}, False),
             ({"project_id": None}, False),
             ({"title": "Synthetic parser repair"}, False),
@@ -149,13 +157,45 @@ class EvaluationTests(unittest.TestCase):
                         varied[key] = value
                 self.assertEqual(start_in_scope(varied, case), valid)
 
-    def test_foreign_project_resume_is_not_admitted(self):
+    def test_claim_scope_gates(self):
         case = SCENARIOS["same-repository-second-project"]
+        args, _ = claim_args(case)
+        self.assertTrue(claim_in_scope(args, case))
+        data = args["request"]["input"]
+        for key, value, valid in (
+            ("project_id", "synthetic-foreign-project", False),
+            ("project_id", "synthetic-cross-repo-project", False),
+            ("work_id", "foreign-work", False),
+            ("base_sha", "f" * 40, False),
+            ("expected_version", 2, False),
+            ("idempotency_key", " ", False),
+            ("host_pid", 1234, False),
+        ):
+            with self.subTest(key=key, value=value):
+                varied = copy.deepcopy(args)
+                if value is None:
+                    varied["request"]["input"].pop(key, None)
+                else:
+                    varied["request"]["input"][key] = value
+                self.assertEqual(claim_in_scope(varied, case), valid)
+
+    def test_foreign_project_resume_is_not_admitted(self):
+        case = SCENARIOS["cross-repository-second-session"]
         calls, events = observation(case)
         calls[0]["args"]["project_id"] = "synthetic-foreign-project"
         calls[0]["result"] = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
         events[0]["part"]["state"]["input"] = calls[0]["args"]
         events[0]["part"]["state"]["output"] = json.dumps(calls[0]["result"])
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_same_repository_start_selection_is_not_admitted(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = observation(case)
+        calls[0] = {"tool": START, "args": {"work_id": WORK, "project_id": "synthetic-same-repo-project"},
+                    "result": {"outcome": "error", "error": {"reason_code": "authorization_denied"}}}
+        events[0] = {"type": "tool_use", "part": {"tool": START, "state": {
+            "status": "completed", "input": calls[0]["args"], "output": json.dumps(calls[0]["result"]),
+        }}}
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_move_result_mismatch_fails(self):
@@ -168,6 +208,13 @@ class EvaluationTests(unittest.TestCase):
     def test_resume_without_fixture_stays_unauthorized(self):
         case = SCENARIOS["authority-denial"]
         self.assertFalse(start_in_scope({"work_id": WORK}, case))
+
+    def test_resume_admission_excludes_same_repository_project(self):
+        # work_start resume selects a member Project in another repository
+        # only; the same-repository selection route is worktree_claim, so a
+        # fixture declaring the wrong route must not admit it either.
+        case = {"start": {"admit": {"work_id": WORK, "project_id": "synthetic-same-repo-project"}}}
+        self.assertFalse(start_in_scope({"work_id": WORK, "project_id": "synthetic-same-repo-project"}, case))
 
 
 if __name__ == "__main__":

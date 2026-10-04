@@ -291,7 +291,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, admissionErr
 	}
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision) && !decision.ApprovalRequired {
+	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) && !decision.ApprovalRequired {
 		if requireTerminalConditions || !decision.ConsequentialConditions {
 			return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
 		}

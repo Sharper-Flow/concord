@@ -131,6 +131,14 @@ type WorkflowAdmissionState struct {
 	// and the decision-context digest, which the payload-blind admission
 	// cannot judge.
 	PendingOperatorDecision bool
+	// AcceptanceDeliverablesMissing is the acceptance gate's refusal while
+	// an open premise question stands without its deliverables: the recorded
+	// verdict, a verdict for every approved predicate, and every required
+	// evidence kind bound. Nil when the deliverables stand or no premise
+	// question is open. The field name is the common case; any typed refusal
+	// of that gate lands here. workflowAdmit refuses confirm_premise on it, so the
+	// preflight and the work pin answer what the confirmation enforces.
+	AcceptanceDeliverablesMissing error
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
 	CompleteStepCorrection bool
@@ -353,6 +361,19 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 			}
 		}
 	}
+	if state.PendingOperatorDecision {
+		if action, _ := workflowOperatorQuestionAction(definition, currentStep); action == "confirm_premise" {
+			if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
+				// A typed refusal is the confirmation's answer; only an
+				// unreadable projection fails the fold.
+				var failure *Failure
+				if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
+					return WorkflowAdmissionState{}, deliverablesErr
+				}
+				state.AcceptanceDeliverablesMissing = deliverablesErr
+			}
+		}
+	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
 		if completeErr != nil {
@@ -446,6 +467,10 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "confirm_premise" && !state.PendingOperatorDecision {
 		decision.OperatorQuestionClosed = true
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "no operator question is open at the current workflow step", false, "record the investigation artifact the question requires, or take a declared route")
+		return decision
+	}
+	if actionID == "confirm_premise" && state.AcceptanceDeliverablesMissing != nil {
+		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return decision
 	}
 	if actionID == "request_correction" && !state.CorrectionRequestRecovery {
@@ -620,14 +645,15 @@ func workflowAdmitFreshReviewRefusal(decision WorkflowAdmissionDecision) Workflo
 
 // workflowAdmissionDefersToReviewGate reports whether one action's refusal
 // belongs to the claim-phase post-rejection review guard instead of the
-// caller's own decision application. Only the guard's own refusal defers:
-// the fresh-review refusal over the debt-hidden advances, whose ready-review
-// carve-out is the one payload-bound member of the debt family — the accept
-// whose attempt identity names the ready review. A staleness, impact, wall,
+// caller's own decision application. Only the guard's own refusal over the
+// accept defers: its ready-review carve-out is the one payload-bound member
+// of the debt family — the accept whose attempt identity names the ready
+// review. The same refusal over record_delivery admits nothing payload-blind,
+// so every site applies it. A staleness, impact, wall,
 // or step-legality refusal is never deferred, so an unrelated cause cannot
 // ride the review gate's acceptance route.
-func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision) bool {
-	return decision.FreshReviewRequired
+func workflowAdmissionDefersToReviewGate(decision WorkflowAdmissionDecision, actionID string) bool {
+	return decision.FreshReviewRequired && actionID == "accept_worker_result"
 }
 
 // workflowReadyReviewAttemptTx names the latest completed review attempt

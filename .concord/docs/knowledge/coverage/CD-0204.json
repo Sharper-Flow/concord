@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPreflightRefusesConfirmationMissingMandatedDeliverables"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkPinPublishesConfirmPremiseRequiredFields"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFrozenOpsRunbookCleanupRecordsAMissingVerdict"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    }
+  ],
+  "id": "CD-0204",
+  "state": "satisfied"
+}

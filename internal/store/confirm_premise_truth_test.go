@@ -10,7 +10,8 @@ import (
 
 // seedConfirmPremiseQuestion puts a break-fix instance at its verify step
 // with an approved contract and a resolvable investigation artifact, so the
-// confirm_premise question is open and the pin advertises the action.
+// confirm_premise question is open. No verdict is recorded, so admission
+// refuses the confirmation itself; the fixture serves the selection checks.
 func seedConfirmPremiseQuestion(t *testing.T, s *Store, workID, otherWorkID string) {
 	t.Helper()
 	seedWork(t, s, workID)
@@ -21,17 +22,44 @@ func seedConfirmPremiseQuestion(t *testing.T, s *Store, workID, otherWorkID stri
 	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("7", 16), []string{"root", otherWorkID})
 }
 
+// seedConfirmPremiseDeliverables records the confirmation's deliverables on
+// the seeded question: one approved predicate, the break-fix verification
+// evidence, and a verdict from an actor that executed nothing.
+func seedConfirmPremiseDeliverables(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:confirm',0,'check','{"kind":"check","check_ref":"check:confirm","immutable_subject_ref":"commit:confirm","expected_result":"pass"}'); DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:confirm-verification"}`), 0); err != nil {
+		t.Fatalf("bind verification evidence: %v", err)
+	}
+	if err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:confirm","verdict_kind":"ok"}`), 0); err != nil {
+		t.Fatalf("record verdict: %v", err)
+	}
+}
+
 // TestWorkPinPublishesConfirmPremiseRequiredFields holds the pin side of the
 // single declaration: a pending confirm_premise lists exactly the fields the
 // generated envelope requires at the outer level, in declaration order, so a
 // caller that prepares its call from the pin can no longer omit a field the
-// validator demands.
+// validator demands. The pin reads the admission, so the intent appears only
+// once the confirmation's deliverables stand.
 func TestWorkPinPublishesConfirmPremiseRequiredFields(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	workID, otherWorkID := "confirm-pin-truth", "confirm-pin-truth-other"
 	seedConfirmPremiseQuestion(t, s, workID, otherWorkID)
+	missingPin, err := ReadWorkPin(ctx, s, workID)
+	if err != nil {
+		t.Fatalf("pin read without the verdict failed: %v", err)
+	}
+	for _, intent := range missingPin.NextValidIntents {
+		if intent.ActionID == "confirm_premise" {
+			t.Fatalf("pin advertises confirm_premise while the confirmation refuses its missing verdict: %v", missingPin.NextValidIntents)
+		}
+	}
+	seedConfirmPremiseDeliverables(t, s, workID)
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)

@@ -188,3 +188,70 @@ func TestFrozenOpsRunbookCleanupOpensThePremiseQuestion(t *testing.T) {
 		t.Fatalf("step after cleanup confirmation = %q, want complete", step)
 	}
 }
+
+// TestFrozenOpsRunbookCleanupRecordsAMissingVerdict drives a version-4
+// ops-runbook item past health with no verdict to its cleanup step. The
+// confirmation there refuses the missing verdict, and cleanup declares no
+// record_verdict, so the late verdict route serves the premise-question step:
+// the pin and the preflight offer record_verdict, the verdict records without
+// moving the step, and the confirmation then reaches complete (CD-0204).
+func TestFrozenOpsRunbookCleanupRecordsAMissingVerdict(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "frozen-ops-late-verdict"
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.ops_runbook", 4, "health")
+	s := fixture.store
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	reviewerRef, err := WorkflowActorRef(reviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	reviewerEvent := workflowEventWithActor("frozen-ops-reviewer-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
+		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent",
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("record the reviewer actor: %v", err)
+	}
+	seedVerifiedNativeRunCapture(t, s, workID)
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "cleanup", ownerRef); err != nil {
+		t.Fatalf("advance to cleanup: %v", err)
+	}
+	insertInvestigationGateObservation(t, s, workID, "obs:"+strings.Repeat("6", 16), []string{"root"})
+	pin := issue1013Pin(t, s, workID)
+	if issue1013HasIntent(pin, "confirm_premise") {
+		t.Fatalf("cleanup pin offers confirm_premise without a verdict: %#v", pin.NextValidIntents)
+	}
+	if !issue1013HasIntent(pin, "record_verdict") {
+		t.Fatalf("cleanup pin without a verdict offers no record_verdict exit: %#v", pin.NextValidIntents)
+	}
+	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`)
+	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: reviewer, Payload: verdict}); err != nil {
+		t.Fatalf("preflight refuses the late verdict at cleanup: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err != nil {
+		t.Fatalf("record the late verdict at cleanup: %v", err)
+	}
+	var step string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	if step != "cleanup" {
+		t.Fatalf("step after the late verdict = %q, want cleanup", step)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm premise after the late verdict: %v", err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		t.Fatal(err)
+	}
+	if step != "complete" {
+		t.Fatalf("step after cleanup confirmation = %q, want complete", step)
+	}
+}

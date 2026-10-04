@@ -188,7 +188,8 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	}
 
 	// With the contract restored and the investigation artifact recorded, the
-	// question opens and the confirmation is advertised again.
+	// question opens. The confirmation stays hidden until its deliverables
+	// stand, because the pin reads the admission that execution enforces.
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -203,8 +204,12 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	if open.PendingOperatorDecision == nil || open.PendingOperatorDecision.ActionID != "confirm_premise" {
 		t.Fatalf("open question = %+v, want confirm_premise", open.PendingOperatorDecision)
 	}
-	if !advertised(open) {
-		t.Fatal("pin hid confirm_premise while its question was open")
+	if advertised(open) {
+		t.Fatal("pin advertised confirm_premise while its verdict was missing")
+	}
+	seedConfirmPremiseDeliverables(t, s, workID)
+	if !advertised(pinIntents()) {
+		t.Fatal("pin hid confirm_premise while its question was open and its deliverables stood")
 	}
 }
 

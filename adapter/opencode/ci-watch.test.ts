@@ -930,7 +930,8 @@ test("the default heartbeat interval is sixty seconds and its timer does not kee
     started = await startWatch(fixture)
     expect(timer).toHaveBeenCalledTimes(1)
     expect(timer.mock.calls[0][1]).toBe(60_000)
-    expect(timer.mock.results[0].value.hasRef()).toBe(false)
+    const handle = timer.mock.results[0].value as ReturnType<typeof setInterval>
+    expect(handle.hasRef()).toBe(false)
   } finally {
     timer.mockRestore()
     held.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success" }), stderr: "" })
@@ -1016,7 +1017,7 @@ test("settle drains one in-flight heartbeat without overlapping posts or trailin
     await ciWatchSettled(String(started.watch_id))
   }
   expect(heartbeats).toBe(1)
-  const noticeAt = fixture.posts.findLastIndex((post) => post.url === "/session/{id}/message")
+  const noticeAt = fixture.posts.map((post) => post.url).lastIndexOf("/session/{id}/message")
   const reportAt = fixture.posts.findIndex((post) => post.url === "/session/{id}/prompt_async")
   expect(reportAt).toBeGreaterThan(noticeAt)
 })

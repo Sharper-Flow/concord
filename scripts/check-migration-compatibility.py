@@ -67,8 +67,10 @@ all of this:
   that column, not the hidden integer. A table that shadows all three
   spellings hides its rowid from every SELECT and refuses; a table
   with no rowid (WITHOUT ROWID, decided by SQLite refusing the alias
-  select) carries its identity in its key; an empty rowid table proves
-  nothing and refuses;
+  select) carries its identity in its key. Text, number, and blob
+  probe values cover every STRICT column type, and a table no probe row
+  seeds - of any kind - leaves two empty images that prove nothing, so
+  it refuses;
 - the stored CREATE definitions differ only inside CHECK constraints,
   which must widen inside the decidable family: same column, one numeric
   bound moved under one monotone operator where the referenced column's
@@ -105,7 +107,12 @@ all of this:
   identifier quoting. A SELECT item that spells an expression the same
   text names (a * b against a column "a * b") evaluates that
   expression, so anything beyond one token - an alias, a cast, a
-  COLLATE, a parenthesized name, a table-qualified name - refuses.
+  COLLATE, a parenthesized name, a table-qualified name - refuses. A
+  single token is still not a column until SQLite says so: a bare
+  current_timestamp, current_date, or current_time evaluates the clock
+  beside a column of that name, so each SELECT item must select the
+  distinct sentinel of the column it names from a scratch table that
+  holds the source's columns.
 
 An unknown baseline (a poisoned world), a narrowed or novel CHECK, an
 altered column, default, key, or foreign-key shape, unsupported SQL, a
@@ -609,6 +616,52 @@ def copy_column_name(item: str) -> str | None:
     if re.fullmatch(rf"{SQL_ID_START}{SQL_ID_CONT}*", text) is None:
         return None
     return fold_ascii(text)
+
+
+def copy_items_resolve(items: list[str], names: list[str], columns: list[str]) -> bool:
+    """Whether SQLite resolves each copy item to the column it names.
+
+    A token that spells a column name is not proof that SQLite reads it
+    as that column: a bare current_timestamp, current_date, or
+    current_time is an expression SQLite evaluates even beside a column
+    of the same name. A scratch table holding the source's column names
+    carries one distinct sentinel per column, and each item must select
+    exactly the sentinel of the column it names. This asks SQLite's own
+    name resolution, so no keyword list can drift from it.
+    """
+    if len(items) != len(names):
+        return False
+    probe = sqlite3.connect(":memory:")
+    try:
+        probe.execute(
+            "CREATE TABLE source("
+            + ", ".join(quote_ident(column) for column in columns)
+            + ")"
+        )
+        probe.execute(
+            "INSERT INTO source VALUES("
+            + ", ".join("?" for _ in columns)
+            + ")",
+            [f"sentinel-{index}" for index in range(len(columns))],
+        )
+        sentinels = {
+            fold_ascii(column): f"sentinel-{index}"
+            for index, column in enumerate(columns)
+        }
+        for item, name in zip(items, names):
+            want = sentinels.get(name)
+            if want is None:
+                return False
+            got = probe.execute(
+                f"SELECT {item.strip(SQL_TRIM)} FROM source"
+            ).fetchall()
+            if got != [(want,)]:
+                return False
+    except sqlite3.Error:
+        return False
+    finally:
+        probe.close()
+    return True
 
 
 def collapse_ws(text: str) -> str:
@@ -1498,6 +1551,7 @@ def rowid_alias(xinfo_rows) -> str | None:
 
 
 NUMERIC_TYPE_WORD = re.compile(r"INT|REAL|FLOA|DOUB|NUM|BOOL", re.IGNORECASE)
+BLOB_TYPE_WORD = re.compile(r"BLOB", re.IGNORECASE)
 
 
 def probe_value_candidates(declared: str, pk: bool, index: int, rowid: int) -> list:
@@ -1512,6 +1566,13 @@ def probe_value_candidates(declared: str, pk: bool, index: int, rowid: int) -> l
     """
     if NUMERIC_TYPE_WORD.search(declared) or pk:
         return [str(rowid * 100 + index * 3 + attempt) for attempt in range(3)]
+    if BLOB_TYPE_WORD.search(declared):
+        # A STRICT BLOB column refuses every text and number, so a BLOB
+        # declaration takes distinct blobs; any column accepts a blob.
+        return [
+            "x'" + f"p{rowid}x{index}k{attempt}".encode().hex() + "'"
+            for attempt in range(3)
+        ]
     return [f"'p{rowid}x{index}k{attempt}'" for attempt in range(3)]
 
 
@@ -1755,7 +1816,8 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
     rowids included, read through an unshadowed rowid alias - return,
     the stored definitions differ only by CHECKs that widen inside the
     supported family under SQLite-probed affinity, and the copy names
-    every column as one identifier token on both sides. Any refusal
+    every column as one identifier token on both sides that SQLite
+    resolves to the column it names. Any refusal
     keeps the migration breaking.
     """
     before_row = table_row(world.db, key[0], key[1])
@@ -1847,8 +1909,10 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
         # rename leaving it on the scratch name, or a recreation adding
         # one - refuses.
         return False
-    if before_rows[0] == "rowid" and not before_rows[1]:
-        # An empty rowid table proves nothing about rowid identity.
+    if not before_rows[1]:
+        # No probe row seeded, so the comparison below holds two empty
+        # images and proves nothing: not rowid identity, and not the
+        # copied values of any table kind.
         return False
     if before_rows != after_rows:
         return False
@@ -1876,6 +1940,11 @@ def rebuild_proves(world: World, stmts, key, moved, copy_match) -> bool:
     if insert_columns != [c.name for c in new_shape.columns]:
         return False
     if select_columns != insert_columns:
+        return False
+    source_columns = [row[1] for row in before_xinfo if row[6] == 0]
+    if not copy_items_resolve(
+        split_top_level(copy_match.group(3)), insert_columns, source_columns
+    ):
         return False
     if world.plainkey(copy_match.group(1)) != key or world.plainkey(
         copy_match.group(4)

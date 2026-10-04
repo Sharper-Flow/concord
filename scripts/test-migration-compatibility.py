@@ -4498,6 +4498,115 @@ finally:
     connection.close()
 
 
+# --- CON-488: copy items resolve to columns, and every proof carries rows -----
+# A bare current_timestamp, current_date, or current_time reads as a column
+# token, but SQLite evaluates it as an expression and stores the clock in
+# place of the original value. In a STRICT WITHOUT ROWID table with a BLOB
+# NOT NULL column, text and number probe values cannot seed a row, so both
+# row images were empty and the row comparison could not see the loss.
+
+def keyword_column_rebuild(keyword: str) -> tuple[str, str]:
+    columns = (
+        f'id TEXT NOT NULL, "{keyword}" TEXT NOT NULL, '
+        "payload BLOB NOT NULL, n INTEGER NOT NULL CHECK(n >= {n}), "
+        "PRIMARY KEY(id)"
+    )
+    base = f"CREATE TABLE t ({columns.format(n=0)}) STRICT, WITHOUT ROWID;"
+    rebuild = (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({columns.format(n=-1)}) STRICT, WITHOUT ROWID; "
+        f'INSERT INTO t (id, "{keyword}", payload, n) '
+        f"SELECT id, {keyword}, payload, n FROM scratch; "
+        "DROP TABLE scratch;"
+    )
+    return base, rebuild
+
+
+for keyword in ("current_timestamp", "current_date", "current_time"):
+    base, rebuild = keyword_column_rebuild(keyword)
+    expect_world(
+        f"a bare {keyword} copy item in a STRICT BLOB WITHOUT ROWID table "
+        "stays breaking",
+        base,
+        rebuild,
+        breaking=True,
+    )
+    # The quoted spelling names the column itself and copies losslessly.
+    expect_world(
+        f"a quoted {keyword} copy item in a STRICT BLOB WITHOUT ROWID table "
+        "stays additive",
+        base,
+        rebuild.replace(f"SELECT id, {keyword},", f'SELECT id, "{keyword}",'),
+        breaking=False,
+    )
+    # SQLite conviction: the bare item replaces the stored value.
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(base)
+        connection.execute(
+            "INSERT INTO t VALUES ('a', 'original', x'00ff', 1)"
+        )
+        connection.executescript(rebuild)
+        got = connection.execute(f'SELECT "{keyword}" FROM t').fetchone()
+        if got == ("original",):
+            FAILURES.append(f"the bare {keyword} copy kept the stored value")
+    finally:
+        connection.close()
+
+# The resolution owner itself, independent of whether probe rows convict:
+# SQLite must read each item as the column it names.
+for items, names, columns, want in (
+    (["id", '"current_date"'], ["id", "current_date"], ["id", "current_date"], True),
+    (["id", "current_date"], ["id", "current_date"], ["id", "current_date"], False),
+    (["id", "current_time"], ["id", "current_time"], ["id", "current_time"], False),
+    (["id", "current_timestamp"], ["id", "current_timestamp"], ["id", "current_timestamp"], False),
+    (["id", "[n]", "`m`"], ["id", "n", "m"], ["id", "n", "m"], True),
+    (["id", "n"], ["id", "m"], ["id", "n", "m"], False),
+    (["id", "missing"], ["id", "missing"], ["id"], False),
+):
+    got = check.copy_items_resolve(items, names, columns)
+    if got != want:
+        FAILURES.append(f"copy_items_resolve({items}, {names}) = {got}, want {want}")
+
+# A rowid-less table no probe value can seed proves nothing about its copy.
+# The expression index raises on every probe text, and STRICT TEXT refuses
+# every other candidate, so both row images stay empty.
+UNSEEDABLE_COLUMNS = (
+    "id TEXT NOT NULL, payload TEXT NOT NULL, "
+    "n INTEGER NOT NULL CHECK(n >= {n}), PRIMARY KEY(id)"
+)
+UNSEEDABLE_INDEX = "CREATE INDEX t_payload ON t(json(payload));"
+expect_world(
+    "an unseedable WITHOUT ROWID table proves nothing and stays breaking",
+    f"CREATE TABLE t ({UNSEEDABLE_COLUMNS.format(n=0)}) STRICT, WITHOUT ROWID; "
+    + UNSEEDABLE_INDEX,
+    (
+        "ALTER TABLE t RENAME TO scratch; "
+        f"CREATE TABLE t ({UNSEEDABLE_COLUMNS.format(n=-1)}) "
+        "STRICT, WITHOUT ROWID; "
+        "INSERT INTO t (id, payload, n) SELECT id, payload, n FROM scratch; "
+        "DROP TABLE scratch; "
+        + UNSEEDABLE_INDEX
+    ),
+    breaking=True,
+)
+# The seed really is impossible: SQLite refuses every probe spelling.
+connection = sqlite3.connect(":memory:")
+try:
+    connection.executescript(
+        f"CREATE TABLE t ({UNSEEDABLE_COLUMNS.format(n=0)}) "
+        "STRICT, WITHOUT ROWID; " + UNSEEDABLE_INDEX
+    )
+    for value in ("'p1x1k0'", "x'00'"):
+        try:
+            connection.execute(f"INSERT INTO t VALUES ('a', {value}, 1)")
+        except sqlite3.Error:
+            continue
+        FAILURES.append(f"the unseedable table accepted payload {value}")
+finally:
+    connection.close()
+
+
 # The shipped manifest keeps its recorded compatibility floor: migration 111
 # widens a compound CHECK the supported family cannot prove, so it stays
 # breaking, and the live check passes without weakening any guard.

@@ -1073,7 +1073,7 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}. Do not combine capture and resume fields.`
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, with an optional project_id that selects a member Project before the call: a Project in the same repository keeps the claim-and-move route, and a Project in another repository opens the second coordinator session or returns the exact launch command. Do not combine capture and resume fields.`
 
 function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
   return saneWorkID(value.work_id)

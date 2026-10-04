@@ -20,9 +20,10 @@ cause: the verified reason_code, unknown when undiagnosed, or null on success;
 effect_state: none, committed, or uncertain;
 recovery_owner: operator, maintainer, agent, or none;
 operator_action: an object with kind (none, supply_credential, choose_scope,
-approve_changed_scope, reload_session) and target (the exact prerequisite name or null);
+approve_changed_scope, reload_session, open_session) and target (the exact prerequisite name or null);
 why_agent_cannot: no_credential_authority, intent_belongs_to_operator,
-scope_needs_approval, no_admitted_route, reload_outside_session, or none;
+scope_needs_approval, no_admitted_route, reload_outside_session,
+host_owns_session_placement, operator_owns_worktree_state, or none;
 context_receipts: all entries supplied by your instructions.
 Choose these values from the observations, not from this format instruction.
 Completed means the bounded diagnostic or action task succeeded, not that a
@@ -41,6 +42,7 @@ import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
 const responses = RESPONSES;
+const startConfig = STARTCONFIG;
 const trace = TRACE;
 const capture = CAPTURE;
 function result(name, args, value) {
@@ -48,22 +50,36 @@ function result(name, args, value) {
   return {title:"Synthetic observation", output:JSON.stringify(value), metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
+const invalidStart = {outcome:"error", error:{kind:"invalid_input", effect_state:"none", recovery_action:{kind:"correct_request"}, message:"Resume takes work_id with an optional project_id only; capture fields and resume fields cannot combine."}};
 export const work_start = recordingTool("concord_work_start", {
   description: productionStart.description,
   args: {
     title:tool.schema.string().optional(), value_statement:tool.schema.string().optional(),
     kind:tool.schema.enum(["task","bug","decision","research","other"]).optional(),
     task:tool.schema.string().optional(), idempotency_key:tool.schema.string().optional(),
-    work_id:tool.schema.string().optional(),
+    work_id:tool.schema.string().optional(), project_id:tool.schema.string().optional(),
   },
   async execute(args) {
     const required = ["title","value_statement","kind","task","idempotency_key"];
     const missing = required.filter(key => typeof args[key] !== "string" || !args[key].trim());
     const unchanged = args.title === "Synthetic parser repair" && args.kind === "bug" && args.task === "Fix the synthetic parser defect with regression coverage";
-    const value = !capture || !unchanged ? refused
-      : missing.length || args.work_id !== undefined
-      ? {outcome:"error",error:{kind:"invalid_input",effect_state:"none",message:"Missing capture fields: " + missing.join(", ")}}
-      : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
+    const resumeFields = ["work_id","project_id"];
+    const captureFields = ["title","value_statement","kind","task","idempotency_key"];
+    const usesResume = args.work_id !== undefined || args.project_id !== undefined;
+    const usesCapture = captureFields.some(key => args[key] !== undefined);
+    let value;
+    if (usesResume) {
+      const shaped = typeof args.work_id === "string" && args.work_id.trim() && !usesCapture
+        && resumeFields.every(key => args[key] === undefined || typeof args[key] === "string");
+      const admitted = shaped && startConfig !== null
+        && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
+        && Object.keys(args).every(key => key in startConfig.admit);
+      value = !admitted ? (shaped ? refused : invalidStart) : startConfig.result;
+    } else {
+      value = !capture || !unchanged ? refused
+        : missing.length ? {outcome:"error",error:{kind:"invalid_input",effect_state:"none",message:"Missing capture fields: " + missing.join(", ")}}
+        : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
+    }
     return result("concord_work_start", args, value);
   },
 });
@@ -168,6 +184,7 @@ def run_case(args, name, source, originals):
         "SDK": json.dumps(str(args.sdk_tool.resolve())),
         "SOURCE": json.dumps(str(args.repo.resolve() / "adapter/opencode/concord.ts")),
         "RESPONSES": json.dumps(case.get("responses", {})),
+        "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
         "CAPTURE": json.dumps(case.get("capture", False)),
     }

@@ -6,7 +6,7 @@
 // marks the pre-turn <env> working directory and the pre-move checkout stale,
 // so the agent does not keep using the old checkout for the rest of the turn.
 export function moveNoticeText(newPath: string): string {
-  return `Concord moved this session to ${newPath}. Use paths under ${newPath} for reads, edits, and the shell working directory. The <env> working directory and the pre-move checkout are stale until the next turn.`
+  return `Concord moved this session to ${newPath}. Use paths under ${newPath} for reads, edits, and the shell working directory for the rest of this turn. The <env> working directory and the pre-move checkout are stale until the next turn. A turn-move boundary is active for the rest of this turn: the native question tool and dispatch stay closed until the next operator message clears it. If this landing was not confirmed, replay the worktree claim to retry the move; do not move the session by hand.`
 }
 
 // The notice queue carries the move fact from the move route to the result

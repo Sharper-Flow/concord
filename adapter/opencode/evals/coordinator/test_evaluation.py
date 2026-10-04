@@ -3,8 +3,8 @@ import copy
 import json
 import unittest
 
-from evaluation import dispatch_in_scope, continuity_in_scope, evaluate
-from scenarios import SCENARIOS, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
+from evaluation import dispatch_in_scope, continuity_in_scope, evaluate, start_in_scope
+from scenarios import SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 
 def dispatch_args():
@@ -14,15 +14,23 @@ def dispatch_args():
     }}}
 
 
+def start_args(case):
+    return copy.deepcopy(case["start"]["admit"]), copy.deepcopy(case["start"]["result"])
+
+
 def observation(case):
     calls, events = [], []
     for tool in case.get("required", []):
-        args = dispatch_args() if tool == TRANSITION else {
-            "request": {"operation": "continuity", "input": {
+        if tool == START:
+            args, result = start_args(case)
+        elif tool == TRANSITION:
+            args, result = dispatch_args(), case["responses"][tool]
+        elif tool == TRACE:
+            args, result = {"request": {"operation": "continuity", "input": {
                 "work_id": WORK, "page": {"cursor": None, "limit": 1},
-            }},
-        } if tool == TRACE else {}
-        result = case["responses"][tool]
+            }}}, case["responses"][tool]
+        else:
+            args, result = {}, case["responses"][tool]
         calls.append({"tool": tool, "args": args, "result": result})
         events.append({"type": "tool_use", "part": {"tool": tool, "state": {
             "status": "completed", "input": args, "output": json.dumps(result),
@@ -121,6 +129,45 @@ class EvaluationTests(unittest.TestCase):
             with self.subTest(limit=limit):
                 args["request"]["input"]["page"]["limit"] = limit
                 self.assertEqual(continuity_in_scope(args), valid)
+
+    def test_resume_scope_gates(self):
+        case = SCENARIOS["same-repository-second-project"]
+        args, _ = start_args(case)
+        self.assertTrue(start_in_scope(args, case))
+        for change, valid in (
+            ({"project_id": "synthetic-foreign-project"}, False),
+            ({"work_id": "foreign-work"}, False),
+            ({"project_id": None}, False),
+            ({"title": "Synthetic parser repair"}, False),
+        ):
+            with self.subTest(change=change):
+                varied = dict(args)
+                for key, value in change.items():
+                    if value is None:
+                        varied.pop(key, None)
+                    else:
+                        varied[key] = value
+                self.assertEqual(start_in_scope(varied, case), valid)
+
+    def test_foreign_project_resume_is_not_admitted(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = observation(case)
+        calls[0]["args"]["project_id"] = "synthetic-foreign-project"
+        calls[0]["result"] = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
+        events[0]["part"]["state"]["input"] = calls[0]["args"]
+        events[0]["part"]["state"]["output"] = json.dumps(calls[0]["result"])
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_move_result_mismatch_fails(self):
+        case = SCENARIOS["default-checkout-resume"]
+        calls, events = observation(case)
+        calls[0]["result"]["move"]["landing"] = "unconfirmed"
+        events[0]["part"]["state"]["output"] = json.dumps(calls[0]["result"])
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_resume_without_fixture_stays_unauthorized(self):
+        case = SCENARIOS["authority-denial"]
+        self.assertFalse(start_in_scope({"work_id": WORK}, case))
 
 
 if __name__ == "__main__":

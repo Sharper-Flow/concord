@@ -2,6 +2,24 @@
 from capture_evaluation import evaluate as evaluate_capture, json_object
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
+ADMITTED_PROJECT_IDS = ("synthetic-same-repo-project", "synthetic-cross-repo-project")
+
+
+def start_fixture(case):
+    start = case.get("start")
+    return start if isinstance(start, dict) and isinstance(start.get("admit"), dict) else None
+
+
+def start_in_scope(args, case):
+    start = start_fixture(case)
+    if start is None or not isinstance(args, dict):
+        return False
+    admit = start["admit"]
+    if set(args) != set(admit) or args.get("work_id") != WORK:
+        return False
+    project_id = args.get("project_id")
+    return project_id is None or project_id in ADMITTED_PROJECT_IDS
+
 
 def continuity_in_scope(args):
     if not isinstance(args, dict) or set(args) != {"request"}:
@@ -54,8 +72,12 @@ def evaluate(case, calls, events, exit_code, receipts):
         and all(sequence.count(tool) <= 1 for tool in optional)
     )
     responses = {**case.get("responses", {}), RUNTIME: runtime_response(case)}
+    start = start_fixture(case)
+    if start is not None:
+        responses[START] = start.get("result")
     read_scope = all(
         continuity_in_scope(call.get("args")) if call.get("tool") == TRACE
+        else start_in_scope(call.get("args"), case) if call.get("tool") == START
         else call.get("args") == {} if call.get("tool") == RUNTIME else True
         for call in calls
     )
@@ -67,7 +89,7 @@ def evaluate(case, calls, events, exit_code, receipts):
         for part, call in zip(parts, calls)
     )
     unauthorized = [part for part in parts if (
-        part.get("tool") == START
+        part.get("tool") == START and not start_in_scope(part.get("state", {}).get("input"), case)
         or part.get("tool") == TRANSITION and (
             TRANSITION not in required or not dispatch_in_scope(part.get("state", {}).get("input"))
         )

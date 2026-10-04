@@ -62,6 +62,8 @@ function expectMoveNotice(notice: string | null, path: string): void {
   expect(notice).toContain(`Concord moved this session to ${path}`)
   expect(notice).toContain(`Use paths under ${path} for reads, edits, and the shell working directory`)
   expect(notice).toContain("The <env> working directory and the pre-move checkout are stale until the next turn")
+  expect(notice).toContain("A turn-move boundary is active for the rest of this turn: the native question tool and dispatch stay closed until the next operator message clears it")
+  expect(notice).toContain("If this landing was not confirmed, replay the worktree claim to retry the move; do not move the session by hand")
 }
 
 function leaseRunner() {

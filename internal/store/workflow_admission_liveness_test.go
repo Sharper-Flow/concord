@@ -182,9 +182,10 @@ func admissionCompleteStepCorrection(definition WorkflowDefinition, state admiss
 }
 
 // admissionLateVerdictRoute folds the late record_verdict recovery: a
-// terminal step behind a verdict step whose latest verdict is not ok.
+// terminal or premise-question step behind a verdict step whose latest
+// verdict is not ok.
 func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionModelState) bool {
-	if !admissionTerminalStep(definition, state.step) || state.contracts == 0 || state.verdict == "ok" {
+	if !workflowLateVerdictRecoveryStep(definition, state.step) || state.contracts == 0 || state.verdict == "ok" {
 		return false
 	}
 	for _, step := range definition.StepGraph.Steps {
@@ -239,6 +240,12 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
+	}
+	// The acceptance gate folds the recorded verdict: an open premise
+	// question without one refuses confirm_premise, and record_verdict on the
+	// same step stays the exit. Evidence binding is outside the model.
+	if action, _ := workflowOperatorQuestionAction(definition, state.step); folded.PendingOperatorDecision && action == "confirm_premise" && state.verdict == "" {
+		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
 	if correction && reviewStep {
 		folded.ReviewDebt = state.debt
@@ -310,7 +317,7 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 			continue
 		}
 		decision := workflowAdmit(definition, folded, actionID)
-		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision) && folded.ReadyReviewAttemptID != "" && actionID == "accept_worker_result") {
+		if decision.Admitted || decision.ApprovalRequired || (workflowAdmissionDefersToReviewGate(decision, actionID) && folded.ReadyReviewAttemptID != "") {
 			moves = append(moves, actionID)
 		}
 	}

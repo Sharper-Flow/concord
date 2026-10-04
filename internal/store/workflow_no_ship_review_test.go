@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -180,6 +181,51 @@ func TestNoShipReviewKeepsRefineCurrentAndSettlingReviewAdvances(t *testing.T) {
 		t.Fatalf("settling accept behind the accepted no_ship review: %v", err)
 	}
 	reviewGateRequireStep(t, s, workID, "delivery")
+}
+
+// TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses pins the
+// cross-site agreement on the state-only half of the review debt: the
+// read-only preflight refuses the delivery exit behind an outstanding debt
+// with the same typed fresh-review refusal the execution fold applies. The
+// fresh-review refusal over record_delivery admits nothing payload-blind, so
+// no site defers it: a caller that asks before acting reads the answer the
+// boundary enforces.
+func TestPreflightRefusesReviewDebtDeliveryTheExecutionRefuses(t *testing.T) {
+	const workID = "no-ship-review-preflight"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := int64(100)
+	refineEpoch := reviewGateDriveRejection(t, fixture, workID, &at)
+
+	// A fresh review completes with a no_ship verdict: the debt stays
+	// outstanding and no settling review stands ready.
+	noShipReview := "attempt:" + workID + ":review-2"
+	reviewGateRunAttemptWithVerdict(t, s, workID, noShipReview, refineEpoch, reviewGateLane(t, "review"), ownerRef, "no_ship", at)
+
+	// The read-only preflight refuses the delivery exit with the typed
+	// fresh-review refusal, the same answer the execution fold applies. The
+	// payload is well-formed: the refusal is the admission's, not the
+	// envelope's.
+	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:no-ship-preflight","delivery_state":"asserted"}`)
+	preflightErr := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: fixture.owner})
+	var failure *Failure
+	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "fresh accepted review") {
+		t.Fatalf("preflight record_delivery behind review debt = %v, want the typed fresh-review refusal", preflightErr)
+	}
+
+	// The execution fold answers identically: the delivery exit refuses, and
+	// the item stays parked at refine.
+	deliveryErr := runVerdictActionAs(t, s, workID, "record_delivery", deliveryPayload, 0, reviewGateAcceptor(workID))
+	var deliveryFailure *Failure
+	if deliveryErr == nil || !failureAs(deliveryErr, &deliveryFailure) || deliveryFailure.Kind != KindInvalidOperation || !strings.Contains(deliveryFailure.Detail, "fresh accepted review") {
+		t.Fatalf("execution record_delivery behind review debt = %v, want the typed fresh-review refusal", deliveryErr)
+	}
+	reviewGateRequireStep(t, s, workID, "refine")
 }
 
 // TestReadyReviewAcceptCannotRideAnUnrelatedRefusal pins the deferral rule:

@@ -14,7 +14,7 @@ PR #52, and 5e3b900 (issue #373). The replacement-ready floor is satisfied; see
 
 Concord chooses Bubble Tea v2 behind an isolated renderer adapter:
 
-- `charm.land/bubbletea/v2 v2.0.9`
+- `charm.land/bubbletea/v2 v2.0.10`
 - `charm.land/bubbles/v2 v2.2.1`
 - `charm.land/lipgloss/v2 v2.0.6`
 
@@ -107,7 +107,7 @@ nodes without exact module and `/go.mod` checksums in `go.sum` are not inventory
 entries. Every group records exact versions, roles, accepted license families,
 license-file paths, and SHA-256 hashes; graph-only license files are checked-in
 bounded evidence while runtime/test files remain verified against the actual
-module cache. Its artifact SHA-256 is `738b7d0c0a142d5425d7a4aae3e1af0cd1b387451a49967040458fd0290caef3`.
+module cache. Its artifact SHA-256 is `294e333ab2bf17f7bbf01ef2931c67f8032d3d1818529fb66d5df83d03d82ad6`.
 
 The inventory test compares the artifact with both derived closures, validates
 each module's exact `go.sum` module and `/go.mod` checksums, and re-reads each

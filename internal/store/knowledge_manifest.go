@@ -1165,9 +1165,8 @@ func validateManifestSuccessors(records []KnowledgeRecord) error {
 }
 
 func validateManifestKindList(values []string, field string) (map[string]bool, error) {
-	// Both lists draw from the same closed vocabulary. research used to be
-	// supported without being indexable because no record could declare it;
-	// it is a record kind now, so the two bounds are the same number.
+	// Both lists draw from the same closed vocabulary, so the two bounds are
+	// the same number.
 	if len(values) > len(knowledgeKindsClosed) {
 		return nil, newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", field+" exceeds the closed kind bound", false, "use the closed knowledge kind vocabulary")
 	}

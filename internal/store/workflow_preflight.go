@@ -582,16 +582,14 @@ func validateEvidenceBindingReferences(actionID string, fields map[string]json.R
 }
 
 // validateWorkflowPayloadSchema enforces the structure a payload field already
-// declares by name. The registry has always carried schema_ref for its object
-// and array fields, and the agent boundary has always resolved it; the engine
-// used to accept any object here and rely on a separate Go validator further
-// down to reject a malformed one. That left one declaration with two
-// enforcement authorities, and a divergence between them reached the caller as
-// a refusal no published contract stated.
+// declares by name. The registry carries schema_ref for its object and array
+// fields, and the agent boundary resolves the same schema, so one declaration
+// has one enforcement authority and every refusal is one a published contract
+// states.
 //
 // A declared name that the generated document does not carry fails closed. A
 // declaration pointing at a schema nobody generated enforces nothing, and
-// silently passing it would restore the gap this closes.
+// silently passing it would admit a payload no contract checked.
 func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil

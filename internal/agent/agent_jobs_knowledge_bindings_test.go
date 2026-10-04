@@ -211,9 +211,8 @@ func bindAJ7DegradedIndex(t *testing.T, sc jobScenario) jobObservation {
 }
 
 // TestKnowledgeSearchRebuildsAStaleIndexOnDemand is the demand-driven half
-// (CD-0082 D1). A commit past the watermark used to refuse every strict read
-// until an operator rebuilt by hand, and no production path existed to do so.
-// The read is the demand: the same strict query now answers authoritative and
+// (CD-0082 D1). A commit past the watermark does not refuse a strict read:
+// the read is the demand, so the strict query answers authoritative and
 // returns the record the index had not yet scanned.
 func TestKnowledgeSearchRebuildsAStaleIndexOnDemand(t *testing.T) {
 	t.Parallel()

@@ -14,9 +14,10 @@ __pycache__/
 .idea/
 .vscode/
 
-# Predecessor tooling artifact. Advance may write project.json into a working
-# copy; Concord never reads it and must never commit it (CD-0010).
+# Predecessor tooling artifacts. Advance may write project.json and .adv/ into a
+# working copy; Concord never reads them and must never commit them (CD-0010).
 /project.json
+/.adv/
 
 # Host agent tooling writes package manifests, dependencies, and plugin
 # configuration into .opencode/. Only the generated lane agent definitions are

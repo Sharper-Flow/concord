@@ -411,8 +411,8 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 	if invalid.Outcome != OutcomeError || invalid.Error == nil || invalid.Error.Kind != "malformed_response" {
 		t.Fatalf("invalid result=%+v", invalid)
 	}
-	// CD-0038 amendment (2026-10-02): the retired result-size budget object
-	// no longer bounds results, so only the canonical envelope cap remains.
+	// CD-0038: no caller budget bounds results; the canonical envelope cap
+	// is the only bound.
 	base.EvidenceRefs = make([]EvidenceRef, 32)
 	for i := range base.EvidenceRefs {
 		base.EvidenceRefs[i] = EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}

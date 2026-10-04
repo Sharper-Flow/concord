@@ -93,8 +93,7 @@ type Model struct {
 	cursor                  int
 	scroll                  int
 	// selectedWorkID is the work ID under the cursor. A refresh that
-	// reorders rows keeps the cursor on this ID, not on the index the row
-	// used to occupy.
+	// reorders rows keeps the cursor on this ID, not on a row index.
 	selectedWorkID           string
 	width                    int
 	height                   int

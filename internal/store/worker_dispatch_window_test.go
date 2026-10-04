@@ -1,6 +1,6 @@
 // CD-0059: tests proving the registered dispatch_worker action, the capability
 // boundary that guards it, and the dispatch-window integrity check that
-// closes the integrity hole a Task-tool spawn used to leave open.
+// refuses a worker spawned outside the registered window.
 
 package store
 

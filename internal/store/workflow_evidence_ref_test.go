@@ -6,9 +6,8 @@ import (
 )
 
 // An evidence locator is declared at 1 to 2048 bytes by the tool surface, and
-// the action-completed fold used to bound it at the 2-to-128 reference bound
-// that governs work ids. A routine GitHub permalink exceeds 128 bytes, so the
-// declared-legal call was refused by the projection that stored it.
+// the action-completed fold must apply that bound, not the 2-to-128 reference
+// bound that governs work ids: a routine GitHub permalink exceeds 128 bytes.
 func TestWorkflowEvidenceRefsCarryTheDeclaredLocatorBound(t *testing.T) {
 	t.Parallel()
 	permalink := "https://github.com/Sharper-Flow/concord/blob/4d8aa8f5a00c296bd8c1970d1b148d8734a63784/internal/store/workflow_action_guards.go#L784-L800"
@@ -47,8 +46,8 @@ func TestWorkflowEvidenceBoundAdmitsALongImmutableSubjectRef(t *testing.T) {
 	}
 }
 
-// The refusal used to name no field and no value. A caller correcting the call
-// has to learn which locator failed and why.
+// The refusal names the field and the value, so a caller correcting the call
+// learns which locator failed and why.
 func TestWorkflowEvidenceRefsFaultNamesTheOffendingEntry(t *testing.T) {
 	t.Parallel()
 	oversized := strings.Repeat("r", 2049)

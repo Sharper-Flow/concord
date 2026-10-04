@@ -31,9 +31,9 @@ func decodeValue(t *testing.T, document string) any {
 }
 
 // A schema factored through $defs composes allOf at one instance path more
-// than once. Each composition frame used to prepend "allOf mismatch at $: ",
-// so the caller read the same structural keyword twice before the field that
-// was actually wrong. For allOf every branch must match, so the branch failure
+// than once. A composition frame that prepends "allOf mismatch at $: " makes
+// the caller read the same structural keyword twice before the field that is
+// wrong. For allOf every branch must match, so the branch failure
 // is already the whole reason and no frame belongs in front of it.
 func TestComposedRefusalNamesTheOffendingFieldOnce(t *testing.T) {
 	root := decodeSchema(t, `{

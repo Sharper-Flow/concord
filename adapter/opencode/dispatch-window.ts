@@ -302,7 +302,7 @@ export function canonicalDirectory(value: unknown): string | null {
   }
 }
 
-export function isResolvableDirectory(value: unknown): value is string {
+function isResolvableDirectory(value: unknown): value is string {
   return canonicalDirectory(value) !== null
 }
 

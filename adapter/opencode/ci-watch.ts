@@ -31,7 +31,7 @@ const SESSION_STATUS_ROUTE = "/session/status"
 const PROMPT_ASYNC_ROUTE = "/session/{id}/prompt_async"
 const LOG_ROUTE = "/log"
 
-// The part metadata key that marks a user message as this module's start
+// The part metadata key that marks a user message as this module's operator
 // notice. The plugin's chat.message hook reads it to skip the notice, so the
 // marker lives here where the notice is written.
 export const CI_WATCH_NOTICE_METADATA = "concord.ci_watch_notice"
@@ -60,6 +60,9 @@ type ActiveWatch = {
   // notice always precedes the terminal report. It never rejects: an announce
   // failure is logged at warn and resolves.
   notice?: Promise<void>
+  waiting: boolean
+  heartbeatTimer?: ReturnType<typeof setInterval>
+  heartbeat?: Promise<void>
 }
 
 export type VerbSpawner = (
@@ -78,6 +81,7 @@ type WatchRouteClient = {
 }
 
 type CiWatchConfig = {
+  heartbeatIntervalMs: number
   idleTimeoutMs: number
   idlePollMs: number
   confirmWindowMs: number
@@ -95,6 +99,7 @@ function defaultStateDir(): string {
 }
 
 const DEFAULT_CONFIG: CiWatchConfig = {
+  heartbeatIntervalMs: 60_000,
   idleTimeoutMs: 5 * 60_000,
   idlePollMs: 2_000,
   confirmWindowMs: 3 * 60_000,
@@ -122,6 +127,7 @@ export function configureCiWatch(
   overrides: Partial<CiWatchConfig> & { spawner?: VerbSpawner; reset?: boolean } = {},
 ): void {
   if (overrides.reset) {
+    for (const watch of activeWatches.values()) stopWatchHeartbeats(watch)
     config = { ...DEFAULT_CONFIG }
     spawner = defaultVerbSpawner
     routeClient = null
@@ -462,6 +468,7 @@ function createWatch(sessionID: string, args: CiWatchArgs, binary: string): Acti
     binary,
     stateFile: path.join(config.stateDir, `ci-wait-watch-${id}.json`),
     startedAt: Date.now(),
+    waiting: true,
   }
 }
 
@@ -564,11 +571,12 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
       return
     }
   } finally {
+    stopWatchHeartbeats(watch)
     activeWatches.delete(watch.id)
   }
 }
 
-// --- Start notice ---
+// --- Operator notices ---
 
 // noticeText is the operator-facing line the chat shows while a watch runs.
 // The tool result itself is one generic line the TUI collapses, so without
@@ -591,18 +599,51 @@ function announceWatchNotice(watch: ActiveWatch): void {
   watch.notice = postWatchNotice(watch).catch((error) => {
     log("warn", `ci-watch ${watch.id}: the start notice was not posted (${errorDetail(error)})`)
   })
+  watch.heartbeatTimer = setInterval(() => {
+    if (!watch.waiting || watch.heartbeat !== undefined) return
+    watch.heartbeat = postWatchHeartbeat(watch)
+      .catch((error) => {
+        log("warn", `ci-watch ${watch.id}: the heartbeat was not posted (${errorDetail(error)})`)
+      })
+      .finally(() => { watch.heartbeat = undefined })
+  }, config.heartbeatIntervalMs)
+  watch.heartbeatTimer.unref()
 }
 
 async function postWatchNotice(watch: ActiveWatch): Promise<void> {
   await waitForIdle(watch.sessionID)
   const identity = await readSessionIdentity(watch.sessionID)
-  const client = requireClient("post the start notice")
+  await postOperatorNotice(watch, identity, noticeText(watch))
+}
+
+async function postWatchHeartbeat(watch: ActiveWatch): Promise<void> {
+  await watch.notice
+  if (!watch.waiting) return
+  const identity = await readSessionIdentity(watch.sessionID)
+  // A busy session misses this tick; never queue a UI notice behind its turn.
+  const status = await readSessionStatus(watch.sessionID)
+  if (!watch.waiting || status !== "idle") return
+  const seconds = Math.max(0, Math.floor((Date.now() - watch.startedAt) / 1000))
+  const elapsed = `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  const selector = `${watch.args.selector.kind}:${watch.args.selector.value}`
+  await postOperatorNotice(watch, identity,
+    `⏳ Still watching CI for ${watch.args.repo} ${selector} (${watch.args.mode ?? "checks"} mode) — ${elapsed} elapsed. The result arrives here when the wait ends.`)
+}
+
+function stopWatchHeartbeats(watch: ActiveWatch): void {
+  watch.waiting = false
+  clearInterval(watch.heartbeatTimer)
+  watch.heartbeatTimer = undefined
+}
+
+async function postOperatorNotice(watch: ActiveWatch, identity: SessionIdentity, text: string): Promise<void> {
+  const client = requireClient("post an operator notice")
   const body: Record<string, unknown> = {
     noReply: true,
     parts: [
       {
         type: "text",
-        text: noticeText(watch),
+        text,
         ignored: true,
         metadata: { [CI_WATCH_NOTICE_METADATA]: watch.id },
       },
@@ -615,7 +656,7 @@ async function postWatchNotice(watch: ActiveWatch): Promise<void> {
 }
 
 // isCiWatchNoticeMessage reports whether every part the host's chat.message
-// hook receives is a ci-watch start-notice part. A message with no parts is
+// hook receives is a ci-watch notice part. A message with no parts is
 // never a notice: the host may still be adding parts when the hook fires.
 export function isCiWatchNoticeMessage(parts: unknown): boolean {
   if (!Array.isArray(parts) || parts.length === 0) return false
@@ -638,9 +679,12 @@ function formatReport(watch: ActiveWatch, report: CiWaitReport): string {
 }
 
 async function settle(watch: ActiveWatch, report: CiWaitReport): Promise<void> {
+  stopWatchHeartbeats(watch)
   // The notice always precedes the report: settle waits for the announce task
   // before it delivers. The task never rejects, so this cannot fail delivery.
   await watch.notice
+  // Drain the bounded post already in flight before delivering the report.
+  await watch.heartbeat
   const text = formatReport(watch, report)
   try {
     const outcome = await deliverTerminalReport(watch, text)
@@ -671,20 +715,22 @@ async function deliverTerminalReport(watch: ActiveWatch, text: string): Promise<
 async function waitForIdle(sessionID: string): Promise<void> {
   const deadline = Date.now() + config.idleTimeoutMs
   for (;;) {
-    const client = requireClient("read session status")
-    const result = await client.get({ url: SESSION_STATUS_ROUTE, signal: AbortSignal.timeout(10_000) })
-    if (!result.response.ok) throw new Error(`the host session status route answered ${result.response.status}`)
-    const statuses = (result.data ?? {}) as Record<string, { type?: string }>
-    // The status map tracks sessions the host is running; an absent entry is
-    // a session with no active run, which is idle by the host's own runtime
-    // default (`data.get(sessionID) ?? { type: "idle" }`).
-    const status = statuses[sessionID]?.type ?? "idle"
+    const status = await readSessionStatus(sessionID)
     if (status === "idle") return
     if (Date.now() + config.idlePollMs > deadline) {
       throw new Error(`session ${sessionID} stayed ${status} for ${Math.round(config.idleTimeoutMs / 1000)}s`)
     }
     await sleep(config.idlePollMs)
   }
+}
+
+async function readSessionStatus(sessionID: string): Promise<string> {
+  const client = requireClient("read session status")
+  const result = await client.get({ url: SESSION_STATUS_ROUTE, signal: AbortSignal.timeout(10_000) })
+  if (!result.response.ok) throw new Error(`the host session status route answered ${result.response.status}`)
+  const statuses = (result.data ?? {}) as Record<string, { type?: string }>
+  // The host omits sessions with no active run; its runtime defaults to idle.
+  return statuses[sessionID]?.type ?? "idle"
 }
 
 async function readSessionIdentity(sessionID: string): Promise<SessionIdentity> {

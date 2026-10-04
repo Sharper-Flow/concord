@@ -9,8 +9,7 @@ import (
 // TestInvokeShapesUnsupportedOperationAsTypedEnvelope pins the boundary contract
 // cmd/concord depends on: a dispatch refusal reaches the operator as a typed
 // invalid_input envelope addressed to the request, never as a bare Go error.
-// This shaping previously lived inside cmd/concord's invoke verb, where no test
-// could reach it (issue #450).
+// The shaping lives in this package so a test can reach it (issue #450).
 func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})

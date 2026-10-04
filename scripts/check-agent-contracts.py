@@ -918,11 +918,8 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             if adapter_tests.returncode: return adapter_tests.returncode
             # Typecheck the adapter against the host's published declarations,
             # installed at the exact versions .concord/docs/adapter-host-pin.v1.json
-            # pins. The adapter previously carried a hand-written mirror of that
-            # surface, which could only be wrong in the direction nothing
-            # checked: upstream removes or narrows a declaration, the mirror
-            # keeps declaring it, and the adapter compiles against a host
-            # surface that does not exist. Run after the test suite so
+            # pins, so a declaration upstream removes or narrows fails the
+            # adapter compile. Run after the test suite so
             # behavioural failures surface first.
             summary = "Bun syntax/build/typecheck"
             pin_findings: list[str] = []

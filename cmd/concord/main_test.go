@@ -1290,7 +1290,7 @@ func workerDispatchJSONWith(t *testing.T, key ed25519.PrivateKey, eventID, workI
 		"readback_model":        readbackModel,
 		"packet_schema_version": packet, "report_schema_version": store.WorkerReportSchemaVersion,
 		"packet_digest": packetDigest,
-		// CD-0032: v3 dispatch evidence requires declared host provenance.
+		// CD-0034: v3 dispatch evidence requires declared host provenance.
 		"host_provenance": map[string]any{
 			"digest":  provenanceDigest,
 			"sources": []map[string]any{{"kind": "agents_md", "path": "/repo/AGENTS.md", "sha256": "sha256:" + strings.Repeat("b", 64)}, {"kind": "unenumerated"}},

@@ -124,8 +124,7 @@ const urgency = object(object(captureInput.properties, "capture input properties
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
 
 // The transition action branch must name every field the core admits for the
-// workflow_action operation, including the conditional ones the merged
-// projection used to drop.
+// workflow_action operation, including the conditional ones.
 const transitionRoot = publishedArgsSchema(work_transition.args, "work transition schema")
 const transitionRequest = object(object(transitionRoot.properties, "work transition properties").request, "work transition request")
 if (!Array.isArray(transitionRequest.oneOf)) fail("work transition request carries no branch list")

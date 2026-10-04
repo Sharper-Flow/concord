@@ -132,8 +132,8 @@ test("published tool arguments expose a host-safe request shape", () => {
   const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
   const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
   expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  // The conditional action fields the merged projection used to drop are
-  // named by the branch, so a calling agent can read them before calling.
+  // The branch names the conditional action fields, so a calling agent can
+  // read them before calling.
   for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
     expect(actionBranch.properties[field], field).toBeObject()
   }
@@ -2833,9 +2833,8 @@ test("work start verifies the session directory after the move", async () => {
 })
 
 // Issues #742 and #749. A failure after the work item and worktree exist
-// used to leave a partial state no typed operation could clear. There is no
-// such state now: every step is idempotent on the derived key, so a replay
-// under the same idempotency_key adopts what exists and runs the rest.
+// leaves no partial state: every step is idempotent on the derived key, so a
+// replay under the same idempotency_key adopts what exists and runs the rest.
 test("work start replays to convergence after an interrupted step", async () => {
   // First attempt: session-prepare fails after bootstrap created the work item.
   bindRetargetRoute()

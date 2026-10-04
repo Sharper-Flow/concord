@@ -4,8 +4,7 @@
 //
 // The package does not import testing: it returns errors and lets callers
 // decide how to surface them. The exported Seed and SeedKnowledge functions
-// build the same SQLite + Git knowledge state that internal/store previously
-// built in package-private form.
+// build the SQLite + Git knowledge state the PM1 corpus runners query.
 package pm1fixture
 
 import (

@@ -121,8 +121,8 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 		t.Fatalf("required current freshness = %q, %v", got, err)
 	}
 	// Issue #122: freshness targets the revision the consumer pins, not the
-	// pack. A pack-level set no longer poisons unchanged revisions, and an
-	// unrelated append no longer un-stales pinned content.
+	// pack. A pack-level set does not poison unchanged revisions, and an
+	// unrelated append does not un-stale pinned content.
 	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("stale-other"), PackID: pack.PackID, ExpectedVersion: 8, Freshness: ResearchStale}); err != nil {
 		t.Fatal(err)
 	}
@@ -870,10 +870,9 @@ func operationEventForResearch(id, kind string, subjectID string, payload map[st
 }
 
 // A consumed revision is immutable, so a researcher who learns one more thing must
-// append a successor. That successor previously arrived empty, making the only
-// legal path to adding one finding a full re-entry of every finding already
-// gathered. Content now carries forward, and freshness follows whether the brief
-// was actually restated.
+// append a successor. Content carries forward into the successor, so adding one
+// finding never needs a re-entry of every finding already gathered, and
+// freshness follows whether the brief was actually restated.
 func TestAppendRevisionCarriesContentForward(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

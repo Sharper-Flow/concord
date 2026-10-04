@@ -95,8 +95,8 @@ func TestHostRegistrationRefusesAHandleTheScanReadDifferently(t *testing.T) {
 // An unreadable registry is not an absent constraint. The resolution
 // carrying no document means Concord cannot establish the property, and
 // CD-0049 D4 gives no degraded start, so the session refuses and says why.
-// The rows that used to model a failing probe now model the resolution the
-// probe failure leaves behind: no document to read.
+// Each row models the resolution a failed probe leaves behind: no document to
+// read.
 func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
 	cases := []struct {
 		name     string

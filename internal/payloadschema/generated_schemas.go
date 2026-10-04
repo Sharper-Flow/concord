@@ -3985,7 +3985,7 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "requested_budget_seconds": {
-      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; the only agent-facing operation budget since the 2026-10-02 retirement of the result-size budget object. Exceeding the operation ceiling refuses before any effect rather than clamping.",
+      "description": "CD-0038 D1: caller-requested operation budget in whole seconds, minimum 1. Model-visible intent in the canonical request digest; the only agent-facing operation budget. Exceeding the operation ceiling refuses before any effect rather than clamping.",
       "minimum": 1,
       "type": "integer"
     },

@@ -7,10 +7,9 @@ import (
 	"time"
 )
 
-// CD-0038 D1/D3/D4 and its 2026-10-02 amendment: the seconds budget is the
-// only agent-facing operation budget, refuses against the declared ceiling
-// before any effect, and becomes a real deadline when accepted. The
-// result-size budget object is retired: size is bounded by limit/page.
+// CD-0038 D1/D3/D4: the seconds budget is the only agent-facing operation
+// budget, refuses against the declared ceiling before any effect, and becomes
+// a real deadline when accepted. Result size is bounded by limit/page.
 
 func budgetOpFor(t *testing.T) ContractOperation {
 	t.Helper()

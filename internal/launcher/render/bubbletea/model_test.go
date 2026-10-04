@@ -178,8 +178,8 @@ func TestAttentionRowsRenderForegroundAndPlainRowsDoNot(t *testing.T) {
 		t.Fatalf("no line rendered an ANSI-index foreground: %q", rendered)
 	}
 	// The table colour stays on the ANSI-index palette. The bubbles help
-	// footer keeps its own pre-existing adaptive styles, so the palette
-	// check is scoped to the data rows this change colours.
+	// footer keeps its own adaptive styles, so the palette check is scoped
+	// to the data rows.
 	for _, line := range strings.Split(rendered, "\n") {
 		if !strings.Contains(line, "Blocked Product") && !strings.Contains(line, "Clear Product") {
 			continue

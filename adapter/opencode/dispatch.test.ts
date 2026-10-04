@@ -1529,7 +1529,7 @@ test("worker evidence makes no live-session list call", async () => {
   expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
 })
 
-// CD-0032 / issue #103: provenance is deterministic for the same inputs and
+// CD-0034 / issue #103: provenance is deterministic for the same inputs and
 // changes when an enumerated source changes.
 
 test("host prompt provenance is deterministic and content-bound", async () => {
@@ -1767,7 +1767,7 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].report_schema_version).toBe("1.0")
 })
 
-// The dispatch window owns the worker directory; the report no longer carries
+// The dispatch window owns the worker directory; the report does not carry
 // it. A report that omits cwd admits completion, and a worker that echoes the
 // field anyway is refused by the closed schema.
 test("report-admits-without-cwd: a report omitting the worker directory admits completion", async () => {
@@ -2519,11 +2519,9 @@ test("a credential probe failure refuses after authorization and before worker e
   expect(windows.has(SESSION)).toBe(false)
 })
 
-// Issue #436: a refusal and a broken authorizer are different outcomes. The
-// adapter previously probed an optional ToolContext method that no host
-// declares, so an absent transport was indistinguishable from the core saying
-// no. Each transport fault now carries `transport_failure`, leaving
-// `unauthorized_dispatch` to mean only that the core refused.
+// Issue #436: a refusal and a broken authorizer are different outcomes. Each
+// transport fault carries `transport_failure`, so `unauthorized_dispatch`
+// means only that the core refused.
 test("a transport fault is not reported as an authorization refusal", async () => {
   const cases: { name: string; options: Record<string, unknown> }[] = [
     { name: "authorizer absent", options: {} },

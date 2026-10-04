@@ -866,7 +866,7 @@ export function readWorkerReport(stdout: string): WorkerReportScan {
 // The native task route supplies the worker's single final body and the run
 // stream supplies every text part, and both admit a report the same way: the
 // last candidate anywhere in the stream that parses as a JSON object wins
-// (CON-203 — one lead-in or trailing sentence no longer discards a report).
+// (CON-203: a lead-in or trailing sentence does not discard a report).
 export function scanReportTexts(texts: string[]): WorkerReportScan {
   let malformed = false
   const found: Record<string, unknown>[] = []
@@ -1906,9 +1906,9 @@ async function completeWorkerSession(
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const cli = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
-  // The dispatch window owns the worker directory. CD-0178 D3 removed the
-  // host session observation as a worker-fail input: the durable
-  // worktree_occupancy projection and process liveness own the gate now.
+  // The dispatch window owns the worker directory. The durable
+  // worktree_occupancy projection and process liveness own the worker-fail
+  // gate (CD-0178 D3).
   const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
 
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =

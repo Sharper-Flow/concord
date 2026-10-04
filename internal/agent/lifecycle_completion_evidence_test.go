@@ -76,13 +76,11 @@ func TestLifecycleCompletionEvidenceRefs(t *testing.T) {
 }
 
 // TestCompleteActionBindsNoEvidenceRefs proves the workflow_action "complete"
-// no longer binds envelope evidence_refs.
+// binds no envelope evidence_refs.
 //
-// The binding used to live there and could never fire: "complete" is not a
-// lifecycle writer, so the envelope that carried the evidence always reported
-// a non-terminal lifecycle. Keeping both bindings would leave the dead one
-// beside the live one, so this asserts the dead one is gone rather than
-// merely bypassed.
+// A binding there could never fire: "complete" is not a lifecycle writer, so
+// the envelope that carried the evidence always reports a non-terminal
+// lifecycle. The lifecycle writer owns the only binding.
 func TestCompleteActionBindsNoEvidenceRefs(t *testing.T) {
 	actionPayload := []byte(`{"work_id":"work-cross","expected_version":3,"action_id":"complete","idempotency_key":"complete-no-binding","evidence":[{"kind":"verification","authority":"agent-verifier","locator_kind":"test","locator":"verification-pass"}],"fields":{"impact_verdict":"non-breaking"}}`)
 	if evidence, bound := completionEvidenceRefs(actionPayload); bound || evidence != nil {

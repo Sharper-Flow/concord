@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/adapter-host-pin.schema.json",
   "title": "Concord adapter host pin",
-  "description": "Closed contract for the host declarations the adapter typechecks against. The adapter previously carried a hand-written mirror of the host surface, which could only drift in one direction: upstream could remove or change a declaration and the adapter would keep compiling against a fiction, because nothing compared the mirror to its source. This manifest replaces the mirror with the real published declarations at an exact version, so the typecheck reads what the host actually declares. Allowances work the way the cognitive-complexity budget's do - each records the error count observed when it was granted, and the check fails when the real count no longer matches, in either direction. An allowance is permission for a known divergence to exist at a recorded size, not permission to diverge.",
+  "description": "Closed contract for the host declarations the adapter typechecks against. The manifest pins the real published declarations at an exact version, so the typecheck reads what the host actually declares; a hand-written mirror of the host surface would keep compiling after upstream removed or changed a declaration. Allowances work the way the cognitive-complexity budget's do - each records the error count observed when it was granted, and the check fails when the real count no longer matches, in either direction. An allowance is permission for a known divergence to exist at a recorded size, not permission to diverge.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -33,7 +33,7 @@
       }
     },
     "packages": {
-      "description": "The published packages installed into the staged workspace, at exact versions. An exact version is what makes the typecheck reproducible: a host upgrade surfaces as a reviewable manifest diff rather than a CI failure nobody can date. A range cannot do this, which is what the replaced mirror recorded.",
+      "description": "The published packages installed into the staged workspace, at exact versions. An exact version is what makes the typecheck reproducible: a host upgrade surfaces as a reviewable manifest diff rather than a CI failure nobody can date. A range cannot do this.",
       "type": "array",
       "minItems": 1,
       "maxItems": 16,
@@ -124,7 +124,7 @@
           }
         },
         "strict": {
-          "description": "Never false. A non-strict typecheck against real declarations proves less than the mirror it replaced.",
+          "description": "Never false. A non-strict typecheck does not prove the adapter compiles against the declared host surface.",
           "type": "boolean",
           "const": true
         },

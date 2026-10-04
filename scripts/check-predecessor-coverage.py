@@ -50,9 +50,8 @@ TALLY_ROW = re.compile(r"^\|\s*(Covered|Not covered|Excluded with reason)\s*\|\s
 TALLY_TOTAL = re.compile(r"^\*\*Total enumerated outcomes: ([0-9]+)\.\*\*$")
 
 # This table and .concord/docs/floor-readiness.v1.json are both authorizing records, and
-# rows here cite manifest items by identifier. Nothing previously compared the
-# cited state against the manifest, so the two drifted silently: a row claimed
-# `fc2-context-freshness` was `unmeasured` after issue #110 had measured it.
+# rows here cite manifest items by identifier. The check compares each cited
+# state against the manifest so the two cannot drift silently.
 FLOOR_ITEM = re.compile(r"`(fc[1-9][0-9]*-[a-z0-9-]+)`")
 FLOOR_STATES = frozenset({"satisfied", "outstanding", "unmeasured", "out_of_scope"})
 FLOOR_STATE_CLAIM = re.compile(r"`(satisfied|outstanding|unmeasured|out_of_scope)`")

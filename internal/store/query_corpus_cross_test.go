@@ -8,8 +8,8 @@ import (
 // The PM1 corpus fixture has no work item whose derived scope spans two
 // Products, so cross-Product scope resolution is asserted against a purpose-built
 // fixture instead. It stays in package store because it reuses the shared
-// package-private event constructors; the corpus driver itself now lives in
-// package store_test so it can consume internal/pm1fixture.
+// package-private event constructors; the corpus driver lives in package
+// store_test so it can consume internal/pm1fixture.
 func TestExtraCrossProductFixture(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

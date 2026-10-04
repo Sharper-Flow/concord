@@ -26,9 +26,9 @@ test("run metadata accepts only one typed session identity", () => {
   expect(readRunSessionMetadata(`${output}\nplain host chatter that is not JSON`)).toEqual({ ok: true, metadata: { session_id: "session-1" } })
 })
 
-// Four conditions previously collapsed into one null, so a caller could not say
-// which one fired. Each carries its own refusal, because the operator response
-// differs: an oversized stream is not a stream that never identified a session.
+// Each of the four run-stream conditions carries its own refusal, because the
+// operator response differs: an oversized stream is not a stream that never
+// identified a session.
 test("each run-stream refusal names its own cause", () => {
   const oversized = `${completeRun}\n${runEvent("text", "session-1", { part: { type: "text", text: "x".repeat(70_000) } })}`
   expect(Buffer.byteLength(oversized)).toBeGreaterThan(65_536)

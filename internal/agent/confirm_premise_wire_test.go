@@ -8,8 +8,8 @@ import (
 )
 
 // TestConfirmPremiseEnvelopeKeepsThePublishedWireFormat holds the envelope
-// side of the single declaration: a confirm_premise input in the previously
-// published wire shape validates unchanged, the outer level carries exactly
+// side of the single declaration: a confirm_premise input in the published
+// wire shape validates unchanged, the outer level carries exactly
 // the two declared fields and no contract_version, and fields stays
 // forbidden. The generated schema is the projection of the registry
 // declaration, so this test guards the wire callers already depend on.

@@ -19,7 +19,7 @@ import (
 
 // seedEnvelopeLinks bulk-seeds count work items in the Product's project and
 // confirms one Linear link per work item, so the divergence verb sees a
-// Product at the scale where the envelope used to overflow.
+// Product at a scale large enough to overflow an unbounded envelope.
 func seedEnvelopeLinks(t *testing.T, dbPath, projectID string, count int, workID func(i int) string, remoteID func(i int) string) {
 	t.Helper()
 	ctx := context.Background()

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -900,4 +900,196 @@ test("a failed notice post is logged at warn and never blocks or fails the repor
   const prompts = fixture.posts.filter((entry) => entry.url === "/session/{id}/prompt_async")
   expect(prompts).toHaveLength(1)
   expect((prompts[0].body as { parts: Array<{ text: string }> }).parts[0].text).toContain('"status": "success"')
+})
+
+function heartbeatFixture() {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
+  configureCiWatch({
+    stateDir: STATE_DIR, idlePollMs: 2, confirmPollMs: 2, confirmWindowMs: 40,
+    heartbeatIntervalMs: 20, spawner: async () => held.promise,
+  })
+  const notices = () => fixture.posts.filter((post) => post.url === "/session/{id}/message")
+  const finish = (status = "success") => held.resolve({ exitCode: 0, stdout: JSON.stringify({ status }), stderr: "" })
+  return { ...fixture, notices, finish }
+}
+
+test("the default heartbeat interval is sixty seconds and its timer does not keep the host alive", async () => {
+  const fixture = hostFixture({ reply: "parented" })
+  hostControlPlane().bind(fixture.client)
+  bindCiWatchClient(fixture.client)
+  configureCoreBinary("/synthetic/concord")
+  const held = deferred<{ exitCode: number; stdout: string; stderr: string }>()
+  configureCiWatch({ stateDir: STATE_DIR, spawner: async () => held.promise })
+  const timer = spyOn(globalThis, "setInterval")
+  let started: Record<string, unknown> | undefined
+  try {
+    started = await startWatch(fixture)
+    expect(timer).toHaveBeenCalledTimes(1)
+    expect(timer.mock.calls[0][1]).toBe(60_000)
+    const handle = timer.mock.results[0].value as ReturnType<typeof setInterval>
+    expect(handle.hasRef()).toBe(false)
+  } finally {
+    timer.mockRestore()
+    held.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success" }), stderr: "" })
+    if (started !== undefined) await ciWatchSettled(String(started.watch_id))
+  }
+})
+
+test("a held watch posts recurring ignored noReply heartbeats and stops them before delivery", async () => {
+  const fixture = heartbeatFixture()
+  const started = await startWatch(fixture)
+  try {
+    await until(() => fixture.notices().length >= 3, "two heartbeats", 300)
+    for (const notice of fixture.notices().slice(1)) {
+      const body = notice.body as { noReply: boolean; parts: Array<Record<string, unknown>> }
+      expect(body.noReply).toBe(true)
+      expect(body.parts).toHaveLength(1)
+      expect(body.parts[0].ignored).toBe(true)
+      expect(body.parts[0].synthetic).toBeUndefined()
+      expect(body.parts[0].metadata).toEqual({ "concord.ci_watch_notice": started.watch_id })
+      expect(String(body.parts[0].text)).toContain("Still watching CI for owner/name pr:12")
+      expect(String(body.parts[0].text)).toContain("elapsed")
+    }
+    expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(false)
+  } finally {
+    fixture.finish()
+    await ciWatchSettled(String(started.watch_id))
+  }
+  const count = fixture.notices().length
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  expect(fixture.notices()).toHaveLength(count)
+  const reportAt = fixture.posts.findIndex((post) => post.url === "/session/{id}/prompt_async")
+  expect(fixture.posts.slice(reportAt + 1).some((post) => post.url === "/session/{id}/message")).toBe(false)
+})
+
+test("heartbeats skip busy sessions instead of queuing a late notice", async () => {
+  const fixture = heartbeatFixture()
+  const started = await startWatch(fixture)
+  await until(() => fixture.notices().length === 1, "the start notice")
+  const get = fixture.client.get
+  let busy = true
+  fixture.client.get = async (request) => {
+    if (request.url === "/session/status" && busy) {
+      return { data: { [SESSION]: { type: "busy" } }, response: new Response(null, { status: 200 }) }
+    }
+    return get(request)
+  }
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 70))
+    expect(fixture.notices()).toHaveLength(1)
+    busy = false
+    await until(() => fixture.notices().length >= 2, "the next idle heartbeat", 300)
+  } finally {
+    busy = false
+    fixture.finish()
+    await ciWatchSettled(String(started.watch_id))
+  }
+})
+
+test("settle drains one in-flight heartbeat without overlapping posts or trailing notices", async () => {
+  const fixture = heartbeatFixture()
+  const post = fixture.client.post
+  const blocked = deferred<void>()
+  let heartbeats = 0
+  fixture.client.post = async (request) => {
+    const text = (request.body as { parts?: Array<{ text?: string }> })?.parts?.[0]?.text ?? ""
+    if (request.url === "/session/{id}/message" && text.includes("Still watching")) {
+      heartbeats++
+      await blocked.promise
+    }
+    return post(request)
+  }
+  const started = await startWatch(fixture)
+  try {
+    await until(() => heartbeats === 1, "the held heartbeat", 300)
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(heartbeats).toBe(1)
+    fixture.finish()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(fixture.posts.some((post) => post.url === "/session/{id}/prompt_async")).toBe(false)
+  } finally {
+    blocked.resolve()
+    fixture.finish()
+    await ciWatchSettled(String(started.watch_id))
+  }
+  expect(heartbeats).toBe(1)
+  const noticeAt = fixture.posts.map((post) => post.url).lastIndexOf("/session/{id}/message")
+  const reportAt = fixture.posts.findIndex((post) => post.url === "/session/{id}/prompt_async")
+  expect(reportAt).toBeGreaterThan(noticeAt)
+})
+
+test("heartbeat failures are logged and do not prevent a later heartbeat or terminal report", async () => {
+  const fixture = heartbeatFixture()
+  const post = fixture.client.post
+  let failed = false
+  fixture.client.post = async (request) => {
+    const text = (request.body as { parts?: Array<{ text?: string }> })?.parts?.[0]?.text ?? ""
+    if (!failed && request.url === "/session/{id}/message" && text.includes("Still watching")) {
+      failed = true
+      return { response: new Response(null, { status: 500 }) }
+    }
+    return post(request)
+  }
+  const started = await startWatch(fixture)
+  try {
+    await until(() => fixture.notices().length >= 2, "a heartbeat after the failed post", 300)
+    expect(failed).toBe(true)
+    expect(fixture.posts.some((post) => post.url === "/log" &&
+      (post.body as { level: string; message: string }).level === "warn" &&
+      (post.body as { message: string }).message.includes("heartbeat"))).toBe(true)
+  } finally {
+    fixture.finish()
+    await ciWatchSettled(String(started.watch_id))
+  }
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
+})
+
+for (const status of ["cancelled", "timeout", "error"]) {
+  test(`heartbeats stop before a ${status} terminal report`, async () => {
+    const fixture = heartbeatFixture()
+    const started = await startWatch(fixture)
+    try {
+      await until(() => fixture.notices().length >= 2, "a heartbeat", 300)
+    } finally {
+      fixture.finish(status)
+      await ciWatchSettled(String(started.watch_id))
+    }
+    const count = fixture.notices().length
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(fixture.notices()).toHaveLength(count)
+    const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+    expect(prompts).toHaveLength(1)
+    expect((prompts[0].body as { parts: Array<{ text: string }> }).parts[0].text).toContain(`"status": "${status}"`)
+  })
+}
+
+test("a heartbeat waiting on a host read is discarded when the watch settles", async () => {
+  const fixture = heartbeatFixture()
+  const started = await startWatch(fixture)
+  await until(() => fixture.notices().length === 1, "the start notice")
+  const get = fixture.client.get
+  const blocked = deferred<void>()
+  let reading = false
+  fixture.client.get = async (request) => {
+    if (!reading && request.url === "/session/{id}") {
+      reading = true
+      await blocked.promise
+    }
+    return get(request)
+  }
+  try {
+    await until(() => reading, "the heartbeat identity read", 300)
+    fixture.finish()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  } finally {
+    blocked.resolve()
+    fixture.finish()
+    await ciWatchSettled(String(started.watch_id))
+  }
+  expect(fixture.notices()).toHaveLength(1)
+  expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toHaveLength(1)
 })

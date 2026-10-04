@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:799a203d08c05c1faa2e189b1b9e4b804ec563ecc8a3c8892c242ea9442bbc52",
+  "sha256": "sha256:46c9dbce2931e1084a42da2c3abdd7fa52dd6bdd5cac340c5bfe11c22fa71eb1",
   "status": "accepted",
   "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
   "tags": [

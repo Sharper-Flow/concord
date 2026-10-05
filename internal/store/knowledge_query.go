@@ -540,9 +540,23 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	// CON-830: the opt-in current_amendment_context section rides only a
 	// canonically verified law record and carries its own current-source
 	// proof through the same store-owned refinement query. Work notes and
-	// historical-only reads keep the shape above untouched.
+	// historical-only reads keep the shape above untouched. The current
+	// context reads the Product's whole registered source set — the set is
+	// a property of the Product, not of the root form, so a qualified root
+	// resolves its historical locator through one source while its current
+	// context still spans every registered source (CD-0200 D4/D5).
 	if req.IncludeAmendmentContext && payload.LawStatus != "" {
 		amendmentSources := sourceScope
+		if len(amendmentSources) == 0 && req.Product != "" {
+			if sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10.amendment_context"); srcErr == nil {
+				amendmentSources = sources
+			} else {
+				var failure *Failure
+				if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
+					return out, srcErr
+				}
+			}
+		}
 		if len(amendmentSources) == 0 {
 			amendmentSources = []KnowledgeHome{storedHome}
 		}

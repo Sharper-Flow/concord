@@ -58,6 +58,13 @@ type KnowledgeRefinementEdge struct {
 	SourceProjectID     string `json:"source_project_id"`
 	SourceLocatorID     string `json:"source_locator_id"`
 	ScannedCommitOID    string `json:"scanned_commit_oid"`
+
+	// incomingTargetProject carries the declared target Project of an
+	// incoming cross-source relation. It is projection bookkeeping, not
+	// wire output: root-coverage accounting attributes the edge to the
+	// root form whose scope names that Project instead of to the
+	// declaring source.
+	incomingTargetProject string
 }
 
 // KnowledgeRefinementContextResult is the bounded one-hop answer. Roots
@@ -303,14 +310,24 @@ func refinementWatermarkDrift(ctx context.Context, q queryer, sources []Knowledg
 			continue
 		}
 		var current string
-		err := q.QueryRowContext(ctx, `SELECT scanned_commit_oid FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, source.HomeProjectID, source.HomeLocatorID, source.HeadRef).Scan(&current)
-		if err == sql.ErrNoRows || (err == nil && current != proof) {
-			return label, proof, current, true
+		var complete bool
+		err := q.QueryRowContext(ctx, `SELECT scanned_commit_oid, complete FROM knowledge_index_watermark WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`, source.HomeProjectID, source.HomeLocatorID, source.HeadRef).Scan(&current, &complete)
+		if err == sql.ErrNoRows {
+			return label, proof, "", true
 		}
 		if err != nil {
 			// An unreadable watermark cannot establish identity either; the
 			// read refuses rather than guessing which snapshot it saw.
 			return label, proof, "", true
+		}
+		// A committed watermark that matches the proof commit but is marked
+		// incomplete is the same splice: the verified identity cannot ride a
+		// projection that declares itself unfinished.
+		if !complete {
+			return label, proof, "incomplete_projection@" + current, true
+		}
+		if current != proof {
+			return label, proof, current, true
 		}
 	}
 	return "", "", "", false
@@ -533,7 +550,7 @@ func refuseAmbiguousBareRefinementRoots(ctx context.Context, q queryer, roots []
 			}
 			holders[lawID][source.HomeProjectID+"/"+source.HomeLocatorID] = true
 		}
-		if err := wrapFailureRows("PM1.Q10.amendment_context", "cannot finish reading the law subjects of source "+source.HomeProjectID, rows.Err()); err != nil {
+		if err := wrapFailureRows("cannot finish reading the law subjects of source "+source.HomeProjectID, rows.Err()); err != nil {
 			rows.Close()
 			return err
 		}
@@ -571,7 +588,9 @@ func refinementRootsForSource(resolved []refinementResolvedRoot, source Knowledg
 }
 
 // refinementRootCoverage counts, per requested root form, the edges whose
-// source lies inside that root's effective scope.
+// source lies inside that root's effective scope. An incoming cross-source
+// edge answers the root that lives at its declared target Project, so its
+// scope check names that Project rather than the declaring source.
 func refinementRootCoverage(edges []KnowledgeRefinementEdge, resolved []refinementResolvedRoot) map[string]int {
 	counts := map[string]int{}
 	for _, edge := range edges {
@@ -579,8 +598,14 @@ func refinementRootCoverage(edges []KnowledgeRefinementEdge, resolved []refineme
 			if root.bare != edge.RootID {
 				continue
 			}
-			if root.scope != nil && (root.scope.HomeProjectID != edge.SourceProjectID || root.scope.HomeLocatorID != edge.SourceLocatorID) {
-				continue
+			if root.scope != nil {
+				if edge.incomingTargetProject != "" {
+					if root.scope.HomeProjectID != edge.incomingTargetProject {
+						continue
+					}
+				} else if root.scope.HomeProjectID != edge.SourceProjectID || root.scope.HomeLocatorID != edge.SourceLocatorID {
+					continue
+				}
 			}
 			counts[root.original]++
 		}
@@ -588,22 +613,43 @@ func refinementRootCoverage(edges []KnowledgeRefinementEdge, resolved []refineme
 	return counts
 }
 
+// refinementAllRootIDs lists the distinct bare root IDs any source's SQL
+// reads may match, across every requested root form: an incoming
+// cross-source relation is declared by the endpoint's source but targets
+// the root's source, so the declaring source cannot be narrowed by root
+// scope the way the same-home reads are.
+func refinementAllRootIDs(resolved []refinementResolvedRoot) []string {
+	seen := map[string]bool{}
+	roots := make([]string, 0, len(resolved))
+	for _, root := range resolved {
+		if !seen[root.bare] {
+			seen[root.bare] = true
+			roots = append(roots, root.bare)
+		}
+	}
+	return roots
+}
+
 // refinementContextEdges reads every qualifying authored one-hop edge in
 // bounded statements per source: same-home edges, cross-source outgoing
-// edges, and one endpoint-identity resolution. No per-edge or per-root
-// application fan-out. Cross-source endpoints are inspected against the
-// requested set: outside-set, missing-projection, and ambiguous identities
-// become named omissions, never silent picks.
+// edges, cross-source incoming refinements, and one endpoint-identity
+// resolution. No per-edge or per-root application fan-out. Cross-source
+// endpoints are inspected against the requested set: outside-set,
+// missing-projection, and ambiguous identities become named omissions,
+// never silent picks.
 func refinementContextEdges(ctx context.Context, q queryer, sources []KnowledgeHome, resolved []refinementResolvedRoot, omissions *refinementOmissions) ([]KnowledgeRefinementEdge, error) {
 	edges := make([]KnowledgeRefinementEdge, 0)
 	crossLookups := map[string]bool{}
 	markOmission := omissions.mark
+	setProjects := map[string]bool{}
+	for _, source := range sources {
+		setProjects[source.HomeProjectID] = true
+	}
+	allRoots := refinementAllRootIDs(resolved)
 	for _, source := range sources {
 		sourceRoots := refinementRootsForSource(resolved, source)
-		if len(sourceRoots) == 0 {
-			continue
-		}
-		rows, err := q.QueryContext(ctx, `
+		if len(sourceRoots) > 0 {
+			rows, err := q.QueryContext(ctx, `
 SELECT r.target_law_id AS root, 'incoming' AS direction, r.kind, r.source_law_id AS endpoint,
        ls.kind, ls.status, ls.title, ls.path, ls.content_hash, r.scanned_commit_oid
 FROM law_relations r
@@ -616,21 +662,43 @@ FROM law_relations r
 LEFT JOIN law_subjects ls ON ls.home_project_id=r.home_project_id AND ls.home_locator_id=r.home_locator_id AND ls.law_id=r.target_law_id
 WHERE r.home_project_id=? AND r.home_locator_id=? AND r.source_law_id IN (`+placeholdersFor(sourceRoots)+`)
 ORDER BY 3,2,4,1`, append(append([]any{source.HomeProjectID, source.HomeLocatorID}, stringArgs(sourceRoots)...), append([]any{source.HomeProjectID, source.HomeLocatorID}, stringArgs(sourceRoots)...)...)...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every value stays parameter-bound.
-		if err != nil {
-			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the authored law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
-		}
-		if err := scanRefinementEdges(rows, source, &edges, markOmission); err != nil {
-			return nil, err
-		}
-		crossRows, err := q.QueryContext(ctx, `
+			if err != nil {
+				return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the authored law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+			}
+			if err := scanRefinementEdges(rows, source, &edges, markOmission); err != nil {
+				return nil, err
+			}
+			crossRows, err := q.QueryContext(ctx, `
 SELECT r.source_law_id AS root, 'outgoing' AS direction, r.kind, r.target_project_id, r.target_law_id, r.scanned_commit_oid
 FROM law_cross_source_relations r
 WHERE r.home_project_id=? AND r.home_locator_id=? AND r.source_law_id IN (`+placeholdersFor(sourceRoots)+`)
 ORDER BY 3,4,5,1`, append([]any{source.HomeProjectID, source.HomeLocatorID}, stringArgs(sourceRoots)...)...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every value stays parameter-bound.
-		if err != nil {
-			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the authored cross-source law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+			if err != nil {
+				return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the authored cross-source law relations of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+			}
+			if err := scanRefinementCrossEdges(crossRows, source, &edges, crossLookups); err != nil {
+				return nil, err
+			}
 		}
-		if err := scanRefinementCrossEdges(crossRows, source, &edges, crossLookups); err != nil {
+		if len(allRoots) == 0 {
+			continue
+		}
+		// Incoming cross-source refinements: this source declares
+		// kind='refines' toward a root that lives in another set source.
+		// The declaring projection owns the row, so the read stays inside
+		// this source; the target Project decides which root form the
+		// edge answers.
+		incomingRows, err := q.QueryContext(ctx, `
+SELECT r.target_project_id, r.target_law_id AS root, r.source_law_id AS endpoint,
+       ls.kind, ls.status, ls.title, ls.path, ls.content_hash, r.scanned_commit_oid
+FROM law_cross_source_relations r
+LEFT JOIN law_subjects ls ON ls.home_project_id=r.home_project_id AND ls.home_locator_id=r.home_locator_id AND ls.law_id=r.source_law_id
+WHERE r.home_project_id=? AND r.home_locator_id=? AND r.kind='refines' AND r.target_law_id IN (`+placeholdersFor(allRoots)+`)
+ORDER BY 1,2,3`, append([]any{source.HomeProjectID, source.HomeLocatorID}, stringArgs(allRoots)...)...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every value stays parameter-bound.
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the authored incoming cross-source refinements of source "+source.HomeProjectID, true, "retry once the database is readable", err)
+		}
+		if err := scanRefinementIncomingCrossEdges(incomingRows, source, resolved, setProjects, &edges, markOmission); err != nil {
 			return nil, err
 		}
 	}
@@ -672,10 +740,8 @@ ORDER BY 3,4,5,1`, append([]any{source.HomeProjectID, source.HomeLocatorID}, str
 	}
 	sort.Strings(endpointProjects)
 	setMembership := map[string]bool{}
-	setProjects := map[string]bool{}
 	for _, source := range sources {
 		setMembership[source.HomeProjectID+"\x00"+source.HomeLocatorID] = true
-		setProjects[source.HomeProjectID] = true
 	}
 	type endpointSubject struct {
 		locator, kind, status, title, path, hash string
@@ -778,7 +844,59 @@ func scanRefinementEdges(rows *sql.Rows, source KnowledgeHome, edges *[]Knowledg
 			SourceProjectID:     source.HomeProjectID, SourceLocatorID: source.HomeLocatorID, ScannedCommitOID: commit,
 		})
 	}
-	return wrapFailureRows("PM1.Q10.amendment_context", "cannot finish reading authored law relations", rows.Err())
+	return wrapFailureRows("cannot finish reading authored law relations", rows.Err())
+}
+
+// scanRefinementIncomingCrossEdges decodes the incoming cross-source
+// refinement rows a source declares toward roots living in other set
+// sources. The declared target Project decides coverage: a bare root
+// matches any set source's Project, a qualified root matches only its own
+// resolved scope, and a target outside the requested set is not this
+// page's edge. The endpoint (the declaring source's refining law) follows
+// the same acceptance rule as a same-home incoming edge.
+func scanRefinementIncomingCrossEdges(rows *sql.Rows, source KnowledgeHome, resolved []refinementResolvedRoot, setProjects map[string]bool, edges *[]KnowledgeRefinementEdge, markOmission func(string)) error {
+	defer rows.Close()
+	for rows.Next() {
+		var targetProject, root, endpoint string
+		var endpointKind, endpointStatus, endpointTitle, endpointPath, endpointHash, commit string
+		var kindNull, statusNull, titleNull, pathNull, hashNull sql.NullString
+		if err := rows.Scan(&targetProject, &root, &endpoint, &kindNull, &statusNull, &titleNull, &pathNull, &hashNull, &commit); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot decode an authored incoming cross-source refinement", true, "retry once the database is readable", err)
+		}
+		endpointKind, endpointStatus, endpointTitle, endpointPath, endpointHash = kindNull.String, statusNull.String, titleNull.String, pathNull.String, hashNull.String
+		covered := false
+		for _, rootForm := range resolved {
+			if rootForm.bare != root {
+				continue
+			}
+			if rootForm.scope != nil {
+				if rootForm.scope.HomeProjectID != targetProject {
+					continue
+				}
+			} else if !setProjects[targetProject] {
+				continue
+			}
+			covered = true
+			break
+		}
+		if !covered {
+			continue
+		}
+		if endpointStatus == "" {
+			markOmission("endpoint_projection_missing:" + source.HomeProjectID + "/" + source.HomeLocatorID + "/" + endpoint)
+		} else if endpointStatus != "accepted" {
+			continue
+		}
+		*edges = append(*edges, KnowledgeRefinementEdge{
+			RootID: root, Direction: "incoming", Kind: "refines",
+			EndpointProjectID: source.HomeProjectID, EndpointLocatorID: source.HomeLocatorID, EndpointLawID: endpoint,
+			EndpointKind: endpointKind, EndpointStatus: endpointStatus, EndpointTitle: endpointTitle, EndpointPath: endpointPath,
+			EndpointContentHash: endpointHash,
+			SourceProjectID:     source.HomeProjectID, SourceLocatorID: source.HomeLocatorID, ScannedCommitOID: commit,
+			incomingTargetProject: targetProject,
+		})
+	}
+	return wrapFailureRows("cannot finish reading authored incoming cross-source refinements", rows.Err())
 }
 
 func scanRefinementCrossEdges(rows *sql.Rows, source KnowledgeHome, edges *[]KnowledgeRefinementEdge, crossLookups map[string]bool) error {
@@ -795,7 +913,7 @@ func scanRefinementCrossEdges(rows *sql.Rows, source KnowledgeHome, edges *[]Kno
 		})
 		crossLookups[targetProject+"/"+targetLaw] = true
 	}
-	return wrapFailureRows("PM1.Q10.amendment_context", "cannot finish reading authored cross-source law relations", rows.Err())
+	return wrapFailureRows("cannot finish reading authored cross-source law relations", rows.Err())
 }
 
 // placeholdersFor returns a comma-separated placeholder fragment for an IN
@@ -807,9 +925,9 @@ func placeholdersFor(values []string) string {
 	return strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
 }
 
-func wrapFailureRows(op, detail string, err error) error {
+func wrapFailureRows(detail string, err error) error {
 	if err != nil {
-		return wrapFailure(KindUnavailable, op, detail, true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", detail, true, "retry once the database is readable", err)
 	}
 	return nil
 }

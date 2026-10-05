@@ -226,6 +226,25 @@ describe("in-flight retention across the host task call", () => {
 })
 
 describe("retained attempt release", () => {
+  test("releases an abandoned open window before any Task can consume it", async () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "sha256:" + "c".repeat(64), process.cwd())
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
+    expect(windows.has("session-a")).toBe(false)
+    await expect(windows.bind(TASK_TOOL_ID, "session-a", { subagent_type: "concord-explore", prompt: "utility" }, "call-after-abandon", here)).rejects.toThrow(/no authorized dispatch window/i)
+    expect(windows.inFlightAttempt("session-a")).toBeNull()
+    expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(false)
+  })
+
+  test("does not release another session, attempt, or lane's open window", () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "", process.cwd())
+    expect(windows.releaseRetained("session-b", "attempt-1", "implement")).toBe(false)
+    expect(windows.releaseRetained("session-a", "attempt-other", "implement")).toBe(false)
+    expect(windows.releaseRetained("session-a", "attempt-1", "research")).toBe(false)
+    expect(windows.has("session-a")).toBe(true)
+  })
+
   const bindInFlight = async (windows: DispatchWindows, session = "session-a") => {
     windows.open(session, packet, "sha256:" + "c".repeat(64), process.cwd())
     await windows.bind(TASK_TOOL_ID, session, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", here)

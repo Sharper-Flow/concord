@@ -193,7 +193,14 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if step := workflowStep(definition, currentStep); step == nil || step.Kind != WorkflowStepHumanCheckpoint {
 		return false, nil
 	}
+	failedBinding, bindingErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
+	if bindingErr != nil {
+		return false, bindingErr
+	}
 	attemptID, lifecycle, found, err := latestDispatchedAttemptAtStep(ctx, q, workID, currentStep, 0)
+	if failedBinding != nil {
+		attemptID, lifecycle, found = failedBinding.FailedAttemptID, "failed", true
+	}
 	if err != nil || !found {
 		return false, err
 	}
@@ -210,7 +217,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	return recorded == 0, nil
 }
 
-// workflowFailedWorkerAttempt reports a failed worker attempt dispatched after
+// workflowFailedWorkerAttempt reports a failed worker attempt opened after
 // the step's latest action start. The step-start bound is the failure
 // recovery bound: a fresh fenced attempt at the step supersedes every earlier
 // failure there.
@@ -229,17 +236,18 @@ func workflowFailedWorkerAttempt(ctx context.Context, q queryer, workID, current
 }
 
 // workflowFailedWorkerAttemptSince reports a failed worker attempt whose
-// dispatch event follows sinceSeq. Callers pass the bound that defines their
-// attempt window: contract correction passes the step's pass boundary, so a
+// authorization or dispatch evidence follows sinceSeq. Callers pass their
+// attempt window's bound: contract correction passes the step's pass boundary, so a
 // failure recorded in a previous pass cannot open correction in the pass that
 // returned to the step (CD-0133 D1).
 func workflowFailedWorkerAttemptSince(ctx context.Context, q queryer, workID string, sinceSeq int64, subject string, excludeRecorded bool) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?)`
-	args := []any{string(SubjectWorkItem), WorkerDispatched, workID, sinceSeq}
+	query := `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND ((d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id) OR (d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>?`
+	args := []any{string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, sinceSeq}
 	if excludeRecorded {
-		query = `SELECT EXISTS(SELECT 1 FROM worker_attempts a JOIN domain_events d ON d.subject_type=? AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND a.lifecycle_state='failed' AND d.seq>? AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id))`
+		query += ` AND NOT EXISTS (SELECT 1 FROM domain_events f WHERE f.subject_type=? AND f.subject_id=a.work_id AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure' AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)`
 		args = append(args, string(SubjectWorkItem), WorkflowActionCompleted)
 	}
+	query += `)`
 	var available int
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&available); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect failed worker attempts", true, "retry once the worker attempt projection is readable", err)

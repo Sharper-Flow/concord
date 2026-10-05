@@ -3218,12 +3218,12 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
 // abandoned-attempt receipt is the named reconciliation route, so an ok abandon
 // must release the retained record and both an abandon accepted now and a
 // replay answered already terminal must land there.
-test("an ok worker_abandon releases the session's retained in-flight record", async () => {
+test.each([false, true])("an ok worker_abandon releases its exact authorization (Task consumed=%s)", async (consumed) => {
   bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const windows = dispatchWindows()
   // The suite shares one window registry across files, so this test owns a
   // session identity no other test touches.
-  const context = { ...contextFor(), sessionID: "session-abandon-release" }
+  const context = { ...contextFor(), sessionID: `session-abandon-release-${consumed}` }
   const retained = {
     schema_version: "1.0" as const,
     attempt_id: "attempt-1",
@@ -3235,8 +3235,12 @@ test("an ok worker_abandon releases the session's retained in-flight record", as
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
-  expect(windows.inFlight(context.sessionID, "call-cancel")).not.toBeNull()
+  if (consumed) {
+    await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
+    expect(windows.inFlight(context.sessionID, "call-cancel")).not.toBeNull()
+  } else {
+    expect(windows.has(context.sessionID)).toBe(true)
+  }
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
     runner: { async run(argv) {
@@ -3248,6 +3252,7 @@ test("an ok worker_abandon releases the session's retained in-flight record", as
   const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the host never spawned the worker", idempotency_key: "worker-abandon-release-1" }
   const accepted: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), context))
   expect(accepted.outcome).toBe("ok")
+  expect(windows.has(context.sessionID)).toBe(false)
   expect(windows.inFlight(context.sessionID, "call-cancel")).toBeNull()
   // The recovered session dispatches again without a host restart.
   expect(() => windows.open(context.sessionID, retained, "", process.cwd())).not.toThrow()

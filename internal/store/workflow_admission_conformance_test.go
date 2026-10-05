@@ -40,6 +40,7 @@ type admissionConformanceView struct {
 	CorrectionRequestRecovery   bool
 	CorrectionEscalated         bool
 	SameStepFailedAttempts      int64
+	FailedWorkerRetry           bool
 	DispatchHold                bool
 	PendingOperatorDecision     bool
 	CompleteStepCorrection      bool
@@ -66,7 +67,8 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		LateVerdictRoute: state.LateVerdictRoute, WorkerFailureRecovery: state.WorkerFailureRecovery,
 		CorrectionRecovery: state.CorrectionRecovery, CorrectionRequestRecovery: state.CorrectionRequestRecovery,
 		CorrectionEscalated: state.CorrectionEscalated, SameStepFailedAttempts: state.SameStepFailedAttempts,
-		DispatchHold: state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
+		FailedWorkerRetry: state.FailedWorkerRetry != nil,
+		DispatchHold:      state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
 		CompleteStepCorrection: state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,

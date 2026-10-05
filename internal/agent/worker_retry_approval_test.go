@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,80 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	}
 }
 
-func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
+func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	const failedID = "attempt:work-1:authorized-failed"
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
+		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
+	})}, env)
+	if first.Outcome != OutcomeOK {
+		t.Fatalf("first authorization: %+v", first.Error)
+	}
+	failure := store.Event{EventID: "abandon-unstarted-worker", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{failure}}); err != nil {
+		t.Fatalf("abandon authorization: %v", err)
+	}
+	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const freshID = "attempt:work-1:authorized-retry"
+	retryInput := map[string]any{
+		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "retry-unstarted-worker",
+		"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, nil)},
+	}
+	env = mutationEnvelope(grant, scopeVersion)
+	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
+	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+		t.Fatalf("retry before disposition: %+v, want approval_required", challenge.Error)
+	}
+	scopeBindings, scopeOK := challenge.Error.Details["scope"].([]string)
+	versionBindings, versionsOK := challenge.Error.Details["versions"].([]string)
+	if !scopeOK || !versionsOK || !slices.Contains(scopeBindings, "failed_attempt_id:"+failedID) || !slices.Contains(versionBindings, "failed_attempt_epoch:1") || !slices.Contains(versionBindings, "contract:1") {
+		t.Fatalf("retry challenge lacks exact failure/contract bindings: %#v", challenge.Error.Details)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
+		t.Fatalf("approval challenge created %d attempts, want only the failed attempt", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND (kind='worker.dispatched' OR (kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'))`); got != 0 {
+		t.Fatalf("approval challenge fabricated %d dispatches or dispositions", got)
+	}
+	ref, ok := challenge.Error.Details["approval_ref"].(string)
+	if !ok || ref == "" {
+		t.Fatal("retry challenge has no approval reference")
+	}
+	approvedRaw := retryJSON(cloneWithApproval(t, retryInput, ref))
+	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
+	versions := map[string]any{"work": pin.Version, "contract": 1, "failed_attempt_epoch": 1}
+	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved fresh authorization: %+v", approved.Error)
+	}
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	if epoch != 2 {
+		t.Fatalf("fresh authorization epoch=%d, want 2", epoch)
+	}
+	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
+		t.Fatalf("older failed authorization replaced the fresh live attempt: binding=%#v error=%v", binding, err)
+	}
+}
+
+func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -126,6 +200,12 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, store.WorktreeSetID("work-1")).Scan(&claimed); err != nil || claimed != 1 {
 		t.Fatalf("retry worktree claim count=%d err=%v", claimed, err)
 	}
+	return path
+}
+
+func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
+	t.Helper()
+	path := seedWorkerRetryMutationFixture(t, s, grant)
 	lane := retryLane(t)
 	attemptID := "attempt:work-1:failed"
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")

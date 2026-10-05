@@ -181,6 +181,12 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		return nil, err
 	}
 	decision := workflowAdmit(definition, state, "dispatch_worker")
+	if !decision.Admitted && !decision.ApprovalRequired {
+		return nil, nil
+	}
+	if decision.ApprovalRequired && state.FailedWorkerRetry != nil {
+		return state.FailedWorkerRetry, nil
+	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
 	if err != nil {
 		return nil, err
@@ -225,6 +231,35 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		binding.CorrectionAttempts = correction.AttemptCount
 	}
 	return binding, nil
+}
+
+// A terminal authorization needs exact retry approval even when its worker
+// supplied no admissible dispatch evidence or its failure has no disposition.
+// The latest authorization at this step owns the identity; an older failure
+// cannot replace a newer live or completed attempt. Step entry and acceptance
+// reset the window through the same anchor the failed-attempt wall reads.
+func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
+	anchor, err := workflowSameStepWindowAnchor(ctx, q, definition, workID, "workflow_correction", 0)
+	if err != nil {
+		return nil, err
+	}
+	var attemptID, lifecycle string
+	var epoch int64
+	err = q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state,json_extract(c.payload,'$.attempt_epoch') FROM domain_events c JOIN worker_attempts a ON a.work_id=c.subject_id AND a.attempt_id=json_extract(c.payload,'$.worker_attempt_id') WHERE c.subject_type=? AND c.subject_id=? AND c.kind=? AND json_extract(c.payload,'$.action_id')='dispatch_worker' AND json_extract(c.payload,'$.step_id')=? AND c.seq>? ORDER BY c.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, stepID, anchor).Scan(&attemptID, &lifecycle, &epoch)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot inspect the latest authorized worker attempt", true, "retry once the worker authorization is readable", err)
+	}
+	if lifecycle != "failed" {
+		return nil, nil
+	}
+	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	return &WorkflowRetryApprovalBinding{FailedAttemptID: attemptID, FailedAttemptEpoch: epoch, ContractVersion: contractVersion}, nil
 }
 
 // workflowSameStepWallRetryBinding binds the same-step wall's approval when
@@ -498,7 +533,9 @@ func workflowCorrectionActiveHealthyBaseline(ctx context.Context, q queryer, wor
 
 func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
 	var count int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts a JOIN domain_events dispatch ON dispatch.subject_type=? AND dispatch.subject_id=a.work_id AND dispatch.kind=? AND json_extract(dispatch.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND dispatch.seq<=? AND dispatch.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=dispatch.subject_type AND accepted.subject_id=dispatch.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
+	// Authorization already creates an attempt. Dispatch evidence corroborates
+	// that same identity, so count it once rather than requiring or doubling it.
+	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=opening.subject_type AND accepted.subject_id=opening.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil

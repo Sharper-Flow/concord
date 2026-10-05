@@ -249,6 +249,9 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
 		Delivery:                    workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)},
 	}
+	if (state.attempt == "failed" || state.attempt == "failure_recorded") && stepDeclaresAction(definition, state.step, "dispatch_worker") {
+		folded.FailedWorkerRetry = &WorkflowRetryApprovalBinding{FailedAttemptID: "attempt:model", FailedAttemptEpoch: 1}
+	}
 	if folded.Delivery.ProofRequired {
 		folded.Delivery.ProofReady = state.proof
 		if state.started && !state.proof {

@@ -194,18 +194,18 @@ export class DispatchWindows {
     this.#refused.add(sessionID)
   }
 
-  // releaseRetained is the reconciliation route a retained authorization
-  // names: the coordinator abandons the unrecorded attempt, and the retained
-  // record drops so the session can dispatch again without a host restart.
+  // An accepted abandonment releases either an unused authorization window or
+  // a retained in-flight record. Neither may authorize another Task afterward.
   // The drop requires the caller to name the exact attempt identity the
   // record holds, and requires no settlement to be in progress, so a foreign
   // identity or a settling attempt leaves the retention guard exactly as it
   // was.
   releaseRetained(sessionID: string, attemptID: string, laneID: string): boolean {
     if (this.#settling.has(sessionID)) return false
-    const record = this.#inFlight.get(sessionID)
+    const record = this.#inFlight.get(sessionID) ?? this.#open.get(sessionID)
     if (!record) return false
     if (record.packet.attempt_id !== attemptID || record.packet.lane_id !== laneID) return false
+    this.#open.delete(sessionID)
     this.#inFlight.delete(sessionID)
     this.#refused.delete(sessionID)
     return true

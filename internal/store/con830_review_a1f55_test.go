@@ -134,7 +134,7 @@ func TestCoordinatorCON830CurrentContextRequiresCurrentSourceSet(t *testing.T) {
 	if err == nil {
 		t.Fatalf("strict read must refuse an unresolved current source set, not fall back to the historical home: %+v", result.Result.CurrentAmendmentContext)
 	}
-	degraded, err := s.QueryQ10(ctx, Q10Request{Product: "amendment-product", KnowledgeID: root, IncludeAmendmentContext: true, AllowDegraded: true})
+	degraded, err := s.QueryQ10(ctx, Q10Request{Product: "amendment-product", KnowledgeID: root, IncludeAmendmentContext: true, AmendmentContextAllowDegraded: true})
 	if err != nil {
 		t.Fatalf("degraded read refused instead of naming the omission: %v", err)
 	}

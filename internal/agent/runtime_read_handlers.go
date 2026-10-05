@@ -521,10 +521,15 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 		// Opt-in current amendment context (CON-830): the page carries its
 		// own verified source proof and never inherits the historical
 		// locator proof. The schema caps the limit at 1-32; the store core
-		// re-validates and refuses outside it.
+		// re-validates and refuses outside it. allow_degraded degrades the
+		// current context alone: absent or false keeps the strict refusal,
+		// and the historical locator/manifest/blob proof never reads the
+		// contextual flag, so a failed historical proof refuses whatever
+		// the caller opted into for the context.
 		req.IncludeAmendmentContext = true
 		req.AmendmentContextLimit = in.CurrentAmendmentContext.Limit
 		req.AmendmentContextCursor = in.CurrentAmendmentContext.Cursor
+		req.AmendmentContextAllowDegraded = in.CurrentAmendmentContext.AllowDegraded
 	}
 	q, err := r.Store.QueryQ10(ctx, req)
 	if err != nil {

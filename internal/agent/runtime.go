@@ -289,10 +289,13 @@ type knowledgeResolveInput struct {
 }
 
 // amendmentContextInput bounds the opt-in amendment-context page: 1-32
-// edges and a snapshot-bound continuation cursor.
+// edges, a snapshot-bound continuation cursor, and an explicit degradation
+// opt-in whose absence or false keeps the current context strict. The
+// opt-in never reaches the historical locator, manifest, or blob proof.
 type amendmentContextInput struct {
-	Limit  int    `json:"limit,omitempty"`
-	Cursor string `json:"cursor,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
+	AllowDegraded bool   `json:"allow_degraded,omitempty"`
 }
 
 type knowledgeUnprocessedInput struct {

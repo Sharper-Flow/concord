@@ -818,7 +818,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 				}
 			}
 			if len(roots) > 0 {
-				result, amendErr := queryKnowledgeRefinementContext(ctx, tx, KnowledgeRefinementContextRequest{Product: productID}, amendment.sources, orderedStrings(roots), refinementContextMaxLimit, amendment.verification)
+				result, amendErr := queryKnowledgeRefinementContext(ctx, tx, KnowledgeRefinementContextRequest{Product: productID, Work: workID}, amendment.sources, orderedStrings(roots), refinementContextMaxLimit, amendment.verification)
 				if amendErr != nil {
 					return nil, amendErr
 				}

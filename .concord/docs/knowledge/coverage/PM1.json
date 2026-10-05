@@ -15,6 +15,18 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestKnowledgeResolveNoteAmendmentContextOptIn"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewCurrentSourceSetDrift"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReviewDegradedBareQ10"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestReviewAmendmentDegradationInput"
     }
   ],
   "id": "PM1",

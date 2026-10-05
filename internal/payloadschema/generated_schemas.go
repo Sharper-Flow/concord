@@ -2584,6 +2584,13 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "knowledge_reference": {
+      "description": "Knowledge reference: a bare knowledge ID, or the source-qualified project_id/knowledge_id form (CD-0200 D4) that names the Project whose canonical knowledge locator owns the record. One '/' at most.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*(/[A-Za-z0-9][A-Za-z0-9._:-]*)?$",
+      "type": "string"
+    },
     "knowledge_resolve_input": {
       "additionalProperties": false,
       "oneOf": [
@@ -2613,6 +2620,11 @@ const GeneratedPayloadSchemaDocument = `{
           "additionalProperties": false,
           "description": "CON-830 opt-in: request the separately verified current amendment context of the resolved law record. The current source proof is independent of the historical locator proof and never inherits it. Absent on every historical-only read and on work notes; unknown fields refuse.",
           "properties": {
+            "allow_degraded": {
+              "default": false,
+              "description": "Explicit degradation opt-in for the current context only. Absent or false stays strict: a required current source that is unreachable, stale, or drifts from its verified snapshot refuses the read. True returns partial or degraded context that names every omission (unverified, gained, removed, or unresolved sources) and never claims an authoritative no-amendments graph; the historical locator proof is unaffected.",
+              "type": "boolean"
+            },
             "cursor": {
               "description": "Opaque continuation token from a prior page. It binds roots, filters, the source-set digest, the scanned source commit and content identities, and the last ordering key; a changed snapshot refuses continuation.",
               "maxLength": 4096,
@@ -2628,7 +2640,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "object"
         },
         "knowledge_id": {
-          "$ref": "#/$defs/id"
+          "$ref": "#/$defs/knowledge_reference"
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"

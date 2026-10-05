@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,7 +32,12 @@ const (
 // law_cross_source_relations projections: no inference, no transitive
 // edges, no clause authority, and no precedence derivation.
 type KnowledgeRefinementContextRequest struct {
-	Product       string
+	Product string
+	// Work, when set, binds the read's source set to the work's federated
+	// source selection (workflow law_context): the same home/role/product
+	// derivation verifyWorkflowLawContextSources owns, re-derived inside the
+	// read snapshot so work-scope drift cannot join two selections.
+	Work          string
 	Roots         []string
 	Limit         int
 	Cursor        string
@@ -370,6 +377,149 @@ func refinementRefuseSnapshotDrift(label, proof, current string) error {
 	return newFailure(KindStaleContext, "PM1.Q10.amendment_context", "the verified amendment-context source snapshot changed before the read: "+label+" was verified at "+proof+" but the read snapshot holds "+current, true, "re-verify the amendment-context sources and retry the read")
 }
 
+// refinementBoundSourceSet re-derives the request's current registered
+// source set inside the caller's read snapshot. A work-scoped request
+// (workflow law_context) repeats the pool verifier's exact selection — the
+// work's law home, its Product role, then the Product's registered set — so
+// an added or removed source registration, a re-designation, or a
+// work-scope change between pool verification and this snapshot changes the
+// answer. A Product-scoped request re-derives the Product's registered set.
+// bound=false names a caller-supplied set with no registration to bind.
+// resolvable=false names a set the snapshot cannot derive; that is drift,
+// not an empty graph, because the pool verifier may have resolved it.
+// Every read stays on the caller's queryer: no git probe and no nested pool
+// read runs here (CD-0195 D2, single-connection invariant).
+func refinementBoundSourceSet(ctx context.Context, q queryer, req KnowledgeRefinementContextRequest) (labels []string, bound bool, resolvable bool, err error) {
+	sourceLabels := func(homes []KnowledgeHome) []string {
+		out := make([]string, 0, len(homes))
+		for _, home := range homes {
+			out = append(out, home.HomeProjectID+"/"+home.HomeLocatorID)
+		}
+		return out
+	}
+	if req.Work != "" {
+		homeProjectID, homeLocatorID, homeErr := workflowLawHome(ctx, q, req.Work)
+		if homeErr != nil {
+			return nil, true, false, nil
+		}
+		labels := []string{homeProjectID + "/" + homeLocatorID}
+		productID, _, roleErr := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
+		if roleErr != nil {
+			return nil, true, false, nil
+		}
+		if productID != "" {
+			resolved, srcErr := resolveKnowledgeQuerySources(ctx, q, productID, "workflow.law_context")
+			if srcErr != nil {
+				return nil, true, false, nil
+			}
+			if len(resolved) > 0 {
+				labels = sourceLabels(resolved)
+			}
+		}
+		return labels, true, true, nil
+	}
+	if req.Product != "" {
+		resolved, srcErr := resolveKnowledgeQuerySources(ctx, q, req.Product, "PM1.Q10.amendment_context")
+		if srcErr != nil {
+			var failure *Failure
+			if errors.As(srcErr, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
+				return nil, true, false, nil
+			}
+			return nil, true, false, srcErr
+		}
+		return sourceLabels(resolved), true, true, nil
+	}
+	return nil, false, true, nil
+}
+
+// refinementSourceSetDrift compares the snapshot's bound source set with
+// the set the pool verifier proved. Gained labels are required sources the
+// verification never saw; lost labels were unregistered, re-designated, or
+// moved out of the work's scope after verification. Either way the verified
+// proof no longer describes the registered population the page reads.
+func refinementSourceSetDrift(current, verified []string) (gained, lost []string) {
+	currentSet, verifiedSet := map[string]bool{}, map[string]bool{}
+	for _, label := range current {
+		currentSet[label] = true
+	}
+	for _, label := range verified {
+		verifiedSet[label] = true
+	}
+	for _, label := range current {
+		if !verifiedSet[label] {
+			gained = append(gained, label)
+		}
+	}
+	for _, label := range verified {
+		if !currentSet[label] {
+			lost = append(lost, label)
+		}
+	}
+	sort.Strings(gained)
+	sort.Strings(lost)
+	return gained, lost
+}
+
+// refinementBindSourceSet applies the in-snapshot source-set check at the
+// top of the tx-scoped core. A proof that was strict at pool verification
+// (the caller refused degradation and every source verified authoritative)
+// refuses on drift: the page must not join that proof to a different
+// registered population. A proof that already names degradation keeps
+// naming omissions, so an already-degraded workflow context reports the
+// drift instead of failing the whole read. Either way a drifted page can
+// never present itself as authoritative over an unverified population.
+func refinementBindSourceSet(ctx context.Context, q queryer, req KnowledgeRefinementContextRequest, sources []KnowledgeHome, verification *refinementSourceVerification) error {
+	strict := !req.AllowDegraded && !verification.degraded
+	current, bound, resolvable, err := refinementBoundSourceSet(ctx, q, req)
+	if err != nil {
+		return err
+	}
+	if !bound {
+		return nil
+	}
+	verified := make([]string, 0, len(sources))
+	for _, source := range sources {
+		verified = append(verified, source.HomeProjectID+"/"+source.HomeLocatorID)
+	}
+	scope := req.Product
+	drift := func(detail string) error {
+		return newFailure(KindStaleContext, "PM1.Q10.amendment_context", fmt.Sprintf("the registered amendment-context source set changed before the read (%s): the verified set does not match the read snapshot's registered sources", detail), true, "re-verify the amendment-context sources and retry the read")
+	}
+	if !resolvable {
+		if scope == "" {
+			scope = req.Work
+		}
+		if strict {
+			return drift("current source set unresolved for " + scope)
+		}
+		verification.degraded = true
+		verification.omissions = append(verification.omissions, "current_source_set_unresolved:"+scope)
+		return nil
+	}
+	gained, lost := refinementSourceSetDrift(current, verified)
+	if len(gained) == 0 && len(lost) == 0 {
+		return nil
+	}
+	detail := make([]string, 0, len(gained)+len(lost))
+	for _, label := range gained {
+		detail = append(detail, "gained "+label)
+	}
+	for _, label := range lost {
+		detail = append(detail, "removed "+label)
+	}
+	if strict {
+		return drift(strings.Join(detail, ", "))
+	}
+	verification.degraded = true
+	for _, label := range gained {
+		verification.omissions = append(verification.omissions, "source_set_gained_unverified_source:"+label)
+	}
+	for _, label := range lost {
+		verification.omissions = append(verification.omissions, "source_set_member_unregistered:"+label)
+	}
+	return nil
+}
+
 // refinementCountRow is one per-source qualifying-edge count group. The
 // same rows feed the cursor's snapshot digest and the incomplete-root
 // accounting, so page selection never reads the unbounded edge population
@@ -444,6 +594,13 @@ func refinementSnapshotDigest(identities map[string][3]string, counts []refineme
 // endpoint enrichment, and the cursor.
 func queryKnowledgeRefinementContext(ctx context.Context, q queryer, req KnowledgeRefinementContextRequest, sources []KnowledgeHome, roots []string, limit int, verification refinementSourceVerification) (KnowledgeRefinementContextResult, error) {
 	var out KnowledgeRefinementContextResult
+	// The registered source set is bound inside the same read snapshot as
+	// the watermarks and relations: a Product peer registered after pool
+	// verification, or a workflow work-scope change, refuses the strict
+	// read and names the omission on a degraded one (CON-830 review).
+	if err := refinementBindSourceSet(ctx, q, req, sources, &verification); err != nil {
+		return out, err
+	}
 	drifts, identities := refinementWatermarkDrift(ctx, q, sources, verification)
 	if len(drifts) > 0 {
 		if !req.AllowDegraded {

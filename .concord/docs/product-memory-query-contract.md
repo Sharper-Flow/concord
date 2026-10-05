@@ -327,10 +327,15 @@ The JSON corpus is executable through a candidate adapter implementing
   through that Project's canonical knowledge locator. A bare ID resolves across
   the Product's registered source set and refuses as `ambiguous` when more than
   one source holds it. Every returned locator names its source Project,
-  repository-relative path, commit OID, and content hash.
+  repository-relative path, commit OID, and content hash. An explicitly
+  degraded bare-ID read may return the locator, marked degraded with one named
+  omission per unverified registered source; it never asserts authoritative
+  uniqueness over an incomplete source population.
 - **Opt-in current amendment context (amended 2026-10-04 by `CON-830`):** a law
   reference may request a separate `current_amendment_context` section with
-  `limit` 1-32 (default 20) and an opaque `cursor`. The section lists direct
+  `limit` 1-32 (default 20), an opaque `cursor`, and an explicit
+  `allow_degraded` opt-in scoped to the section. Absent or false keeps the
+  strict refusals; true names each omission instead. The section lists direct
   incoming refinements whose endpoint record is accepted, plus explicitly
   declared outgoing relations, same-home or cross-source. Each edge carries its
   qualified endpoint, locator, title, status, source identity, scanned commit,
@@ -342,8 +347,11 @@ The JSON corpus is executable through a candidate adapter implementing
   the read snapshot against the scanned commit each watermark proved. It never
   inherits the historical locator proof, and a current source set that cannot
   resolve is never replaced by the historical home: a strict read refuses it
-  outright. A strict read refuses a failed required source or snapshot drift.
-  A read that allows degradation names each
+  outright. A strict read refuses a failed required source or snapshot drift,
+  and refuses a registered source set that changed after verification: a source
+  added, removed, re-designated, or unresolved inside the read snapshot is
+  drift, never a quiet authoritative population. A read that allows degradation
+  names each
   omission and never claims an authoritative empty graph from incomplete
   sources. Absent the opt-in, the historical-only shape and proof stay
   unchanged. Work notes never carry the section.

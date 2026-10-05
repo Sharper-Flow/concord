@@ -70,9 +70,14 @@ type KnowledgeSourceWatermark struct {
 }
 
 type Q10Request struct {
-	Work          string
-	KnowledgeID   string
-	Product       string
+	Work        string
+	KnowledgeID string
+	Product     string
+	// AllowDegraded is the historical read's own degradation opt-in
+	// (CON-830 review): it degrades the bare-ID population verification
+	// and the recorded locator/manifest/blob proof paths below. The
+	// resolve_note surface never sets it, so a surfaced historical proof
+	// failure always refuses.
 	AllowDegraded bool
 	Home          KnowledgeHome
 	// IncludeAmendmentContext opts the read into the separate
@@ -84,6 +89,13 @@ type Q10Request struct {
 	// the opt-in amendment-context page (1-32 edges, snapshot-bound).
 	AmendmentContextLimit  int
 	AmendmentContextCursor string
+	// AmendmentContextAllowDegraded degrades the current_amendment_context
+	// section alone: strict refusal stays the default for required current
+	// sources, and a degraded page names its omissions instead of claiming
+	// an authoritative no-amendments graph. It never reaches AllowDegraded:
+	// the historical locator, manifest, and blob proof paths above cannot
+	// be degraded by a contextual opt-in.
+	AmendmentContextAllowDegraded bool
 }
 
 // parseQualifiedKnowledgeID splits the source-qualified reference form
@@ -457,11 +469,19 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	// ID that this projection cannot see — the same population refusal Q9
 	// gives. A one-element set, a caller-supplied home, a qualified
 	// reference, and a work lookup verify trivially or not at all, exactly
-	// as before.
+	// as before. Contextual degradation permits an incomplete current source
+	// population, not an unverified historical locator or blob. Such an
+	// answer names omissions and cannot assert authoritative uniqueness.
+	populationOmissions := make([]string, 0)
+	populationAllowDegraded := req.AllowDegraded || (req.IncludeAmendmentContext && req.AmendmentContextAllowDegraded)
 	if len(sourceScope) > 1 && !homeSupplied {
 		for _, source := range sourceScope {
-			if _, _, err := validateKnowledgeHomeForQueryCore(ctx, db, source, false, "PM1.Q10"); err != nil {
+			_, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, populationAllowDegraded, "PM1.Q10")
+			if err != nil {
 				return out, err
+			}
+			if authority != "authoritative" {
+				populationOmissions = append(populationOmissions, "bare_id_population_unverified:"+source.HomeProjectID+"/"+source.HomeLocatorID)
 			}
 		}
 	}
@@ -523,6 +543,13 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	}
 	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
 	out.ResultMeta = q10HistoricalMeta(req)
+	if len(populationOmissions) > 0 {
+		// The degraded opt-in returned a locator this projection can see, but
+		// an unverified registered source could hold another copy of the ID:
+		// the historical answer is never authoritative uniqueness.
+		out.Authority = "degraded"
+		out.Omissions = append(out.Omissions, populationOmissions...)
+	}
 	if kind == "work_note" {
 		verified, verifyErr := VerifyCommittedNote(ctx, storedHome.RepoPath, commit, path, hash)
 		if verifyErr != nil {
@@ -568,7 +595,9 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 				// refuses the unresolved source set outright, and a
 				// degraded read names the omission and never claims an
 				// authoritative graph over the unresolved set (CON-830).
-				if !req.AllowDegraded {
+				// Only the context degrades here; the historical proof
+				// paths above never read this flag.
+				if !req.AmendmentContextAllowDegraded {
 					return out, srcErr
 				}
 				seededOmissions = append(seededOmissions, "current_source_set_unresolved:"+req.Product)
@@ -582,7 +611,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			Roots:           []string{amendmentRoot},
 			Limit:           req.AmendmentContextLimit,
 			Cursor:          req.AmendmentContextCursor,
-			AllowDegraded:   req.AllowDegraded,
+			AllowDegraded:   req.AmendmentContextAllowDegraded,
 			Sources:         amendmentSources,
 			SeededOmissions: seededOmissions,
 		})

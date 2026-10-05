@@ -83,6 +83,14 @@ func seedAmendmentWireHome(t *testing.T, s *store.Store) {
 	}
 }
 
+func seedUnreachableAmendmentPeer(t *testing.T, s *store.Store) {
+	t.Helper()
+	execPopulationStatement(t, s, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('proj-amend-peer','Amendment peer',1,'now','now')`)
+	execPopulationStatement(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('amendment-peer-locator','proj-amend-peer','canonical_path','/nonexistent/amendment-peer','/nonexistent/amendment-peer','now','now')`)
+	execPopulationStatement(t, s, `INSERT INTO product_projects(product_id,project_id,role) VALUES('prod-alpha','proj-amend-peer','secondary')`)
+	execPopulationStatement(t, s, `INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('prod-alpha','proj-amend-peer','amendment-peer-locator','now')`)
+}
+
 // TestKnowledgeResolveNoteAmendmentContextOptIn drives the real
 // concord_knowledge.resolve_note handler and generated input surface: the
 // opt-in read carries the separately proved current_amendment_context

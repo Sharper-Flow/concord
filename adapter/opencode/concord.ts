@@ -2238,7 +2238,10 @@ async function recordVacateLanding(workID: string, sessionRef: string, landedDir
 
 // moveSessionToRegisteredMainCheckout applies the core-derived vacate target.
 // The agent can request the operation but cannot name or replace its destination.
-export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
+// premoved reports that the caller already moved the host session to the
+// remembered destination in this turn, so the verified landing arms the turn
+// move boundary before the notice is rendered from it.
+export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope, premoved = false): Promise<HostConcordEnvelope> {
   if (args?.operation !== "session_vacate") return envelope
   const requestID = `${context.sessionID}-${context.messageID}`
   const input = args.input
@@ -2335,8 +2338,9 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   clearClaimedWorktree(context.sessionID)
   // A move the host readback decided completed in this turn even when a
   // stale tool context already names the destination, so the move fact, not
-  // the tool context, arms the boundary.
-  if (moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
+  // the tool context, arms the boundary. A caller's pre-move counts as the
+  // same move fact.
+  if (premoved || moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   // The verified landing moved the session to the registered main checkout,
   // so the result this call encodes carries the move notice.
   recordMoveNotice(context.sessionID, moveNoticeText(destination, dispatchRequiresNextTurn(context.sessionID)))
@@ -2439,12 +2443,9 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
       context.directory = remembered
     }
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-    const settled = await moveSessionToRegisteredMainCheckout(args, context, envelope)
-    // The pre-move relocated the session during this turn, so the turn move
-    // boundary arms exactly as it does for the in-route move once the
-    // verified landing confirms the destination.
-    if (movedToRemembered && settled.outcome === "ok") armTurnMoveBoundary(context.sessionID)
-    return settled
+    // The pre-move relocated the session during this turn, so the verified
+    // landing arms the turn-move boundary exactly as the in-route move does.
+    return await moveSessionToRegisteredMainCheckout(args, context, envelope, movedToRemembered)
   }
   if (args?.operation === "worktree_claim") {
     // The claimed worktree's occupancy row records the recording host's

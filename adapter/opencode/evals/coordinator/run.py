@@ -160,6 +160,18 @@ def command_to_files(command, root, stem, timeout):
             return None
 
 
+# The recording doubles import their tool descriptions from these production
+# sources, and the scenario notice doubles mirror move-notice.ts. Each run
+# snapshots them outside the repository and verifies their bytes after the
+# run, so a result identifies the exact production guidance it evaluated.
+PRODUCTION_SOURCES = (
+    "adapter/opencode/concord.ts",
+    "adapter/opencode/generated-contracts.ts",
+    "adapter/opencode/move-notice.ts",
+    "contracts/host-tool-surface.v1.json",
+)
+
+
 def run_case(args, name, source, originals):
     case = SCENARIOS[name]
     root = Path(tempfile.mkdtemp(prefix=f"coordinator-{name}-", dir=args.artifacts_dir))
@@ -171,6 +183,12 @@ def run_case(args, name, source, originals):
         content = Path(__file__).with_name(filename).read_bytes()
         (root / "evaluation-sources" / filename).write_bytes(content)
         evaluator_hashes[filename] = digest(content)
+    (root / "production-sources").mkdir()
+    production_hashes = {}
+    for relative in PRODUCTION_SOURCES:
+        content = (args.repo.resolve() / relative).read_bytes()
+        (root / "production-sources" / relative.replace("/", "__")).write_bytes(content)
+        production_hashes[relative] = digest(content)
     write_json(root / "case.json", case)
     receipts, paths, hashes = {}, [], {}
 
@@ -223,6 +241,9 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
 '''
     runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
     (root / ".opencode/tools/runtime_status.ts").write_text(runtime_source)
+    tool_files = [root / ".opencode/tools/concord.ts", root / ".opencode/recording-tool.ts",
+                  root / ".opencode/tools/runtime_status.ts"]
+    tool_hashes = {str(path.relative_to(root)): digest(path.read_bytes()) for path in tool_files}
     (root / "scenario.txt").write_text(case["prompt"])
     # File-backed output preserves CLI output when the subprocess exits quickly.
     exit_code = command_to_files([
@@ -244,6 +265,9 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
         identity_verified = bool(identities) and all(item == {"agent": "coordinator-probe", "model": args.model} for item in identities)
         unchanged = all(digest(Path(path).read_bytes()) == hashes[Path(path).name] for path in paths)
         unchanged = unchanged and digest((root / "opencode.json").read_bytes()) == config_hash
+        unchanged = unchanged and all(digest((root / relative).read_bytes()) == value for relative, value in tool_hashes.items())
+        unchanged = unchanged and all(
+            digest((args.repo.resolve() / relative).read_bytes()) == value for relative, value in production_hashes.items())
         result = evaluate(case, calls, events, exit_code, receipts)
         result.update({"runtime_identities": identities, "identity_verified": identity_verified, "snapshots_unchanged": unchanged})
         result["passed"] = result["passed"] and identity_verified and unchanged
@@ -255,6 +279,8 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
         "instruction_sha256": {name: digest(content) for name, content in originals.items()},
         "snapshot_sha256": hashes, "config_sha256": config_hash,
         "evaluator_sha256": evaluator_hashes,
+        "production_source_sha256": production_hashes,
+        "tool_source_sha256": tool_hashes,
         "limits": "Advisory instrumented coordinator evaluation. No lane attempt, real state mutation, deployment proof, or independent review authority.",
     })
     write_json(root / "result.json", result)

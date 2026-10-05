@@ -177,6 +177,37 @@ func TestPlanUpgradeReadinessPendingBreakingBlocksActivation(t *testing.T) {
 	}
 }
 
+// A store written by a release that predates the manifest's breaking column
+// still plans, read-only: the plan reads every recorded row as breaking, the
+// value the migration command's additive repair writes, and leaves the
+// column absent for that command to add.
+func TestPlanUpgradeReadinessReadsAManifestThatPredatesTheBreakingColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "store.db")
+	craftPartialStore(t, path)
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
+		t.Fatalf("drop the breaking column: %v", err)
+	}
+	_ = db.Close()
+	before := fileDigest(t, path)
+	plan, err := PlanUpgradeReadiness(context.Background(), path)
+	if err != nil {
+		t.Fatalf("a legacy manifest must plan, not fail: %v", err)
+	}
+	if after := fileDigest(t, path); after != before {
+		t.Fatal("planning repaired or otherwise changed the database file")
+	}
+	if !plan.ActivationBlocked || len(plan.PendingBreaking) == 0 {
+		t.Fatalf("the shipped breaking step stays pending on a legacy manifest: %+v", plan)
+	}
+	if want := firstBreakingVersion(t) - 1; plan.CompatibilityFloor != want {
+		t.Fatalf("legacy rows read as breaking: floor = %d, want %d", plan.CompatibilityFloor, want)
+	}
+}
+
 // The floor is what the store applied, not what this binary defines: a
 // store through the first breaking step reports that step as its floor.
 func TestPlanUpgradeReadinessFloorIsTheHighestAppliedBreakingStep(t *testing.T) {

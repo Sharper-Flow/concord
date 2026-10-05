@@ -204,21 +204,6 @@ func ReadFence(dataRoot string) (*Fence, error) {
 	return &fence, nil
 }
 
-// RemoveFence closes the maintenance boundary. The activation calls it only
-// after the prepared candidate committed and release cleanup finished, under
-// the shared admission lock so a concurrent admission cannot slip between the
-// last cleanup decision and the reopened boundary. Removing an absent fence
-// is a no-op so completion stays idempotent.
-func RemoveFence(dataRoot string) error {
-	_, err := withAdmissionLock(dataRoot, func() (struct{}, error) {
-		if err := os.Remove(FencePath(dataRoot)); err != nil && !os.IsNotExist(err) {
-			return struct{}{}, fmt.Errorf("hostlease: cannot remove %s: %w", FencePath(dataRoot), err)
-		}
-		return struct{}{}, nil
-	})
-	return err
-}
-
 // RemoveFenceOwned closes the maintenance boundary only when the fence in
 // effect still carries fenceID. Removal by position — unlink whatever sits
 // at the path — lets an operation that observed no fence on entry delete a
@@ -332,7 +317,7 @@ func admissionLockPath(dataRoot string) string {
 
 // withAdmissionLock runs fn while holding the exclusive admission lock for
 // the data root. Admission (Write) and boundary changes (EnsureFence,
-// RemoveFence) take the same lock, which is what makes the fence exclusion
+// RemoveFenceOwned) take the same lock, which is what makes the fence exclusion
 // shared: a lease cannot land between a boundary's check and its record, and
 // a boundary cannot open between a lease's fence check and its write. The
 // lock is advisory and Linux-only, matching the release platform.

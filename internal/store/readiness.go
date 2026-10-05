@@ -165,13 +165,12 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 			"cannot read the schema manifest", false, "confirm the database is readable", err)
 	}
 	applied, err := appliedMigrations(ctx, tx)
+	if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
+		// The migration command repairs this column additively, marking every
+		// recorded row breaking; the plan reads that result without writing it.
+		applied, err = legacyManifestMigrations(ctx, tx)
+	}
 	if err != nil {
-		if strings.Contains(err.Error(), "no such column: breaking") {
-			// Repairing the manifest column is a write; readiness stays closed.
-			return nil, false, newFailure(KindReadinessUnknown, "readiness",
-				"the schema manifest predates the breaking column and cannot be read without repair", false,
-				"do not activate; run the operator-owned offline bootstrap")
-		}
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
 			"cannot read the applied migrations", false, "confirm the database is readable", err)
 	}

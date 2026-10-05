@@ -187,8 +187,8 @@ func TestFenceExcludesNewAdmissionAndIsAdoptedNotRewritten(t *testing.T) {
 	if adopted.FenceID != fence.FenceID || adopted.Notice != fence.Notice {
 		t.Fatalf("an open fence was rewritten: %+v want %+v", adopted, fence)
 	}
-	if err := RemoveFence(root); err != nil {
-		t.Fatalf("RemoveFence() error = %v", err)
+	if err := RemoveFenceOwned(root, fence.FenceID); err != nil {
+		t.Fatalf("RemoveFenceOwned() error = %v", err)
 	}
 	if err := Write(root, selfLease(t, 115)); err != nil {
 		t.Fatalf("Write() after the fence closed = %v, want admission", err)

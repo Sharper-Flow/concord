@@ -136,7 +136,7 @@ func TestHostLeaseAdmissionIsExcludedUnderTheFence(t *testing.T) {
 	if !strings.Contains(errOut.String(), fence.Notice) || !strings.Contains(errOut.String(), "maintenance") {
 		t.Fatalf("the admission refusal must carry the fence notice: %s", errOut.String())
 	}
-	if err := hostlease.RemoveFence(root); err != nil {
+	if err := hostlease.RemoveFenceOwned(root, fence.FenceID); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

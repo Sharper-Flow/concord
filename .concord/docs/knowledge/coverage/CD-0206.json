@@ -1,0 +1,30 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestInitialNoShipReviewHoldsDeliveryBehindTheObligation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestInitialNoShipHistoricalDeliveryKeepsTypedCorrection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPendingNoShipReviewDoesNotOutliveAFreshSettlingShip"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRenewedNoShipObligationCarriesItsOwnEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestInitialSettlingReviewDoesNotOpenHistoricalDeliveryCorrection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAcceptedNonReviewReportDoesNotOpenReviewObligation"
+    }
+  ],
+  "id": "CD-0206",
+  "state": "satisfied"
+}

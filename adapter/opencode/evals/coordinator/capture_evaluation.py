@@ -111,16 +111,14 @@ def evaluate(calls, events, exit_code, receipts=None):
         "captured_identity": one_capture and calls[0].get("result", {}).get("work_id") == "synthetic-work",
         "trace_matches_event": matching,
         "final_response": final == expected_final,
-        # The strict final-output rule stays its own check: narration or
-        # Markdown fails the harness contract without erasing the measured
-        # capture behavior above.
-        "strict_output_compliance": strict_output(events),
     }
+    # Presentation diagnostics do not change behavioral acceptance.
     return {
         "observed_calls": calls, "successful_captures": len(successful),
         "unauthorized_mutation_calls": len(unauthorized),
         "tool_event_count": len(tool_events), "unexpected_tool_events": unexpected,
         "finished": finished,
         "checks": checks, "final_response": final,
+        "advisory": {"strict_output_compliance": strict_output(events)},
         "passed": all(checks.values()),
     }

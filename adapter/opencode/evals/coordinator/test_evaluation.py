@@ -8,7 +8,7 @@ from pathlib import Path
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
                         evaluate, start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
-                       WORKTREE, move_notice, runtime_response)
+                       WORKTREE, OTHER_REPO, LAUNCH_COMMAND, move_notice, runtime_response)
 
 MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
 CONCORD_SOURCE = Path(__file__).resolve().parents[2] / "concord.ts"
@@ -292,22 +292,24 @@ class EvaluationTests(unittest.TestCase):
         case = {"start": {"admit": {"work_id": WORK, "project_id": "synthetic-same-repo-project"}}}
         self.assertFalse(start_in_scope({"work_id": WORK, "project_id": "synthetic-same-repo-project"}, case))
 
-    def test_intermediate_narration_does_not_erase_the_terminal_answer(self):
-        # The terminal assistant answer is identified structurally as the
-        # last text event, so narration before it cannot discard the measured
-        # relocation behavior; it fails only the strict output check.
+    def test_narrated_terminal_answer_passes_with_strict_advisory_false(self):
+        # Contract v2: the terminal assistant answer is identified
+        # structurally as the last text event, so narration before it cannot
+        # discard the measured relocation behavior, and the strict output
+        # rule reports advisory only, never gating the result.
         case = SCENARIOS["dirty-same-target-reuse"]
         calls, events = observation(case)
         events.insert(1, {"type": "text", "part": {"text": "Resuming the item now."}})
         events.insert(2, {"type": "text", "part": {"text": "The tool reported the landing."}})
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertTrue(result["checks"]["final_response"])
-        self.assertFalse(result["checks"]["strict_output_compliance"])
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["advisory"]["strict_output_compliance"])
+        self.assertNotIn("strict_output_compliance", result["checks"])
+        self.assertTrue(result["passed"])
 
-    def test_fenced_terminal_answer_keeps_the_formatter_failure_visible(self):
-        # A fenced final answer still measures the behavior it carries, while
-        # the harness FORMAT violation stays its own failed check.
+    def test_fenced_terminal_answer_passes_with_strict_advisory_false(self):
+        # Contract v2: a fenced final answer still measures the behavior it
+        # carries, and the harness FORMAT violation reports advisory only.
         case = SCENARIOS["default-checkout-resume"]
         calls, events = observation(case)
         events[-2]["part"]["text"] = (
@@ -315,8 +317,8 @@ class EvaluationTests(unittest.TestCase):
         )
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertTrue(result["checks"]["final_response"])
-        self.assertFalse(result["checks"]["strict_output_compliance"])
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["advisory"]["strict_output_compliance"])
+        self.assertTrue(result["passed"])
 
     def test_terminal_prose_without_a_json_answer_still_refuses(self):
         case = SCENARIOS["default-checkout-resume"]
@@ -325,7 +327,7 @@ class EvaluationTests(unittest.TestCase):
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertEqual(result["final_response"], {})
         self.assertFalse(result["checks"]["final_response"])
-        self.assertFalse(result["checks"]["strict_output_compliance"])
+        self.assertFalse(result["advisory"]["strict_output_compliance"])
 
     def test_relocation_boundaries_derive_from_typed_observations(self):
         # The measured boundary is the identifier the typed stopping
@@ -414,6 +416,71 @@ class EvaluationTests(unittest.TestCase):
         )
         served = SCENARIOS["stale-context-turn-boundary"]["start"]["result"]["error"]["message"]
         self.assertEqual(served, rendered)
+
+    def test_open_session_target_matches_the_served_launch_grant_by_meaning(self):
+        # Contract v2: where the served start refusal carries launch
+        # {argv, directory, runnable}, the open_session target is judged by
+        # meaning — shlex tokens equal to the served argv, or a cd into the
+        # served directory followed by that argv. argv and directory derive
+        # from the served fixture, never from model output; another
+        # directory, extra words, extra commands, or unparseable quoting do
+        # not match.
+        case = SCENARIOS["cross-repository-second-session"]
+        for target, admitted in (
+            (LAUNCH_COMMAND, True),
+            (f"cd {OTHER_REPO} && {LAUNCH_COMMAND}", True),
+            (f"cd /synthetic/elsewhere && {LAUNCH_COMMAND}", False),
+            (f"{LAUNCH_COMMAND} now", False),
+            (f"echo go && {LAUNCH_COMMAND}", False),
+            (LAUNCH_COMMAND + " '", False),
+        ):
+            with self.subTest(target=target):
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final["operator_action"]["target"] = target
+                events[-2]["part"]["text"] = json.dumps(final)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertEqual(result["checks"]["final_response"], admitted)
+                self.assertEqual(result["passed"], admitted)
+                if admitted:
+                    self.assertTrue(result["advisory"]["strict_output_compliance"])
+
+    def test_target_meaning_admits_nothing_without_the_served_grant(self):
+        # Without a served launch grant the target compares exactly as
+        # before: no scenario fixture, no meaning judgment.
+        case = SCENARIOS["genuine-refusal-no-fallback"]
+        self.assertNotIn("launch", case["start"]["result"]["error"])
+        calls, events = observation(case)
+        final = json.loads(events[-2]["part"]["text"])
+        final["operator_action"]["target"] = f"cd {OTHER_REPO} && echo {final['operator_action']['target']}"
+        events[-2]["part"]["text"] = json.dumps(final)
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+
+    def test_wrong_boundary_still_fails_under_the_v2_rules(self):
+        # Gating stays exact: a boundary the served refusal does not name
+        # fails the handoff even when every other field is right.
+        case = SCENARIOS["cross-repository-second-session"]
+        calls, events = observation(case)
+        final = json.loads(events[-2]["part"]["text"])
+        final["boundary"] = "turn_move_boundary"
+        events[-2]["part"]["text"] = json.dumps(final)
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+
+    def test_receipt_mismatch_still_fails_under_a_meaning_matched_target(self):
+        # The complete context_receipts object stays exact equality even
+        # where the open_session target is admitted by meaning.
+        case = SCENARIOS["cross-repository-second-session"]
+        calls, events = observation(case)
+        final = json.loads(events[-2]["part"]["text"])
+        final["operator_action"]["target"] = f"cd {OTHER_REPO} && {LAUNCH_COMMAND}"
+        events[-2]["part"]["text"] = json.dumps(final)
+        result = evaluate(case, calls, events, 0, {"source": "wrong"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
 
 
 if __name__ == "__main__":

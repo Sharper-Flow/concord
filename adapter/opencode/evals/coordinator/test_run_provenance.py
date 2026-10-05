@@ -2,10 +2,13 @@
 import argparse
 import copy
 import hashlib
+import io
 import json
 import shutil
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -79,6 +82,37 @@ class RunProvenanceTests(unittest.TestCase):
             tool.write_text(tool.read_text() + "\n// changed\n")
         result = self.run_case(during=change)
         self.assertFalse(result["snapshots_unchanged"])
+
+    def test_result_json_carries_the_non_gating_advisory_object(self):
+        # Contract v2: run.py writes the evaluator's advisory object to
+        # result.json, and the strict output rule is no gating check.
+        result = self.run_case()
+        recorded = json.loads((Path(result["artifact_dir"]) / "result.json").read_text())
+        self.assertEqual(recorded.get("advisory"), {"strict_output_compliance": False})
+        self.assertNotIn("strict_output_compliance", recorded["checks"])
+
+    def test_main_prints_the_advisory_object_on_the_per_case_line(self):
+        # Contract v2: the printed per-case line reports the advisory object
+        # beside the gating checks.
+        (self.repo / ".concord/instructions").mkdir(parents=True)
+        (self.repo / ".concord/instructions/rules.md").write_bytes(b"rule")
+        source = self.artifacts / "coordinator.md"
+        source.write_text("coordinator body")
+        argv = ["run.py", "--repo", str(self.repo), "--agent-source", str(source),
+                "--sdk-tool", "/synthetic/sdk/tool.js", "--model", "synthetic/model",
+                "--artifacts-dir", str(self.artifacts)]
+        result = {"scenario": "input-correction", "passed": True, "artifact_dir": "/synthetic/dir",
+                  "checks": {"final_response": True},
+                  "advisory": {"strict_output_compliance": False},
+                  "final_response": {"status": "completed", "work_id": "synthetic-work"}}
+        buffer = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(run, "run_case", return_value=result), \
+                redirect_stdout(buffer):
+            self.assertEqual(run.main(), 0)
+        printed = json.loads(buffer.getvalue().strip())
+        self.assertEqual(printed["advisory"], {"strict_output_compliance": False})
+        self.assertNotIn("strict_output_compliance", printed["checks"])
 
 
 # The boundary sources in the precedence evaluation.typed_start_boundary

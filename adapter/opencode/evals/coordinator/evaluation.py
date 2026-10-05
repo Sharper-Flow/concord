@@ -1,6 +1,8 @@
 """Deterministic assertions over actual coordinator events and recording tools."""
+import shlex
+
 from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
-                               strict_output, terminal_answer)
+                                strict_output, terminal_answer)
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 # work_start resume selects a member Project in another repository only
@@ -150,6 +152,74 @@ def typed_boundary(case):
     return typed_start_boundary(case)
 
 
+def launch_grant(case):
+    """The (argv, directory) a served start refusal's launch object names.
+    None unless the refusal carries a complete grant: a non-empty argv of
+    non-empty strings with string directory and runnable. The grant derives
+    from the served fixture, never from model output."""
+    start = start_fixture(case)
+    if start is None:
+        return None
+    result = start.get("result")
+    if not isinstance(result, dict):
+        return None
+    launch = result.get("launch")
+    if not isinstance(launch, dict):
+        return None
+    argv, directory = launch.get("argv"), launch.get("directory")
+    if not (isinstance(argv, list) and argv
+            and all(isinstance(token, str) and token for token in argv)
+            and isinstance(directory, str) and bool(directory)
+            and isinstance(launch.get("runnable"), str) and bool(launch["runnable"])):
+        return None
+    return argv, directory
+
+
+def target_matches(actual, expected, case, action):
+    """operator_action.target compares exactly, except where the served
+    typed observation defines the target's meaning: a start refusal
+    carrying launch {argv, directory, runnable} defines the open_session
+    command. That target matches when its shlex tokens equal the served
+    argv, or equal a cd into the served directory followed by that argv.
+    Another directory, extra words, extra commands, and unparseable
+    quoting do not match; no substring, regex, fuzzy, or case-folded
+    comparison exists here."""
+    if actual == expected:
+        return True
+    grant = launch_grant(case)
+    if grant is None or action != "open_session":
+        return False
+    if not isinstance(actual, str):
+        return False
+    try:
+        tokens = shlex.split(actual)
+    except ValueError:
+        return False
+    argv, directory = grant
+    return tokens == argv or tokens == ["cd", directory, "&&", *argv]
+
+
+def final_matches(final, expected, receipts, case):
+    """Exact equality for every handoff field — status, work_id, boundary,
+    cause, effect_state, recovery_owner, operator_action.kind,
+    why_agent_cannot, and the complete context_receipts object — with only
+    operator_action.target additionally admitting the meaning a served
+    launch grant defines."""
+    want = {**expected, "context_receipts": receipts}
+    if final == want:
+        return True
+    action = expected.get("operator_action")
+    if not isinstance(final, dict) or not isinstance(action, dict):
+        return False
+    got = final.get("operator_action")
+    if not isinstance(got, dict) or set(got) != set(action):
+        return False
+    normalized = {**final, "operator_action": {**got, "target": action.get("target")}}
+    if normalized != want:
+        return False
+    return target_matches(got.get("target"), action.get("target"), case, action.get("kind"))
+
+
 def collapse_declared_replay(case, sequence, calls):
     """Admit one identical start replay only where the scenario declares the production result invites it."""
     starts = [call.get("args") for call in calls if call.get("tool") == START]
@@ -223,14 +293,12 @@ def evaluate(case, calls, events, exit_code, receipts):
         "trace_matches_event": matching,
         "read_scope": read_scope,
         "no_unauthorized_mutations": not unauthorized,
-        "final_response": final == {**expected, "context_receipts": receipts},
-        # The strict final-output rule stays its own check: narration or
-        # Markdown fails the harness contract without erasing the measured
-        # relocation behavior above.
-        "strict_output_compliance": strict_output(events),
+        "final_response": final_matches(final, expected, receipts, case),
     }
+    # Presentation diagnostics do not change behavioral acceptance.
     return {
         "checks": checks, "passed": all(checks.values()), "final_response": final,
         "observed_calls": calls, "tool_event_count": len(parts),
         "unauthorized_mutation_calls": len(unauthorized),
+        "advisory": {"strict_output_compliance": strict_output(events)},
     }

@@ -5,16 +5,16 @@ import (
 	"database/sql"
 )
 
-// WorkflowReviewDebt names the post-rejection review debt state the admission
+// WorkflowReviewDebt names the unresolved refinement review state the admission
 // fold derives from one work item's refinement history.
 type WorkflowReviewDebt string
 
 const (
-	// ReviewDebtNone reports no rejected refinement result awaits a fresh
-	// accepted review.
+	// ReviewDebtNone reports no rejected result or accepted no_ship review
+	// awaits a fresh settling review.
 	ReviewDebtNone WorkflowReviewDebt = "none"
-	// ReviewDebtOutstanding reports a rejected refinement result whose fresh
-	// accepted review — verdict ship or absent — has not been accepted.
+	// ReviewDebtOutstanding reports a rejected result or accepted no_ship
+	// review whose fresh review — verdict ship or absent — remains unaccepted.
 	ReviewDebtOutstanding WorkflowReviewDebt = "outstanding"
 )
 
@@ -71,7 +71,7 @@ type WorkflowAdmissionState struct {
 	// worker results: accept_worker_result, accept_worker_evidence,
 	// reject_worker_result, record_worker_failure, or "" when none stands.
 	LatestResultDisposition string
-	// ReviewDebt is the folded post-rejection review debt.
+	// ReviewDebt is the folded unresolved refinement review obligation.
 	ReviewDebt WorkflowReviewDebt
 	// ReadyReviewAttemptID names the completed review attempt whose
 	// acceptance is the settling fresh review, or "" when none stands

@@ -505,7 +505,9 @@ var knowledgeNoteDirs = []string{
 // moves the shard tree OID. The digest is therefore a function of projected
 // content alone: a commit that touches none of the objects leaves it
 // unchanged. An absent object contributes its absence, so a manifest added or
-// removed changes the digest.
+// removed changes the digest. The note blobs the shards point at are covered
+// separately, by knowledgeProjectedBlobsUnchanged in the freshness predicate:
+// a body-only edit moves none of the objects above.
 func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
 	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"))
 	if err != nil {

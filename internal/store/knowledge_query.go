@@ -477,23 +477,30 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 	populationOmissions := make([]string, 0)
 	populationAllowDegraded := req.AllowDegraded || (req.IncludeAmendmentContext && req.AmendmentContextAllowDegraded)
 	if len(sourceScope) > 1 && !homeSupplied {
-		for _, source := range sourceScope {
-			// A contextual read demand-freshens a reachable stale source
-			// before its population verdict; a historical-only read
-			// keeps its recorded-source verdicts.
-			var authority string
-			var populationErr error
-			if req.IncludeAmendmentContext {
-				_, authority, populationErr = validateKnowledgeContextSource(ctx, db, freshen, source, populationAllowDegraded, "PM1.Q10")
-			} else {
-				_, authority, populationErr = validateKnowledgeHomeForQueryCore(ctx, db, source, populationAllowDegraded, "PM1.Q10")
-			}
-			if populationErr != nil {
-				return out, populationErr
-			}
-			if authority != "authoritative" {
-				populationOmissions = append(populationOmissions, "bare_id_population_unverified:"+source.HomeProjectID+"/"+source.HomeLocatorID)
-			}
+		var populationErr error
+		populationOmissions, populationErr = verifyQ10Population(ctx, db, freshen, req, sourceScope, populationAllowDegraded, "bare_id_population_unverified:")
+		if populationErr != nil {
+			return out, populationErr
+		}
+	}
+	// contextualNegativeSources names the current sources a contextual law
+	// read must verify before it asserts a negative verdict — missing or
+	// ambiguous — that the pre-lookup population loop above did not already
+	// cover: a qualified reference or a caller-supplied
+	// home verifies that exact home, and a bare Product-scoped reference
+	// with a one-element registered set verifies that one source, because
+	// an authoritative absence or uniqueness claim over an unverified
+	// current source is the same defect at any set size. A multi-source
+	// bare read already verified above. A contextual negative without a
+	// resolvable current set refuses or explicitly names that omission.
+	contextualNegativeSources := []KnowledgeHome(nil)
+	contextualNegativeOmission := "bare_id_population_unverified:"
+	if req.IncludeAmendmentContext && isLawLookup {
+		if homeSupplied {
+			contextualNegativeSources = []KnowledgeHome{req.Home}
+			contextualNegativeOmission = "current_source_unverified:"
+		} else if len(sourceScope) == 1 {
+			contextualNegativeSources = sourceScope
 		}
 	}
 	// applyPopulationOmissions keeps an unverified bare-ID population
@@ -520,11 +527,14 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 		}
 		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
 	}
-	err := scanNote(homeSupplied)
-	if err == sql.ErrNoRows && homeSupplied {
-		err = scanNote(false)
+	runScan := func() error {
+		scanErr := scanNote(homeSupplied)
+		if scanErr == sql.ErrNoRows && homeSupplied {
+			scanErr = scanNote(false)
+		}
+		return scanErr
 	}
-	if !homeSupplied {
+	countHomes := func() (int, error) {
 		countQuery := `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`
 		countArgs := []any{lookupID}
 		if sourceScopeWhere != "" {
@@ -533,13 +543,57 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 		}
 		var homes int
 		if scanErr := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
-			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
+			return 0, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
 		}
-		if homes > 1 {
-			applyPopulationOmissions()
-			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
-			return out, nil
+		return homes, nil
+	}
+	err := runScan()
+	ambiguous := false
+	if !homeSupplied {
+		homes, countErr := countHomes()
+		if countErr != nil {
+			return out, countErr
 		}
+		ambiguous = homes > 1
+	}
+	// A contextual law read never asserts a negative — missing or
+	// ambiguous — over a current source population it has not verified. It
+	// verifies and demand-freshens that population once through the
+	// existing freshness owner, then retries the lookup against the
+	// refreshed projection, so a newly committed law resolves canonically
+	// instead of reading as an authoritative absence. A strict read refuses
+	// a failed required source here; a degraded read names the omission and
+	// never claims the authoritative negative. A canonical first answer
+	// keeps its pre-freshen historical locator proof: the opt-in
+	// amendment-context section below proves the current sources
+	// separately, so historical commit A stays independent of current
+	// commit B. Historical-only reads take this path unchanged.
+	if (ambiguous || err == sql.ErrNoRows) && len(contextualNegativeSources) > 0 {
+		omissions, populationErr := verifyQ10Population(ctx, db, freshen, req, contextualNegativeSources, populationAllowDegraded, contextualNegativeOmission)
+		if populationErr != nil {
+			return out, populationErr
+		}
+		populationOmissions = append(populationOmissions, omissions...)
+		err = runScan()
+		ambiguous = false
+		if !homeSupplied {
+			homes, countErr := countHomes()
+			if countErr != nil {
+				return out, countErr
+			}
+			ambiguous = homes > 1
+		}
+	}
+	if req.IncludeAmendmentContext && isLawLookup && (ambiguous || err == sql.ErrNoRows) && !homeSupplied && len(sourceScope) == 0 {
+		if !req.AmendmentContextAllowDegraded {
+			return out, newFailure(KindUnknownScope, "PM1.Q10", "current amendment context cannot verify a negative without a resolvable source set", false, "supply a registered Product or explicit knowledge home")
+		}
+		populationOmissions = append(populationOmissions, "current_source_set_unavailable")
+	}
+	if ambiguous {
+		applyPopulationOmissions()
+		out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
+		return out, nil
 	}
 	if err == sql.ErrNoRows {
 		status, classified, classifyErr := classifyQ10MissingNote(ctx, db, req, lookupID)
@@ -599,47 +653,65 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 	// never a bare federated lookup that same-ID peer sources would turn
 	// ambiguous.
 	if req.IncludeAmendmentContext && payload.LawStatus != "" {
-		amendmentSources := sourceScope
-		var seededOmissions []string
-		if len(amendmentSources) == 0 && req.Product != "" {
-			if sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10.amendment_context"); srcErr == nil {
-				amendmentSources = sources
-			} else {
-				var failure *Failure
-				if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
-					return out, srcErr
-				}
-				// The opt-in current section cannot silently inherit the
-				// historical home as its current source set: a strict read
-				// refuses the unresolved source set outright, and a
-				// degraded read names the omission and never claims an
-				// authoritative graph over the unresolved set (CON-830).
-				// Only the context degrades here; the historical proof
-				// paths above never read this flag.
-				if !req.AmendmentContextAllowDegraded {
-					return out, srcErr
-				}
-				seededOmissions = append(seededOmissions, "current_source_set_unresolved:"+req.Product)
-			}
-		}
-		if len(amendmentSources) == 0 {
-			amendmentSources = []KnowledgeHome{storedHome}
-		}
-		amendment, amendmentErr := queryKnowledgeRefinementContextDB(ctx, db, freshen, KnowledgeRefinementContextRequest{
-			Product:         req.Product,
-			Roots:           []string{amendmentRoot},
-			Limit:           req.AmendmentContextLimit,
-			Cursor:          req.AmendmentContextCursor,
-			AllowDegraded:   req.AmendmentContextAllowDegraded,
-			Sources:         amendmentSources,
-			SeededOmissions: seededOmissions,
-		})
+		amendment, amendmentErr := q10CurrentAmendmentContext(ctx, db, freshen, req, storedHome, sourceScope, amendmentRoot)
 		if amendmentErr != nil {
 			return out, amendmentErr
 		}
 		payload.CurrentAmendmentContext = &amendment
 	}
 	return out, nil
+}
+
+// verifyQ10Population uses the same source verifier for uniqueness and
+// classified negatives. Historical reads verify their recorded sources;
+// contextual reads first reuse the existing demand-freshness owner.
+func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request, sources []KnowledgeHome, allowDegraded bool, omissionPrefix string) ([]string, error) {
+	omissions := make([]string, 0)
+	for _, source := range sources {
+		var authority string
+		var err error
+		if req.IncludeAmendmentContext {
+			_, authority, err = validateKnowledgeContextSource(ctx, db, freshen, source, allowDegraded, "PM1.Q10")
+		} else {
+			_, authority, err = validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, "PM1.Q10")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if authority != "authoritative" {
+			omissions = append(omissions, omissionPrefix+source.HomeProjectID+"/"+source.HomeLocatorID)
+		}
+	}
+	return omissions, nil
+}
+
+// q10CurrentAmendmentContext resolves and proves the current source set
+// independently of the already verified historical note.
+func q10CurrentAmendmentContext(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request, storedHome KnowledgeHome, sourceScope []KnowledgeHome, amendmentRoot string) (KnowledgeRefinementContextResult, error) {
+	amendmentSources := sourceScope
+	var seededOmissions []string
+	if len(amendmentSources) == 0 && req.Product != "" {
+		if sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10.amendment_context"); srcErr == nil {
+			amendmentSources = sources
+		} else {
+			var failure *Failure
+			if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
+				return KnowledgeRefinementContextResult{}, srcErr
+			}
+			if !req.AmendmentContextAllowDegraded {
+				return KnowledgeRefinementContextResult{}, srcErr
+			}
+			seededOmissions = append(seededOmissions, "current_source_set_unresolved:"+req.Product)
+		}
+	}
+	if len(amendmentSources) == 0 {
+		amendmentSources = []KnowledgeHome{storedHome}
+	}
+	return queryKnowledgeRefinementContextDB(ctx, db, freshen, KnowledgeRefinementContextRequest{
+		Product: req.Product, Roots: []string{amendmentRoot}, Limit: req.AmendmentContextLimit,
+		Cursor: req.AmendmentContextCursor, AllowDegraded: req.AmendmentContextAllowDegraded,
+		Sources: amendmentSources, SeededOmissions: seededOmissions,
+	})
 }
 
 // verifyQ10ManifestRecord rebuilds one manifest-indexed record from its

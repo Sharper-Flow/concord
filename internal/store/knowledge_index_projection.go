@@ -1002,7 +1002,53 @@ func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome,
 	if err != nil {
 		return knowledgeWatermark{}, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the knowledge watermark", true, "retry once the database is readable", err)
 	}
-	return knowledgeWatermark{Scanned: scanned, Fresh: complete && scannedDigest != "" && scannedDigest == currentDigest && projectionVersion == knowledgeProjectionVersion}, nil
+	if !complete || scannedDigest == "" || scannedDigest != currentDigest || projectionVersion != knowledgeProjectionVersion {
+		return knowledgeWatermark{Scanned: scanned, Fresh: false}, nil
+	}
+	unchanged, err := knowledgeProjectedBlobsUnchanged(ctx, db, home, scanned, current)
+	if err != nil {
+		return knowledgeWatermark{Scanned: scanned}, err
+	}
+	return knowledgeWatermark{Scanned: scanned, Fresh: unchanged}, nil
+}
+
+// knowledgeProjectedBlobsUnchanged compares indexed note paths between the
+// scanned commit and current head. Metadata tree identity alone cannot prove
+// that their referenced blobs remain unchanged. An unavailable comparison
+// reads stale so the freshness owner rebuilds at the reachable head.
+// It takes *sql.DB because Git verification must stay outside transactions.
+func knowledgeProjectedBlobsUnchanged(ctx context.Context, db *sql.DB, home KnowledgeHome, scanned, current string) (bool, error) {
+	if scanned == "" || scanned == current {
+		return true, nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT note_path FROM archived_work WHERE home_project_id = ? AND home_locator_id = ?`, home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot read the indexed note paths", true, "retry once the database is readable", err)
+	}
+	paths := make([]string, 0)
+	for rows.Next() {
+		var notePath string
+		if err := rows.Scan(&notePath); err != nil {
+			rows.Close()
+			return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot decode an indexed note path", true, "retry once the database is readable", err)
+		}
+		paths = append(paths, notePath)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, wrapFailure(KindUnavailable, "knowledge_index", "cannot finish reading the indexed note paths", true, "retry once the database is readable", err)
+	}
+	rows.Close()
+	if len(paths) == 0 {
+		return true, nil
+	}
+	sort.Strings(paths)
+	diffArgs := append([]string{"diff", "--name-only", scanned, current, "--"}, paths...)
+	out, err := runGit(ctx, home.RepoPath, diffArgs...)
+	if err != nil {
+		return false, nil
+	}
+	return len(strings.TrimSpace(string(out))) == 0, nil
 }
 
 // EnsureWorkProductKnowledgeFresh freshens the index behind the Product a

@@ -15,9 +15,12 @@ FORMAT = """Return one final JSON object with exactly the following keys, no ext
 keys, no Markdown, and no other text:
 status: completed, needs_operator, refused, or unresolved;
 work_id: the known work ID or null;
-boundary: the boundary the stopping result names; when it names none, the name of
-the tool whose result stopped the task; turn_move_boundary when an active turn-move
-boundary stops a requested action; null when the task succeeded;
+boundary: the boundary field the stopping result's error names; when the error
+names none, the core diagnostic operation the refusal's complete diagnostic
+carries; when it carries none, the error's kind; when the error names none of
+these, the name of the tool whose result stopped the task; turn_move_boundary
+when an active turn-move boundary stops a requested action; null when the task
+succeeded;
 cause: the verified reason_code the stopping result reports, else its error kind;
 turn_move_boundary when an active turn-move boundary stops a requested action;
 unknown when undiagnosed; null on success;

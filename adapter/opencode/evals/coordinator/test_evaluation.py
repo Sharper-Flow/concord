@@ -243,6 +243,31 @@ class EvaluationTests(unittest.TestCase):
         events.insert(1, copy.deepcopy(events[0]))
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
+    def test_optional_continuity_read_is_admitted_once(self):
+        case = SCENARIOS["default-checkout-resume"]
+        calls, events = observation(case)
+        args = {"request": {"operation": "continuity", "input": {
+            "work_id": WORK, "page": {"cursor": None, "limit": 20}}}}
+        value = case["responses"][TRACE]
+        read = {"type": "tool_use", "part": {"tool": TRACE, "state": {
+            "status": "completed", "input": args, "output": json.dumps(value)}}}
+        calls.insert(0, {"tool": TRACE, "args": args, "result": value})
+        events.insert(0, read)
+        self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+        calls.insert(0, {"tool": TRACE, "args": args, "result": value})
+        events.insert(0, copy.deepcopy(read))
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_declared_replay_is_admitted_once_on_the_dirty_origin_refusal_only(self):
+        case = SCENARIOS["genuine-refusal-no-fallback"]
+        calls, events = observation(case)
+        calls.insert(0, copy.deepcopy(calls[0]))
+        events.insert(0, copy.deepcopy(events[0]))
+        self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+        calls.insert(0, copy.deepcopy(calls[0]))
+        events.insert(0, copy.deepcopy(events[0]))
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
     def test_notice_doubles_match_the_adapter_source(self):
         # The doubles must stay production-shaped: the adapter's notice text
         # in move-notice.ts is the source the fixture copies.

@@ -100,6 +100,14 @@ def tool_output(output):
     return (json_object(envelope), notice or None)
 
 
+def collapse_declared_replay(case, sequence, calls):
+    """Admit one identical start replay only where the scenario declares the production result invites it."""
+    starts = [call.get("args") for call in calls if call.get("tool") == START]
+    if case.get("admits_one_replay") is True and sequence[:2] == [START, START] and len(starts) == 2 and starts[0] == starts[1]:
+        return sequence[1:]
+    return sequence
+
+
 def evaluate(case, calls, events, exit_code, receipts):
     if case.get("capture"):
         return evaluate_capture(calls, events, exit_code, receipts)
@@ -108,10 +116,14 @@ def evaluate(case, calls, events, exit_code, receipts):
     sequence = [part.get("tool") for part in parts]
     log_sequence = [call.get("tool") for call in calls]
     # A refusal forbids unauthorized effects, not a bounded owning diagnostic.
+    # A case that serves continuity admits one continuity read too: the
+    # coordinator definitions require it before a consequential action.
     optional = {RUNTIME} if RUNTIME not in required else set()
+    if TRACE not in required and TRACE in case.get("responses", {}):
+        optional.add(TRACE)
     admitted_sequence = (
         sequence == log_sequence
-        and [tool for tool in sequence if tool not in optional] == required
+        and collapse_declared_replay(case, [tool for tool in sequence if tool not in optional], calls) == required
         and all(sequence.count(tool) <= 1 for tool in optional)
     )
     responses = {**case.get("responses", {}), RUNTIME: runtime_response(case)}

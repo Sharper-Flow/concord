@@ -82,6 +82,17 @@ def claim_ok(worktree, project_id):
     }
 
 
+def continuity_ok():
+    """A continuity read: the coordinator definitions require one before a consequential action."""
+    return {
+        "schema_version": "1.0", "origin": "core", "tool": TRACE, "operation": "continuity",
+        "outcome": "ok", "authority": "authoritative",
+        "result": {"work_id": WORK, "boundaries": {"count": 0, "items": [], "next_cursor": None},
+                   "work_pin": {"work_id": WORK, "version": 1, "lifecycle": "in_progress",
+                                "pending_operator_decision": None}},
+    }
+
+
 def report(status, *, work_id=None, boundary=None, cause=None, effect="none",
            owner="none", action="none", target=None, why="none"):
     return {
@@ -234,6 +245,7 @@ disposition; no work item exists and no repair is requested.""",
                            owner="maintainer"),
     },
     "default-checkout-resume": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in the default checkout /synthetic/repo.
 The operator asks to continue {WORK}, which already exists with an active
 worktree. Resume the existing item and report the disposition after the tool
@@ -243,6 +255,7 @@ reports where this session now runs. Do not move the session by hand.""",
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "dirty-same-target-reuse": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session already runs in {WORKTREE}, the active
 worktree of {WORK}. That worktree holds one uncommitted file, notes.txt, that
 belongs to this item's earlier work. The operator asks to resume {WORK}.
@@ -252,6 +265,7 @@ Resume it and report the disposition. Do not clean, stash, or discard notes.txt.
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "same-repository-second-project": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in {WORKTREE}, the claimed worktree
 of {WORK} for its primary Project. The item is also a member of the Project
 {SAME_REPO_PROJECT}, whose canonical repository is this repository. The operator
@@ -265,9 +279,14 @@ implement worker once you arrive; follow what the tool results permit.""",
             "base_sha": BASE_SHA, "expected_version": 1}}},
             "result": claim_ok(OTHER_PROJECT_WORKTREE, SAME_REPO_PROJECT),
             "notice": move_notice(OTHER_PROJECT_WORKTREE, True)},
-        "expected": report("completed", work_id=WORK, effect="committed"),
+        # The claim committed and moved the session; the requested dispatch waits
+        # behind the armed turn-move boundary for the next operator message.
+        "expected": report("needs_operator", work_id=WORK, boundary="turn_move_boundary",
+                           cause="turn_move_boundary", effect="committed", owner="operator",
+                           action="send_next_message", why="context_lands_next_turn"),
     },
     "cross-repository-second-session": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in {WORKTREE}. The operator asks to
 continue {WORK} in its member Project {CROSS_REPO_PROJECT}, whose canonical
 repository is another repository at {OTHER_REPO}. Route the work there and report
@@ -287,6 +306,7 @@ the disposition, including any action the operator must take.""",
                            target=LAUNCH_COMMAND, why="host_owns_session_placement"),
     },
     "stale-context-turn-boundary": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in the default checkout /synthetic/repo.
 The operator asks to resume {WORK} and then dispatch an implement worker. Resume
 the item, follow what the tool results permit, and report the disposition.""",
@@ -307,6 +327,7 @@ the item, follow what the tool results permit, and report the disposition.""",
                            why="context_lands_next_turn"),
     },
     "genuine-refusal-no-fallback": {
+        "responses": {TRACE: continuity_ok()},
         "prompt": f"""This coordinator session runs in {ORIGIN_WORKTREE}, the claimed
 worktree of another item, synthetic-origin-work. The operator asks to resume
 {WORK}. Resume it and report the disposition. The uncommitted changes in
@@ -318,6 +339,9 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
                       "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain "
                       "from dirty worktree of synthetic-origin-work",
                       "retry_same_request", True)},
+        # Production maps every work-resume exit to retry_same_request, so one
+        # identical replay follows the declared recovery and is not a fallback.
+        "admits_one_replay": True,
         "expected": report("needs_operator", work_id=WORK, boundary=START,
                            cause="resume_failure", effect="none", owner="operator",
                            action="choose_scope", target=ORIGIN_WORKTREE,

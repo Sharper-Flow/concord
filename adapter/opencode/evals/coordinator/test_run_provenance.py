@@ -59,6 +59,10 @@ class RunProvenanceTests(unittest.TestCase):
         self.assertEqual(json.loads((root / "result.json").read_text())["production_source_sha256"],
                          result["production_source_sha256"])
 
+    def test_conduct_corpus_resolves_in_the_repository(self):
+        corpus = [path.name for path in (REPO / run.CONDUCT_CORPUS).glob("*.md") if path.name != "README.md"]
+        self.assertIn("evidence.md", corpus)
+
     def test_production_source_change_during_a_run_fails_the_snapshot_check(self):
         target = self.repo / "adapter/opencode/move-notice.ts"
         result = self.run_case(during=lambda: target.write_text(target.read_text() + "\n// changed\n"))

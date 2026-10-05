@@ -20,7 +20,7 @@ func TestReviewCurrentSourceSetDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), work)
+	proof := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), nil, work)
 	if proof.verification.degraded || len(proof.sources) != 1 {
 		t.Fatalf("bad initial proof: %+v", proof)
 	}

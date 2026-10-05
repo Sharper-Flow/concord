@@ -168,7 +168,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	// transaction (CD-0195 D2). Resolve and verify the source set on the
 	// pool connection before BeginTx, then hand the conclusions into the
 	// read transaction.
-	amendmentSources := verifyWorkflowLawContextSources(ctx, s.db, req.Work)
+	amendmentSources := verifyWorkflowLawContextSources(ctx, s.db, s.EnsureKnowledgeIndexFresh, req.Work)
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)

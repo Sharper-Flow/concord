@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // The public pool-owned path must return one coherent snapshot: an empty
@@ -137,6 +139,34 @@ func TestReadWorkflowContinuityCarriesAmendmentContext(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("amendment section edges = %+v, want the authored outgoing refines edge to law:new", amendment.Edges)
+	}
+	// The real continuity handler's emitted law
+	// context — the same value ContinuityPayload pins — must validate
+	// against the canonical generated schema, and the closed schema must
+	// refuse an unknown field inside the amendment section. Construction
+	// alone cannot prove either: the canonical workflow_law_context def is
+	// the only surface that admits amendment_context at all.
+	raw, err := json.Marshal(snapshot.LawContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("workflow_law_context", raw); err != nil {
+		t.Fatalf("real continuity handler emitted a schema-invalid law context: %v", err)
+	}
+	var injected map[string]any
+	if err := json.Unmarshal(raw, &injected); err != nil {
+		t.Fatal(err)
+	}
+	section, ok := injected["amendment_context"].(map[string]any)
+	if !ok {
+		t.Fatalf("emitted law context carries no amendment_context section: %s", raw)
+	}
+	section["clause_authority"] = []string{"inferred"}
+	if raw, err = json.Marshal(injected); err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("workflow_law_context", raw); err == nil {
+		t.Fatal("unknown field inside the emitted amendment_context passed the closed schema")
 	}
 }
 

@@ -81,7 +81,7 @@ func TestWorkflowAmendmentContextPagesThirtyTwoEdgesAcrossRoots(t *testing.T) {
 		DELETE FROM fold_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
-	amendment := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), workID)
+	amendment := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), nil, workID)
 	if amendment == nil || len(amendment.sources) != 1 || amendment.sources[0].HomeLocatorID != home.HomeLocatorID {
 		t.Fatalf("pool verification did not resolve the live source set: %+v", amendment)
 	}
@@ -139,7 +139,7 @@ func TestWorkflowAmendmentContextUnverifiedSourceIsDegraded(t *testing.T) {
 	t.Parallel()
 	s, _ := refinementTestStore(t)
 	defer s.Close()
-	amendment := verifyWorkflowLawContextSources(context.Background(), s.DatabaseForTesting(), "work-without-a-home")
+	amendment := verifyWorkflowLawContextSources(context.Background(), s.DatabaseForTesting(), nil, "work-without-a-home")
 	if amendment == nil || len(amendment.sources) != 0 || !amendment.verification.degraded {
 		t.Fatalf("unresolved work produced %+v, want a degraded snapshot with no sources", amendment)
 	}

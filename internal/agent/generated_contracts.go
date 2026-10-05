@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:1e6178ee3e4757328c66f5699fcda2f886e551f45e84c11fa63a7d09a21ab7e3"
+const ManifestDigest = "sha256:1d002f82b09af6b2278fd6ca467e91193f31fe50ae6f28d3801f8a700abdcc6c"
 
 type OperationKind string
 
@@ -311,7 +311,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_design_decision":                       {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_design_record":                         {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                      {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
-	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
+	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path", "amendment_context"}},
+	"workflow_law_context_amendment":                 {Required: []string{"query_id", "contract_version", "resolved_scope", "source_version_watermark", "authority", "freshness", "ordering_keys", "omissions", "warnings", "edges", "roots"}, Properties: []string{"query_id", "contract_version", "resolved_scope", "source_version_watermark", "authority", "freshness", "ordering_keys", "next_cursor", "omissions", "warnings", "edges", "roots", "incomplete_roots", "source_watermarks"}},
 	"workflow_law_context_domain":                    {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
 	"workflow_law_context_law":                       {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
 	"workflow_outcome_absent":                        {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},

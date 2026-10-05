@@ -2619,6 +2619,9 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1024
+        },
+        "amendment_context": {
+          "$ref": "#/$defs/workflow_law_context_amendment"
         }
       }
     },
@@ -2706,6 +2709,202 @@
         "purpose": {
           "type": "string",
           "maxLength": 4096
+        }
+      }
+    },
+    "workflow_law_context_amendment": {
+      "description": "CON-830: the contract's explicitly mandated roots as one bounded one-hop authored amendment page, emitted by the same store-owned query resolve_note's current_amendment_context opt-in uses. One page totals at most 32 edges across the roots and names incomplete roots plus continuation. The section carries its own qualified proof — authority, omissions, per-source scanned watermarks, the deterministic ordering keys, and the snapshot-bound continuation cursor — and never inherits the historical locator proof. Authority is partial or degraded whenever an endpoint or source is incomplete; an incomplete source set never reads as an authoritative no-amendments graph, and no inferred relation, transitive edge, clause authority, or precedence exists here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query_id",
+        "contract_version",
+        "resolved_scope",
+        "source_version_watermark",
+        "authority",
+        "freshness",
+        "ordering_keys",
+        "omissions",
+        "warnings",
+        "edges",
+        "roots"
+      ],
+      "properties": {
+        "query_id": {
+          "type": "string"
+        },
+        "contract_version": {
+          "type": "string"
+        },
+        "resolved_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "product_id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "project_id": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "work_id": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "domain_id": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "product_ids": {
+              "type": "array",
+              "maxItems": 65,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "project_ids": {
+              "type": "array",
+              "maxItems": 65,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 64
+              }
+            }
+          }
+        },
+        "source_version_watermark": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authority": {
+          "type": "string",
+          "enum": [
+            "authoritative",
+            "partial",
+            "degraded"
+          ]
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observed_at",
+            "age",
+            "stale"
+          ],
+          "properties": {
+            "observed_at": {
+              "type": "string"
+            },
+            "age": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stale": {
+              "type": "boolean"
+            }
+          }
+        },
+        "ordering_keys": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 16,
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "omissions": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "edges": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/amendment_context_edge"
+          }
+        },
+        "roots": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "incomplete_roots": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_watermarks": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "locator_id",
+              "watermark",
+              "authority"
+            ],
+            "properties": {
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "locator_id": {
+                "$ref": "#/$defs/id"
+              },
+              "watermark": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "authority": {
+                "type": "string",
+                "maxLength": 64
+              }
+            }
+          }
         }
       }
     },

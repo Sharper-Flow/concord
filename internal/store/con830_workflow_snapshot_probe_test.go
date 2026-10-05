@@ -20,7 +20,7 @@ func TestCoordinatorCON830WorkflowSnapshotDrift(t *testing.T) {
 		DELETE FROM fold_guard`, workID, workID); err != nil {
 		t.Fatal(err)
 	}
-	proof := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), workID)
+	proof := verifyWorkflowLawContextSources(ctx, s.DatabaseForTesting(), nil, workID)
 	if proof == nil || proof.verification.degraded || len(proof.verification.watermarks) != 1 {
 		t.Fatalf("initial verification must be authoritative: %+v", proof)
 	}

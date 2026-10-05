@@ -624,8 +624,12 @@ type workflowAmendmentSources struct {
 // the transactional reader receives only conclusions. A work whose home or
 // source set cannot be resolved here still reads its law context as before;
 // its amendment context names the unverified source as a degraded omission
-// rather than inventing an authoritative graph.
-func verifyWorkflowLawContextSources(ctx context.Context, db *sql.DB, workID string) *workflowAmendmentSources {
+// rather than inventing an authoritative graph. freshen, when non-nil,
+// demand-freshens a reachable stale source once through the existing
+// freshness owner before its verdict, the same repair the contextual note
+// resolution read applies, so workflow law_context and
+// contextual resolution hold the same verified snapshot.
+func verifyWorkflowLawContextSources(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, workID string) *workflowAmendmentSources {
 	degraded := &workflowAmendmentSources{verification: refinementSourceVerification{
 		watermarks: []KnowledgeSourceWatermark{},
 		degraded:   true,
@@ -653,7 +657,7 @@ func verifyWorkflowLawContextSources(ctx context.Context, db *sql.DB, workID str
 	verification := refinementSourceVerification{watermarks: make([]KnowledgeSourceWatermark, 0, len(sources))}
 	for _, source := range sources {
 		label := source.HomeProjectID + "/" + source.HomeLocatorID
-		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, true, "workflow.law_context")
+		scanned, authority, err := validateKnowledgeContextSource(ctx, db, freshen, source, true, "workflow.law_context")
 		if err != nil {
 			return degraded
 		}

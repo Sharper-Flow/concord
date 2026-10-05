@@ -386,14 +386,16 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q10", "store is not open", false, "open a store before querying knowledge")
 	}
-	return queryQ10(ctx, s.db, req)
+	return queryQ10(ctx, s.db, s.EnsureKnowledgeIndexFresh, req)
 }
 
 // queryQ10 verifies one canonical note against its recorded git proof. It takes
 // *sql.DB because the git verification must never run inside an open
 // transaction (CD-0195 D2): the type makes a transaction caller a compile-time
-// error.
-func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error) {
+// error. freshen is the existing demand-freshness owner the opt-in current
+// context reuses before its current-source proof; it stays nil on every
+// store-internal caller that must keep historical verdicts byte-identical.
+func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request) (Q10Result, error) {
 	var out Q10Result
 	if (req.Work == "") == (req.KnowledgeID == "") {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
@@ -476,13 +478,33 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	populationAllowDegraded := req.AllowDegraded || (req.IncludeAmendmentContext && req.AmendmentContextAllowDegraded)
 	if len(sourceScope) > 1 && !homeSupplied {
 		for _, source := range sourceScope {
-			_, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, populationAllowDegraded, "PM1.Q10")
-			if err != nil {
-				return out, err
+			// A contextual read demand-freshens a reachable stale source
+			// before its population verdict; a historical-only read
+			// keeps its recorded-source verdicts.
+			var authority string
+			var populationErr error
+			if req.IncludeAmendmentContext {
+				_, authority, populationErr = validateKnowledgeContextSource(ctx, db, freshen, source, populationAllowDegraded, "PM1.Q10")
+			} else {
+				_, authority, populationErr = validateKnowledgeHomeForQueryCore(ctx, db, source, populationAllowDegraded, "PM1.Q10")
+			}
+			if populationErr != nil {
+				return out, populationErr
 			}
 			if authority != "authoritative" {
 				populationOmissions = append(populationOmissions, "bare_id_population_unverified:"+source.HomeProjectID+"/"+source.HomeLocatorID)
 			}
+		}
+	}
+	// applyPopulationOmissions keeps an unverified bare-ID population
+	// visible on every classified result: a missing or
+	// ambiguous answer over an incomplete source set is never an
+	// authoritative absence or uniqueness claim, exactly as the canonical
+	// path below already marks it.
+	applyPopulationOmissions := func() {
+		if len(populationOmissions) > 0 {
+			out.Authority = "degraded"
+			out.Omissions = append(out.Omissions, populationOmissions...)
 		}
 	}
 	scanNote := func(homeScoped bool) error {
@@ -514,6 +536,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
 		}
 		if homes > 1 {
+			applyPopulationOmissions()
 			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
 			return out, nil
 		}
@@ -524,6 +547,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			return out, classifyErr
 		}
 		if classified {
+			applyPopulationOmissions()
 			out.Status, out.Result = status, &Q10Payload{Status: status}
 			return out, nil
 		}
@@ -536,6 +560,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	}
 	storedHome, locatorErr := knowledgeHomeForLocator(ctx, db, homeProject, homeLocator, "")
 	if locatorErr != nil {
+		applyPopulationOmissions()
 		return q10HistoricalFailure(&out, req.AllowDegraded, "recorded canonical locator is unavailable", locatorErr)
 	}
 	if err := compareQ10HistoricalHome(req.Home, storedHome); err != nil {
@@ -543,13 +568,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	}
 	note = CanonicalNote{HomeProjectID: homeProject, HomeLocatorID: homeLocator, NotePath: path, NotePathRef: path, Commit: commit, CommitOID: commit, ContentHash: hash}
 	out.ResultMeta = q10HistoricalMeta(req)
-	if len(populationOmissions) > 0 {
-		// The degraded opt-in returned a locator this projection can see, but
-		// an unverified registered source could hold another copy of the ID:
-		// the historical answer is never authoritative uniqueness.
-		out.Authority = "degraded"
-		out.Omissions = append(out.Omissions, populationOmissions...)
-	}
+	applyPopulationOmissions()
 	if kind == "work_note" {
 		verified, verifyErr := VerifyCommittedNote(ctx, storedHome.RepoPath, commit, path, hash)
 		if verifyErr != nil {
@@ -606,7 +625,7 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		if len(amendmentSources) == 0 {
 			amendmentSources = []KnowledgeHome{storedHome}
 		}
-		amendment, amendmentErr := queryKnowledgeRefinementContextDB(ctx, db, KnowledgeRefinementContextRequest{
+		amendment, amendmentErr := queryKnowledgeRefinementContextDB(ctx, db, freshen, KnowledgeRefinementContextRequest{
 			Product:         req.Product,
 			Roots:           []string{amendmentRoot},
 			Limit:           req.AmendmentContextLimit,

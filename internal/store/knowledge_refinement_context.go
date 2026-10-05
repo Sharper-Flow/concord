@@ -194,14 +194,42 @@ func (s *Store) QueryKnowledgeRefinementContext(ctx context.Context, req Knowled
 		var out KnowledgeRefinementContextResult
 		return out, newFailure(KindUnavailable, "PM1.Q10.amendment_context", "store is not open", false, "open a store before querying amendment context")
 	}
-	return queryKnowledgeRefinementContextDB(ctx, s.db, req)
+	return queryKnowledgeRefinementContextDB(ctx, s.db, s.EnsureKnowledgeIndexFresh, req)
+}
+
+// validateKnowledgeContextSource verifies one current-context source and
+// demand-freshens a reachable stale source once through the existing
+// freshness owner: a valid reachable source whose
+// projection fell behind its head rebuilds before the contextual proof
+// refuses or degrades, so no separate manual EnsureKnowledgeIndexFresh step
+// stands between a contextual read and a repairable source. The owner
+// treats an unreachable home as a no-op, and a rebuild that fails keeps the
+// pre-freshen verdict — the re-verification decides, never the freshen
+// attempt itself. Historical-only reads pass no freshener and keep their
+// verdicts unchanged. freshen runs on the pool connection before any read
+// transaction opens (CD-0195 D2).
+func validateKnowledgeContextSource(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, source KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
+	scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, op)
+	freshenable := err == nil && authority != "authoritative" && scanned != "unreachable"
+	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindIndexDegraded {
+			freshenable = true
+		}
+	}
+	if freshenable && freshen != nil {
+		if freshen(ctx, source) == nil {
+			return validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, op)
+		}
+	}
+	return scanned, authority, err
 }
 
 // queryKnowledgeRefinementContextDB owns source verification and the
 // tx-scoped core on the pool connection. Q10's canonical note read calls it
 // directly on the same *sql.DB: no transaction is open on that path, so the
 // git-backed verification may safely use the pool.
-func queryKnowledgeRefinementContextDB(ctx context.Context, db *sql.DB, req KnowledgeRefinementContextRequest) (KnowledgeRefinementContextResult, error) {
+func queryKnowledgeRefinementContextDB(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req KnowledgeRefinementContextRequest) (KnowledgeRefinementContextResult, error) {
 	var out KnowledgeRefinementContextResult
 	sources := req.Sources
 	if len(sources) == 0 {
@@ -234,7 +262,7 @@ func queryKnowledgeRefinementContextDB(ctx context.Context, db *sql.DB, req Know
 	}
 	for _, source := range sources {
 		label := source.HomeProjectID + "/" + source.HomeLocatorID
-		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q10.amendment_context")
+		scanned, authority, err := validateKnowledgeContextSource(ctx, db, freshen, source, req.AllowDegraded, "PM1.Q10.amendment_context")
 		if err != nil {
 			return out, err
 		}

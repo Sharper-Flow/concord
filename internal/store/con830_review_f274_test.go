@@ -89,17 +89,17 @@ func TestReviewF274QualifiedQ10SourceCoverage(t *testing.T) {
 			t.Errorf("root %s dropped registered source: authority=%s watermarks=%+v omissions=%v", root, page.Authority, page.SourceWatermarks, page.Omissions)
 		}
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`UPDATE knowledge_index_watermark SET complete=0 WHERE home_project_id=? AND home_locator_id=?`, peer.HomeProjectID, peer.HomeLocatorID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
+	// CON-830 review repair: a reachable registered peer whose projection
+	// is merely behind its head demand-freshens through the existing owner,
+	// so the strict refusal boundary is a peer the rebuild cannot repair.
+	// A malformed committed manifest is that peer: the watermark goes stale
+	// against the advanced head and the freshen rebuild fails on the
+	// invalid manifest, so the strict qualified opt-in still refuses and
+	// never silently drops the unverified source.
+	writeKnowledgeFile(t, peer.RepoPath, knowledgeManifestPath, "{not a knowledge manifest")
+	commitKnowledgeRepo(t, peer.RepoPath, "corrupt the peer manifest at head")
 	result, err := s.QueryQ10(context.Background(), Q10Request{Product: "amendment-product", KnowledgeID: home.HomeProjectID + "/CD-0001", IncludeAmendmentContext: true})
 	if err == nil {
-		t.Errorf("strict qualified opt-in ignored incomplete registered peer: authority=%s omissions=%v", result.Result.CurrentAmendmentContext.Authority, result.Result.CurrentAmendmentContext.Omissions)
+		t.Errorf("strict qualified opt-in ignored an unrepairable registered peer: authority=%s omissions=%v", result.Result.CurrentAmendmentContext.Authority, result.Result.CurrentAmendmentContext.Omissions)
 	}
 }

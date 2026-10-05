@@ -13351,6 +13351,9 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "description": "The approved contract's binding law and Domains, resolved at continuity read time from the law_subjects and domains projections. Absent when the contract binds no law and no Domain.",
       "properties": {
+        "amendment_context": {
+          "$ref": "#/$defs/workflow_law_context_amendment"
+        },
         "domains": {
           "items": {
             "$ref": "#/$defs/workflow_law_context_domain"
@@ -13375,6 +13378,202 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "laws",
         "domains"
+      ],
+      "type": "object"
+    },
+    "workflow_law_context_amendment": {
+      "additionalProperties": false,
+      "description": "CON-830: the contract's explicitly mandated roots as one bounded one-hop authored amendment page, emitted by the same store-owned query resolve_note's current_amendment_context opt-in uses. One page totals at most 32 edges across the roots and names incomplete roots plus continuation. The section carries its own qualified proof — authority, omissions, per-source scanned watermarks, the deterministic ordering keys, and the snapshot-bound continuation cursor — and never inherits the historical locator proof. Authority is partial or degraded whenever an endpoint or source is incomplete; an incomplete source set never reads as an authoritative no-amendments graph, and no inferred relation, transitive edge, clause authority, or precedence exists here.",
+      "properties": {
+        "authority": {
+          "enum": [
+            "authoritative",
+            "partial",
+            "degraded"
+          ],
+          "type": "string"
+        },
+        "contract_version": {
+          "type": "string"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/amendment_context_edge"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "freshness": {
+          "additionalProperties": false,
+          "properties": {
+            "age": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "observed_at": {
+              "type": "string"
+            },
+            "stale": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "observed_at",
+            "age",
+            "stale"
+          ],
+          "type": "object"
+        },
+        "incomplete_roots": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "next_cursor": {
+          "maxLength": 4096,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "omissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ],
+          "uniqueItems": true
+        },
+        "ordering_keys": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "query_id": {
+          "type": "string"
+        },
+        "resolved_scope": {
+          "additionalProperties": false,
+          "properties": {
+            "domain_id": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "product_id": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "product_ids": {
+              "items": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "maxItems": 65,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "project_id": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "project_ids": {
+              "items": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "maxItems": 65,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "work_id": {
+              "maxLength": 128,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "roots": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": [
+            "array",
+            "null"
+          ],
+          "uniqueItems": true
+        },
+        "source_version_watermark": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_watermarks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "authority": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "locator_id": {
+                "$ref": "#/$defs/id"
+              },
+              "project_id": {
+                "$ref": "#/$defs/id"
+              },
+              "watermark": {
+                "maxLength": 256,
+                "type": "string"
+              }
+            },
+            "required": [
+              "project_id",
+              "locator_id",
+              "watermark",
+              "authority"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "query_id",
+        "contract_version",
+        "resolved_scope",
+        "source_version_watermark",
+        "authority",
+        "freshness",
+        "ordering_keys",
+        "omissions",
+        "warnings",
+        "edges",
+        "roots"
       ],
       "type": "object"
     },

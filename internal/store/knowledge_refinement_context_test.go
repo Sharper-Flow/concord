@@ -112,6 +112,19 @@ func TestRefinementContextReturnsAuthoredChain(t *testing.T) {
 	if len(incoming) != 2 || incoming[0] != "CD-0054" || incoming[1] != "CD-0058" {
 		t.Fatalf("incoming refinements of CD-0017 = %v", incoming)
 	}
+	second, err := s.QueryKnowledgeRefinementContext(context.Background(), KnowledgeRefinementContextRequest{Roots: []string{"CD-0054"}, Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	incoming = nil
+	for _, edge := range second.Edges {
+		if edge.Direction == "incoming" {
+			incoming = append(incoming, edge.EndpointLawID)
+		}
+	}
+	if len(incoming) != 1 || incoming[0] != "CD-0058" {
+		t.Fatalf("incoming refinements of CD-0054 = %v, want only CD-0058", incoming)
+	}
 }
 
 // T2 no inference: a root sees only direct one-hop edges; the
@@ -266,8 +279,7 @@ func seedRefinementSecondSource(t *testing.T, s *Store, projectID, locatorID str
 	return second
 }
 
-// Coordinator probe promotion (obs:78fdea53ed5a2e29): a source-qualified
-// root resolves through the Project's canonical locator and returns the
+// A source-qualified root resolves through the Project's canonical locator and returns the
 // same one-hop graph as the bare root, never an authoritative empty graph.
 func TestRefinementContextResolvesQualifiedRoot(t *testing.T) {
 	t.Parallel()
@@ -418,7 +430,7 @@ func TestRefinementContextInspectsCrossSourceEndpoints(t *testing.T) {
 	}
 }
 
-// Coordinator probe promotion (CON-830): a bare root held by two sources
+// A bare root held by two sources
 // of the requested set refuses as ambiguous instead of returning a
 // federated same-ID graph with no error (CD-0200 D4).
 func TestRefinementContextAmbiguousBareRootRefuses(t *testing.T) {
@@ -430,7 +442,7 @@ func TestRefinementContextAmbiguousBareRootRefuses(t *testing.T) {
 	assertFailureKind(t, err, KindAmbiguousScope)
 }
 
-// Coordinator probe promotion (CON-830): two roots whose outgoing
+// Two roots whose outgoing
 // cross-source relations target the same endpoint both carry the resolved
 // endpoint metadata; enrichment deduplicates the lookup, never the edges.
 func TestRefinementContextRepeatedCrossEndpointMetadata(t *testing.T) {

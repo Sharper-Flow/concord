@@ -319,6 +319,10 @@ test("installed agents project the report schema bounds", async () => {
   expect(agent).toContain(`maxLength=${reportEntry.properties.detail.maxLength}`)
   expect(agent).toContain(`maxLength=${reportProperties.readback_model.maxLength}`)
   expect(agent).toContain(reportProperties.readback_model.pattern)
+  expect(agent).toContain("evidence_entry.predicate_ids: optional array; type=array, minItems=0, maxItems=8")
+  expect(agent).toContain("omit it or use an empty array on an entry that proves no declared predicate")
+  expect(agent).toContain("Both forms mean no predicate tie")
+  expect(agent).not.toContain("an empty array fails")
   const statusConstraint = `status: enum=[${reportProperties.status.enum.map((status) => JSON.stringify(status)).join(", ")}]`
   expect(agent).toContain(statusConstraint)
 })

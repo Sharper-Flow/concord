@@ -1899,7 +1899,36 @@ for (const registered of agentLanes) {
     expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
     expect(payloads[1].evidence).toEqual(evidence)
   })
+
+  for (const shape of ["absent", "empty"] as const) {
+    test(`the ${laneID} lane completes with ${shape} predicate_ids without predicate discharge`, async () => {
+      const requiresReviewBlock = (registered.required_report_blocks as readonly string[]).includes("review")
+      const evidence = dischargingEvidence(laneID)
+        .filter((entry) => !requiresReviewBlock || entry.obligation !== "severity")
+        .map((entry) => shape === "empty" ? { ...entry, predicate_ids: [] } : entry)
+      const extra = requiresReviewBlock ? { review: { verdict: "ship", findings: [] } } : {}
+      expect(validateAgentLaneReport(report({ evidence, ...extra }))).toBe(true)
+      const { result, verbs, payloads } = await laneTerminalEvidence(laneID, evidence, extra)
+      expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
+      expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+      expect(payloads[1].evidence).toEqual(evidence)
+      expect(result.predicate_discharge).toBeUndefined()
+    })
+  }
 }
+
+test("predicate discharge excludes empty and absent lists beside a real tie", async () => {
+  const evidence = reportEvidence().map((entry, index) => index === 0
+    ? { ...entry, predicate_ids: ["predicate:source-citations"] }
+    : index === 1 ? { ...entry, predicate_ids: [] } : entry)
+  const { result, verbs, payloads } = await terminalEvidence(report({ evidence }))
+  expect(result.outcome, JSON.stringify(result.error)).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].evidence).toEqual(evidence)
+  expect(result.predicate_discharge).toEqual([
+    { predicate_ids: ["predicate:source-citations"], obligation: evidence[0].obligation },
+  ])
+})
 
 test("multiple distinct findings may discharge one declared obligation", async () => {
   const evidence = [...reportEvidence(), { obligation: "bounded_findings", detail: "A second bounded finding." }]
@@ -2154,6 +2183,16 @@ test("the report schema refuses oversized evidence arrays and details", () => {
   const oversizedEvidence = Array.from({ length: 65 }, (_, index) => ({ obligation: "source_citations", detail: String(index + 1) }))
   expect(validateAgentLaneReport(report({ evidence: oversizedEvidence }))).toBe(false)
   expect(validateAgentLaneReport(report({ evidence: [{ obligation: "source_citations", detail: "x".repeat(513) }] }))).toBe(false)
+})
+
+test("the report schema preserves predicate_ids bounds, item syntax, and closed fields", () => {
+  const entry = { obligation: "source_citations", detail: "x" }
+  const eight = Array.from({ length: 8 }, (_, index) => `predicate:p${index}`)
+  expect(validateAgentLaneReport(report({ evidence: [{ ...entry, predicate_ids: eight }] }))).toBe(true)
+  for (const predicate_ids of [null, "predicate:one", [...eight, "predicate:p8"], ["nope"], ["predicate:"], ["predicate:bad/id"], ["predicate:" + "x".repeat(119)]]) {
+    expect(validateAgentLaneReport(report({ evidence: [{ ...entry, predicate_ids }] }))).toBe(false)
+  }
+  expect(validateAgentLaneReport(report({ evidence: [{ ...entry, predicate_ids: [], extra: 1 }] }))).toBe(false)
 })
 
 const baseComparison = (): AgentLaneReportBaseComparison => ({

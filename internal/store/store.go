@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -43,6 +44,13 @@ type Store struct {
 	db    *sql.DB
 	path  string
 	Clock func() time.Time
+
+	// manifestMemoOnce lazily builds manifestMemo, the commit-keyed memo of
+	// composed knowledge manifests that serves Q10's repeated historical
+	// proof over one immutable commit. Tests that build a Store literal
+	// leave both zero and the reader falls back to the uncached owner.
+	manifestMemoOnce sync.Once
+	manifestMemo     *knowledgeManifestMemo
 
 	// retireProbeInterleave is the deterministic test seam that runs between
 	// the retirement evaluation's git probe phase and its final transaction,

@@ -386,7 +386,21 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "PM1.Q10", "store is not open", false, "open a store before querying knowledge")
 	}
-	return queryQ10(ctx, s.db, s.EnsureKnowledgeIndexFresh, req)
+	return queryQ10(ctx, s.db, s.EnsureKnowledgeIndexFresh, s.readKnowledgeManifestCached, req)
+}
+
+// knowledgeManifestReader reads one home's composed manifest at one commit.
+// Production passes the store's memoizing reader; a nil reader reads through
+// the uncached owner.
+type knowledgeManifestReader func(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error)
+
+func (read knowledgeManifestReader) orDirect() knowledgeManifestReader {
+	if read == nil {
+		return func(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
+			return readKnowledgeManifest(ctx, repo, commit, role)
+		}
+	}
+	return read
 }
 
 // queryQ10 verifies one canonical note against its recorded git proof. It takes
@@ -395,7 +409,10 @@ func (s *Store) QueryQ10(ctx context.Context, req Q10Request) (Q10Result, error)
 // error. freshen is the existing demand-freshness owner the opt-in current
 // context reuses before its current-source proof; it stays nil on every
 // store-internal caller that must keep historical verdicts byte-identical.
-func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request) (Q10Result, error) {
+// readManifest serves the historical manifest proof; the store passes its
+// commit-keyed memo so a repeated read of one immutable commit does not
+// re-compose and re-validate the whole record corpus per call.
+func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, readManifest knowledgeManifestReader, req Q10Request) (Q10Result, error) {
 	var out Q10Result
 	if (req.Work == "") == (req.KnowledgeID == "") {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10", "Q10 requires exactly one stable reference", false, "supply either work or knowledge_id")
@@ -407,6 +424,10 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 	// amendmentRoot keeps the caller's original root form for the opt-in
 	// current_amendment_context section: qualified stays qualified.
 	amendmentRoot := req.KnowledgeID
+	// qualifiedProjectID remembers the Project a qualified reference named, so
+	// a later negative can re-derive its canonical designation inside the
+	// lookup's read snapshot instead of trusting the pre-verification read.
+	qualifiedProjectID := ""
 	if lookupID == "" {
 		lookupID = req.KnowledgeID
 		if projectID, lawID, qualified, parseErr := parseQualifiedKnowledgeID("PM1.Q10", lookupID); parseErr != nil {
@@ -427,6 +448,7 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 			}
 			req.Home = candidates[0]
 			lookupID = lawID
+			qualifiedProjectID = projectID
 		}
 	}
 	// Note identity is scoped to the knowledge home: the same stable id can
@@ -475,13 +497,28 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 	// population, not an unverified historical locator or blob. Such an
 	// answer names omissions and cannot assert authoritative uniqueness.
 	populationOmissions := make([]string, 0)
-	populationAllowDegraded := req.AllowDegraded || (req.IncludeAmendmentContext && req.AmendmentContextAllowDegraded)
+	// The two degradation policies stay independent (CON-830 review): the
+	// historical AllowDegraded governs historical proof failures, and only
+	// the section-scoped AmendmentContextAllowDegraded may relax a
+	// current-source population verification. A historical allowance must
+	// never bypass a strict current negative verification, and a current
+	// allowance must never launder an unverified historical locator.
+	populationAllowDegraded := req.AllowDegraded
+	if req.IncludeAmendmentContext {
+		populationAllowDegraded = req.AmendmentContextAllowDegraded
+	}
+	// populationProofs carries the scanned commit each verified source's
+	// authority was bound to, so a later negative can seal its lookup
+	// snapshot against the same identity.
+	var populationProofs []KnowledgeSourceWatermark
 	if len(sourceScope) > 1 && !homeSupplied {
 		var populationErr error
-		populationOmissions, populationErr = verifyQ10Population(ctx, db, freshen, req, sourceScope, populationAllowDegraded, "bare_id_population_unverified:")
+		var proofs []KnowledgeSourceWatermark
+		populationOmissions, proofs, populationErr = verifyQ10Population(ctx, db, freshen, req, sourceScope, populationAllowDegraded, "bare_id_population_unverified:")
 		if populationErr != nil {
 			return out, populationErr
 		}
+		populationProofs = proofs
 	}
 	// contextualNegativeSources names the current sources a contextual law
 	// read must verify before it asserts a negative verdict — missing or
@@ -514,7 +551,7 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 			out.Omissions = append(out.Omissions, populationOmissions...)
 		}
 	}
-	scanNote := func(homeScoped bool) error {
+	scanNote := func(q queryer, homeScoped bool) error {
 		query := `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash,type,title,completed_at,outcome_tag,lesson_tags,summary,COALESCE(successor_work_id,''),scope_mode,manifest_schema_version FROM archived_work WHERE id = ?`
 		scanArgs := []any{lookupID}
 		if homeScoped {
@@ -525,16 +562,16 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 			query += sourceScopeWhere
 			scanArgs = append(scanArgs, req.Product, req.Product)
 		}
-		return db.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
+		return q.QueryRowContext(ctx, query, scanArgs...).Scan(&homeProject, &homeLocator, &path, &commit, &hash, &kind, &title, &date, &status, &lessonTagsJSON, &summary, &successor, &scopeMode, &manifestSchemaVersion)
 	}
-	runScan := func() error {
-		scanErr := scanNote(homeSupplied)
+	runScan := func(q queryer) error {
+		scanErr := scanNote(q, homeSupplied)
 		if scanErr == sql.ErrNoRows && homeSupplied {
-			scanErr = scanNote(false)
+			scanErr = scanNote(q, false)
 		}
 		return scanErr
 	}
-	countHomes := func() (int, error) {
+	countHomes := func(q queryer) (int, error) {
 		countQuery := `SELECT COUNT(DISTINCT home_project_id || ':' || home_locator_id) FROM archived_work WHERE id = ?`
 		countArgs := []any{lookupID}
 		if sourceScopeWhere != "" {
@@ -542,15 +579,15 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 			countArgs = append(countArgs, req.Product, req.Product)
 		}
 		var homes int
-		if scanErr := db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
+		if scanErr := q.QueryRowContext(ctx, countQuery, countArgs...).Scan(&homes); scanErr != nil {
 			return 0, wrapFailure(KindUnavailable, "PM1.Q10", "cannot inspect note home multiplicity", true, "retry once the database is readable", scanErr)
 		}
 		return homes, nil
 	}
-	err := runScan()
+	err := runScan(db)
 	ambiguous := false
 	if !homeSupplied {
-		homes, countErr := countHomes()
+		homes, countErr := countHomes(db)
 		if countErr != nil {
 			return out, countErr
 		}
@@ -559,30 +596,62 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 	// A contextual law read never asserts a negative — missing or
 	// ambiguous — over a current source population it has not verified. It
 	// verifies and demand-freshens that population once through the
-	// existing freshness owner, then retries the lookup against the
-	// refreshed projection, so a newly committed law resolves canonically
-	// instead of reading as an authoritative absence. A strict read refuses
-	// a failed required source here; a degraded read names the omission and
-	// never claims the authoritative negative. A canonical first answer
-	// keeps its pre-freshen historical locator proof: the opt-in
-	// amendment-context section below proves the current sources
-	// separately, so historical commit A stays independent of current
-	// commit B. Historical-only reads take this path unchanged.
-	if (ambiguous || err == sql.ErrNoRows) && len(contextualNegativeSources) > 0 {
-		omissions, populationErr := verifyQ10Population(ctx, db, freshen, req, contextualNegativeSources, populationAllowDegraded, contextualNegativeOmission)
-		if populationErr != nil {
-			return out, populationErr
-		}
-		populationOmissions = append(populationOmissions, omissions...)
-		err = runScan()
-		ambiguous = false
-		if !homeSupplied {
-			homes, countErr := countHomes()
-			if countErr != nil {
-				return out, countErr
+	// existing freshness owner on the pool, then retries the lookup inside
+	// one read-only snapshot that is sealed against the verified
+	// population: the registered set is re-derived in the snapshot and
+	// compared with the verified set, and each verified source's watermark
+	// is compared with the scanned commit its proof bound. A source
+	// registered, removed, re-designated, or rebuilt between verification
+	// and the lookup is drift: a strict read refuses, a degraded read
+	// names the omission, and neither presents an authoritative negative
+	// over a population it did not verify (CON-830 review). A newly
+	// committed law still resolves canonically: the retry runs after the
+	// demand rebuild. A canonical first answer keeps its pre-freshen
+	// historical locator proof: the opt-in amendment-context section below
+	// proves the current sources separately, so historical commit A stays
+	// independent of current commit B. Historical-only reads take this
+	// path unchanged, and no git probe runs inside the snapshot
+	// (CD-0195 D2).
+	if req.IncludeAmendmentContext && isLawLookup && (ambiguous || err == sql.ErrNoRows) && (homeSupplied || len(sourceScope) > 0) {
+		verifiedSources := contextualNegativeSources
+		if len(contextualNegativeSources) > 0 {
+			omissions, proofs, populationErr := verifyQ10Population(ctx, db, freshen, req, contextualNegativeSources, req.AmendmentContextAllowDegraded, contextualNegativeOmission)
+			if populationErr != nil {
+				return out, populationErr
 			}
+			populationOmissions = append(populationOmissions, omissions...)
+			populationProofs = proofs
+		} else {
+			// A multi-source bare read: the pre-lookup loop already
+			// verified this population and collected its proofs; only
+			// the sealed retry was missing.
+			verifiedSources = sourceScope
+		}
+		tx, txErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if txErr != nil {
+			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot open a consistent negative-lookup read snapshot", true, "retry once the database is readable", txErr)
+		}
+		driftOmissions, sealErr := q10SealContextualNegative(ctx, tx, req, homeSupplied, qualifiedProjectID, verifiedSources, populationProofs, len(populationOmissions) == 0)
+		if sealErr != nil {
+			tx.Rollback()
+			return out, sealErr
+		}
+		populationOmissions = append(populationOmissions, driftOmissions...)
+		scanErr := runScan(tx)
+		ambiguous = false
+		var countErr error
+		if !homeSupplied {
+			var homes int
+			homes, countErr = countHomes(tx)
 			ambiguous = homes > 1
 		}
+		if closeErr := tx.Rollback(); closeErr != nil {
+			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot close the negative-lookup read snapshot", true, "retry once the database is readable", closeErr)
+		}
+		if countErr != nil {
+			return out, countErr
+		}
+		err = scanErr
 	}
 	if req.IncludeAmendmentContext && isLawLookup && (ambiguous || err == sql.ErrNoRows) && !homeSupplied && len(sourceScope) == 0 {
 		if !req.AmendmentContextAllowDegraded {
@@ -632,7 +701,7 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
 			return out, nil
 		}
-	} else if stop, err := verifyQ10ManifestRecord(ctx, db, req, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, storedHome.RepoPath, &out); stop || err != nil {
+	} else if stop, err := verifyQ10ManifestRecord(ctx, db, readManifest.orDirect(), req, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, storedHome.RepoPath, &out); stop || err != nil {
 		return out, err
 	}
 	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
@@ -664,23 +733,112 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 
 // verifyQ10Population uses the same source verifier for uniqueness and
 // classified negatives. Historical reads verify their recorded sources;
-// contextual reads first reuse the existing demand-freshness owner.
-func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request, sources []KnowledgeHome, allowDegraded bool, omissionPrefix string) ([]string, error) {
+// contextual reads first reuse the existing demand-freshness owner. The
+// returned watermarks carry each source's scanned commit and authority, so
+// a later negative can seal its lookup snapshot against the same identity.
+func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request, sources []KnowledgeHome, allowDegraded bool, omissionPrefix string) ([]string, []KnowledgeSourceWatermark, error) {
 	omissions := make([]string, 0)
+	watermarks := make([]KnowledgeSourceWatermark, 0, len(sources))
 	for _, source := range sources {
 		var authority string
 		var err error
+		scanned := ""
 		if req.IncludeAmendmentContext {
-			_, authority, err = validateKnowledgeContextSource(ctx, db, freshen, source, allowDegraded, "PM1.Q10")
+			scanned, authority, err = validateKnowledgeContextSource(ctx, db, freshen, source, allowDegraded, "PM1.Q10")
 		} else {
-			_, authority, err = validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, "PM1.Q10")
+			scanned, authority, err = validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, "PM1.Q10")
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if authority != "authoritative" {
 			omissions = append(omissions, omissionPrefix+source.HomeProjectID+"/"+source.HomeLocatorID)
 		}
+		watermarks = append(watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: scanned, Authority: authority})
+	}
+	return omissions, watermarks, nil
+}
+
+// q10SealContextualNegative seals a classified contextual negative against
+// its lookup read snapshot. It re-derives, inside the caller's read-only
+// transaction, the registered population the negative claims to have
+// verified — the Product's registered source set for a bare read, or the
+// Project's canonical knowledge locators for a qualified read — and compares
+// it with the set the pool verifier proved, then checks each verified
+// source's watermark against the scanned commit its proof bound. Drift
+// refuses a still-strict read and names one omission per finding on a read
+// that already allows degradation; neither can present an authoritative
+// negative (CON-830 review, PM1 Q10 proof separation). Every read stays on
+// the caller's queryer: no git probe and no nested pool read runs here
+// (CD-0195 D2, single-connection invariant).
+func q10SealContextualNegative(ctx context.Context, q queryer, req Q10Request, homeSupplied bool, qualifiedProjectID string, verified []KnowledgeHome, proofs []KnowledgeSourceWatermark, strict bool) ([]string, error) {
+	omissions := make([]string, 0)
+	degrade := func(omission string) {
+		omissions = append(omissions, omission)
+	}
+	refuse := func(detail string) error {
+		return newFailure(KindStaleContext, "PM1.Q10", "the verified current source population changed before the negative lookup: "+detail, true, "re-verify the current knowledge sources and retry the read")
+	}
+	drift := func(detail string, omission string) error {
+		if strict {
+			return refuse(detail)
+		}
+		degrade(omission)
+		return nil
+	}
+	verifiedLabels := func(homes []KnowledgeHome) []string {
+		labels := make([]string, 0, len(homes))
+		for _, home := range homes {
+			labels = append(labels, home.HomeProjectID+"/"+home.HomeLocatorID)
+		}
+		return labels
+	}
+	if !homeSupplied && req.Product != "" {
+		current, srcErr := resolveKnowledgeQuerySources(ctx, q, req.Product, "PM1.Q10")
+		if srcErr != nil {
+			var failure *Failure
+			if errors.As(srcErr, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
+				return nil, drift("the registered source set is unresolved for "+req.Product, "current_source_set_unresolved:"+req.Product)
+			}
+			return nil, srcErr
+		}
+		gained, lost := refinementSourceSetDrift(verifiedLabels(current), verifiedLabels(verified))
+		if len(gained) == 0 && len(lost) == 0 {
+			return omissions, nil
+		}
+		detail := make([]string, 0, len(gained)+len(lost))
+		for _, label := range gained {
+			detail = append(detail, "gained "+label)
+		}
+		for _, label := range lost {
+			detail = append(detail, "removed "+label)
+		}
+		if strict {
+			return nil, refuse(strings.Join(detail, ", "))
+		}
+		for _, label := range gained {
+			degrade("source_set_gained_unverified_source:" + label)
+		}
+		for _, label := range lost {
+			degrade("source_set_member_unregistered:" + label)
+		}
+		return omissions, nil
+	}
+	if qualifiedProjectID != "" {
+		candidates, candErr := projectCanonicalHomeCandidates(ctx, q, qualifiedProjectID)
+		if candErr != nil {
+			return nil, drift("the canonical designation for "+qualifiedProjectID+" is unresolved", "current_source_designation_drift:"+qualifiedProjectID)
+		}
+		if len(candidates) != 1 || candidates[0].HomeProjectID != req.Home.HomeProjectID || candidates[0].HomeLocatorID != req.Home.HomeLocatorID {
+			return nil, drift("the canonical designation for "+qualifiedProjectID+" changed", "current_source_designation_drift:"+qualifiedProjectID)
+		}
+	}
+	watermarkDrifts, _ := refinementWatermarkDrift(ctx, q, verified, refinementSourceVerification{watermarks: proofs})
+	for _, drifted := range watermarkDrifts {
+		if strict {
+			return nil, refuse(drifted.label + " was verified at " + drifted.proof + " but the read snapshot holds " + drifted.current)
+		}
+		degrade("source_snapshot_drift:" + drifted.label + ":" + drifted.proof + "->" + drifted.current)
 	}
 	return omissions, nil
 }
@@ -716,10 +874,14 @@ func q10CurrentAmendmentContext(ctx context.Context, db *sql.DB, freshen func(co
 
 // verifyQ10ManifestRecord rebuilds one manifest-indexed record from its
 // archived projection rows, checks it against the historical manifest, and
-// verifies the committed declaration. A historical failure reports through
+// verifies the committed declaration. readManifest serves the committed
+// manifest; the store passes its commit-keyed memo so a repeated read of
+// one immutable commit does not re-compose and re-validate the whole
+// record corpus, while the per-record declaration and blob proof still
+// runs against git on every read. A historical failure reports through
 // the out parameter's degraded allowance; stop says the caller must return
 // the out as it now stands instead of continuing to the canonical result.
-func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, repoPath string, out *Q10Result) (bool, error) {
+func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, readManifest knowledgeManifestReader, req Q10Request, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, repoPath string, out *Q10Result) (bool, error) {
 	var tags []string
 	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
 		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
@@ -728,7 +890,7 @@ func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lo
 	if roleErr != nil {
 		return true, roleErr
 	}
-	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit, manifestRole)
+	manifest, missing, manifestErr := readManifest(ctx, repoPath, commit, manifestRole)
 	if manifestErr != nil || missing {
 		if manifestErr == nil {
 			manifestErr = newFailure(KindInvalidNoteProof, "PM1.Q10", "recorded manifest is missing at the historical commit", false, "restore the committed manifest")
@@ -767,7 +929,7 @@ func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lo
 		}
 		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
 	}
-	if err := verifyManifestRecord(ctx, repoPath, commit, record, manifestRole); err != nil {
+	if err := verifyManifestDeclaration(ctx, manifest, repoPath, commit, record); err != nil {
 		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
 		return true, verifyErr
 	}

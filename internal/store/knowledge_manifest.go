@@ -1706,6 +1706,10 @@ func aggregateRecordPathPrefix(data []byte) string {
 	return manifestRecordPathPrefix
 }
 
+// verifyManifestRecord reads the committed manifest and verifies one
+// projected record against it: the declared fields must agree with the
+// projection, and the referenced blob must hash to the declared sha256 at
+// the recorded commit.
 func verifyManifestRecord(ctx context.Context, repo, commit string, record KnowledgeRecord, role knowledgeManifestRole) error {
 	manifest, missing, err := readKnowledgeManifest(ctx, repo, commit, role)
 	if err != nil {
@@ -1714,6 +1718,16 @@ func verifyManifestRecord(ctx context.Context, repo, commit string, record Knowl
 	if missing {
 		return newFailure(KindKnowledgeMissing, "verify_manifest_record", "recorded manifest is missing", false, "restore the manifest at the recorded commit")
 	}
+	return verifyManifestDeclaration(ctx, manifest, repo, commit, record)
+}
+
+// verifyManifestDeclaration checks one projected record against an
+// already-read committed manifest and proves its blob at the recorded
+// commit. Splitting the declaration proof from the manifest read lets a
+// caller that already holds the verified manifest for the same commit
+// prove many records without re-reading and re-composing the shard corpus
+// per record; the manifest itself stays byte-identical proof material.
+func verifyManifestDeclaration(ctx context.Context, manifest KnowledgeManifest, repo, commit string, record KnowledgeRecord) error {
 	var declared *KnowledgeRecord
 	for i := range manifest.Records {
 		if manifest.Records[i].ID == record.ID {

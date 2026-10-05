@@ -3,6 +3,18 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestAcceptedQ1ToQ10Corpus"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestQ10OptInCurrentAmendmentContext"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefinementContextReturnsAuthoredChain"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestKnowledgeResolveNoteAmendmentContextOptIn"
     }
   ],
   "id": "PM1",

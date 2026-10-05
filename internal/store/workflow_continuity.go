@@ -163,6 +163,12 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if err != nil {
 		return out, err
 	}
+	// CON-830: the workflow law context's amendment graph needs verified
+	// current sources, and git-backed verification must never run inside a
+	// transaction (CD-0195 D2). Resolve and verify the source set on the
+	// pool connection before BeginTx, then hand the conclusions into the
+	// read transaction.
+	amendmentSources := verifyWorkflowLawContextSources(ctx, s.db, req.Work)
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)
@@ -216,7 +222,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
 	}
-	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition); err != nil {
+	if err := continuityReadContractTx(ctx, tx, req.Work, &out, activeContractVersion, currentStep, workVersion, definition, amendmentSources); err != nil {
 		return out, err
 	}
 	out.UnresolvedOverlaps, err = readWorkflowUnresolvedDomainOverlapsTx(ctx, tx, req.Work)
@@ -257,7 +263,7 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 // revisions and context, stale-law and compatible-amendment scans, and the
 // open operator question. A work item with no contract row leaves the
 // snapshot without one.
-func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition) error {
+func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64, currentStep string, workVersion int64, definition WorkflowReadDefinition, amendmentSources *workflowAmendmentSources) error {
 	var contract WorkflowReadContract
 	var required, routes, mandates, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
@@ -295,7 +301,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 		// read transaction, so the pinned projection carries readable law
 		// references rather than bare IDs. A contract with no bound law
 		// leaves the field absent.
-		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
+		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract, amendmentSources)
 		if lawErr != nil {
 			return lawErr
 		}

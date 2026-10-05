@@ -262,7 +262,7 @@ func readLawOnlyContext(t *testing.T, s *Store, workID string, mandate []string)
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	return readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, SpecMandate: mandate})
+	return readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, SpecMandate: mandate}, nil)
 }
 
 // A bound law document the projection still records must open as a regular
@@ -586,7 +586,7 @@ func TestContinuityRefusesDomainBindingWithoutRegistryProjection(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys=ON; DELETE FROM domain_registries WHERE product_id='product'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, ArchitectureBinding: &binding})
+	_, err = readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, ArchitectureBinding: &binding}, nil)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent || failure.Op != "read_workflow_law_context" {
 		t.Fatalf("missing registry projection diagnosis = %v, want typed domain_registry_absent", err)

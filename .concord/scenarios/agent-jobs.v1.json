@@ -890,6 +890,7 @@
             "path": "items.ids",
             "op": "set_eq",
             "value": [
+              "knowledge-amender",
               "knowledge-decision",
               "knowledge-lesson"
             ]

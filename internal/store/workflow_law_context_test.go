@@ -169,7 +169,7 @@ func TestContinuityLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	lawContext, err := readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, SpecMandate: []string{"spec:one"}})
+	lawContext, err := readWorkflowLawContext(ctx, tx, workID, &WorkflowReadContract{Version: 1, SpecMandate: []string{"spec:one"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

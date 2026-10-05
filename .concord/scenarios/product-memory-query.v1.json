@@ -310,6 +310,18 @@
         "commit": "ghi789",
         "content_hash": "sha256:note3"
       }
+    ],
+    "law_relations": [
+      {
+        "source_law_id": "knowledge-amender",
+        "kind": "refines",
+        "target_law_id": "knowledge-decision"
+      },
+      {
+        "source_law_id": "knowledge-decision",
+        "kind": "supersedes",
+        "target_law_id": "knowledge-amender"
+      }
     ]
   },
   "scenarios": [
@@ -764,6 +776,7 @@
             "path": "$.items[*].id",
             "op": "eq",
             "value": [
+              "knowledge-amender",
               "knowledge-decision",
               "knowledge-lesson"
             ]
@@ -916,6 +929,7 @@
             "path": "$.result.current_law[*].law_id",
             "op": "set_eq",
             "value": [
+              "knowledge-amender",
               "knowledge-decision"
             ]
           },
@@ -981,6 +995,133 @@
       },
       "expected_error": {
         "kind": "unknown_domain"
+      }
+    },
+    {
+      "id": "Q10-amendment-context-opt-in",
+      "query_id": "PM1.Q10",
+      "input": {
+        "knowledge": "knowledge-decision",
+        "amendment_context": {
+          "include": true,
+          "limit": 4
+        }
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.result.current_amendment_context.authority",
+            "op": "eq",
+            "value": "authoritative"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[0].kind",
+            "op": "eq",
+            "value": "refines"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[0].direction",
+            "op": "eq",
+            "value": "incoming"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[0].endpoint_law_id",
+            "op": "eq",
+            "value": "knowledge-amender"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[0].endpoint_status",
+            "op": "eq",
+            "value": "accepted"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[0].endpoint_content_hash",
+            "op": "nonempty",
+            "value": true
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[1].kind",
+            "op": "eq",
+            "value": "supersedes"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[1].direction",
+            "op": "eq",
+            "value": "outgoing"
+          },
+          {
+            "path": "$.result.current_amendment_context.edges[1].endpoint_law_id",
+            "op": "eq",
+            "value": "knowledge-amender"
+          },
+          {
+            "path": "$.result.current_amendment_context.source_watermarks[0].watermark",
+            "op": "nonempty",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q10-amendment-context-historical-only-unchanged",
+      "query_id": "PM1.Q10",
+      "input": {
+        "knowledge": "knowledge-decision"
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.result.law_status",
+            "op": "eq",
+            "value": "accepted"
+          },
+          {
+            "path": "$",
+            "op": "not_contains",
+            "value": "current_amendment_context"
+          }
+        ]
+      }
+    },
+    {
+      "id": "Q10-amendment-context-limit-refuses",
+      "query_id": "PM1.Q10",
+      "input": {
+        "knowledge": "knowledge-decision",
+        "amendment_context": {
+          "include": true,
+          "limit": 33
+        }
+      },
+      "expected_error": {
+        "kind": "invalid_filter"
+      }
+    },
+    {
+      "id": "Q10-amendment-context-work-note-omitted",
+      "query_id": "PM1.Q10",
+      "input": {
+        "work": "work-done",
+        "amendment_context": {
+          "include": true
+        }
+      },
+      "expected": {
+        "authority": "authoritative",
+        "assertions": [
+          {
+            "path": "$.note.path",
+            "op": "eq",
+            "value": ".concord/docs/work/2026-08-03-auth-release.md"
+          },
+          {
+            "path": "$",
+            "op": "not_contains",
+            "value": "current_amendment_context"
+          }
+        ]
       }
     }
   ]

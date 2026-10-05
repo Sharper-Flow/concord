@@ -13,6 +13,12 @@
   "home_domain_id": "agent-surface",
   "id": "CD-0054",
   "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    }
+  ],
   "path": ".concord/docs/decisions/CD-0054-routing-policy-host-authority.md",
   "scopes": {
     "domain_ids": [],

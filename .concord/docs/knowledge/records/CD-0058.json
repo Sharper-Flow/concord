@@ -14,6 +14,16 @@
   "home_domain_id": "agent-surface",
   "id": "CD-0058",
   "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0054"
+    }
+  ],
   "path": ".concord/docs/decisions/CD-0058-no-model-routing.md",
   "scopes": {
     "domain_ids": [],

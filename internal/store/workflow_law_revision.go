@@ -599,6 +599,73 @@ type WorkflowLawContext struct {
 	// Concord tool access (CD-0017 D4), so the path is how it reads Domain
 	// structure: from the file, never from a tool call.
 	RegistryPath string `json:"registry_path,omitempty"`
+	// AmendmentContext is the bounded one-hop authored amendment graph of
+	// the contract's explicitly mandated roots over the pool-verified
+	// source set (CON-830). It reuses the PM1 Q10 amendment-context query
+	// with one 32-edge total page across roots, carrying explicit
+	// continuation and incomplete-root markers; a degraded source set names
+	// its omissions instead of claiming an authoritative empty graph.
+	AmendmentContext *KnowledgeRefinementContextResult `json:"amendment_context,omitempty"`
+}
+
+// workflowAmendmentSources is the pool-verified snapshot handed into the
+// continuity transaction: the resolved federated source set plus the git
+// source verification conclusions computed before BeginTx (CD-0195 D2). The
+// open transaction reuses the conclusions and never reruns the probe.
+type workflowAmendmentSources struct {
+	sources      []KnowledgeHome
+	verification refinementSourceVerification
+}
+
+// verifyWorkflowLawContextSources resolves the work's federated knowledge
+// source set and verifies each source on the pool connection, before any
+// continuity transaction opens. Git-backed freshness probes must never run
+// inside a transaction (CD-0195 D2), so this pool-owned step owns them and
+// the transactional reader receives only conclusions. A work whose home or
+// source set cannot be resolved here still reads its law context as before;
+// its amendment context names the unverified source as a degraded omission
+// rather than inventing an authoritative graph.
+func verifyWorkflowLawContextSources(ctx context.Context, db *sql.DB, workID string) *workflowAmendmentSources {
+	degraded := &workflowAmendmentSources{verification: refinementSourceVerification{
+		watermarks: []KnowledgeSourceWatermark{},
+		degraded:   true,
+		omissions:  []string{"knowledge_source_unverified"},
+	}}
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, db, workID)
+	if err != nil {
+		return degraded
+	}
+	home := KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID}
+	sources := []KnowledgeHome{home}
+	productID, _, err := resolveKnowledgeSourceRole(ctx, db, home)
+	if err != nil {
+		return degraded
+	}
+	if productID != "" {
+		resolved, err := resolveKnowledgeQuerySources(ctx, db, productID, "read_workflow_law_context")
+		if err != nil {
+			return degraded
+		}
+		if len(resolved) > 0 {
+			sources = resolved
+		}
+	}
+	verification := refinementSourceVerification{watermarks: make([]KnowledgeSourceWatermark, 0, len(sources))}
+	for _, source := range sources {
+		label := source.HomeProjectID + "/" + source.HomeLocatorID
+		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, true, "workflow.law_context")
+		if err != nil {
+			return degraded
+		}
+		if authority != "authoritative" {
+			verification.degraded = true
+			verification.omissions = append(verification.omissions, "knowledge_source_degraded:"+label)
+		} else {
+			verification.scanned = append(verification.scanned, label+"@"+scanned)
+		}
+		verification.watermarks = append(verification.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: scanned, Authority: authority})
+	}
+	return &workflowAmendmentSources{sources: sources, verification: verification}
 }
 
 type WorkflowLawContextLaw struct {
@@ -657,7 +724,7 @@ const (
 // can read. Every file locator the context carries is qualified with the
 // Product knowledge home's repository and verified to open there, so a lane
 // dispatched into any member Project reads the home's checkout.
-func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
+func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract, amendment *workflowAmendmentSources) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
 	}
@@ -738,6 +805,26 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 			}
 		}
 		context.Laws = laws
+		// CON-830: the contract's explicitly mandated roots reuse the same
+		// store-owned amendment-context query as PM1 Q10, over the
+		// pool-verified source snapshot, inside this transaction through
+		// the tx-scoped core. One bounded page totals 32 edges across all
+		// roots and names incomplete roots plus continuation.
+		if amendment != nil {
+			roots := make([]string, 0, len(lawIDs))
+			for _, lawID := range lawIDs {
+				if roleSet[lawID][lawContextRoleMandated] {
+					roots = append(roots, lawID)
+				}
+			}
+			if len(roots) > 0 {
+				result, amendErr := queryKnowledgeRefinementContext(ctx, tx, KnowledgeRefinementContextRequest{Product: productID}, amendment.sources, orderedStrings(roots), refinementContextMaxLimit, amendment.verification)
+				if amendErr != nil {
+					return nil, amendErr
+				}
+				context.AmendmentContext = &result
+			}
+		}
 	}
 	if contract.ArchitectureBinding != nil {
 		productID, err := workflowBindingProductIDTx(ctx, tx, workID)

@@ -328,6 +328,28 @@ The JSON corpus is executable through a candidate adapter implementing
   the Product's registered source set and refuses as `ambiguous` when more than
   one source holds it. Every returned locator names its source Project,
   repository-relative path, commit OID, and content hash.
+- **Opt-in current amendment context (amended 2026-10-04 by `CON-830`):** a law
+  reference may request a separate `current_amendment_context` section with
+  `limit` 1-32 (default 20) and an opaque `cursor`. The section lists direct
+  incoming refinements whose endpoint record is accepted, plus explicitly
+  declared outgoing relations, same-home or cross-source. Each edge carries its
+  qualified endpoint, locator, title, status, source identity, scanned commit,
+  and content hash. The read is one hop. It reads only authored relation
+  projections and derives no transitive edge, clause authority, or precedence.
+- **Proof separation and authority (amended 2026-10-04 by `CON-830`):** the
+  section carries its own authority and verifies the current source set inside
+  the read snapshot against the scanned commit each watermark proved. It never
+  inherits the historical locator proof. A strict read refuses a failed
+  required source or snapshot drift. A read that allows degradation names each
+  omission and never claims an authoritative empty graph from incomplete
+  sources. Absent the opt-in, the historical-only shape and proof stay
+  unchanged. Work notes never carry the section.
+- **Bounds and continuation (amended 2026-10-04 by `CON-830`):** ordering is
+  kind, direction, endpoint source and ID, then root. The cursor binds the
+  roots, filters, source-set digest, participating scanned commit and content
+  identities, and the qualifying edge snapshot. A changed snapshot refuses
+  continuation. Workflow law context over explicitly mandated roots uses the
+  same store-owned query, capped at 32 edges across roots.
 
 ## 5. Decision and implementation evaluation
 

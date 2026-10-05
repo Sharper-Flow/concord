@@ -516,7 +516,17 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	q, err := r.Store.QueryQ10(ctx, store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}})
+	req := store.Q10Request{Work: in.WorkID, KnowledgeID: in.KnowledgeID, Product: r.Envelope.SelectedProductID, Home: store.KnowledgeHome{}}
+	if in.CurrentAmendmentContext != nil {
+		// Opt-in current amendment context (CON-830): the page carries its
+		// own verified source proof and never inherits the historical
+		// locator proof. The schema caps the limit at 1-32; the store core
+		// re-validates and refuses outside it.
+		req.IncludeAmendmentContext = true
+		req.AmendmentContextLimit = in.CurrentAmendmentContext.Limit
+		req.AmendmentContextCursor = in.CurrentAmendmentContext.Cursor
+	}
+	q, err := r.Store.QueryQ10(ctx, req)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

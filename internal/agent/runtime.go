@@ -282,6 +282,17 @@ type knowledgeSearchInput struct {
 type knowledgeResolveInput struct {
 	WorkID      string `json:"work_id"`
 	KnowledgeID string `json:"knowledge_id"`
+	// CurrentAmendmentContext opts the read into the separately verified
+	// current amendment context (CON-830). Absent keeps the historical-only
+	// shape byte-for-byte.
+	CurrentAmendmentContext *amendmentContextInput `json:"current_amendment_context,omitempty"`
+}
+
+// amendmentContextInput bounds the opt-in amendment-context page: 1-32
+// edges and a snapshot-bound continuation cursor.
+type amendmentContextInput struct {
+	Limit  int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
 }
 
 type knowledgeUnprocessedInput struct {
@@ -1799,6 +1810,26 @@ func (r runtime) q10(base Envelope, q store.Q10Result) (Envelope, error) {
 	}
 	if successorID != "" {
 		payload["successor_id"] = successorID
+	}
+	if q.Result != nil && q.Result.CurrentAmendmentContext != nil {
+		// The opt-in current amendment context is a separate section with
+		// its own authority, omissions, and continuation cursor (CON-830):
+		// its proof never merges into the historical locator state above.
+		amendment := q.Result.CurrentAmendmentContext
+		section := map[string]any{"authority": amendment.Authority, "edges": amendment.Edges}
+		if len(amendment.IncompleteRoots) > 0 {
+			section["incomplete_roots"] = amendment.IncompleteRoots
+		}
+		if len(amendment.Omissions) > 0 {
+			section["omissions"] = amendment.Omissions
+		}
+		if len(amendment.SourceWatermarks) > 0 {
+			section["source_watermarks"] = amendment.SourceWatermarks
+		}
+		if amendment.NextCursor != nil {
+			section["next_cursor"] = *amendment.NextCursor
+		}
+		payload["current_amendment_context"] = section
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 }

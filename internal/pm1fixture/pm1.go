@@ -63,6 +63,11 @@ type Corpus struct {
 			Commit      string `json:"commit"`
 			ContentHash string `json:"content_hash"`
 		} `json:"knowledge"`
+		LawRelations []struct {
+			SourceLawID string `json:"source_law_id"`
+			Kind        string `json:"kind"`
+			TargetLawID string `json:"target_law_id"`
+		} `json:"law_relations"`
 	} `json:"fixtures"`
 	Scenarios []struct {
 		ID              string         `json:"id"`
@@ -408,11 +413,15 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	}
 	lessonPath := ".concord/docs/lessons/2026-08-04-state-authority.md"
 	decisionPath := ".concord/docs/decisions/CD-0002-state-authority.md"
+	amenderPath := ".concord/docs/decisions/CD-0004-note-amender.md"
 	if err := writeKnowledgeFile(repo, lessonPath, canonicalKnowledgeNote("knowledge-lesson", "lesson", "2026-08-05T12:00:00Z", []string{"state-authority", "sqlite"})); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write lesson note: %w", err)
 	}
 	if err := writeKnowledgeFile(repo, decisionPath, canonicalKnowledgeNote("knowledge-decision", "decision", "2026-08-04T12:00:00Z", []string{"sqlite", "governance"})); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write decision note: %w", err)
+	}
+	if err := writeKnowledgeFile(repo, amenderPath, canonicalKnowledgeNote("knowledge-amender", "decision", "2026-08-06T12:00:00Z", []string{"governance", "amendment"})); err != nil {
+		return GitKnowledge{}, fmt.Errorf("pm1fixture: write amender decision: %w", err)
 	}
 	lessonContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(lessonPath))) //nolint:gosec // repo is a fresh fixture repository and lessonPath is a fixed internal path.
 	if err != nil {
@@ -422,9 +431,14 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	if err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: read decision note: %w", err)
 	}
+	amenderContent, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(amenderPath))) //nolint:gosec // repo is a fresh fixture repository and amenderPath is a fixed internal path.
+	if err != nil {
+		return GitKnowledge{}, fmt.Errorf("pm1fixture: read amender decision: %w", err)
+	}
 	records := []store.KnowledgeRecord{
 		manifestRecordFromFile("knowledge-lesson", "lesson", lessonPath, "published", "2026-08-05T12:00:00Z", "Durable lesson", "Governance summary", []string{"state-authority", "sqlite"}, store.KnowledgeRecordScopes{Mode: "home"}, lessonContent),
 		manifestRecordFromFile("knowledge-decision", "decision", decisionPath, "accepted", "2026-08-04T12:00:00Z", "Durable decision", "Durable summary", []string{"sqlite", "governance"}, store.KnowledgeRecordScopes{Mode: "home"}, decisionContent),
+		manifestRecordFromFile("knowledge-amender", "decision", amenderPath, "accepted", "2026-08-06T12:00:00Z", "Amender decision", "Amendment summary", []string{"governance", "amendment"}, store.KnowledgeRecordScopes{Mode: "home"}, amenderContent),
 	}
 	if err := writeKnowledgeManifest(repo, records); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: write knowledge manifest: %w", err)
@@ -449,6 +463,32 @@ func SeedKnowledge(ctx context.Context, s *store.Store, c Corpus, dir string) (G
 	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		return GitKnowledge{}, fmt.Errorf("pm1fixture: rebuild knowledge index after compaction: %w", err)
+	}
+	// Authored law relations ride the projection at the scanned commit, the
+	// same identity the rebuild bound, so the Q10 amendment-context corpus
+	// scenarios read a verified snapshot (CON-830).
+	if len(c.Fixtures.LawRelations) > 0 {
+		db := s.DatabaseForTesting()
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return GitKnowledge{}, fmt.Errorf("pm1fixture: seed law relations: %w", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+			return GitKnowledge{}, fmt.Errorf("pm1fixture: seed law relations: %w", err)
+		}
+		for _, relation := range c.Fixtures.LawRelations {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`,
+				home.HomeProjectID, home.HomeLocatorID, relation.SourceLawID, relation.Kind, relation.TargetLawID, commit); err != nil {
+				return GitKnowledge{}, fmt.Errorf("pm1fixture: seed law relation %s %s %s: %w", relation.SourceLawID, relation.Kind, relation.TargetLawID, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			return GitKnowledge{}, fmt.Errorf("pm1fixture: seed law relations: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return GitKnowledge{}, fmt.Errorf("pm1fixture: seed law relations: %w", err)
+		}
 	}
 	commitAlias := map[string]string{}
 	hashAlias := map[string]string{}

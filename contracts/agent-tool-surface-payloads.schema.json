@@ -3128,6 +3128,24 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "current_amendment_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "CON-830 opt-in: request the separately verified current amendment context of the resolved law record. The current source proof is independent of the historical locator proof and never inherits it. Absent on every historical-only read and on work notes; unknown fields refuse.",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 32,
+              "description": "Edges per amendment-context page, 1 to 32. Default 20."
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "Opaque continuation token from a prior page. It binds roots, filters, the source-set digest, the scanned source commit and content identities, and the last ordering key; a changed snapshot refuses continuation."
+            }
+          }
         }
       },
       "oneOf": [
@@ -3893,6 +3911,83 @@
         },
         "successor_id": {
           "$ref": "#/$defs/id"
+        },
+        "current_amendment_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "CON-830: opt-in current amendment context with its own qualified source proof. One-hop authored relations only: direct incoming accepted refinements plus explicitly declared outgoing relations. No inferred relations, transitive edges, clause authority, or precedence. Authority is partial or degraded whenever an endpoint or source is incomplete; an incomplete source set never reads as an authoritative no-amendments graph.",
+          "properties": {
+            "authority": {
+              "type": "string",
+              "enum": [
+                "authoritative",
+                "partial",
+                "degraded"
+              ]
+            },
+            "edges": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/amendment_context_edge"
+              }
+            },
+            "incomplete_roots": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "omissions": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "source_watermarks": {
+              "description": "CON-830: one freshness verdict per source the amendment context verified, each binding the scanned commit its proof proved.",
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "project_id",
+                  "locator_id",
+                  "watermark",
+                  "authority"
+                ],
+                "properties": {
+                  "project_id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "locator_id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "watermark": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "authority": {
+                    "type": "string",
+                    "maxLength": 64
+                  }
+                }
+              }
+            },
+            "next_cursor": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "authority",
+            "edges"
+          ]
         }
       }
     },
@@ -14475,6 +14570,69 @@
             "minLength": 1,
             "maxLength": 512
           }
+        }
+      }
+    },
+    "amendment_context_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_id",
+        "direction",
+        "kind",
+        "endpoint_project_id",
+        "endpoint_law_id",
+        "source_project_id",
+        "source_locator_id",
+        "scanned_commit_oid"
+      ],
+      "description": "One authored one-hop relation. direction incoming marks a direct accepted refinement of the root; direction outgoing marks an explicitly declared relation from the root, same-home or cross-source, with a qualified endpoint.",
+      "properties": {
+        "root_id": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "incoming",
+            "outgoing"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "endpoint_project_id": {
+          "type": "string"
+        },
+        "endpoint_locator_id": {
+          "type": "string"
+        },
+        "endpoint_law_id": {
+          "type": "string"
+        },
+        "endpoint_kind": {
+          "type": "string"
+        },
+        "endpoint_status": {
+          "type": "string"
+        },
+        "endpoint_title": {
+          "type": "string"
+        },
+        "endpoint_path": {
+          "type": "string"
+        },
+        "endpoint_content_hash": {
+          "type": "string"
+        },
+        "source_project_id": {
+          "type": "string"
+        },
+        "source_locator_id": {
+          "type": "string"
+        },
+        "scanned_commit_oid": {
+          "type": "string"
         }
       }
     }

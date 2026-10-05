@@ -28,7 +28,10 @@
   "evidence": [
     ".concord/scenarios/product-memory-query.v1.json",
     "internal/store/query_corpus_test.go",
-    "internal/store/query_corpus_cross_test.go"
+    "internal/store/query_corpus_cross_test.go",
+    "internal/store/knowledge_refinement_context_test.go",
+    "internal/store/q10_amendment_context_test.go",
+    "internal/agent/knowledge_amendment_context_wire_test.go"
   ],
   "home_domain_id": "product-memory",
   "id": "PM1",
@@ -41,7 +44,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:89596f83d9a93182fc931ea1fd05e4eddb8049e1c3ebda7c13918b78588b0c2a",
+  "sha256": "sha256:f3ca787c9fb3bbe3e12445d489cc353994a4301049bb618b0263bfd7cbc9d45c",
   "status": "accepted",
   "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
   "tags": [

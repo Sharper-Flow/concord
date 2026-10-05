@@ -75,6 +75,15 @@ type Q10Request struct {
 	Product       string
 	AllowDegraded bool
 	Home          KnowledgeHome
+	// IncludeAmendmentContext opts the read into the separate
+	// current_amendment_context section (CON-830): independently verified
+	// current-source proof that never inherits the historical locator
+	// proof above. Historical-only reads keep the existing shape.
+	IncludeAmendmentContext bool
+	// AmendmentContextLimit and AmendmentContextCursor bound and continue
+	// the opt-in amendment-context page (1-32 edges, snapshot-bound).
+	AmendmentContextLimit  int
+	AmendmentContextCursor string
 }
 
 // parseQualifiedKnowledgeID splits the source-qualified reference form
@@ -115,6 +124,10 @@ type Q10Payload struct {
 	Note        *CanonicalNote `json:"note,omitempty"`
 	LawStatus   string         `json:"law_status,omitempty"`
 	SuccessorID string         `json:"successor_id,omitempty"`
+	// CurrentAmendmentContext is the opt-in separately verified one-hop
+	// amendment graph of the resolved law record. Absent on every
+	// historical-only read and on work notes.
+	CurrentAmendmentContext *KnowledgeRefinementContextResult `json:"current_amendment_context,omitempty"`
 }
 
 // KnowledgeLawStatus reports the record's law status (CD-0020 D3) when the
@@ -524,6 +537,28 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 		payload.LawStatus = law
 	}
 	out.Status, out.Note, out.Result = "canonical", &note, payload
+	// CON-830: the opt-in current_amendment_context section rides only a
+	// canonically verified law record and carries its own current-source
+	// proof through the same store-owned refinement query. Work notes and
+	// historical-only reads keep the shape above untouched.
+	if req.IncludeAmendmentContext && payload.LawStatus != "" {
+		amendmentSources := sourceScope
+		if len(amendmentSources) == 0 {
+			amendmentSources = []KnowledgeHome{storedHome}
+		}
+		amendment, amendmentErr := queryKnowledgeRefinementContextDB(ctx, db, KnowledgeRefinementContextRequest{
+			Product:       req.Product,
+			Roots:         []string{lookupID},
+			Limit:         req.AmendmentContextLimit,
+			Cursor:        req.AmendmentContextCursor,
+			AllowDegraded: req.AllowDegraded,
+			Sources:       amendmentSources,
+		})
+		if amendmentErr != nil {
+			return out, amendmentErr
+		}
+		payload.CurrentAmendmentContext = &amendment
+	}
 	return out, nil
 }
 

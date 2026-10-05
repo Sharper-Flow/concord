@@ -76,7 +76,7 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 28 {
+	if run != 32 {
 		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 23", run)
 	}
 }
@@ -201,7 +201,18 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 		}
 		return result, nil
 	case "PM1.Q10":
-		return s.QueryQ10(ctx, store.Q10Request{Work: stringInput(input, "work"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home})
+		amendment, _ := input["amendment_context"].(map[string]any)
+		includeAmendment := false
+		amendmentLimit := 0
+		amendmentCursor := ""
+		if amendment != nil {
+			includeAmendment, _ = amendment["include"].(bool)
+			if limit, ok := amendment["limit"].(float64); ok {
+				amendmentLimit = int(limit)
+			}
+			amendmentCursor, _ = amendment["cursor"].(string)
+		}
+		return s.QueryQ10(ctx, store.Q10Request{Work: stringInput(input, "work"), KnowledgeID: stringInput(input, "knowledge"), AllowDegraded: boolInput(input, "allow_degraded"), Home: home, IncludeAmendmentContext: includeAmendment, AmendmentContextLimit: amendmentLimit, AmendmentContextCursor: amendmentCursor})
 	}
 	return nil, fmt.Errorf("unsupported corpus query %s", id)
 }

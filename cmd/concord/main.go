@@ -49,6 +49,13 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		_, _ = fmt.Fprintln(out, version.Value)
 		return 0
 	}
+	// The JSON descriptor is the same bootstrap surface as plain --version:
+	// it answers before any stdin read, store open, or lease write, so the
+	// installer can learn a staged core's capability without side effects
+	// (CON-807). Plain --version output stays exactly the version string.
+	if len(args) == 2 && args[0] == "--version" && args[1] == "--json" {
+		return writeCoreDescriptor(out, errOut)
+	}
 	if len(args) == 1 && args[0] == "--help" {
 		writeUsage(out)
 		return 0
@@ -214,7 +221,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "predecessor-import", TwoWord: "predecessor import", RequiredFields: requiredFields(field("snapshot_path"), nestedField("product", "product_id", "display_name", "stage_maturity", "stage_audience_commitment"), field("projects"), field("select_change_ids")), Optional: "dry_run, surfaces", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; projects[].role: primary | secondary; select_change_ids: change ids the snapshot enumerates as active and that belong to a declared snapshot_project_id, or already-imported ids that turned terminal or left the active set since the previous harvest; surfaces: specifications | active_work | terminal_history | wisdom | reflections; only active_work imports, a surface outside this set refuses before import (CD-0097)"},
 	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "none", Enums: "prints the live host leases and prunes stale ones (CD-0111 D2)"},
-	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "none", Enums: "applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)"},
+	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree", Enums: "applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)"},
 }
 
 // matchCommandSpec resolves the leading tokens against commandSpecs' canonical
@@ -257,7 +264,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
-	_, _ = fmt.Fprintln(out, "  concord upgrade                      # apply pending migrations; refuses under an older live session")
+	_, _ = fmt.Fprintln(out, "  concord upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness")
 	_, _ = fmt.Fprintln(out, "  concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)")
 	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
 	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")

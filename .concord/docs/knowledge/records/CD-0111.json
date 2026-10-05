@@ -10,7 +10,9 @@
     "adapter/opencode/concord.ts",
     "adapter/opencode/generated-contracts.ts",
     "scripts/install.py",
-    "internal/store/schema.go"
+    "internal/store/schema.go",
+    "internal/store/readiness.go",
+    "internal/hostlease/hostlease.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0111",
@@ -23,9 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7d8b383b9768e438222021180c13698ad1fbb63cb47f9366e28ca779badbec1f",
+  "sha256": "sha256:bf3d7d4bd51c6698927e7be0600f9b4b44b68939f65f09b3bce6c4207cb7a1e1",
   "status": "accepted",
-  "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. No refusal names a session restart as its recovery.",
+  "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. An installer facing a pending breaking step or unknown readiness prepares the candidate durably and names the exact migration and activation commands; the incompatible migration and its cleanup run inside a maintenance boundary whose session-admission exclusion is held through the final lease check, the migration, and the activation. No refusal names a session restart as its recovery.",
   "tags": [
     "release",
     "session-boot",

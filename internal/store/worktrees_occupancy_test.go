@@ -36,9 +36,13 @@ func writeProtectingHostLease(t *testing.T, s *Store) {
 	if err != nil {
 		t.Fatalf("the test process is not observable: %v", err)
 	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := hostlease.Write(filepath.Dir(s.Path()), hostlease.Lease{
 		PID: os.Getpid(), PidStart: start, ReleaseRoot: filepath.Dir(s.Path()),
-		CoreBinary: "test", SchemaVersion: CurrentSchemaVersion(),
+		CoreBinary: self, SchemaVersion: CurrentSchemaVersion(),
 		RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}); err != nil {
 		t.Fatalf("cannot write the protecting host lease: %v", err)

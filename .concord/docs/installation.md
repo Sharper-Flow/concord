@@ -119,6 +119,72 @@ stable `skills.paths` entry and the plugin entry module at startup. The
 installer manages only those two registrations; it does not modify unrelated
 configuration keys.
 
+## Prepare, migrate, activate
+
+Every install consults the candidate release's own core before activating it.
+The core inspects the store by reading only and reports whether activation may
+proceed. A compatible release activates immediately, and an install keeps every
+release a live session holds. The installer also asks the staged core, through
+the side-effect-free `--version --json` descriptor, which maintenance-fence
+protocol it speaks, and marks the staged tree with only the number the core
+reported. A core that cannot run or does not identify as the staged release
+refuses staging. A core whose descriptor is absent or names an unsupported
+protocol installs unmarked. An incompatible migration names every unmarked tree and
+proceeds only when the operator confirms that no session runs on one:
+`echo '{"confirm_sessions_stopped":true}' | concord upgrade`.
+
+When a pending breaking store migration blocks activation, or the store's
+readiness cannot be established by reading, the installer prepares the candidate
+instead of activating it. The candidate tree lands under the data root, and the
+active launcher, the `current` root, the tools, and the agents keep the release
+the running sessions hold. A prepared record,
+`${XDG_DATA_HOME:-$HOME/.local/share}/concord/prepared-release.json`, carries
+the blockers and the exact operator commands. The install prints them and
+`status` repeats them.
+
+The operator completes the prepared release with the two recorded commands:
+
+```sh
+env -u CONCORD_DB_PATH XDG_DATA_HOME=/data /data/concord/v0.2.0/bin/concord upgrade
+python3 concord-installer.py activate --version v0.2.0
+```
+
+Only one maintenance command runs at a time: the migration command and every
+installer command share one lock. A second command refuses with `another
+maintenance command is in progress`; re-run it after the first ends.
+The migration command pins the store the plan read, so a shell that sets
+another `CONCORD_DB_PATH` or data home cannot redirect it. While the boundary
+is open, an install whose own activation is blocked or unknown refuses and
+keeps the prepared record. Run the recorded activation command first.
+
+The migration command opens the maintenance boundary: new session admission is
+excluded before its final lease check, and the exclusion is held through the
+migration and the activation. A session that starts inside the boundary fails
+closed and names the recorded activation command. The activation verifies the
+migration completed by reading, holds the same exclusion through the swap and
+the release cleanup, and then reopens admission and discharges the record. The
+boundary the migration opens is attributed to the prepared candidate's release
+root, and that attribution is the ownership proof: the discharge closes only
+the boundary its recorded identity owns. A fence that belongs to another
+operation, one that carries no release attribution, or one no record owns,
+stays open for the operator — an adoption or closure is never justified by a
+prepared record merely existing. An orphaned boundary is closed through the
+offline bootstrap below, never by the installer guessing at ownership.
+
+Release cleanup follows the same admission-exclusion rule, not an observation
+count: no re-read closes the window behind it, so the cleanup first proves that
+every installed release tree honors the shared exclusion — the same
+fence-protocol marker the staging probe records. While any runnable tree
+without a recognized marker stays installed, cleanup retains every candidate
+release and names the tree; remove or reinstall that tree through the offline
+bootstrap, and the next install retries the removal.
+
+Recovery follows the boundary. Before the migration commits, a failed or
+interrupted command leaves the active release usable and the store unchanged,
+and the operator runs the migration again. After the migration commits, the
+older release cannot open the store, so a crashed activation recovers forward
+to the prepared candidate; repair and uninstall refuse until it completes.
+
 ## Repair
 
 An incomplete deployment of the installed release — missing runtime modules, a

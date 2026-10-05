@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import io
 import json
 import os
+import select
+import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -91,16 +95,44 @@ esac''',
             (source / "agents" / name).write_text(f"agent:{name}:{marker or version}\n", encoding="utf-8")
         binary = (source / "bin" / "concord")
         # The staged core is a shell script so the installer can ask it which
-        # releases live sessions hold (CD-0111 D2). A test controls the answer
-        # through CONCORD_TEST_HOST_LEASES (a file holding the JSON report) or
-        # CONCORD_TEST_HOST_LEASES_FAIL (a failed observation).
+        # releases live sessions hold (CD-0111 D2), whether activation is
+        # ready (CON-807), and which capability it carries (CON-807 descriptor
+        # probe). A test controls the answers through CONCORD_TEST_HOST_LEASES
+        # (a file holding the JSON report) or CONCORD_TEST_HOST_LEASES_FAIL (a
+        # failed observation), through CONCORD_TEST_UPGRADE_PLAN or
+        # CONCORD_TEST_UPGRADE_PLAN_FAIL (the readiness plan), and through the
+        # descriptor knobs: CONCORD_TEST_CORE_IDENTITY_FAIL (an unknown core
+        # that answers nothing), CONCORD_TEST_CORE_IDENTITY (a file the core
+        # prints instead of its version), CONCORD_TEST_CORE_DESCRIPTOR_FAIL (a
+        # known legacy core without the descriptor route), and
+        # CONCORD_TEST_CORE_DESCRIPTOR (a file the core prints instead of its
+        # descriptor). The default descriptor is truthful identity, not a
+        # silent default: the core names the tree it actually sits in and the
+        # digest the staged adapter actually pins (CON-807).
+        synthetic_digest = self.synthetic_pair_digest(version)
         binary.write_text(
             "#!/bin/sh\n"
             f"# marker:{marker or version}\n"
             'case "$1" in\n'
+            "  --version)\n"
+            '    case "$2" in\n'
+            "      --json)\n"
+            '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR_FAIL" ]; then exit 2; fi\n'
+            '        if [ -n "$CONCORD_TEST_CORE_DESCRIPTOR" ] && [ -f "$CONCORD_TEST_CORE_DESCRIPTOR" ]; then cat "$CONCORD_TEST_CORE_DESCRIPTOR"; else pair_root="$(cd "$(dirname "$0")/.." && pwd)"; pair_bin="$0"; printf \'{"version":"'
+            + version
+            + f'","schema_version":111,"fence_protocol":1,"manifest_digest":"{synthetic_digest}","release_root":"%s","core_binary":"%s"}}\\n\' "$pair_root" "$pair_bin"; fi ;;\n'
+            "      *)\n"
+            '        if [ -n "$CONCORD_TEST_CORE_IDENTITY_FAIL" ]; then exit 2; fi\n'
+            '        if [ -n "$CONCORD_TEST_CORE_IDENTITY" ] && [ -f "$CONCORD_TEST_CORE_IDENTITY" ]; then cat "$CONCORD_TEST_CORE_IDENTITY"; else printf \''
+            + version
+            + '\\n\'; fi ;;\n'
+            "    esac ;;\n"
             "  host-leases)\n"
             '    if [ -n "$CONCORD_TEST_HOST_LEASES_FAIL" ]; then echo "leases unavailable" >&2; exit 1; fi\n'
             '    if [ -n "$CONCORD_TEST_HOST_LEASES" ] && [ -f "$CONCORD_TEST_HOST_LEASES" ]; then cat "$CONCORD_TEST_HOST_LEASES"; else printf \'{"leases":[]}\\n\'; fi ;;\n'
+            "  upgrade)\n"
+            '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN_FAIL" ]; then echo "concord upgrade: readiness_unknown: the store cannot be read" >&2; exit 1; fi\n'
+            '    if [ -n "$CONCORD_TEST_UPGRADE_PLAN" ] && [ -f "$CONCORD_TEST_UPGRADE_PLAN" ]; then cat "$CONCORD_TEST_UPGRADE_PLAN"; else printf \'{"store_present":false,"fresh_store":true,"applied_versions":[],"schema_version":0,"pending":[],"pending_breaking":[],"activation_blocked":false,"compatibility_floor":0,"migration_command":"concord upgrade","activation_command":"","maintenance_fence":null}\\n\'; fi ;;\n'
             "  *) exit 2 ;;\n"
             "esac\n",
             encoding="utf-8",
@@ -108,6 +140,15 @@ esac''',
         binary.chmod(0o755)
         for name in installer.ADAPTER_FILES:
             (source / "adapter" / "opencode" / name).write_text(f"{name}:{marker or version}\n", encoding="utf-8")
+        # The staged adapter's contracts file carries the pinned-pair digest
+        # the truthful core descriptor reports (CON-807): written after the
+        # bulk loop so the digest constant is the file's content, with the
+        # release marker kept so upgrade assertions still see provenance.
+        (source / "adapter" / "opencode" / "generated-contracts.ts").write_text(
+            f"// synthetic pinned-pair constant (CON-807) marker:{marker or version}\n"
+            f'export const manifestDigest = "{synthetic_digest}" as const\n',
+            encoding="utf-8",
+        )
         archive = self.artifacts / f"{prefix}.tar.gz"
         with tarfile.open(archive, "w:gz") as bundle:
             for path in sorted(source.rglob("*")):
@@ -657,6 +698,320 @@ esac''',
         self.assertTrue((self.root / "data" / "concord" / "v1.1.0").exists(), "the replaced release was removed without an observation")
         self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists(), "an older candidate was kept without an observation")
         self.assertIn("no host observation", third.stderr)
+
+    # ---- CON-807: prepare-then-activate, the maintenance fence, recovery ---
+
+    @property
+    def data_root(self) -> Path:
+        return self.root / "data" / "concord"
+
+    @property
+    def prepared_path(self) -> Path:
+        return self.data_root / installer.PREPARED_RELEASE_NAME
+
+    @property
+    def fence_path(self) -> Path:
+        return self.data_root / installer.MAINTENANCE_FENCE_NAME
+
+    def synthetic_pair_digest(self, version: str) -> str:
+        """The pinned-pair digest make_release bakes into one synthetic
+        release's adapter contracts and truthful core descriptor."""
+        return "sha256:" + hashlib.sha256(f"concord-pinned-pair:{version}".encode("utf-8")).hexdigest()
+
+    def readiness_plan(self, blocked: bool, blockers: list[str] | None = None) -> Path:
+        path = self.root / "upgrade-plan.json"
+        plan: dict[str, object] = {
+            "store_present": True,
+            "fresh_store": False,
+            "applied_versions": [111],
+            "schema_version": 111,
+            "pending": [],
+            "pending_breaking": [],
+            "activation_blocked": blocked,
+            "compatibility_floor": 111,
+            "migration_command": "concord upgrade",
+            "activation_command": "",
+            "maintenance_fence": None,
+        }
+        if blocked:
+            plan["pending_breaking"] = [{"version": 112, "name": "example_breaking", "breaking": True}]
+            plan["blockers"] = blockers or [
+                "breaking migration 112 (example_breaking) is pending; activation would strand every session that predates it"
+            ]
+        path.write_text(json.dumps(plan) + "\n", encoding="utf-8")
+        return path
+
+    def plan_env(self, blocked: bool | None = None, *, fail: bool = False) -> dict[str, str]:
+        environment = self.env.copy()
+        environment.pop("CONCORD_TEST_UPGRADE_PLAN", None)
+        environment.pop("CONCORD_TEST_UPGRADE_PLAN_FAIL", None)
+        if fail:
+            environment["CONCORD_TEST_UPGRADE_PLAN_FAIL"] = "1"
+        elif blocked is not None:
+            environment["CONCORD_TEST_UPGRADE_PLAN"] = str(self.readiness_plan(blocked))
+        return environment
+
+    def install_release(self, version: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        self.make_release(version)
+        return self.run_installer("install", "--version", version, "--artifact-dir", str(self.artifacts), env=env)
+
+    def assert_active_release(self, version: str, marker: str) -> None:
+        launcher = self.root / "bin" / "concord"
+        self.assertTrue(launcher.is_symlink(), "the launcher is not a symlink")
+        self.assertEqual(os.readlink(launcher), str(self.data_root / version / "bin" / "concord"))
+        self.assertEqual(os.readlink(self.data_root / "current"), str(self.data_root / version))
+        tools_marker = (self.root / "config" / "opencode" / "tools" / "concord.ts").read_text(encoding="utf-8").strip()
+        self.assertEqual(tools_marker, f"concord.ts:{marker}")
+        agents_marker = (self.root / "config" / "opencode" / "agents" / "concord-implement.md").read_text(encoding="utf-8").strip()
+        self.assertEqual(agents_marker, f"agent:concord-implement.md:{marker}")
+
+    def prepare_a_blocked_release(self) -> None:
+        self.install_release("v1.0.0")
+        result = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_blocked_readiness_prepares_without_activating(self) -> None:
+        """CON-807: a pending breaking step must leave the running sessions'
+        release fully in place while the candidate waits durably."""
+        self.prepare_a_blocked_release()
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue((self.data_root / "v1.1.0" / "bin" / "concord").is_file(), "the candidate tree is missing")
+        self.assertTrue(self.prepared_path.is_file(), "no prepared-release record was written")
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["version"], "v1.1.0")
+        self.assertTrue(record["blockers"], "the record carries no blockers")
+        self.assertIn(str(self.data_root / "v1.1.0" / "bin" / "concord"), record["migration_command"])
+        self.assertIn("activate --version v1.1.0", record["activation_command"])
+        self.assertIn(str(SCRIPT), record["activation_command"])
+        manifest = json.loads((self.data_root / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.0.0", "a blocked activation changed the manifest")
+        self.assertFalse(self.fence_path.exists(), "prepare opened a maintenance fence")
+
+    def assert_superseding_install_refused_under_open_boundary(self, plan: dict[str, str]) -> None:
+        """An open boundary means the prepared candidate's incompatible
+        migration may have committed. A blocked or unknown install must not
+        replace that record: it refuses, and the original activation still
+        finishes and closes the boundary (CON-807)."""
+        self.prepare_a_blocked_release()
+        fence = {
+            "fence_id": "committed-migration",
+            "operation": installer.CORE_UPGRADE_OPERATION,
+            "release_root": str(self.data_root / "v1.1.0"),
+        }
+        self.fence_path.write_text(json.dumps(fence), encoding="utf-8")
+        superseding = self.install_release("v1.2.0", env=plan)
+        self.assertNotEqual(superseding.returncode, 0, "a blocked install replaced the prepared release")
+        self.assertIn("activate --version v1.1.0", superseding.stderr)
+        self.assertEqual(json.loads(self.prepared_path.read_text(encoding="utf-8"))["version"], "v1.1.0")
+        self.assertTrue(self.fence_path.exists(), "the refused install closed the boundary")
+        activation = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(activation.returncode, 0, activation.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.fence_path.exists(), "the owning activation left the boundary open")
+        self.assertFalse(self.prepared_path.exists())
+
+    def test_every_command_refuses_while_another_maintenance_command_runs(self) -> None:
+        """The installer and the core's migration command share one
+        maintenance lock (CON-807). While another command holds it, every
+        installer command refuses before it recovers a transaction or
+        touches the boundary, and changes nothing."""
+        self.prepare_a_blocked_release()
+        fence = {
+            "fence_id": "running-migration",
+            "operation": installer.CORE_UPGRADE_OPERATION,
+            "release_root": str(self.data_root / "v1.1.0"),
+        }
+        self.fence_path.write_text(json.dumps(fence), encoding="utf-8")
+        record_before = self.prepared_path.read_bytes()
+        held = os.open(self.data_root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            for arguments in (
+                ("status",),
+                ("activate", "--version", "v1.1.0"),
+                ("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts)),
+                ("uninstall",),
+            ):
+                with self.subTest(command=arguments[0]):
+                    result = self.run_installer(*arguments, env=self.plan_env(blocked=False))
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("another maintenance command is in progress", result.stderr)
+        finally:
+            os.close(held)
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], "running-migration")
+        self.assertEqual(self.prepared_path.read_bytes(), record_before)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        activation = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(activation.returncode, 0, activation.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+
+    def test_a_blocked_install_refuses_while_a_maintenance_boundary_is_open(self) -> None:
+        self.assert_superseding_install_refused_under_open_boundary(self.plan_env(blocked=True))
+
+    def test_an_unknown_install_refuses_while_a_maintenance_boundary_is_open(self) -> None:
+        self.assert_superseding_install_refused_under_open_boundary(self.plan_env(fail=True))
+
+    def test_an_unknown_readiness_fails_closed_into_a_prepared_release(self) -> None:
+        """A store the candidate cannot read by looking must never reach an
+        activation decision; the installer prepares and names the unknown."""
+        self.install_release("v1.0.0")
+        result = self.install_release("v1.1.0", env=self.plan_env(fail=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8"))
+        self.assertTrue(any("readiness" in blocker for blocker in record["blockers"]), record["blockers"])
+
+    def test_activate_completes_the_prepared_release(self) -> None:
+        self.prepare_a_blocked_release()
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists(), "the prepared record survived its activation")
+        self.assertFalse(self.fence_path.exists(), "the maintenance fence survived the completed activation")
+        manifest = json.loads((self.data_root / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "v1.1.0")
+
+    def test_activate_refuses_while_the_migration_is_still_blocked(self) -> None:
+        self.prepare_a_blocked_release()
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("still blocked", result.stdout)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue(self.prepared_path.exists())
+
+    def test_activate_holds_the_fence_through_the_swap_and_closes_it(self) -> None:
+        """The shared session-admission exclusion is open while the swap
+        runs and closes only after the activation completes."""
+        self.prepare_a_blocked_release()
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "launcher_swapped"
+        stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+        self.assertEqual(stopped.returncode, 97)
+        self.assertTrue(self.fence_path.is_file(), "the fence was not held during the activation swap")
+        fence = json.loads(self.fence_path.read_text(encoding="utf-8"))
+        self.assertTrue(fence.get("fence_id"), "the fence carries no identity")
+        # A crashed activation recovers forward on the next invocation and
+        # closes the boundary: never back to the older release.
+        completed = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.fence_path.exists())
+
+    def test_activate_crashes_at_every_phase_recover_forward(self) -> None:
+        """After the incompatible migration committed, recovery resumes the
+        prepared candidate from every crash phase and never restores the
+        older release (CON-807 candidate-forward recovery)."""
+        for phase in (
+            "staged",
+            "version_activated",
+            "agents_swapped",
+            "adapter_swapped",
+            "launcher_swapped",
+            "config_swapped",
+            "manifest_committed",
+        ):
+            with self.subTest(phase=phase):
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.plan_env(blocked=False)
+                environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+                stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+                self.assertEqual(stopped.returncode, 97)
+                # Status recovery finishes the committed activation forward;
+                # a re-run activate is not required (CON-807).
+                recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+                self.assert_active_release("v1.1.0", "v1.1.0")
+                self.assertFalse(self.prepared_path.exists())
+                self.assertFalse(self.fence_path.exists())
+                self.tearDown()
+                self.setUp()
+                self.prepare_a_blocked_release()
+                environment = self.plan_env(blocked=False)
+                environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+                stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+                self.assertEqual(stopped.returncode, 97)
+                completed = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assert_active_release("v1.1.0", "v1.1.0")
+                self.assertFalse(self.prepared_path.exists())
+                self.assertFalse(self.fence_path.exists())
+
+    def test_a_prepared_install_crash_converges_to_the_prepared_state(self) -> None:
+        """A crash after the prepared record landed recovers to the prepared
+        state, and a re-run install re-prepares coherently."""
+        self.install_release("v1.0.0")
+        self.make_release("v1.1.0")
+        environment = self.plan_env(blocked=True)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "prepared"
+        stopped = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=environment)
+        self.assertEqual(stopped.returncode, 97)
+        status = self.run_installer("status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        report = json.loads(status.stdout)
+        self.assertEqual(report["prepared_release"]["version"], "v1.1.0")
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        again = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=self.plan_env(blocked=True)
+        )
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue(self.prepared_path.exists())
+
+    def test_a_compatible_install_activates_immediately_and_retains_a_held_release(self) -> None:
+        """CON-807 rolling-first: with readiness unblocked the install
+        activates now, an old session keeps its release, and the new session
+        surface is in place — supported compatible pairs coexist."""
+        self.install_release("v1.0.0")
+        held = str(self.data_root / "v1.0.0")
+        report = self.root / "held-lease.json"
+        report.write_text(json.dumps({"leases": [
+            {"pid": 4242, "release_root": held, "schema_version": 111, "directory": "/srv/site"},
+        ]}), encoding="utf-8")
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_TEST_HOST_LEASES"] = str(report)
+        result = self.install_release("v1.1.0", env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertTrue((self.data_root / "v1.0.0").exists(), "a release a live session holds was removed")
+        self.assertFalse(self.prepared_path.exists(), "a compatible activation left a prepared record")
+        self.assertFalse(self.fence_path.exists())
+
+    def test_a_failed_observation_keeps_every_release_under_the_fence(self) -> None:
+        """A prepared activation with no host observation deletes nothing:
+        a referenced release is never deleted on a snapshot's word alone."""
+        self.prepare_a_blocked_release()
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_TEST_HOST_LEASES"] = ""
+        environment["CONCORD_TEST_HOST_LEASES_FAIL"] = "1"
+        result = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertTrue((self.data_root / "v1.0.0").exists(), "the replaced release was removed without an observation")
+        manifest = json.loads((self.data_root / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
+        self.assertIn("v1.0.0", manifest["retained_releases"])
+        self.assertFalse(self.fence_path.exists())
+
+    def test_uninstall_and_repair_refuse_while_a_release_is_prepared(self) -> None:
+        self.prepare_a_blocked_release()
+        uninstalled = self.run_installer("uninstall")
+        self.assertEqual(uninstalled.returncode, 1)
+        self.assertIn("prepared release v1.1.0 waits for activation", uninstalled.stderr)
+        repaired = self.run_installer("repair")
+        self.assertEqual(repaired.returncode, 1)
+        self.assertIn("prepared release v1.1.0 waits for activation", repaired.stderr)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_status_reports_the_prepared_release_and_its_commands(self) -> None:
+        self.prepare_a_blocked_release()
+        result = self.run_installer("status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["version"], "v1.0.0")
+        self.assertEqual(report["prepared_release"]["version"], "v1.1.0")
+        self.assertIn("activate --version v1.1.0", report["prepared_release"]["activation_command"])
+        self.assertNotIn("maintenance_boundary", report)
 
     def test_the_stamped_release_constants_bind_the_adapter_to_its_release(self) -> None:
         self.make_release("v1.0.0")
@@ -2272,6 +2627,811 @@ esac''',
             "install", "--version", "v7.10.2", "--artifact-dir", str(self.artifacts), env=environment
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+    # ---- CON-807 review probes: quoting, forward recovery, cleanup races --
+
+    def test_the_recorded_activation_command_preserves_argument_boundaries(self) -> None:
+        """A recorded command with a space in a path must split back into the
+        exact arguments: shlex round-trips the recording (CON-807)."""
+        with mock.patch.object(sys, "argv", ["/tmp/installer tools/install.py"]):
+            command = installer.activation_command_for("v1.1.0", Path("/tmp/test root"))
+        self.assertEqual(
+            shlex.split(command),
+            [sys.executable, "/tmp/installer tools/install.py", "activate", "--version", "v1.1.0", "--root", "/tmp/test root"],
+        )
+
+    def test_a_reinstall_after_the_migration_recovers_forward(self) -> None:
+        """An install that activates its own prepared candidate after the
+        migration committed is a prepared activation: a crash mid-swap
+        recovers the candidate, never the older release the migration made
+        unusable (CON-807 candidate-forward recovery)."""
+        self.prepare_a_blocked_release()
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "launcher_swapped"
+        stopped = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=environment)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists(), "the recovered activation kept its prepared record")
+
+    def test_an_intra_swap_crash_resumes_inside_the_rename_phase(self) -> None:
+        """A crash after the version placement but before the journal advance
+        resumes forward inside the same phase instead of refusing on the
+        surviving live-version backup (CON-807 idempotent rename phases)."""
+        self.prepare_a_blocked_release()
+        original = installer.apply_stable_root
+
+        def crash(*args: object) -> None:
+            original(*args)
+            raise RuntimeError("synthetic crash after version placement before journal advance")
+
+        with mock.patch.dict(os.environ, self.plan_env(blocked=False), clear=True):
+            with mock.patch.object(installer, "apply_stable_root", side_effect=crash):
+                with self.assertRaises(RuntimeError):
+                    installer.activate(SimpleNamespace(root=self.root, version="v1.1.0"))
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+
+    def test_cleanup_never_deletes_a_release_admitted_after_the_snapshot(self) -> None:
+        """A lease snapshot alone never authorizes a deletion (CON-807): a
+        session admitted after the observation keeps its release, because
+        cleanup re-checks the shared admission record at deletion time."""
+        self.install_release("v1.0.0")
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        root = paths.data_root / "v1.0.0"
+        leases = paths.data_root / "hosts"
+        journal = {
+            "operation": "install",
+            "new_version": "v1.1.0",
+            "cleanup_version": "v1.0.0",
+            "cleanup_candidates": {"v1.0.0": manifest["version_files"]},
+        }
+        original = installer.version_matches
+
+        def admit_after_snapshot(*args: object, **kwargs: object) -> bool:
+            leases.mkdir(exist_ok=True)
+            (leases / "holder.json").write_text(json.dumps({"pid": os.getpid(), "release_root": str(root)}))
+            return original(*args, **kwargs)
+
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            with mock.patch.object(installer, "version_matches", side_effect=admit_after_snapshot):
+                installer.remove_unheld_releases(journal, paths)
+        self.assertTrue(root.exists(), "cleanup deleted the release admitted after the snapshot")
+
+    def test_the_recorded_migration_command_preserves_argument_boundaries(self) -> None:
+        """The migration command the prepared record carries must split back
+        into the exact staged-binary arguments, even under a data root with
+        a space, and must pin the environment the plan inspected (CON-807)."""
+        paths = installer.paths_for(Path("/tmp/synthetic test root"))
+        command = installer.plan_migration_command(paths, "v1.1.0")
+        self.assertEqual(
+            shlex.split(command),
+            [
+                "env",
+                "-u",
+                "CONCORD_DB_PATH",
+                f"XDG_DATA_HOME={paths.data_home}",
+                str(paths.data_root / "v1.1.0/bin/concord"),
+                "upgrade",
+            ],
+        )
+
+    def test_the_recorded_migration_command_ignores_the_operator_shell_store(self) -> None:
+        """An operator shell that names another store must not redirect the
+        recorded migration: the command reaches the store the plan read."""
+        self.prepare_a_blocked_release()
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8"))
+        probe = self.root / "probe-env.sh"
+        probe.write_text('#!/bin/sh\nprintf "%s|%s" "${CONCORD_DB_PATH-unset}" "$XDG_DATA_HOME"\n', encoding="utf-8")
+        probe.chmod(0o755)
+        argv = shlex.split(record["migration_command"])
+        self.assertEqual(argv[-2:], [str(self.data_root / "v1.1.0" / "bin" / "concord"), "upgrade"])
+        argv[-2:] = [str(probe)]
+        ambient = dict(os.environ, CONCORD_DB_PATH=str(self.root / "other" / "concord.db"), XDG_DATA_HOME=str(self.root / "other"))
+        result = subprocess.run(argv, capture_output=True, text=True, env=ambient, check=True)
+        self.assertEqual(result.stdout, f"unset|{installer.paths_for(self.root).data_home}")
+
+    def test_the_fence_serializes_with_session_admission(self) -> None:
+        """Opening and removing the maintenance fence both wait for the
+        shared admission lock, so a session mid-admission can never land on
+        the wrong side of a boundary change (CON-807)."""
+        paths = installer.paths_for(self.root)
+        paths.data_root.mkdir(parents=True, exist_ok=True)
+        for phase, operate in (
+            ("open", lambda: installer.ensure_maintenance_fence(paths, "synthetic")),
+            (
+                "remove",
+                lambda: installer.remove_maintenance_fence(
+                    paths, installer.ensure_maintenance_fence(paths, "synthetic")["fence_id"]
+                ),
+            ),
+        ):
+            with self.subTest(phase=phase):
+                with (paths.data_root / "admission.lock").open("a+b") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    read_fd, write_fd = os.pipe()
+                    pid = os.fork()
+                    if pid == 0:
+                        os.close(read_fd)
+                        lock.close()
+                        try:
+                            operate()
+                            os.write(write_fd, b"done")
+                        finally:
+                            os._exit(0)
+                    os.close(write_fd)
+                    readable, _, _ = select.select([read_fd], [], [], 2)
+                    bypassed = bool(readable)
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    os.waitpid(pid, 0)
+                    os.close(read_fd)
+                self.assertFalse(bypassed, f"the fence {phase} bypassed a held admission lock")
+
+    def test_cleanup_retains_releases_written_by_an_unfenceable_participant(self) -> None:
+        """An admission record that lands inside the held exclusion was
+        written without the shared lock: an unfenceable participant. Every
+        candidate stays, including the ones after the landing (CON-807)."""
+        self.install_release("v1.0.0")
+        report = self.root / "held-report.json"
+        report.write_text(json.dumps({"leases": [{"pid": os.getpid(), "release_root": str(self.data_root / "v1.0.0")}]}))
+        env = self.plan_env(blocked=False)
+        env["CONCORD_TEST_HOST_LEASES"] = str(report)
+        result = self.install_release("v1.0.1", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        hosts = paths.data_root / "hosts"
+        journal = {
+            "operation": "install",
+            "new_version": "v1.2.0",
+            "cleanup_candidates": {
+                "v1.0.0": manifest["retained_releases"]["v1.0.0"],
+                "v1.0.1": manifest["version_files"],
+            },
+        }
+        original = installer.admitted_release_roots
+
+        def write_without_the_lock(*args: object) -> set[str]:
+            snapshot = original(*args)
+            hosts.mkdir(exist_ok=True)
+            (hosts / "holder.json").write_text(json.dumps({"pid": os.getpid(), "release_root": str(paths.data_root / "v1.0.1")}))
+            return snapshot
+
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            with mock.patch.object(installer, "admitted_release_roots", side_effect=write_without_the_lock):
+                removed = installer.remove_unheld_releases(journal, paths)
+        self.assertEqual(removed, set(), "an unfenceable participant authorized deletions")
+        self.assertTrue((paths.data_root / "v1.0.0").exists(), "the first candidate was deleted beside an unfenceable write")
+        self.assertTrue((paths.data_root / "v1.0.1").exists(), "the unfenceable participant's release was deleted")
+        self.assertTrue((hosts / "holder.json").exists())
+
+    def test_a_compliant_concurrent_admission_serializes_with_cleanup(self) -> None:
+        """A compliant admission — one that lands its lease while holding the
+        shared admission lock — cannot lose its release to a concurrent
+        cleanup, because cleanup holds the same exclusion across its final
+        observation and every deletion (CON-807)."""
+        self.install_release("v1.0.0")
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        root = paths.data_root / "v1.0.0"
+        hosts = paths.data_root / "hosts"
+        journal = {
+            "operation": "install",
+            "new_version": "v1.1.0",
+            "cleanup_candidates": {"v1.0.0": manifest["version_files"]},
+        }
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            try:
+                lock = (paths.data_root / "admission.lock").open("a+b")
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                hosts.mkdir(exist_ok=True)
+                (hosts / "holder.json").write_text(json.dumps({"pid": os.getpid(), "release_root": str(root)}))
+                os.write(write_fd, b"held")
+                time.sleep(1.0)
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            finally:
+                os._exit(0)
+        os.close(write_fd)
+        try:
+            readable, _, _ = select.select([read_fd], [], [], 5)
+            self.assertTrue(readable, "the concurrent admission never held the exclusion")
+            removed = installer.remove_unheld_releases(journal, paths)
+        finally:
+            os.waitpid(pid, 0)
+            os.close(read_fd)
+        self.assertEqual(removed, set(), "cleanup deleted the release of a compliantly admitted session")
+        self.assertTrue(root.exists(), "a compliant concurrent admission lost its release to cleanup")
+
+    def test_cleanup_fails_closed_on_unreadable_admission_records(self) -> None:
+        """An admission record the cleanup cannot parse names an unknown
+        participant set: nothing is provably unreferenced and every
+        candidate stays (CON-807 fail-closed rule)."""
+        self.install_release("v1.0.0")
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        root = paths.data_root / "v1.0.0"
+        journal = {
+            "operation": "install",
+            "new_version": "v1.1.0",
+            "cleanup_candidates": {"v1.0.0": manifest["version_files"]},
+        }
+        hosts = paths.data_root / "hosts"
+        for name, content in (
+            ("broken.json", "{not json"),
+            ("noroot.json", json.dumps({"pid": os.getpid()})),
+        ):
+            with self.subTest(record=name):
+                hosts.mkdir(exist_ok=True)
+                (hosts / name).write_text(content)
+                removed = installer.remove_unheld_releases(journal, paths)
+                self.assertEqual(removed, set(), f"an unreadable record ({name}) authorized a deletion")
+                self.assertTrue(root.exists(), f"an unreadable record ({name}) lost its release")
+                (hosts / name).unlink()
+
+    def test_a_same_version_reinstall_never_deletes_an_admitted_release(self) -> None:
+        """Reinstalling the active version retries the retained-release
+        cleanup through the same held exclusion: a release admitted around
+        the retry is never deleted on its snapshot (CON-807)."""
+        self.install_release("v1.0.0")
+        report = self.root / "held-report.json"
+        old_root = self.data_root / "v1.0.0"
+        report.write_text(json.dumps({"leases": [{"pid": os.getpid(), "release_root": str(old_root)}]}))
+        env = self.plan_env(blocked=False)
+        env["CONCORD_TEST_HOST_LEASES"] = str(report)
+        result = self.install_release("v1.1.0", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(old_root.exists())
+        paths = installer.paths_for(self.root)
+        original = installer.version_matches
+
+        def admit_after_snapshot(*args: object, **kwargs: object) -> bool:
+            hosts = paths.data_root / "hosts"
+            hosts.mkdir(exist_ok=True)
+            (hosts / "holder.json").write_text(json.dumps({"pid": os.getpid(), "release_root": str(old_root)}))
+            return original(*args, **kwargs)
+
+        args = SimpleNamespace(root=self.root, version="v1.1.0", artifact_dir=str(self.artifacts), base_url="unused")
+        with mock.patch.dict(os.environ, self.env, clear=True):
+            with mock.patch.object(installer, "observe_held_releases", return_value={}):
+                with mock.patch.object(installer, "version_matches", side_effect=admit_after_snapshot):
+                    installer.install(args)
+        self.assertTrue(old_root.exists(), "a same-version reinstall deleted a release admitted around its snapshot")
+
+    def test_superseding_a_migrated_prepared_candidate_recovers_forward(self) -> None:
+        """Installing a different version while the prepared candidate's
+        maintenance boundary is open must recover forward on a crash: the
+        migration may have committed, so the pre-migration release is not a
+        provably usable rollback target (CON-807). The fence carries the
+        release attribution the prepared candidate's own migration command
+        writes (hostlease.EnsureFence stamps the migrating binary's root),
+        which is what makes the boundary provably this upgrade path's."""
+        self.prepare_a_blocked_release()
+        self.fence_path.write_text(json.dumps({
+            "fence_id": "synthetic-committed-boundary",
+            "operation": installer.CORE_UPGRADE_OPERATION,
+            "release_root": str(self.data_root / "v1.1.0"),
+            "notice": "session admission reopens when the prepared release activates",
+        }))
+        self.make_release("v1.2.0")
+        env = self.plan_env(blocked=False)
+        env["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = "launcher_swapped"
+        stopped = self.run_installer("install", "--version", "v1.2.0", "--artifact-dir", str(self.artifacts), env=env)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        active = os.readlink(self.data_root / "current")
+        self.assertNotEqual(active, str(self.data_root / "v1.0.0"), "a superseding install restored the unusable pre-migration release")
+        self.assertEqual(active, str(self.data_root / "v1.2.0"))
+        self.assertFalse(self.prepared_path.exists(), "the superseded prepared record survived")
+        self.assertFalse(self.fence_path.exists(), "the committed boundary stayed open after recovery")
+
+    def test_a_cleanup_crash_leaves_a_status_path_to_discharge_the_boundary(self) -> None:
+        """A crash after the cleanup removed the transaction journal but
+        before the boundary discharged leaves a recoverable state: the next
+        status invocation completes the final crash phase by closing the
+        fence the activation adopted (CON-807)."""
+        self.prepare_a_blocked_release()
+        original = installer.cleanup_transaction
+
+        def crash_after_cleanup(*args: object, **kwargs: object) -> None:
+            original(*args, **kwargs)
+            raise RuntimeError("synthetic crash after cleanup before boundary discharge")
+
+        with mock.patch.dict(os.environ, self.plan_env(blocked=False), clear=True):
+            with mock.patch.object(installer, "cleanup_transaction", side_effect=crash_after_cleanup):
+                with self.assertRaises(RuntimeError):
+                    installer.activate(SimpleNamespace(root=self.root, version="v1.1.0"))
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertFalse(self.fence_path.exists(), "status has no path left to close the committed activation boundary")
+        self.assertFalse(self.prepared_path.exists(), "the discharged record survived")
+
+    def test_status_never_closes_a_foreign_fence(self) -> None:
+        """A fence whose identity no prepared record adopted belongs to
+        another operation: a committed activation's discharge clears its
+        record but leaves that fence untouched (CON-807)."""
+        self.prepare_a_blocked_release()
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        foreign = {"fence_id": "another-operations-boundary", "notice": "synthetic foreign fence"}
+        self.fence_path.write_text(json.dumps(foreign))
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8")) if self.prepared_path.exists() else None
+        self.assertIsNone(record, "the discharged record reappeared")
+        # Rebuild the committed-activation state by hand: the manifest names
+        # v1.1.0 and a prepared record for it exists with no adopted fence.
+        synthetic = {
+            "schema": installer.PREPARED_RELEASE_SCHEMA,
+            "version": "v1.1.0",
+            "version_files": json.loads((self.data_root / "install-manifest.json").read_text(encoding="utf-8"))["version_files"],
+            "blockers": ["synthetic committed record"],
+            "migration_command": "concord upgrade",
+            "activation_command": "concord activate",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        self.prepared_path.write_text(json.dumps(synthetic), encoding="utf-8")
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertFalse(self.prepared_path.exists(), "the committed record was not discharged")
+        self.assertTrue(self.fence_path.exists(), "status removed a fence no record adopted")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+
+    def test_a_compatible_install_retains_an_unowned_open_fence(self) -> None:
+        """CON-807: an open maintenance boundary with no prepared release
+        owning its upgrade path belongs to another operation or is an
+        orphan. A compatible install must neither adopt it nor close it:
+        the install refuses, the boundary survives byte-for-byte, and an
+        orphan closes only through the operator-owned offline bootstrap."""
+        self.install_release("v1.0.0")
+        foreign = {"fence_id": "foreign-in-progress", "notice": "another operation holds this boundary"}
+        self.fence_path.write_text(json.dumps(foreign))
+        result = self.install_release("v1.1.0", env=self.plan_env(blocked=False))
+        self.assertNotEqual(result.returncode, 0, "a compatible install ran over an unowned boundary")
+        self.assertTrue(self.fence_path.exists(), "the install closed another operation's boundary")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_a_prepared_activation_refuses_a_fence_attributed_to_another_candidate(self) -> None:
+        """CON-807: a boundary attributed to a different release root serves
+        another candidate's upgrade path. The prepared activation refuses
+        rather than adopt an exclusion it may never close, and the foreign
+        boundary is retained exactly as written."""
+        self.prepare_a_blocked_release()
+        foreign = {"fence_id": "foreign-in-progress", "release_root": "/other/candidate"}
+        self.fence_path.write_text(json.dumps(foreign))
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertNotEqual(result.returncode, 0, "the activation adopted another candidate's boundary")
+        self.assertTrue(self.fence_path.exists(), "the activation closed another operation's boundary")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_a_superseding_cleanup_crash_keeps_a_recoverable_boundary_owner(self) -> None:
+        """CON-807: cleanup removes the transaction journal inside the same
+        call that finishes the transaction, so the durable owner of an
+        adopted boundary is the prepared record, written before the
+        transaction starts. A crash after cleanup still recovers: the next
+        status discharge closes the recorded boundary identity, and no
+        journal-less, record-less fence is left behind. The fence carries
+        the prepared candidate's own attribution, the shape its migration
+        command writes."""
+        self.prepare_a_blocked_release()
+        self.fence_path.write_text(json.dumps({
+            "fence_id": "synthetic-committed-boundary",
+            "operation": installer.CORE_UPGRADE_OPERATION,
+            "release_root": str(self.data_root / "v1.1.0"),
+            "notice": "session admission reopens when the prepared release activates",
+        }))
+        self.make_release("v1.2.0")
+        original = installer.cleanup_transaction
+
+        def crash_after_cleanup(*args: object, **kwargs: object) -> None:
+            original(*args, **kwargs)
+            raise RuntimeError("synthetic crash after journal removal")
+
+        with mock.patch.dict(os.environ, self.plan_env(blocked=False), clear=True):
+            with mock.patch.object(installer, "cleanup_transaction", side_effect=crash_after_cleanup):
+                with self.assertRaises(RuntimeError):
+                    installer.install(SimpleNamespace(root=self.root, version="v1.2.0", artifact_dir=str(self.artifacts), base_url="unused"))
+        # The adoption was recorded durably before the transaction: the
+        # superseding release owns the discharge even with the journal gone.
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["boundary_fence_id"], "synthetic-committed-boundary")
+        self.assertEqual(record["boundary_owner_version"], "v1.2.0")
+        result = self.run_installer("status", env=self.plan_env(blocked=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.fence_path.exists(), "the journal's removal left no durable owner for the boundary")
+        self.assertFalse(self.prepared_path.exists(), "the discharged record survived")
+        self.assertEqual(os.readlink(self.data_root / "current"), str(self.data_root / "v1.2.0"))
+
+    def test_a_legacy_admission_after_the_last_snapshot_is_retained(self) -> None:
+        """CON-807: an unfenceable legacy participant takes no admission
+        lock, so no names snapshot excludes it. The deletion gate re-reads
+        the admission records by content immediately before the removal, and
+        a lease that landed after the last snapshot keeps its release."""
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_TEST_CORE_DESCRIPTOR_FAIL"] = "1"
+        self.install_release("v1.0.0", env=environment)
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        old_root = paths.data_root / "v1.0.0"
+        self.assertFalse((old_root / "fence-protocol").exists(), "the fixture must be a known legacy core")
+        journal = {"operation": "install", "new_version": "v1.1.0", "cleanup_candidates": {"v1.0.0": manifest["version_files"]}}
+        original = installer.admission_record_names
+        calls = {"count": 0}
+
+        def inject_at_last_observation(*args: object) -> set[str] | None:
+            names = original(*args)
+            calls["count"] += 1
+            # section_names, admitted_release_roots' names, names_now: the
+            # lease lands after the last snapshot's listing, the exact seam
+            # a legacy writer that holds no admission lock can use.
+            if calls["count"] == 3:
+                hosts = paths.data_root / "hosts"
+                hosts.mkdir(exist_ok=True)
+                pid = installer.os.getpid()
+                start = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+                (hosts / "legacy.json").write_text(
+                    json.dumps({"pid": pid, "pid_start": start, "release_root": str(old_root), "fence_protocol": 0})
+                )
+            return names
+
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            with mock.patch.object(installer, "admission_record_names", side_effect=inject_at_last_observation):
+                installer.remove_unheld_releases(journal, paths)
+        self.assertTrue(old_root.exists(), "an unfenceable lease landed after the last names snapshot and its release was deleted")
+
+    def test_a_legacy_admission_at_delete_time_retains_the_release(self) -> None:
+        """CON-807, promoted coordinator probe: a protocol-0 participant can
+        land its lease at the instant of deletion — after any observation the
+        section could make. No re-read closes that window, so cleanup never
+        reaches the irreversible step while a tree that cannot honor the
+        shared exclusion stays installed: the capability gate retains the
+        candidate before any deletion begins."""
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_TEST_CORE_DESCRIPTOR_FAIL"] = "1"
+        self.install_release("v1.0.0", env=environment)
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        old_root = paths.data_root / "v1.0.0"
+        self.assertFalse((old_root / "fence-protocol").exists(), "the fixture must be a known legacy core")
+        journal = {
+            "operation": "install",
+            "new_version": "v1.1.0",
+            "cleanup_candidates": {"v1.0.0": manifest["version_files"]},
+        }
+        original = installer.shutil.rmtree
+        attempted = {"deletions": 0}
+
+        def admit_then_delete(root: object, *args: object, **kwargs: object) -> object:
+            attempted["deletions"] += 1
+            if Path(str(root)) == old_root:
+                hosts = paths.data_root / "hosts"
+                hosts.mkdir(exist_ok=True)
+                pid = installer.os.getpid()
+                start = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
+                (hosts / "legacy.json").write_text(json.dumps({
+                    "pid": pid,
+                    "pid_start": start,
+                    "release_root": str(old_root),
+                    "fence_protocol": 0,
+                }))
+            return original(root, *args, **kwargs)
+
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            with mock.patch.object(installer.shutil, "rmtree", side_effect=admit_then_delete):
+                removed = installer.remove_unheld_releases(journal, paths)
+        self.assertEqual(removed, set(), "cleanup deleted beside a tree that cannot honor the exclusion")
+        self.assertEqual(attempted["deletions"], 0, "cleanup reached the irreversible step while a legacy tree was installed")
+        self.assertTrue(old_root.exists(), "the legacy-referenced release was deleted")
+
+    def test_cleanup_resumes_once_the_unfenceable_tree_is_bootstrapped_away(self) -> None:
+        """The capability gate is the offline bootstrap's counterpart: while
+        an unmarked runnable tree stays installed, cleanup retains every
+        candidate and names the tree; once the operator removes that tree —
+        the documented bootstrap step — the same cleanup deletes the
+        unreferenced candidate."""
+        self.install_release("v1.0.0")
+        legacy_environment = self.plan_env(blocked=False)
+        legacy_environment["CONCORD_TEST_CORE_DESCRIPTOR_FAIL"] = "1"
+        self.install_release("v1.0.1", env=legacy_environment)
+        paths = installer.paths_for(self.root)
+        manifest = installer.load_manifest(paths)
+        old_root = paths.data_root / "v1.0.0"
+        legacy_root = paths.data_root / "v1.0.1"
+        self.assertFalse((legacy_root / "fence-protocol").exists(), "the fixture must be a known legacy core")
+        journal = {
+            "operation": "install",
+            "new_version": "v1.0.1",
+            "cleanup_candidates": {"v1.0.0": manifest["retained_releases"]["v1.0.0"]},
+        }
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            removed = installer.remove_unheld_releases(journal, paths)
+        self.assertEqual(removed, set(), "cleanup deleted beside an unmarked runnable tree")
+        self.assertTrue(old_root.exists(), "the candidate was deleted while the gate should have retained it")
+        # The operator-owned bootstrap: no session runs, the legacy tree goes.
+        shutil.rmtree(legacy_root)
+        with mock.patch.object(installer, "observe_held_releases", return_value={}):
+            removed = installer.remove_unheld_releases(journal, paths)
+        self.assertEqual(removed, {"v1.0.0"}, "cleanup did not resume after the bootstrap removed the unfenceable tree")
+        self.assertFalse(old_root.exists(), "the unreferenced candidate survived a fenceable store")
+
+    def test_a_prepared_activation_retains_an_unattributed_foreign_fence(self) -> None:
+        """CON-807, promoted coordinator probe: an open boundary carrying no
+        release attribution is not owned because a prepared record happens to
+        exist. The prepared activation refuses rather than adopt it, and the
+        unattributed boundary survives byte-for-byte for the operator's
+        offline bootstrap."""
+        self.prepare_a_blocked_release()
+        foreign = {"fence_id": "unattributed-foreign-operation", "notice": "an unattributed boundary"}
+        self.fence_path.write_text(json.dumps(foreign))
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertNotEqual(result.returncode, 0, "the activation adopted an unattributed boundary")
+        self.assertTrue(self.fence_path.exists(), "the activation removed an unattributed boundary")
+        self.assertEqual(
+            json.loads(self.fence_path.read_text(encoding="utf-8")),
+            foreign,
+            "the retained boundary changed",
+        )
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertTrue(self.prepared_path.exists(), "a refused activation discharged the prepared record")
+
+    def test_a_superseding_install_retains_an_unattributed_open_fence(self) -> None:
+        """The same ownership rule binds the superseding route: a fence with
+        no attribution is nobody's to adopt, so installing over the prepared
+        candidate refuses while it is open (CON-807)."""
+        self.prepare_a_blocked_release()
+        foreign = {"fence_id": "unattributed-foreign-operation"}
+        self.fence_path.write_text(json.dumps(foreign))
+        self.make_release("v1.2.0")
+        result = self.run_installer(
+            "install", "--version", "v1.2.0", "--artifact-dir", str(self.artifacts), env=self.plan_env(blocked=False)
+        )
+        self.assertNotEqual(result.returncode, 0, "a superseding install adopted an unattributed boundary")
+        self.assertTrue(self.fence_path.exists(), "the install removed an unattributed boundary")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_a_staged_release_carries_the_core_reported_fence_protocol_marker(self) -> None:
+        """The tree this installer stages declares exactly the fence protocol
+        the staged core reported about itself, and the declaration is a
+        recorded managed file of the release: the core's
+        unfenceable-participant check accepts the tree, and a tampered marker
+        is a transaction conflict (CON-807)."""
+        result = self.install_release("v1.0.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        marker = self.data_root / "v1.0.0" / "fence-protocol"
+        self.assertTrue(marker.is_file(), "the staged tree carries no fence-protocol marker")
+        self.assertEqual(marker.read_text(encoding="utf-8").strip(), "1", "the marker must carry the core-reported number")
+        manifest = installer.load_manifest(installer.paths_for(self.root))
+        self.assertIn("fence-protocol", manifest["version_files"], "the marker is not a recorded managed file")
+        # A prepared candidate carries the same declaration in its own
+        # recorded file set, so its activation keeps the tree fenceable.
+        blocked = self.install_release("v1.1.0", env=self.plan_env(blocked=True))
+        self.assertEqual(blocked.returncode, 0, blocked.stderr)
+        self.assertTrue((self.data_root / "v1.1.0" / "fence-protocol").is_file(), "the prepared tree carries no marker")
+        record = json.loads(self.prepared_path.read_text(encoding="utf-8"))
+        self.assertIn("fence-protocol", record["version_files"])
+        marker = self.data_root / "v1.1.0" / "fence-protocol"
+        marker.write_text("0\n", encoding="utf-8")
+        conflicted = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertNotEqual(conflicted.returncode, 0, "a tampered fence-protocol marker still activated")
+        marker.write_text("1\n", encoding="utf-8")
+        repaired = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(repaired.returncode, 0, repaired.stderr)
+
+    def test_an_unknown_core_gains_no_protocol_marker_and_refuses_the_install(self) -> None:
+        """CON-807 capability truth belongs to the staged core: a core that
+        answers no --version identity is unknown, and the installer refuses
+        to stage it rather than asserting admission support on its behalf."""
+        with tempfile.TemporaryDirectory() as directory:
+            tree = Path(directory)
+            (tree / "bin").mkdir()
+            core = tree / "bin" / "concord"
+            core.write_text("#!/bin/sh\nexit 2\n", encoding="utf-8")
+            core.chmod(0o755)
+            with self.assertRaises(installer.InstallerError):
+                installer.stamp_fence_protocol(tree)
+            self.assertFalse(
+                (tree / "fence-protocol").exists(),
+                "the installer asserted admission support for a core with no recognized capability",
+            )
+        # The full install path fails closed the same way: nothing is placed,
+        # nothing is prepared, and the active release keeps serving.
+        self.install_release("v1.0.0")
+        self.make_release("v1.1.0")
+        environment = self.env.copy()
+        environment["CONCORD_TEST_CORE_IDENTITY_FAIL"] = "1"
+        result = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=environment
+        )
+        self.assertNotEqual(result.returncode, 0, "an unknown core was installed")
+        self.assertFalse((self.data_root / "v1.1.0" / "fence-protocol").exists())
+        self.assertFalse(self.prepared_path.exists(), "an unknown core was prepared for activation")
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_a_known_legacy_core_installs_unmarked(self) -> None:
+        """A core that identifies as its release but predates the descriptor
+        route is known-legacy, not unknown: it installs on the rolling
+        compatible path with no marker, and the incompatible-migration
+        boundary refuses on the unmarked tree instead (CON-807 fail-closed
+        at the boundary, not at compatible install)."""
+        self.install_release("v1.0.0")
+        self.make_release("v1.1.0")
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_TEST_CORE_DESCRIPTOR_FAIL"] = "1"
+        result = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=environment
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse((self.data_root / "v1.1.0" / "fence-protocol").exists(), "a legacy core was marked fence-capable")
+        manifest = installer.load_manifest(installer.paths_for(self.root))
+        self.assertNotIn("fence-protocol", manifest["version_files"])
+
+    def test_a_descriptor_timeout_after_a_valid_identity_leaves_the_tree_unmarked(self) -> None:
+        """A core that identifies as its release but cannot deliver its
+        descriptor in time is usable and grants no capability (CON-807): the
+        probe leaves the tree unmarked instead of refusing staging."""
+        with tempfile.TemporaryDirectory() as temporary:
+            tree = Path(temporary)
+            (tree / "bin").mkdir()
+            binary = tree / "bin" / "concord"
+            binary.write_text('#!/bin/sh\nif [ "$2" = "--json" ]; then sleep 2; else printf "v1.1.0\\n"; fi\n', encoding="utf-8")
+            binary.chmod(0o755)
+            with mock.patch.object(installer, "HOST_LEASE_TIMEOUT_SECONDS", 0.5):
+                self.assertIsNone(installer.probe_core_capability(tree, "v1.1.0"))
+                installer.stamp_fence_protocol(tree, "v1.1.0")
+            self.assertFalse((tree / "fence-protocol").exists())
+
+    def test_an_unsupported_descriptor_grants_no_capability(self) -> None:
+        """Capability comes from the staged core's descriptor alone (CON-807).
+        A descriptor that cannot be parsed or reports no protocol this
+        installer implements, a higher number included, grants no maintenance
+        capability: the compatible release still activates, unmarked."""
+        cases = {
+            "garbage": "not-json",
+            "no-protocol": json.dumps({"version": "v1.1.0", "fence_protocol": 0}),
+            "boolean-protocol": json.dumps({"version": "v1.1.0", "fence_protocol": True}),
+            "higher-protocol": json.dumps({"version": "v1.1.0", "fence_protocol": 2}),
+        }
+        for index, (name, body) in enumerate(cases.items()):
+            with self.subTest(descriptor=name):
+                previous, candidate = f"v1.{2 * index}.0", f"v1.{2 * index + 1}.0"
+                self.install_release(previous)
+                self.make_release(candidate)
+                descriptor = self.root / "descriptor.json"
+                descriptor.write_text(body.replace("v1.1.0", candidate), encoding="utf-8")
+                environment = self.plan_env(blocked=False)
+                environment["CONCORD_TEST_CORE_DESCRIPTOR"] = str(descriptor)
+                result = self.run_installer(
+                    "install", "--version", candidate, "--artifact-dir", str(self.artifacts), env=environment
+                )
+                self.assertEqual(result.returncode, 0, f"{name}: {result.stdout}{result.stderr}")
+                self.assert_active_release(candidate, candidate)
+                self.assertFalse(
+                    (self.data_root / candidate / "fence-protocol").exists(),
+                    f"a {name} descriptor was marked fence-capable",
+                )
+
+    def test_an_identity_mismatch_fails_closed(self) -> None:
+        """A core that answers --version with a different release than the
+        one being staged is not the candidate it claims to be."""
+        self.install_release("v1.0.0")
+        self.make_release("v1.1.0")
+        lying = self.root / "identity.txt"
+        lying.write_text("v9.9.9\n", encoding="utf-8")
+        environment = self.env.copy()
+        environment["CONCORD_TEST_CORE_IDENTITY"] = str(lying)
+        result = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=environment
+        )
+        self.assertNotEqual(result.returncode, 0, "a core with a mismatched identity was installed")
+        self.assertFalse((self.data_root / "v1.1.0" / "fence-protocol").exists())
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_activation_refuses_a_candidate_attributed_unrelated_operation(self) -> None:
+        """CON-807 promoted probe: release attribution alone is not ownership.
+        A boundary attributed to the candidate but naming another maintenance
+        operation is refused, and it stays open exactly as written."""
+        self.prepare_a_blocked_release()
+        foreign = {
+            "fence_id": "unrelated-maintenance",
+            "operation": "unrelated-maintenance-operation",
+            "release_root": str(self.data_root / "v1.1.0"),
+            "notice": "another maintenance step holds this boundary",
+        }
+        self.fence_path.write_text(json.dumps(foreign), encoding="utf-8")
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("unrelated-maintenance-operation", result.stdout + result.stderr)
+        self.assert_active_release("v1.0.0", "v1.0.0")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8")), foreign)
+
+    def test_a_refused_foreign_boundary_cannot_activate_on_status(self) -> None:
+        """CON-807 promoted probe: a refused install leaves only a staged
+        journal. Status recovery may activate forward from a durable
+        authorized activation phase the operation itself wrote — never from
+        a boundary merely observed in place — so the refused install's
+        staging rolls back and the active release is unchanged."""
+        self.install_release("v1.0.0")
+        self.make_release("v1.1.0")
+        self.fence_path.write_text(json.dumps({"fence_id": "foreign-operation"}), encoding="utf-8")
+        refused = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=self.plan_env(blocked=False)
+        )
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        status = self.run_installer("status", env=self.plan_env(blocked=False))
+        manifest = installer.load_manifest(installer.paths_for(self.root))
+        self.assertEqual(
+            manifest["version"], "v1.0.0",
+            f"a refused install activated on status: rc={status.returncode} stdout={status.stdout} stderr={status.stderr}",
+        )
+        # The foreign boundary a refused transaction never adopted stays.
+        self.assertTrue(self.fence_path.is_file(), "status removed a fence no transaction adopted")
+        self.assertEqual(
+            json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], "foreign-operation"
+        )
+
+    def test_idempotent_activation_retains_a_foreign_maintenance_fence(self) -> None:
+        """CON-807: re-running the activation of an already-active release —
+        with or without a surviving prepared record — must never close a
+        maintenance fence it cannot prove it owns. A foreign boundary stays
+        exactly as written for its owner (the operator's offline bootstrap
+        closes an orphaned one)."""
+        self.install_release("v1.0.0")
+        foreign = {"fence_id": "foreign-running-maintenance", "notice": "another operation holds this boundary"}
+        self.fence_path.write_text(json.dumps(foreign))
+        result = self.run_installer("activate", "--version", "v1.0.0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.fence_path.exists(), "already-active activation closed a foreign exclusion")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+        # The same retention holds when a discharged record left no owner:
+        # a synthetic committed-activation record with no adopted fence
+        # discharges without touching the foreign boundary.
+        synthetic = {
+            "schema": installer.PREPARED_RELEASE_SCHEMA,
+            "version": "v1.0.0",
+            "version_files": json.loads((self.data_root / "install-manifest.json").read_text(encoding="utf-8"))["version_files"],
+            "blockers": ["synthetic committed record"],
+            "migration_command": "concord upgrade",
+            "activation_command": "concord activate",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        self.prepared_path.write_text(json.dumps(synthetic), encoding="utf-8")
+        again = self.run_installer("activate", "--version", "v1.0.0")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertFalse(self.prepared_path.exists(), "the committed record was not discharged")
+        self.assertTrue(self.fence_path.exists(), "idempotent completion closed a fence no record adopted")
+        self.assertEqual(json.loads(self.fence_path.read_text(encoding="utf-8"))["fence_id"], foreign["fence_id"])
+
+    def test_discharge_closes_the_owned_fence_before_dropping_its_record(self) -> None:
+        """The prepared record is the durable owner of the fence identity, so
+        it outlives the fence: a crash between the two discharge steps always
+        leaves a recorded owner for whatever is still open, and the re-run
+        converges (CON-807 safe discharge ordering)."""
+        self.prepare_a_blocked_release()
+        with mock.patch.dict(os.environ, self.plan_env(blocked=False), clear=True):
+            def crash_after_fence_close(*args, **kwargs):
+                raise RuntimeError("synthetic crash after the owned fence closed, before the record dropped")
+
+            with mock.patch.object(installer, "clear_prepared_release", side_effect=crash_after_fence_close):
+                with self.assertRaises(RuntimeError):
+                    installer.activate(SimpleNamespace(root=self.root, version="v1.1.0"))
+        # The owned fence is already closed; the record — the only owner —
+        # survived the crash and names the activation to finish.
+        self.assertFalse(self.fence_path.exists(), "the owned fence outlived its record")
+        self.assertTrue(self.prepared_path.exists(), "the record was dropped before the fence it owns")
+        completed = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assertFalse(self.prepared_path.exists())
+        self.assertFalse(self.fence_path.exists())
 
 
 class PluginEntryTupleUnitTest(unittest.TestCase):

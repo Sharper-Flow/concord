@@ -8,6 +8,7 @@ OpenCode configuration paths.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -26,6 +27,8 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -152,10 +155,11 @@ SECRET_SERVICE_INTERFACE = "org.freedesktop.Secret.Service"
 SECRET_SERVICE_SESSION_COLLECTION = f"{SECRET_SERVICE_PATH}/collection/session"
 
 # An activating operation places a release; uninstall removes one. Repair
-# activates the installed release again from verified assets, so every
-# activation-site branch that names "install" accepts it through this
-# predicate instead of an equality test.
-ACTIVATING_OPERATIONS = ("install", "repair")
+# activates the installed release again from verified assets, and activate
+# activates the prepared candidate the operator already migrated to, so
+# every activation-site branch that names "install" accepts both through
+# this predicate instead of an equality test.
+ACTIVATING_OPERATIONS = ("install", "repair", "activate")
 
 
 def activating(operation: str) -> bool:
@@ -272,6 +276,92 @@ def stamp_release_constants(adapter_dir: Path, version_root: Path) -> None:
     target.write_text(release_constants_source(version_root), encoding="utf-8")
 
 
+# The maintenance-fence protocol marker (CON-807). The core's
+# unfenceable-participant check reads this file from every installed
+# release tree: a tree whose core honors the shared session-admission
+# exclusion carries the protocol number it speaks, and a tree without a
+# recognized marker names a core the boundary cannot exclude. The number
+# written is the one the staged core reported about itself; the Go consumer
+# (internal/hostlease.CurrentFenceProtocol) owns what counts as recognized.
+FENCE_PROTOCOL_MARKER_NAME = "fence-protocol"
+
+# The fence protocols this installer recognizes (CON-807). Recognition is
+# explicit, never a range: a higher number names semantics this installer has
+# not implemented, so it grants no maintenance capability.
+SUPPORTED_FENCE_PROTOCOLS = frozenset({1})
+
+
+def probe_core_capability(version_tree: Path, version: str | None = None) -> int | None:
+    """Ask the staged core which maintenance-fence protocol it speaks.
+
+    The probe runs the bootstrap surface only, which answers before any
+    stdin read, store open, or lease write. The core must run and identify
+    as the release being staged: a core that cannot is unusable, and the
+    staging refuses. Its descriptor then decides capability alone. A
+    missing, malformed, or unsupported protocol grants no maintenance
+    capability and leaves the tree unmarked; it does not refuse staging.
+    """
+    binary = version_tree / "bin" / "concord"
+    if not binary.is_file():
+        raise InstallerError(f"staged release has no core binary at {binary}")
+    environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+    try:
+        identity = subprocess.run(
+            [str(binary), "--version"],
+            capture_output=True,
+            env=environment,
+            timeout=HOST_LEASE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InstallerError(f"cannot run the staged core at {binary}: {error}") from error
+    reported = identity.stdout.decode("utf-8", "replace").strip()
+    if identity.returncode != 0 or not reported:
+        raise InstallerError(
+            f"the staged core at {binary} is unusable: --version exited {identity.returncode}"
+        )
+    if version is not None and reported != version:
+        raise InstallerError(
+            f"the staged core at {binary} identifies as {reported!r}, not the release {version!r}"
+        )
+    try:
+        described = subprocess.run(
+            [str(binary), "--version", "--json"],
+            capture_output=True,
+            env=environment,
+            timeout=HOST_LEASE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # The core already proved usable; a descriptor it cannot deliver
+        # grants no capability, the same as an absent one.
+        return None
+    if described.returncode != 0:
+        return None
+    try:
+        descriptor = json.loads(described.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    protocol = descriptor.get("fence_protocol") if isinstance(descriptor, dict) else None
+    if not isinstance(protocol, int) or isinstance(protocol, bool) or protocol not in SUPPORTED_FENCE_PROTOCOLS:
+        return None
+    return protocol
+
+
+def stamp_fence_protocol(version_tree: Path, version: str | None = None) -> None:
+    """Mark the staged tree with the fence protocol its core reported.
+
+    A tree without a supported protocol stays unmarked: its sessions would
+    not check the fence, so release cleanup retains around it and an
+    incompatible migration reports it for operator confirmation.
+    """
+    protocol = probe_core_capability(version_tree, version)
+    if protocol is None:
+        return
+    marker = version_tree / FENCE_PROTOCOL_MARKER_NAME
+    marker.write_text(f"{protocol}\n", encoding="utf-8")
+
+
 # CD-0111 D2: the host owns session liveness. The installer asks the core of
 # the release it just installed which releases live sessions hold, and keeps
 # every one of them. A failed observation is not an empty one: the caller
@@ -341,6 +431,413 @@ def describe_release_holders(holders: list[dict[str, object]]) -> str:
         who = f"pid {pid}" if pid is not None else "a session"
         parts.append(f"{who} in {location}" if location else who)
     return "; ".join(parts)
+
+
+# CON-807: the installer prepares a candidate release durably when the core's
+# read-only readiness plan blocks activation, and activates the prepared
+# candidate only after the operator runs the recorded migration command and
+# this activation command. The prepared record is the durable
+# prepared-versus-active state: the candidate tree and this record exist
+# while the launcher, the current root, the tools, and the agents stay on the
+# release the running sessions hold.
+PREPARED_RELEASE_NAME = "prepared-release.json"
+PREPARED_RELEASE_SCHEMA = "concord-prepared-release-v1"
+MAINTENANCE_FENCE_NAME = "maintenance.json"
+
+
+def prepared_release_path(paths: Paths) -> Path:
+    return paths.data_root / PREPARED_RELEASE_NAME
+
+
+def maintenance_fence_path(paths: Paths) -> Path:
+    return paths.data_root / MAINTENANCE_FENCE_NAME
+
+
+def load_prepared_release(paths: Paths) -> dict[str, object] | None:
+    """Read and validate the prepared-release record, or None when absent.
+
+    The record is installer-owned state: a malformed record is a refusal,
+    never a guess, because a wrong version_files map would hand the next
+    activation authority over files this install never wrote.
+    """
+    path = prepared_release_path(paths)
+    if path.is_symlink():
+        raise InstallerError(f"refusing symlinked prepared-release record {path}")
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise InstallerError(f"cannot read prepared-release record {path}: {error}") from error
+    if not isinstance(record, dict) or record.get("schema") != PREPARED_RELEASE_SCHEMA:
+        raise InstallerError(f"refusing unrecognized prepared-release record {path}")
+    version = record.get("version")
+    if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+        raise InstallerError(f"prepared-release record {path} has an invalid version")
+    files = record.get("version_files")
+    if not isinstance(files, dict) or not files or len(files) > MAX_TRANSACTION_FILES:
+        raise InstallerError(f"prepared-release record {path} has invalid version file records")
+    root = safe_relative_target(paths.data_root, version, "prepared release")
+    for relative, digest in files.items():
+        if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise InstallerError(f"prepared-release record {path} has invalid version file records")
+        safe_relative_target(root, relative, "prepared release file")
+    blockers = record.get("blockers")
+    if not isinstance(blockers, list) or not all(isinstance(line, str) and line for line in blockers):
+        raise InstallerError(f"prepared-release record {path} has invalid blockers")
+    for key in ("migration_command", "activation_command", "created_at"):
+        if not isinstance(record.get(key), str) or not record.get(key):
+            raise InstallerError(f"prepared-release record {path} is missing {key}")
+    # boundary_fence_id is the identity of the open boundary this record's
+    # activation adopted (written durably before its transaction): the
+    # discharge closes exactly that identity and never a foreign fence.
+    # boundary_owner_version names the release whose committed activation
+    # discharges the boundary — the prepared version itself, or the
+    # superseding release that adopted the boundary to end this path.
+    fence_id = record.get("boundary_fence_id")
+    if fence_id is not None and (not isinstance(fence_id, str) or not fence_id):
+        raise InstallerError(f"prepared-release record {path} has an invalid boundary fence identity")
+    owner = record.get("boundary_owner_version")
+    if owner is not None and (not isinstance(owner, str) or not VERSION_RE.fullmatch(owner)):
+        raise InstallerError(f"prepared-release record {path} has an invalid boundary owner version")
+    if owner is not None and fence_id is None:
+        raise InstallerError(f"prepared-release record {path} names a boundary owner with no boundary identity")
+    return record
+
+
+def write_prepared_release(paths: Paths, record: dict[str, object]) -> None:
+    payload = (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    write_atomic(prepared_release_path(paths), payload)
+    fsync_directory(paths.data_root)
+
+
+def clear_prepared_release(paths: Paths) -> None:
+    path = prepared_release_path(paths)
+    if path.exists() or path.is_symlink():
+        path.unlink()
+        fsync_directory(paths.data_root)
+
+
+def installer_invocation() -> str:
+    """This installer's own absolute path, for recorded operator commands."""
+    return str(Path(sys.argv[0]).resolve())
+
+
+def activation_command_for(version: str, root: Path | None) -> str:
+    """The exact activation command, quoted for a POSIX shell.
+
+    shlex.join keeps argument boundaries intact when a recorded path carries
+    a space, so splitting the recorded command reproduces exactly the
+    arguments this installer would run.
+    """
+    parts = [sys.executable or "python3", installer_invocation(), "activate", "--version", version]
+    if root is not None:
+        parts.extend(["--root", str(root)])
+    return shlex.join(parts)
+
+
+@contextmanager
+def admission_lock(paths: Paths):
+    """Hold the data root's shared admission lock (CON-807).
+
+    The core's hostlease package serializes session admission against
+    maintenance-boundary changes through flock on this same lock file, so the
+    installer takes it too: a fence the installer opens or removes while a
+    session is mid-admission would let that session land on the wrong side of
+    the boundary. Blocking here is correct — the installer waits for the
+    admission to finish, then changes the boundary under the lock.
+    """
+    ensure_directory(paths.data_root, mode=0o700)
+    handle = (paths.data_root / "admission.lock").open("a+b")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield handle
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+@contextmanager
+def maintenance_lock(paths: Paths):
+    """Hold the data root's exclusive maintenance lock (CON-807).
+
+    The core's migration command (internal/hostlease.AcquireMaintenance)
+    takes the same lock, so one maintenance command runs at a time. Every
+    installer command recovers transactions and may open or close the
+    boundary, so each one holds the lock: a concurrent command would
+    otherwise recover a live transaction or close a boundary a running
+    migration still needs. The lock does not wait; a second command refuses.
+
+    The lock is a flock on the data root directory itself, so it leaves no
+    file behind: a refused install creates nothing and uninstall still
+    removes the data root. An absent data root holds no store, boundary, or
+    transaction, so there is nothing yet to serialize against.
+    """
+    path = paths.data_root
+    if path.is_symlink():
+        raise InstallerError(f"refusing symlinked data root {path}")
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except FileNotFoundError:
+        yield
+        return
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise InstallerError(
+                f"another maintenance command is in progress: {path} is locked; re-run when it finishes"
+            ) from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+# The operations that open a boundary on the prepare-migrate-activate path
+# (CON-807). The core's incompatible migration writes the first
+# (internal/hostlease.FenceOperationUpgrade); an activation that finds no
+# boundary open writes the second. A boundary naming any other operation
+# belongs to another maintenance step, which this path never adopts or closes.
+CORE_UPGRADE_OPERATION = "concord-upgrade-incompatible-migration"
+INSTALLER_ACTIVATION_OPERATION = "concord-installer-prepared-activation"
+UPGRADE_PATH_OPERATIONS = frozenset({CORE_UPGRADE_OPERATION, INSTALLER_ACTIVATION_OPERATION})
+
+
+def require_owned_fence(paths: Paths, fence: dict[str, object], owner_roots: set[str]) -> None:
+    """Refuse an open boundary this upgrade path cannot prove it owns.
+
+    Ownership needs both the operation and the release attribution: the
+    boundary must be one this path opens, attributed to a candidate root the
+    caller activates. Anything else is retained untouched for its owner or
+    the operator's offline bootstrap (CON-807).
+    """
+    location = maintenance_fence_path(paths)
+    operation = fence.get("operation")
+    if operation not in UPGRADE_PATH_OPERATIONS:
+        raise InstallerError(
+            f"the open maintenance boundary at {location} belongs to operation {operation!r}, not this upgrade "
+            "path; refusing to adopt or later close another maintenance step's boundary"
+        )
+    attributed = fence.get("release_root")
+    if not isinstance(attributed, str) or not attributed:
+        raise InstallerError(
+            f"the open maintenance boundary at {location} carries no release attribution; "
+            "its owner cannot be proven, so this transaction neither adopts it nor later closes it. "
+            "Close it through the operator-owned offline bootstrap when no migration is in progress."
+        )
+    if str(Path(attributed).resolve()) not in {str(Path(root).resolve()) for root in owner_roots}:
+        raise InstallerError(
+            f"the open maintenance boundary at {location} belongs to the release root "
+            f"{attributed}, not this transaction's candidate; refusing to adopt or later close another "
+            "operation's boundary"
+        )
+
+
+def ensure_maintenance_fence(paths: Paths, notice: str, release_root: str | None = None) -> dict[str, object]:
+    """Open the session-admission exclusion when it is not already open.
+
+    The core's migration command opens the boundary before its final lease
+    check and keeps it open after committing a breaking step; the activation
+    re-ensures it (adopting the core's record when it survived) and removes
+    it only after the candidate committed and release cleanup finished. An
+    existing fence is adopted unchanged so the shared boundary keeps one
+    identity across both commands. A fence file that cannot be parsed is a
+    refusal, and removal is refused unless the fence in effect carries the
+    same fence_id: a closer must own what it closes.
+
+    A fence this function creates is attributed to the release root that
+    opened it, so a later activation can tell the boundary of its own
+    upgrade path from a boundary another operation holds (CON-807).
+    """
+    path = maintenance_fence_path(paths)
+    with admission_lock(paths):
+        if path.is_symlink():
+            raise InstallerError(f"refusing symlinked maintenance fence {path}")
+        if path.exists():
+            try:
+                fence = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise InstallerError(f"cannot read maintenance fence {path}: {error}") from error
+            if not isinstance(fence, dict) or not isinstance(fence.get("fence_id"), str) or not fence.get("fence_id"):
+                raise InstallerError(f"refusing malformed maintenance fence {path}")
+            return fence
+        ensure_directory(paths.data_root, mode=0o700)
+        fence = {
+            "fence_id": uuid.uuid4().hex,
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "notice": notice,
+            "release_root": release_root or "",
+            "operation": INSTALLER_ACTIVATION_OPERATION,
+        }
+        write_atomic(path, (json.dumps(fence, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        return fence
+
+
+def remove_maintenance_fence(paths: Paths, fence_id: str) -> None:
+    """Close the maintenance boundary only by owned identity (CON-807).
+
+    Positional removal — unlink whatever sits at the fence path — would let
+    an operation that observed no fence on entry delete a boundary a
+    concurrent operation opened in between, so every closer must name the
+    fence_id it owns. A fence carrying a different identity belongs to
+    another operation and is left in place untouched.
+    """
+    path = maintenance_fence_path(paths)
+    with admission_lock(paths):
+        if path.exists():
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise InstallerError(f"cannot read maintenance fence {path}: {error}") from error
+            if isinstance(current, dict) and current.get("fence_id") != fence_id:
+                return  # the boundary in effect is not this caller's to close
+        if path.exists() or path.is_symlink():
+            path.unlink()
+            fsync_directory(paths.data_root)
+
+
+def upgrade_plan_command(paths: Paths, version: str) -> list[str]:
+    return [str(paths.data_root / version / "bin" / "concord"), "upgrade"]
+
+
+def read_upgrade_plan(paths: Paths, version: str, *, staged_binary: Path | None = None) -> dict[str, object]:
+    """Run the candidate's read-only readiness plan against the live store.
+
+    The candidate binary is the authority: it defines the migrations whose
+    pending state decides activation. The environment matches the lease
+    observation (the durable data home, no inline database override), so the
+    plan inspects the same store every session and the installer use. Any
+    failure to obtain a plan is readiness unknown, and the caller fails
+    closed rather than activating against an unreadable store. A staged
+    binary plans before any placement: install gates from the transaction
+    stage so the active release's launcher, current root, tools, and agents
+    are untouched until the decision is known.
+    """
+    binary = staged_binary if staged_binary is not None else paths.data_root / version / "bin" / "concord"
+    if not binary.is_file():
+        raise InstallerError(f"prepared candidate has no core binary at {binary}")
+    environment = {key: value for key, value in os.environ.items() if key != "CONCORD_DB_PATH"}
+    environment["XDG_DATA_HOME"] = str(paths.data_home)
+    try:
+        completed = subprocess.run(
+            [str(binary), "upgrade"],
+            input=b'{"plan":true}',
+            capture_output=True,
+            env=environment,
+            timeout=HOST_LEASE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InstallerError(f"store readiness is unknown: the candidate plan failed: {error}") from error
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", "replace").strip()[:400]
+        raise InstallerError(f"store readiness is unknown: the candidate plan refused: {detail}")
+    try:
+        report = json.loads(completed.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise InstallerError(f"store readiness is unknown: the candidate plan returned no report: {error}") from error
+    if not isinstance(report, dict) or not isinstance(report.get("activation_blocked"), bool):
+        raise InstallerError("store readiness is unknown: the candidate plan carries no activation decision")
+    return report
+
+
+def plan_blockers(report: dict[str, object]) -> list[str]:
+    blockers = report.get("blockers")
+    if isinstance(blockers, list) and all(isinstance(line, str) for line in blockers):
+        return list(blockers)
+    return []
+
+
+def plan_migration_command(paths: Paths, version: str) -> str:
+    """The exact migration command, in the environment the plan inspected.
+
+    The plan read the store under this data home with no inline database
+    override (read_upgrade_plan). The recorded command pins the same
+    environment, so the operator's shell cannot point the migration at a
+    different store or create an unrelated one. shlex.join keeps a data root
+    containing spaces intact, the same argument-safe rule as
+    activation_command_for.
+    """
+    return shlex.join(
+        ["env", "-u", "CONCORD_DB_PATH", f"XDG_DATA_HOME={paths.data_home}", *upgrade_plan_command(paths, version)]
+    )
+
+
+def place_prepared_version(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
+    """Place the candidate tree durably without activating anything.
+
+    This is the placement half of apply_version with the activation half
+    removed: no stable-root swap, so `current` keeps naming the release the
+    running sessions hold. The existing target, when a previous prepare left
+    one, moves to the transaction's live-version backup like any replaced
+    tree; the journal stays at the staged phase until prepare_release
+    commits the record, so a crash before that rolls the placement back.
+    The placement is idempotent inside its own phase: a crash after the new
+    tree landed left the backup in place, and re-running recognizes the
+    placed records instead of refusing on the surviving backup.
+    """
+    version = journal["new_version"]
+    if not isinstance(version, str):
+        raise InstallerError("transaction has no new version")
+    target = paths.data_root / version
+    live = transaction_root / "backup" / "live-version"
+    staged = transaction_root / "stage" / "version"
+    records = journal.get("new_version_records")
+    if not isinstance(records, dict):
+        raise InstallerError("transaction has no staged version records")
+    if target.exists() or target.is_symlink():
+        if live.exists() or live.is_symlink():
+            if not version_matches(target, records):
+                raise InstallerError("transaction live version backup already exists")
+        else:
+            replace_durable(target, live)
+    if staged.exists():
+        replace_durable(staged, target)
+
+
+def prepare_release(
+    transaction_root: Path,
+    journal: dict[str, object],
+    paths: Paths,
+    version: str,
+    version_records: dict[str, str],
+    blockers: list[str],
+    migration_command: str,
+    root: Path | None,
+) -> None:
+    """Commit the prepared state and stop before any activation swap.
+
+    place_prepared_version already made the candidate tree durable at the
+    activation root, and nothing else has changed: the launcher, the current
+    root, the tools, and the agents keep the release the running sessions
+    hold. This record plus the candidate tree is the durable
+    prepared-versus-active state; the transaction journal reaching the
+    prepared phase makes the commit recoverable, and the record carries the
+    exact commands the operator runs next.
+    """
+    record: dict[str, object] = {
+        "schema": PREPARED_RELEASE_SCHEMA,
+        "version": version,
+        "version_files": version_records,
+        "blockers": blockers,
+        "migration_command": migration_command,
+        "activation_command": activation_command_for(version, root),
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    write_prepared_release(paths, record)
+    advance_phase(transaction_root, journal, "prepared")
+    cleanup_transaction(transaction_root, journal, paths, remove_old_version=False)
+
+
+def print_prepared_release(record: dict[str, object]) -> None:
+    print(f"Prepared Concord {record['version']} without activating it.")
+    print("The launcher, the current root, the tools, and the agents keep the active release.")
+    for blocker in record["blockers"]:  # type: ignore[union-attr]
+        print(f"Blocker: {blocker}")
+    print(f"Run the migration command when the maintenance window opens: {record['migration_command']}")
+    print(f"Then run the activation command: {record['activation_command']}")
 
 
 def retained_release_records(manifest: dict[str, object] | None) -> dict[str, dict[str, str]]:
@@ -1039,7 +1536,7 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
     version_files = manifest.get("version_files")
     if not isinstance(version_files, dict) or not version_files:
         raise InstallerError("installer manifest has invalid version file records")
-    allowed_fixed = {"bin/concord", *(f"adapter/opencode/{name}" for name in ADAPTER_FILES)}
+    allowed_fixed = {"bin/concord", FENCE_PROTOCOL_MARKER_NAME, *(f"adapter/opencode/{name}" for name in ADAPTER_FILES)}
     for relative, digest in version_files.items():
         if not isinstance(relative, str) or not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise InstallerError("installer manifest has invalid version file records")
@@ -1816,6 +2313,10 @@ TRANSACTION_PHASES = (
     "manifest_committed",
     "cleanup",
     "rollback",
+    # CON-807: the transaction stopped because the readiness plan blocked
+    # activation. The candidate tree and the prepared-release record are the
+    # committed state; recovery only cleans the transaction scaffolding.
+    "prepared",
 )
 
 
@@ -1965,8 +2466,20 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         "version_backup",
         "live_version_backup",
     }
-    if set(journal) != required or journal.get("schema") != 1:
+    # prepared_activation marks the CON-807 activation of a prepared
+    # candidate: the incompatible migration already committed, so recovery
+    # resumes the candidate forward and never restores the older release.
+    # maintenance_fence_id records which open boundary this transaction
+    # adopted, so recovery closes that identity and never a foreign fence.
+    optional = {"prepared_activation", "maintenance_fence_id"}
+    if set(journal) - required - optional or required - set(journal) or journal.get("schema") != 1:
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
+    if journal.get("prepared_activation") is not None and not isinstance(journal.get("prepared_activation"), bool):
+        raise InstallerError(f"refusing malformed prepared-activation flag {journal_path(transaction_root)}")
+    if journal.get("maintenance_fence_id") is not None and (
+        not isinstance(journal.get("maintenance_fence_id"), str) or not journal.get("maintenance_fence_id")
+    ):
+        raise InstallerError(f"refusing malformed maintenance fence identity {journal_path(transaction_root)}")
     if journal.get("operation") not in ACTIVATING_OPERATIONS and journal.get("operation") != "uninstall" or journal.get("phase") not in TRANSACTION_PHASES:
         raise InstallerError(f"refusing malformed transaction journal {journal_path(transaction_root)}")
     for key in ("old_version", "new_version", "activation_version", "cleanup_version"):
@@ -2078,7 +2591,14 @@ def make_transaction(
     new_manifest_bytes: bytes | None,
     cleanup_candidates: dict[str, dict[str, str]] | None = None,
     reinstalled_records: dict[str, str] | None = None,
+    recovery_marks: dict[str, object] | None = None,
 ) -> tuple[Path, dict[str, object]]:
+    """Stage a transaction and write its first durable journal.
+
+    recovery_marks (prepared_activation, maintenance_fence_id) land in that
+    first journal, so a crash at any later point, the staged phase included,
+    recovers with the direction the operation already committed to.
+    """
     ensure_directory(paths.data_root)
     parent = paths.data_root / TRANSACTION_PARENT
     if parent.exists() and parent.is_symlink():
@@ -2216,6 +2736,8 @@ def make_transaction(
             "stable_root": str(paths.stable_root),
         },
     }
+    if recovery_marks:
+        journal.update(recovery_marks)
     write_journal(transaction_root, journal)
     fsync_directory(parent)
     if os.environ.get("CONCORD_INSTALLER_STOP_AFTER_PHASE") == "staged":
@@ -2224,17 +2746,33 @@ def make_transaction(
 
 
 def apply_version(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
+    """Place the activation version and swap the stable root.
+
+    The placement is idempotent inside its own phase (CON-807): a crash
+    after the new tree landed leaves the live-version backup in place, and
+    a forward recovery re-running this step recognizes the placed records
+    instead of refusing on the surviving backup. The staged tree is moved
+    at most once; a re-run verifies the placed target against the records
+    the journal staged.
+    """
     version = journal["activation_version"]
     if not isinstance(version, str):
         raise InstallerError("transaction has no activation version")
     target = paths.data_root / version
     live = transaction_root / "backup" / "live-version"
+    staged = transaction_root / "stage" / "version"
+    records = journal.get("new_version_records") if activating(journal["operation"]) else None
     if target.exists() or target.is_symlink():
         if live.exists() or live.is_symlink():
-            raise InstallerError("transaction live version backup already exists")
-        replace_durable(target, live)
+            if not (isinstance(records, dict) and version_matches(target, records)):
+                raise InstallerError("transaction live version backup already exists")
+        else:
+            replace_durable(target, live)
     if activating(journal["operation"]):
-        replace_durable(transaction_root / "stage" / "version", target)
+        if staged.exists():
+            replace_durable(staged, target)
+        elif not (isinstance(records, dict) and version_matches(target, records)):
+            raise InstallerError("transaction stage is absent and the placed version does not match its records")
     apply_stable_root(transaction_root, journal, paths)
 
 
@@ -2305,6 +2843,12 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
             if not isinstance(name, str) or not isinstance(state, dict):
                 raise InstallerError("transaction has malformed agent record")
             target = paths.agents_dir / name
+            if not target.exists() and not target.is_symlink():
+                # A replayed transaction (CON-807 forward recovery) reaches
+                # this step with the removal already done; a target that is
+                # absent cannot conflict, and the transaction was going to
+                # remove it anyway.
+                continue
             if not state_matches(target, state):
                 raise InstallerError(f"transaction conflict at agent {name}; refusing removal")
             if target.exists() or target.is_symlink():
@@ -2597,7 +3141,100 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
             pass
 
 
-def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
+def admitted_release_roots(paths: Paths) -> set[str] | None:
+    """Release roots the shared admission record names, read fresh (CON-807).
+
+    A lease lands by atomic rename into the hosts directory, so a file
+    present now was admitted — including one admitted after the core's lease
+    observation. Returns None when the record cannot be read: nothing is
+    then provably unreferenced, and the caller retains every candidate.
+    """
+    names = admission_record_names(paths)
+    if names is None:
+        return None
+    roots: set[str] = set()
+    for name in sorted(names):
+        try:
+            lease = json.loads((paths.data_root / "hosts" / name).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"admission record observation failed at {paths.data_root / 'hosts' / name}: {error}", file=sys.stderr)
+            return None
+        root = lease.get("release_root") if isinstance(lease, dict) else None
+        if not isinstance(root, str) or not root:
+            print(f"admission record observation failed at {paths.data_root / 'hosts' / name}: a lease names no release root", file=sys.stderr)
+            return None
+        roots.add(str(Path(root).resolve()))
+    return roots
+
+
+def admission_record_names(paths: Paths) -> set[str] | None:
+    """Names of the admission records present now, or None when unreadable.
+
+    This is the fence-point observation the deletion section compares
+    against: a compliant admission lands its lease while holding the shared
+    admission lock, so a name that appears inside a section that already
+    holds that lock was written by a participant the exclusion cannot fence.
+    Every such participant makes the whole section refuse to delete.
+    """
+    directory = paths.data_root / "hosts"
+    try:
+        entries = list(directory.iterdir())
+    except FileNotFoundError:
+        return set()
+    except OSError as error:
+        print(f"admission record observation failed: {error}", file=sys.stderr)
+        return None
+    return {entry.name for entry in entries if entry.name.endswith(".json")}
+
+
+def unfenceable_installed_trees(paths: Paths) -> list[str] | None:
+    """Installed release trees whose cores cannot honor the shared
+    session-admission exclusion (CON-807).
+
+    A tree with a runnable core and no recognized fence-protocol marker — or
+    one below the minimum — names a core that admits sessions without
+    reading the fence or taking the shared admission lock, so no held
+    exclusion can keep it out of a deletion section: an unfenceable
+    participant source. Directories without bin/concord are inert. Returns
+    None when the enumeration itself fails: unreadable means nothing is
+    provably fenceable, and the caller retains every candidate.
+    """
+    try:
+        entries = sorted(paths.data_root.iterdir())
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        print(f"installed release enumeration failed: {error}", file=sys.stderr)
+        return None
+    unfenceable: list[str] = []
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        if not (entry / "bin" / "concord").is_file():
+            continue
+        marker = entry / FENCE_PROTOCOL_MARKER_NAME
+        try:
+            raw = marker.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            unfenceable.append(str(entry.resolve()))
+            continue
+        except OSError as error:
+            print(f"fence-protocol marker read failed at {marker}: {error}", file=sys.stderr)
+            return None
+        try:
+            protocol = int(raw.strip())
+        except ValueError:
+            unfenceable.append(str(entry.resolve()))
+            continue
+        if protocol not in SUPPORTED_FENCE_PROTOCOLS:
+            # Recognition is explicit here too (CON-807): a higher protocol
+            # names semantics this installer has not implemented, so the
+            # tree grants no cleanup capability and stays retained.
+            unfenceable.append(str(entry.resolve()))
+    return unfenceable
+
+
+def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> set[str]:
     """CD-0111 D2: remove every candidate release no live session holds.
 
     An install observes the live session set through the core it just
@@ -2606,34 +3243,128 @@ def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> None:
     before the launcher moved may still hold it, and every older candidate is
     removed. An uninstall removes every candidate. A release that is retained
     stays a candidate in the manifest, so the next install retries the removal.
+
+    Deletion is an admission-exclusion invariant, not an observation count
+    (CON-807). Observation cannot close the window behind it: a participant
+    that never takes the shared admission lock can land a lease after any
+    final read, so no re-read authorizes the irreversible step. Cleanup
+    instead establishes, before deleting anything, that every relevant
+    admission participant can actually honor the held exclusion: the whole
+    deletion section runs while holding the shared admission lock a
+    compliant session lands its lease under, and every installed tree that
+    could still admit a session carries a recognized fence-protocol marker.
+    A tree that cannot honor the exclusion — legacy, unmarked, or an
+    unreadable enumeration — retains every candidate: the operator removes
+    or reinstalls it through the offline bootstrap, and the next install
+    retries. A record that appears inside the held section was written
+    without the lock by an unfenceable writer and stops the section the same
+    way. A prepared activation is stricter still: its cleanup runs under the
+    maintenance fence the migration opened, and deletion is authorized only
+    while that exclusion is held — without the fence nothing is deleted, and
+    a failed observation removes nothing at all.
+
+    Returns the set of candidate versions actually removed.
     """
     candidates = journal.get("cleanup_candidates")
     if not isinstance(candidates, dict) or not candidates:
-        return
+        return set()
     replaced = journal.get("cleanup_version")
+    prepared_activation = journal.get("prepared_activation") is True
+    if prepared_activation and not maintenance_fence_path(paths).exists():
+        # The fence is the authority that makes an unreferenced observation
+        # decisive. Without it no deletion is authorized at all.
+        print(
+            "keeping every candidate release: the maintenance fence is not held; a prepared activation deletes releases only under its session-admission exclusion",
+            file=sys.stderr,
+        )
+        return set()
     held: dict[str, list[dict[str, object]]] | None = {}
     if activating(str(journal.get("operation", ""))):
         held = observe_held_releases(paths, str(journal["new_version"]))
-    removed = False
-    for version in sorted(candidates, key=version_sort_key):
-        root = paths.data_root / version
-        if not root.exists() and not root.is_symlink():
-            continue
-        if held is None:
-            if version == replaced:
-                print(f"keeping release {version}: no host observation; a live session may still hold it", file=sys.stderr)
+    if prepared_activation and held is None:
+        # The fence excludes new admissions, so the observation should have
+        # been obtainable; without it nothing is provably unreferenced, and
+        # every candidate stays for the next install to retry.
+        print(
+            "keeping every candidate release: no host observation under the maintenance fence; a referenced release is never deleted on a snapshot alone",
+            file=sys.stderr,
+        )
+        return set()
+    # The capability gate: only trees that provably honor the exclusion may
+    # be cleaned up around. Anything else can admit a session that lands a
+    # lease after every observation, so every candidate is retained.
+    unfenceable = unfenceable_installed_trees(paths)
+    if unfenceable is None:
+        print(
+            "keeping every candidate release: the installed release trees cannot be enumerated to prove every admission participant fenceable",
+            file=sys.stderr,
+        )
+        return set()
+    if unfenceable:
+        print(
+            "keeping every candidate release: installed release tree(s) cannot honor the shared session-admission exclusion - "
+            + "; ".join(unfenceable)
+            + "; remove or reinstall them with a current installer (the operator-owned offline bootstrap: no session may run during it), then re-run the install",
+            file=sys.stderr,
+        )
+        return set()
+    removed: set[str] = set()
+    with admission_lock(paths):
+        # One held exclusion across the final observation and every deletion
+        # (CON-807). A compliant session lands its lease under this same
+        # lock, so it either landed before the section — and the record read
+        # below names it — or it waits until the section ends, after the
+        # unreferenced trees are already gone.
+        section_names = admission_record_names(paths)
+        if section_names is None:
+            print(
+                "keeping every candidate release: the shared admission record is unreadable",
+                file=sys.stderr,
+            )
+            return set()
+        for version in sorted(candidates, key=version_sort_key):
+            root = paths.data_root / version
+            if not root.exists() and not root.is_symlink():
                 continue
-        elif str(root.resolve()) in held:
-            holders = describe_release_holders(held[str(root.resolve())])
-            print(f"keeping release {version}: a live session holds it ({holders})", file=sys.stderr)
-            continue
-        records = candidates[version]
-        if not isinstance(records, dict) or not version_matches(root, records):
-            raise InstallerError(f"transaction conflict at old version cleanup target {root}")
-        shutil.rmtree(root)
-        removed = True
+            resolved = str(root.resolve())
+            if held is None:
+                if version == replaced:
+                    print(f"keeping release {version}: no host observation; a live session may still hold it", file=sys.stderr)
+                    continue
+            elif resolved in held:
+                holders = describe_release_holders(held[resolved])
+                print(f"keeping release {version}: a live session holds it ({holders})", file=sys.stderr)
+                continue
+            records = candidates[version]
+            if not isinstance(records, dict) or not version_matches(root, records):
+                raise InstallerError(f"transaction conflict at old version cleanup target {root}")
+            # The admission record is read once, by content, inside the held
+            # section: a lease a compliant session landed before the section
+            # keeps its release, and an unreadable record retains the
+            # candidate, because nothing is then provably unreferenced.
+            admitted = admitted_release_roots(paths)
+            if admitted is None:
+                print(f"keeping release {version}: the shared admission record is unreadable", file=sys.stderr)
+                continue
+            if resolved in admitted:
+                print(f"keeping release {version}: the admission record names it; a session was admitted after the observation", file=sys.stderr)
+                continue
+            names_now = admission_record_names(paths)
+            if names_now is None or names_now != section_names:
+                # A record landed inside the held exclusion, which a
+                # compliant admission cannot do: an unfenceable participant
+                # is writing admission state. Nothing further is provably
+                # unreferenced, so every remaining candidate stays.
+                print(
+                    f"keeping release {version} and every later candidate: an admission record changed inside the held exclusion; an unfenceable participant is active",
+                    file=sys.stderr,
+                )
+                break
+            shutil.rmtree(root)
+            removed.add(version)
     if removed:
         fsync_directory(paths.data_root)
+    return removed
 
 
 def version_sort_key(version: str) -> tuple[int, int, int]:
@@ -2641,6 +3372,141 @@ def version_sort_key(version: str) -> tuple[int, int, int]:
     if not match:
         raise InstallerError(f"invalid release version {version!r}")
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def complete_prepared_boundary(paths: Paths) -> None:
+    """Discharge the prepared state once its activation committed: close the
+    owned maintenance fence, then drop the prepared-release record. Both
+    steps are idempotent, so a recovery that already ran one converges.
+
+    Closing is by durable recorded identity only (CON-807): the one boundary
+    this record names through boundary_fence_id. An explicit caller-passed
+    identity authorizes nothing — a fence observed in place but never
+    recorded is foreign or of no provable owner, and is retained untouched
+    for the operator's offline bootstrap, never closed by this installer's
+    guess. Callers gate the discharge on the committed manifest naming the
+    record's version or its recorded boundary_owner_version. The record is
+    removed only after the fence it owns is closed, so a crash between the
+    two steps always leaves a recorded owner for whatever is still open.
+    """
+    record = load_prepared_release(paths)
+    if record is None:
+        return
+    close_id = record.get("boundary_fence_id")
+    if isinstance(close_id, str) and close_id:
+        remove_maintenance_fence(paths, close_id)
+    clear_prepared_release(paths)
+
+
+def record_boundary_ownership(paths: Paths, record: dict[str, object], fence_id: str, owner_version: str) -> dict[str, object]:
+    """Record, durably and before any activation swap, the boundary this
+    transaction adopted and the release whose committed activation discharges
+    it (CON-807).
+
+    The prepared record — not the transaction journal — is the durable owner
+    of an adopted boundary: cleanup removes the journal inside the same call
+    that finishes the transaction, so a crash after cleanup leaves the record
+    as the only recoverable owner. Writing the adoption here, before the
+    transaction starts, means every recovery path (activation, superseding
+    install, status) can close exactly this boundary by identity.
+    """
+    updated = dict(record)
+    updated["boundary_fence_id"] = fence_id
+    updated["boundary_owner_version"] = owner_version
+    write_prepared_release(paths, updated)
+    return updated
+
+
+def claim_open_fence(
+    paths: Paths,
+    notice: str,
+    owner_roots: set[str],
+) -> dict[str, object] | None:
+    """Claim the open maintenance fence for an activating transaction.
+
+    An open boundary is claimable only when it is provably this upgrade
+    path's own: attributed by release_root to the candidate this transaction
+    activates or the prepared candidate it supersedes — exactly the
+    attribution the core's migration command writes when it opens the
+    boundary (hostlease.EnsureFence stamps the migrating binary's release
+    root). An unattributed boundary has no provable owner: a prepared record
+    happening to exist does not make it ours, and claiming it would let this
+    transaction later close a boundary another operation (or an orphan)
+    holds. Unattributed and foreign-attributed boundaries are both refused
+    and retained untouched (CON-807). Creating a fence here is never
+    allowed: adoption happens only when one is already open.
+    """
+    if not maintenance_fence_path(paths).exists():
+        return None
+    fence = ensure_maintenance_fence(paths, notice)
+    require_owned_fence(paths, fence, owner_roots)
+    return fence
+
+
+def prepared_record_matches(journal: dict[str, object], paths: Paths) -> bool:
+    """Whether the on-disk prepared record commits this transaction's candidate."""
+    record = load_prepared_release(paths)
+    if record is None:
+        return False
+    return record.get("version") == journal.get("new_version") and record.get("version_files") == journal.get("new_version_records")
+
+
+# The forward-resume order after the version tree is in place. Each step is
+# idempotent per file, so a crash inside a step re-runs it safely.
+FORWARD_PHASE_STEPS: tuple[tuple[str, str, str], ...] = (
+    ("version_activated", "agents_swapped", "apply_agents"),
+    ("agents_swapped", "adapter_swapped", "apply_adapters"),
+    ("adapter_swapped", "launcher_swapped", "apply_launcher"),
+    ("launcher_swapped", "config_swapped", "apply_config"),
+    ("config_swapped", "manifest_committed", "apply_manifest"),
+)
+
+
+def resume_forward(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
+    """Complete an activation transaction forward from its journal phase.
+
+    Used only for a prepared activation (CON-807): the incompatible
+    migration already committed, so the older release is unusable and
+    rollback is forbidden — recovery resumes the prepared candidate. The
+    version tree must already match the journal's records; each remaining
+    swap is idempotent, and the walk advances the journal after each one.
+    """
+    phase = journal["phase"]
+    if phase == "staged":
+        apply_version(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "version_activated")
+        phase = "version_activated"
+    else:
+        version = journal["new_version"]
+        records = journal["new_version_records"]
+        if not version_matches(paths.data_root / str(version), records):
+            raise InstallerError(f"transaction conflict at {paths.data_root / str(version)}; refusing forward recovery")
+        apply_stable_root(transaction_root, journal, paths)
+    applies = {
+        "apply_agents": apply_agents,
+        "apply_adapters": apply_adapters,
+        "apply_launcher": apply_launcher,
+        "apply_config": apply_config,
+        "apply_manifest": apply_manifest,
+    }
+    for current, target, name in FORWARD_PHASE_STEPS:
+        if phase != current:
+            continue
+        applies[name](transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, target)
+        phase = target
+    verify_states(journal, paths, committed=True)
+    advance_phase(transaction_root, journal, "cleanup")
+    cleanup_transaction(transaction_root, journal, paths)
+    # The durable prepared record owns the adopted boundary (written before
+    # the transaction started); the journal identity it carries must agree.
+    fence_id = journal.get("maintenance_fence_id")
+    if isinstance(fence_id, str) and fence_id:
+        record = load_prepared_release(paths)
+        if record is not None and record.get("boundary_fence_id") not in (None, fence_id):
+            raise InstallerError("the transaction journal and the prepared record name different boundaries; refusing recovery")
+    complete_prepared_boundary(paths)
+    link_worktrees_root(paths)
 
 
 def recover_transaction(transaction_root: Path, paths: Paths) -> None:
@@ -2656,6 +3522,14 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
     phase = journal["phase"]
     new_manifest = journal["new_manifest"]
     current_manifest_state(paths)
+    # A committed prepared state recovers by cleaning the scaffolding only:
+    # the candidate tree and the prepared-release record are the committed
+    # state, and no activation swap may follow (CON-807).
+    if phase == "prepared":
+        if not prepared_record_matches(journal, paths):
+            raise InstallerError("prepared transaction does not match the prepared-release record; refusing recovery")
+        cleanup_transaction(transaction_root, journal, paths, remove_old_version=False)
+        return
     if phase not in {"manifest_committed", "cleanup"} and new_manifest.get("exists") and state_matches(paths.data_root / MANIFEST_NAME, new_manifest):
         advance_phase(transaction_root, journal, "manifest_committed")
         phase = "manifest_committed"
@@ -2663,9 +3537,40 @@ def recover_transaction(transaction_root: Path, paths: Paths) -> None:
         verify_states(journal, paths, committed=True)
         if phase != "cleanup":
             advance_phase(transaction_root, journal, "cleanup")
+        prepared_activation = journal.get("prepared_activation") is True
+        fence_id = journal.get("maintenance_fence_id")
+        if prepared_activation and isinstance(fence_id, str) and fence_id:
+            record = load_prepared_release(paths)
+            if record is not None and record.get("boundary_fence_id") not in (None, fence_id):
+                raise InstallerError("the transaction journal and the prepared record name different boundaries; refusing recovery")
         cleanup_transaction(transaction_root, journal, paths)
+        if prepared_activation:
+            # Closing is by the durable recorded identity; a fence the
+            # record never named is not this recovery's to remove.
+            complete_prepared_boundary(paths)
         if activating(str(journal["operation"])):
             link_worktrees_root(paths)
+        return
+    # A prepared activation never rolls back: the incompatible migration
+    # already committed, and the older release it would restore cannot open
+    # the store. Recovery resumes the candidate forward instead (CON-807).
+    # The authorization is the transaction's own durable prepared-activation
+    # phase, written by the operation itself only once it owns this upgrade
+    # path — claimed boundary or superseding prepared record — and always
+    # before the first activation effect. A boundary merely observed in
+    # place authorizes nothing: a fence a refused or uncertain transaction
+    # never recorded is foreign or of no provable owner, and a pre-effect
+    # refusal must never later activate (CON-807).
+    if activating(str(journal["operation"])) and journal.get("prepared_activation") is True:
+        resume_forward(transaction_root, journal, paths)
+        return
+    # An install that crashed between placing the prepared candidate and
+    # committing the prepared record converges to the prepared state when
+    # the record landed anyway: the alternative rollback would discard a
+    # durable prepare the operator was already told about.
+    if activating(str(journal["operation"])) and phase == "staged" and prepared_record_matches(journal, paths):
+        advance_phase(transaction_root, journal, "prepared")
+        cleanup_transaction(transaction_root, journal, paths, remove_old_version=False)
         return
     ensure_rollback_safe(journal, paths)
     rollback_version(transaction_root, journal, paths)
@@ -2729,6 +3634,7 @@ def install(args: argparse.Namespace) -> int:
     recover_transactions(paths)
     recover_pending_project_links(paths)
     manifest = load_manifest(paths)
+    prepared = load_prepared_release(paths)
     config_plan = preflight(paths, version, manifest)
     if manifest and manifest.get("version") == version:
         records = manifest.get("version_files")
@@ -2755,29 +3661,43 @@ def install(args: argparse.Namespace) -> int:
         credential_directory_owned = ensure_secret_service_ready(paths, manifest)
         # An unchanged install still retries the release cleanup a previous
         # install skipped: a held release stays a candidate, so the removal
-        # is retried at the next install (CD-0111 D2). The manifest keeps the
-        # entries whose directory survives.
+        # is retried at the next install (CD-0111 D2). The retry runs through
+        # the one lease-aware cleanup path, so the same held admission
+        # exclusion covers the final observation and the deletion here too
+        # (CON-807): a same-version reinstall deletes nothing a concurrent
+        # or later admission holds. The manifest keeps the entries whose
+        # directory survives.
         retained = retained_release_records(manifest)
         manifest_changed = False
         if retained:
-            held = observe_held_releases(paths, version)
-            survivors = {}
-            for candidate, records in sorted(retained.items(), key=lambda item: version_sort_key(item[0])):
-                root = paths.data_root / candidate
-                if not root.exists() and not root.is_symlink():
-                    continue
-                if held is None or str(root.resolve()) in held:
-                    if root.exists() and not version_matches(root, records):
-                        raise InstallerError(f"transaction conflict at retained release cleanup target {root}")
-                    survivors[candidate] = records
-                    continue
-                if not version_matches(root, records):
-                    raise InstallerError(f"transaction conflict at retained release cleanup target {root}")
-                shutil.rmtree(root)
-                fsync_directory(paths.data_root)
+            removed_versions = remove_unheld_releases(
+                {"operation": "install", "new_version": version, "cleanup_candidates": retained},
+                paths,
+            )
+            survivors = {
+                candidate: records
+                for candidate, records in retained.items()
+                if candidate not in removed_versions and (paths.data_root / candidate).exists()
+            }
             if survivors != retained:
                 manifest["retained_releases"] = survivors
                 manifest_changed = True
+        # A prepared record naming the now-active release — directly or as
+        # the recorded boundary owner — means an activation committed and
+        # only its discharge crashed: the durable record closes its own
+        # boundary by its recorded identity, and a fence no record names is
+        # foreign and stays for the operator (CON-807).
+        if prepared is not None and (
+            manifest.get("version") == prepared.get("version")
+            or manifest.get("version") == prepared.get("boundary_owner_version")
+        ):
+            complete_prepared_boundary(paths)
+            if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+                print(
+                    "An open maintenance boundary remains that no prepared record owns; "
+                    "it is not this installer's to close. Close it through the operator-owned "
+                    "offline bootstrap when no migration is in progress."
+                )
         if credential_directory_owned and manifest.get("credential_directory") != str(paths.data_home / "keyrings"):
             manifest["credential_directory"] = str(paths.data_home / "keyrings")
             manifest_changed = True
@@ -2808,6 +3728,10 @@ def install(args: argparse.Namespace) -> int:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
         version_root = paths.data_root / version
         stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
+        # The staged tree declares the fence protocol its core speaks, so
+        # the migration's boundary can exclude sessions this tree admits
+        # (CON-807). The marker is a managed version file like any other.
+        stamp_fence_protocol(source_stage, version)
         # skills, instructions, and agents are copied only when the archive
         # carries them. The three branches share the helper so a future
         # required surface cannot drift from the others.
@@ -2834,6 +3758,18 @@ def install(args: argparse.Namespace) -> int:
             if (paths.data_root / candidate).exists()
         }
         reinstalled_records = retained.pop(version, None)
+        # A prepare of this same version owns the tree through its recorded
+        # files, so reinstalling over it is an activation of the prepared
+        # candidate, not an overwrite of an unmanaged path.
+        if reinstalled_records is None and prepared is not None and prepared.get("version") == version:
+            reinstalled_records = prepared["version_files"]
+        # A prepared candidate a different version supersedes becomes a
+        # cleanup candidate: it never served a session, and the committed
+        # install drops its record and closes any open boundary.
+        if prepared is not None and prepared.get("version") != version:
+            superseded = str(prepared["version"])
+            if (paths.data_root / superseded).exists() and superseded not in retained:
+                retained[superseded] = prepared["version_files"]
         if version_root.exists() and (not manifest or old_version != version):
             if reinstalled_records is None:
                 raise InstallerError(f"refusing to overwrite existing unmanaged path {version_root}")
@@ -2874,6 +3810,97 @@ def install(args: argparse.Namespace) -> int:
             retained,
             reinstalled_records,
         )
+        # CON-807 readiness gate: the candidate's own core reports, by
+        # reading the store from the transaction stage, whether this
+        # activation may proceed — before any placement touches the active
+        # release. A blocked or unknown plan places the candidate tree
+        # durably without activation: the active launcher, current root,
+        # tools, and agents keep serving the running sessions, and the
+        # operator receives the exact migration and activation commands.
+        try:
+            plan_report: dict[str, object] | None = read_upgrade_plan(
+                paths,
+                version,
+                staged_binary=transaction_root / "stage" / "version" / "bin" / "concord",
+            )
+            blockers = plan_blockers(plan_report)
+        except InstallerError as error:
+            plan_report = None
+            blockers = [str(error)]
+        if plan_report is None or plan_report.get("activation_blocked"):
+            # An open boundary means an incompatible migration may already
+            # have committed for the prepared candidate. Replacing that
+            # record would strand the store with no release recorded to
+            # activate, so a blocked or unknown install refuses and leaves
+            # the record and the boundary for the original activation.
+            if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+                pending = f" Run its activation command first: {prepared['activation_command']}" if prepared else ""
+                raise InstallerError(
+                    f"an open maintenance boundary sits at {maintenance_fence_path(paths)} and {version} cannot "
+                    f"activate ({'; '.join(blockers) or 'readiness unknown'}); refusing to replace the prepared "
+                    f"release while the boundary is open.{pending}"
+                )
+            place_prepared_version(transaction_root, journal, paths)
+            prepare_release(
+                transaction_root,
+                journal,
+                paths,
+                version,
+                version_records,
+                blockers,
+                plan_migration_command(paths, version),
+                args.root,
+            )
+            record = load_prepared_release(paths)
+            assert record is not None
+            print_prepared_release(record)
+            return 0
+        # An install that activates over its own prepared candidate is the
+        # prepared activation by another route: whether the operator runs
+        # the recorded activate command or re-runs install after the
+        # migration, recovery resumes the candidate forward and never
+        # restores the older release (CON-807).
+        #
+        # An open boundary is claimable only through the prepared record
+        # that owns its upgrade path. With no record, an open fence is
+        # another operation's or an orphan: the install refuses rather than
+        # adopt an exclusion it may never close, and the operator closes an
+        # orphan through the documented offline bootstrap (CON-807).
+        adopted_fence = None
+        if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+            if prepared is None:
+                raise InstallerError(
+                    f"an open maintenance boundary sits at {maintenance_fence_path(paths)} and no prepared "
+                    "release owns its upgrade path; another operation may be mid-maintenance. Run status; an "
+                    "orphaned boundary closes only through the operator-owned offline bootstrap."
+                )
+            candidate_roots = {str(version_root.resolve())}
+            superseded_root = paths.data_root / str(prepared["version"])
+            candidate_roots.add(str(superseded_root.resolve()))
+            adopted_fence = claim_open_fence(
+                paths,
+                f"session admission reopens when {version} activates; activation command: {activation_command_for(version, args.root)}",
+                candidate_roots,
+            )
+            assert adopted_fence is not None
+            # The durable owner is written before the transaction starts:
+            # cleanup removes the journal inside this same flow, so the
+            # record is the only owner a post-cleanup crash can recover
+            # (CON-807). boundary_owner_version names this install's
+            # release, whose committed activation discharges the boundary.
+            prepared = record_boundary_ownership(paths, prepared, str(adopted_fence["fence_id"]), version)
+        if prepared is not None and prepared.get("version") == version:
+            journal["prepared_activation"] = True
+        if adopted_fence is not None:
+            # An open boundary commits this activation to forward recovery
+            # as well, including when it supersedes the prepared candidate
+            # the migration belonged to: the store may already be past the
+            # older release's last compatible step, so rollback has no
+            # provably usable target (CON-807).
+            journal["prepared_activation"] = True
+            journal["maintenance_fence_id"] = adopted_fence["fence_id"]
+        if "prepared_activation" in journal or "maintenance_fence_id" in journal:
+            write_journal(transaction_root, journal)
         apply_version(transaction_root, journal, paths)
         advance_phase(transaction_root, journal, "version_activated")
         apply_agents(transaction_root, journal, paths)
@@ -2889,11 +3916,175 @@ def install(args: argparse.Namespace) -> int:
         advance_phase(transaction_root, journal, "cleanup")
         verify_states(journal, paths, committed=True)
         cleanup_transaction(transaction_root, journal, paths)
+    # This activation completes whatever prepared boundary was open: the
+    # record is discharged or superseded, and session admission reopens
+    # with a usable active release (CON-807). Closing is by the durable
+    # recorded identity only; a fence the record never named is retained.
+    if prepared is not None:
+        complete_prepared_boundary(paths)
     link_worktrees_root(paths)
     print(f"Installed Concord {version} under {version_root}.")
     print(f"OpenCode custom tools installed under {paths.tools_dir}.")
     print(f"Concord agent definitions installed under {paths.agents_dir}.")
     print("Restart OpenCode before using the newly registered stable skills path.")
+    return 0
+
+
+def activate(args: argparse.Namespace) -> int:
+    """Activate the prepared release after the operator's migration (CON-807).
+
+    The prepared record names the candidate, the exact migration command,
+    and this activation command. Activation requires the candidate's own
+    readiness plan to read unblocked — the migration must have committed —
+    and holds the maintenance fence from before its final lease observation
+    until the candidate committed, release cleanup finished, and the record
+    is discharged. It never downloads: the prepared tree is the verified
+    asset. Recovery of a crashed activation resumes the candidate forward
+    and never restores the older release the migration made unusable.
+    """
+    paths = paths_for(args.root)
+    recover_transactions(paths)
+    recover_pending_project_links(paths)
+    manifest = load_manifest(paths)
+    prepared = load_prepared_release(paths)
+    if prepared is None:
+        # A recovery may have already completed and discharged this
+        # activation; re-running the recorded command stays a success. A
+        # boundary still open after that carries no recorded owner this
+        # command can prove: it is foreign or uncertain, so it is retained
+        # for the operator (the offline bootstrap closes it), never closed
+        # by position (CON-807).
+        requested = parse_version(args.version) if args.version else None
+        if requested is not None and manifest is not None and manifest.get("version") == requested:
+            if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+                print(
+                    "An open maintenance boundary remains and no prepared record owns it; "
+                    "it is not this command's to close. Close it through the operator-owned "
+                    "offline bootstrap when no migration is in progress."
+                )
+            print(f"Concord {requested} is already the active release; the prepared record is discharged.")
+            return 0
+        raise InstallerError(f"no prepared release is recorded at {prepared_release_path(paths)}; run install first")
+    version = str(prepared["version"])
+    if args.version and parse_version(args.version) != version:
+        raise InstallerError(f"the prepared release is {version}, not {args.version}; refusing to activate a different release")
+    if manifest is not None and manifest.get("version") == version:
+        # Idempotent completion: a recovery already committed this
+        # activation, or the operator activated it by reinstalling. The
+        # record discharges and closes the boundary it owns by identity; a
+        # fence no record of this discharge owns is foreign and stays in
+        # place (CON-807).
+        complete_prepared_boundary(paths)
+        if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+            print(
+                "An open maintenance boundary remains that this activation does not own; "
+                "it is retained for the operator (the offline bootstrap closes it)."
+            )
+        print(f"Concord {version} is already the active release; the prepared record is discharged.")
+        return 0
+    version_root = paths.data_root / version
+    version_records = prepared["version_files"]
+    assert isinstance(version_records, dict)
+    validate_owned_tree(version_root, version_records)
+    plan_report = read_upgrade_plan(paths, version)
+    if plan_report.get("activation_blocked"):
+        print("The prepared release is still blocked; the active release is unchanged.")
+        for blocker in plan_blockers(plan_report):
+            print(f"Blocker: {blocker}")
+        print(f"Run the migration command inside the maintenance window: {prepared['migration_command']}")
+        print(f"Then run the activation command: {prepared['activation_command']}")
+        return 1
+    # The boundary the migration command opened is re-ensured before the
+    # final lease observation, and closes only after commit and cleanup.
+    # A boundary attributed to a different release root belongs to another
+    # operation's upgrade path: the activation refuses rather than adopt an
+    # exclusion it may never close (CON-807). Its identity is recorded in
+    # the prepared record before the transaction starts, so any crash
+    # afterward recovers an owner for the fence it must close — never a
+    # foreign one (CON-807).
+    version_root_resolved = str(version_root.resolve())
+    fence = ensure_maintenance_fence(
+        paths,
+        f"session admission reopens when {version} activates; activation command: {prepared['activation_command']}",
+        release_root=version_root_resolved,
+    )
+    require_owned_fence(paths, fence, {version_root_resolved})
+    prepared = record_boundary_ownership(paths, prepared, str(fence["fence_id"]), version)
+    config_plan = preflight(paths, version, manifest)
+    with tempfile.TemporaryDirectory(prefix="concord-activator-") as temporary:
+        source_stage = Path(temporary) / "version"
+        shutil.copytree(version_root, source_stage, symlinks=False)
+        fsync_tree(source_stage)
+        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        agent_stage_records = {
+            path.name: sha256(path)
+            for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
+        }
+        old_version = manifest.get("version") if manifest else None
+        old_records = manifest.get("version_files", {}) if manifest else None
+        retained = {
+            candidate: records
+            for candidate, records in retained_release_records(manifest).items()
+            if (paths.data_root / candidate).exists()
+        }
+        if manifest and old_version != version and isinstance(old_version, str) and isinstance(old_records, dict):
+            validate_owned_tree(paths.data_root / old_version, old_records)
+            retained[old_version] = old_records
+        plan_worktree_links(paths)
+        credential_directory_owned = ensure_secret_service_ready(paths, manifest)
+        new_manifest = {
+            "managed_by": "concord-installer-v1",
+            "version": version,
+            "version_files": version_records,
+            "adapter_files": adapter_stage_records,
+            "agent_files": agent_stage_records,
+            "skill_path": stable_skill_path(paths),
+            "stable_root": str(paths.stable_root),
+            "launcher_target": str((version_root / "bin" / "concord").resolve()),
+            "config_path": str(paths.config_file.resolve()),
+            "retained_releases": retained,
+        }
+        if credential_directory_owned:
+            new_manifest["credential_directory"] = str(paths.data_home / "keyrings")
+        new_manifest_bytes = (json.dumps(new_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        transaction_root, journal = make_transaction(
+            paths,
+            "activate",
+            manifest,
+            version,
+            source_stage,
+            version_records,
+            adapter_stage_records,
+            agent_stage_records,
+            config_plan.text,
+            new_manifest_bytes,
+            retained,
+            version_records,
+            # Candidate-forward recovery: a crash anywhere in this
+            # transaction resumes the prepared candidate and never restores
+            # the older release. The journal carries the adopted fence
+            # identity so the recovered run closes exactly that boundary.
+            recovery_marks={"prepared_activation": True, "maintenance_fence_id": fence["fence_id"]},
+        )
+        apply_version(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "version_activated")
+        apply_agents(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "agents_swapped")
+        apply_adapters(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "adapter_swapped")
+        apply_launcher(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "launcher_swapped")
+        apply_config(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "config_swapped")
+        apply_manifest(transaction_root, journal, paths)
+        advance_phase(transaction_root, journal, "manifest_committed")
+        advance_phase(transaction_root, journal, "cleanup")
+        verify_states(journal, paths, committed=True)
+        cleanup_transaction(transaction_root, journal, paths)
+    complete_prepared_boundary(paths)
+    link_worktrees_root(paths)
+    print(f"Activated the prepared Concord {version} under {version_root}.")
+    print("Session admission reopened; new sessions start on the activated release.")
     return 0
 
 
@@ -3006,6 +4197,19 @@ def repair(args: argparse.Namespace) -> int:
     manifest = load_manifest(paths)
     if manifest is None:
         raise InstallerError(f"no installer manifest at {paths.data_root / MANIFEST_NAME}; run install")
+    # CON-807: after a committed incompatible migration the prepared
+    # candidate is the only forward route. Repairing the installed older
+    # release would restore a release the store can no longer open, so it
+    # refuses and names the activation command instead.
+    prepared = load_prepared_release(paths)
+    if prepared is not None:
+        raise InstallerError(
+            f"a prepared release {prepared['version']} waits for activation; run: {prepared['activation_command']}"
+        )
+    if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+        raise InstallerError(
+            "a maintenance boundary is open; complete the prepared activation before repairing the installed release"
+        )
     installed = manifest.get("version")
     if not isinstance(installed, str):
         raise InstallerError("existing installer manifest has no version to repair; run install")
@@ -3034,6 +4238,9 @@ def repair(args: argparse.Namespace) -> int:
         for name in ADAPTER_FILES:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
         stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
+        # Repair restages the tree exactly as install staged it, fence
+        # protocol marker included (CON-807).
+        stamp_fence_protocol(source_stage, installed)
         copy_tree_if_present(extracted / "skills", source_stage / "skills")
         copy_tree_if_present(extracted / "instructions", source_stage / "instructions")
         copy_tree_if_present(extracted / "agents", source_stage / "agents")
@@ -3116,6 +4323,18 @@ def uninstall(args: argparse.Namespace) -> int:
     if manifest is None:
         print("No Concord installer manifest found; nothing was changed.")
         return 0
+    # CON-807: removing releases mid-boundary could delete the only usable
+    # candidate, and an uninstalled active release strands every session
+    # the fence is excluding for the prepared activation.
+    prepared = load_prepared_release(paths)
+    if prepared is not None:
+        raise InstallerError(
+            f"a prepared release {prepared['version']} waits for activation; run: {prepared['activation_command']}"
+        )
+    if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
+        raise InstallerError(
+            "a maintenance boundary is open; complete the prepared activation before uninstalling"
+        )
     version = manifest["version"]
     records = manifest["version_files"]
     assert isinstance(version, str) and isinstance(records, dict)
@@ -3196,10 +4415,34 @@ def status(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
     manifest = load_manifest(paths)
-    if manifest is None:
-        print(json.dumps({"installed": False}, sort_keys=True))
-    else:
-        print(json.dumps({"installed": True, "version": manifest["version"]}, sort_keys=True))
+    prepared = load_prepared_release(paths)
+    if prepared is not None and manifest is not None and (
+        manifest.get("version") == prepared.get("version")
+        or manifest.get("version") == prepared.get("boundary_owner_version")
+    ):
+        # The final crash phase (CON-807): the activation — of the prepared
+        # release or of a superseding release that adopted its boundary —
+        # committed, its transaction journal is gone, and the prepared
+        # record with the boundary identity it recorded survived the crash
+        # after cleanup. The committed state plus the surviving record
+        # complete the boundary here: the recorded identity closes by
+        # identity, and a fence with no recorded identity is foreign and
+        # stays untouched.
+        complete_prepared_boundary(paths)
+        prepared = None
+    report: dict[str, object] = {"installed": manifest is not None}
+    if manifest is not None:
+        report["version"] = manifest["version"]
+    if prepared is not None:
+        report["prepared_release"] = {
+            "version": prepared["version"],
+            "blockers": prepared["blockers"],
+            "migration_command": prepared["migration_command"],
+            "activation_command": prepared["activation_command"],
+        }
+    if maintenance_fence_path(paths).exists():
+        report["maintenance_boundary"] = "open"
+    print(json.dumps(report, sort_keys=True))
     return 0
 
 
@@ -3935,6 +5178,11 @@ def main() -> int:
         help="release asset base URL when --artifact-dir is absent",
     )
     uninstall_parser = subparsers.add_parser("uninstall", help="remove the managed release")
+    activate_parser = subparsers.add_parser(
+        "activate",
+        help="activate the prepared release after its migration completed (CON-807)",
+    )
+    activate_parser.add_argument("--version", help="confirm the prepared release tag; a different tag refuses")
     repair_parser = subparsers.add_parser("repair", help="complete an incomplete installation of the installed release")
     repair_parser.add_argument("--version", help="confirm the installed release tag; a different tag refuses")
     repair_parser.add_argument("--artifact-dir", help="use local published assets instead of downloading")
@@ -3950,21 +5198,23 @@ def main() -> int:
     link_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
     unlink_parser = subparsers.add_parser("unlink", help="remove the conduct corpus entry from a project")
     unlink_parser.add_argument("--project", type=Path, required=True, help="project directory to update")
-    for command_parser in (install_parser, uninstall_parser, repair_parser, status_parser, link_parser, unlink_parser):
+    for command_parser in (install_parser, uninstall_parser, activate_parser, repair_parser, status_parser, link_parser, unlink_parser):
         command_parser.add_argument("--root", type=Path, help="test root; maps home/data/config/bin under it")
     args = parser.parse_args()
+    commands = {
+        "install": install,
+        "activate": activate,
+        "repair": repair,
+        "uninstall": uninstall,
+        "link": link,
+        "unlink": unlink,
+        "status": status,
+    }
     try:
-        if args.command == "install":
-            return install(args)
-        if args.command == "repair":
-            return repair(args)
-        if args.command == "uninstall":
-            return uninstall(args)
-        if args.command == "link":
-            return link(args)
-        if args.command == "unlink":
-            return unlink(args)
-        return status(args)
+        # Every command recovers transactions first, so every command is a
+        # maintenance command and runs alone.
+        with maintenance_lock(paths_for(args.root)):
+            return commands[args.command](args)
     except InstallerError as error:
         print(str(error), file=sys.stderr)
         return 1

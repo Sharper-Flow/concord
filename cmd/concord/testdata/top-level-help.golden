@@ -10,7 +10,7 @@ Usage:
   concord continuity-block <directory>   # read-only continuity packet for the session directory
   concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)
   concord host-leases                  # print live release leases; prunes stale ones
-  concord upgrade                      # apply pending migrations; refuses under an older live session
+  concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
   concord repair < JSON stdin          # verify assets, back up the database, repair the installed release (#912)
   concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log
   concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)
@@ -226,4 +226,5 @@ Commands read one strict JSON object from stdin:
     accepted values: prints the live host leases and prunes stale ones (CD-0111 D2)
   concord upgrade < JSON stdin
     required: 
-    accepted values: applies pending store migrations, breaking steps included; refuses while a live session holds a release that predates one (CD-0111 D3)
+    optional: plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree
+    accepted values: applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)

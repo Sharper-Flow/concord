@@ -68,6 +68,78 @@ An unstamped development build is not a release. It applies no migration to an
 existing store at open or upgrade. It may fully migrate a fresh store and may
 operate a store that is already up to date. CD-0139 records this isolation rule.
 
+Concord (CON) issue 807 sharpens D3's installation edge: an installer facing a pending breaking
+step, or a store whose readiness it cannot establish by reading, prepares the
+candidate release durably and does not activate it. The active launcher, the
+current root, the tools and the agents stay on the release the running sessions
+hold. Activation completes only after the operator runs the migration and the
+activation commands the installer names. The core exposes this as a read-only
+readiness plan that reads the store through one read-only SQLite connection.
+The plan does not create a missing store, change permissions, apply migrations,
+repair manifests, or write logical state. The library's own log and
+shared-memory files may appear beside the store. An absent store is a known
+fresh state, because it holds no shared state that a breaking migration could
+change. Any other unreadable or unknown readiness fails closed.
+
+An incompatible migration and its release cleanup run only inside an explicit
+operator maintenance boundary. The migration command opens the boundary: it
+excludes new session admission before its final lease check, and the installer's
+activation holds the same exclusion through the swap and the cleanup, then
+reopens admission. A lease observation under that exclusion is more than a
+snapshot; without it, a referenced release is never deleted. Cleanup safety is
+an admission-exclusion invariant, not an observation count: no re-read closes
+the window behind it, so cleanup deletes only after establishing that every
+installed release tree that could still admit a session honors the shared
+exclusion, and a tree that cannot — legacy, unmarked, or an unreadable
+enumeration — retains every candidate until the offline bootstrap removes it.
+A session whose lease cannot classify the release it holds, or a live session
+the exclusion cannot fence, fails the boundary closed: the command refuses and
+names it. Admission refuses a session claim whose pinned core no longer exists,
+so a claim that waited behind cleanup never lands on a removed release. An
+installed tree that cannot honor the exclusion but holds no live
+session is the operator's decision: the migration command names it and proceeds
+only when the operator confirms that no session runs on it.
+
+A staged release tree carries only the maintenance-fence capability its own
+core reports through the side-effect-free version descriptor. The installer
+never asserts a capability on a core's behalf. A core that cannot run or does
+not identify as the staged release refuses staging. A core whose descriptor is
+absent, malformed, or names an unsupported protocol installs unmarked, so an
+incompatible migration later names its tree and waits for the operator's
+confirmation. The boundary the migration
+opens names its operation and the release root that opened it, and the two
+together are the ownership proof: the activation adopts and closes only a
+boundary that the prepare-migrate-activate path opened for its own candidate
+path. A foreign, an
+unattributed, or an ownerless boundary is retained for the operator's offline
+bootstrap, never closed by position and never adopted because a prepared
+record happens to exist.
+
+One maintenance command runs at a time. The migration command and every
+installer command share one maintenance lock, and a second command refuses at
+once. A migration command decides whether to close its boundary from what it
+alone committed, and an installer command recovers transactions and may close
+the boundary, so an overlap could reopen admission early.
+
+The recorded migration command pins the environment the plan read: it unsets
+the inline database override and names the data home, so an operator shell
+cannot point the migration at another store. While a boundary is open, the
+prepared candidate's migration may have committed. An install whose plan is
+blocked or unknown then refuses and keeps the prepared record and the boundary,
+so the recorded activation still completes.
+
+Schema-floor admission is necessary, not sufficient. The floor lets a binary
+that defines it open a store that later additive steps have reached, which is
+what makes compatible pairs coexist. It does not promise compatibility for
+every release pair: a pair also needs the pinned adapter/core identity D1
+records, and a breaking step beyond a binary's definitions still refuses it.
+
+A store whose manifest cannot be read by looking is not repaired by the core or
+by the installer. The operator owns an offline bootstrap: end every session,
+stop the launcher, copy the database file aside, and rebuild the manifest with
+a release binary that defines the store's schema, or restore the copy. The
+readiness refusal names this route; no automated path guesses a manifest.
+
 ### D4. The typed refusal never asks for a restart
 
 No core refusal and no adapter refusal names a session restart as its
@@ -97,23 +169,115 @@ Scenario: the installer keeps a referenced release
   Then the release N directory remains on disk
   And the installer removes it at a later install once no session holds it
 
+Scenario: a session never lands on a removed release
+  Given a session claim waits while the installer removes release N
+  When the claim is admitted after the removal
+  Then the claim refuses and names the removed core
+  And no lease records release N for that session
+
 Scenario: a breaking migration waits for the operator
   Given release N+1 carries a breaking store migration
   And a live session holds release N
-  When a session on release N+1 opens the store
-  Then the store opens without the breaking migration
-  When the operator runs concord upgrade
+  When the installer installs release N+1
+  Then the installer prepares release N+1 durably without activating it
+  And the launcher, the current root, the tools and the agents keep release N
+  And the installer names the pending breaking migration and the exact migration and activation commands
+  When a session on release N+1 opens the store before the migration
+  Then the store refuses to open and names the pending breaking migration
+  When the operator runs the prepared candidate's migration command
+  And a live session still holds release N
   Then the command refuses and names the session on release N
+  When the operator ends that session and runs the migration command
+  Then the migration applies inside the maintenance boundary
+  And the operator re-runs the recorded activation command
+  And the prepared release N+1 becomes the current release
+  And a session that starts afterwards opens the store on release N+1
+
+Scenario: the maintenance boundary excludes session admission
+  Given an installer prepared release N+1 for a breaking migration
+  When the operator runs the prepared candidate's migration command
+  Then session admission is excluded before the final lease check
+  And the exclusion is held through the migration and the activation
+  And a session that starts inside the boundary fails closed
+  And the refusal names the recorded activation command
+  When the activation completes
+  Then session admission reopens on release N+1
+  And a referenced release is never deleted on a lease snapshot alone
+  And the cleanup removes a release only under the held exclusion
+  And the cleanup first proves every installed release tree honors the exclusion
+  And a tree that cannot honor the exclusion retains every candidate
+
+Scenario: the boundary belongs to the release that opened it
+  Given an open maintenance boundary with no release attribution
+  And a prepared record for a waiting candidate
+  When the recorded activation command runs
+  Then the activation refuses instead of adopting the boundary
+  And the unattributed boundary remains exactly as written
+  And a boundary that names another operation is refused the same way
+  And the same refusal binds an install superseding the candidate
+  And only the offline bootstrap closes an unattributed boundary
+
+Scenario: two migration commands never overlap
+  Given a migration command holds the maintenance boundary
+  When a second migration command starts
+  Then the second command refuses before it reads the store
+  And the second command opens no boundary and commits nothing
+  And an installer command started meanwhile refuses the same way
+  When the first command commits the breaking migration
+  Then the boundary stays open until the prepared release activates
+
+Scenario: a blocked install keeps the open boundary's candidate
+  Given an open maintenance boundary for a prepared release N+1
+  When an install of release N+2 finds its own activation blocked
+  Then the install refuses and names the recorded activation command
+  And the prepared record and the boundary remain unchanged
+  When the operator runs the recorded activation command
+  Then release N+1 becomes the current release and the boundary closes
+
+Scenario: an unknown participant fails the boundary closed
+  Given an open maintenance boundary
+  And a lease whose schema version cannot be read
+  When the migration command runs its final lease check
+  Then the command refuses and names the unreadable participant
+  And an unknown or unfenceable legacy session blocks the boundary
+
+Scenario: the operator confirms an unfenceable tree is idle
+  Given an installed release tree that cannot honor the exclusion
+  And no live session holds that tree
+  When the migration command runs without the operator's confirmation
+  Then the command refuses and names the tree and the confirmation
+  When the operator confirms that no session runs on the tree
+  Then the migration applies inside the maintenance boundary
+  And the command names the tree it proceeded past
 ```
 
 ## Verification
 
 - Adapter tests prove the core path is the generated release constant and
-  that no call resolves `concord` through `PATH`.
+  that no call resolves `concord` through `PATH`. A refused admission under
+  an open boundary carries the boundary's notice into the session.
 - Installer tests prove retention under a live-session observation and
-  bounded removal without one.
+  bounded removal without one, prepare-then-activate with the recorded
+  commands, the held exclusion across the swap and cleanup, and
+  candidate-forward recovery from every crash phase after a committed
+  breaking migration. They also prove the cleanup capability gate: a
+  legacy admission at the instant of deletion retains its release, and
+  cleanup resumes only after the offline bootstrap removes the unfenceable
+  tree. They prove boundary ownership by attribution: an unattributed open
+  boundary survives a prepared activation and a superseding install
+  untouched, and recovery fixtures carry the attribution the migration
+  command itself writes.
 - Store tests prove open never applies a breaking migration and `concord
-  upgrade` refuses under a live older session.
+  upgrade` refuses under a live older session. Readiness tests prove the
+  plan writes no logical state, reports the applied breaking floor, reads
+  committed log state through a live cross-process index, and fails closed
+  on unknown states, additive steps beyond the binary, and breaking steps
+  beyond it. Host-lease tests prove admission refuses a claim whose pinned
+  core was removed.
+- The release-pair test proves one representative compatible pair with the
+  actually released source: each release's own adapter claims its lease by
+  calling its own pinned core, the old session keeps operating after the newer core
+  advances the store, and the released tree reads honestly as unfenceable.
 - The surface-evolution acceptance criterion names `contact_operator` as the
   mismatch recovery.
 - `python3 scripts/check-doc-contract.py` and

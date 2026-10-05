@@ -44,6 +44,17 @@ type admissionConformanceView struct {
 	PendingOperatorDecision     bool
 	CompleteStepCorrection      bool
 	ContractCorrectionAvailable bool
+	DeliveryStarted             bool
+	DeliveryProofRequired       bool
+	DeliveryProofReady          bool
+	DeliveryFailure             bool
+	DeliveryProofFailure        bool
+	MandatePresent              bool
+	MandateMissing              bool
+	MandateBindingStep          string
+	MandateAddedByContract      bool
+	MandateCorrectionAction     string
+	MandateFailure              bool
 }
 
 func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
@@ -57,6 +68,14 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		CorrectionEscalated: state.CorrectionEscalated, SameStepFailedAttempts: state.SameStepFailedAttempts,
 		DispatchHold: state.DispatchHold, PendingOperatorDecision: state.PendingOperatorDecision,
 		CompleteStepCorrection: state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
+		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
+		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
+		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
+		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
+	}
+	if state.Delivery.ProofRequired {
+		view.DeliveryProofReady = state.Delivery.ProofReady
+		view.DeliveryProofFailure = state.Delivery.ProofFailure != nil
 	}
 	if view.ReadyReview {
 		view.ReadyReviewSettles = state.ReadyReviewSettles
@@ -79,7 +98,7 @@ func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition Wor
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatalf("%s: read step: %v", label, err)
 	}
-	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
+	loaded, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}
@@ -149,6 +168,9 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	// The ready review's acceptance names the ready attempt and asserts
 	// delivery, so it settles the debt and advances to the delivery gate.
+	refineProofSeedGreenRun(t, s, workID, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+	model.proof = true
+	conformanceCheckpoint(t, s, workID, def, model, "after current-epoch verification")
 	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", 1, acceptor); err != nil {
 		t.Fatalf("accept the settling review: %v", err)
 	}

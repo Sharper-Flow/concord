@@ -390,6 +390,9 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	var note CanonicalNote
 	var homeProject, homeLocator, path, commit, hash, kind, title, date, status, lessonTagsJSON, summary, successor, scopeMode, manifestSchemaVersion string
 	lookupID := req.Work
+	// amendmentRoot keeps the caller's original root form for the opt-in
+	// current_amendment_context section: qualified stays qualified.
+	amendmentRoot := req.KnowledgeID
 	if lookupID == "" {
 		lookupID = req.KnowledgeID
 		if projectID, lawID, qualified, parseErr := parseQualifiedKnowledgeID("PM1.Q10", lookupID); parseErr != nil {
@@ -544,9 +547,14 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	// context reads the Product's whole registered source set — the set is
 	// a property of the Product, not of the root form, so a qualified root
 	// resolves its historical locator through one source while its current
-	// context still spans every registered source (CD-0200 D4/D5).
+	// context still spans every registered source (CD-0200 D4/D5). The
+	// root form itself keeps the caller's qualification: a qualified root
+	// stays scoped to its Project's canonical home inside the context read,
+	// never a bare federated lookup that same-ID peer sources would turn
+	// ambiguous.
 	if req.IncludeAmendmentContext && payload.LawStatus != "" {
 		amendmentSources := sourceScope
+		var seededOmissions []string
 		if len(amendmentSources) == 0 && req.Product != "" {
 			if sources, srcErr := resolveKnowledgeQuerySources(ctx, db, req.Product, "PM1.Q10.amendment_context"); srcErr == nil {
 				amendmentSources = sources
@@ -555,18 +563,28 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 				if !errors.As(srcErr, &failure) || failure.Kind != KindUnknownScope && failure.Kind != KindAmbiguousScope {
 					return out, srcErr
 				}
+				// The opt-in current section cannot silently inherit the
+				// historical home as its current source set: a strict read
+				// refuses the unresolved source set outright, and a
+				// degraded read names the omission and never claims an
+				// authoritative graph over the unresolved set (CON-830).
+				if !req.AllowDegraded {
+					return out, srcErr
+				}
+				seededOmissions = append(seededOmissions, "current_source_set_unresolved:"+req.Product)
 			}
 		}
 		if len(amendmentSources) == 0 {
 			amendmentSources = []KnowledgeHome{storedHome}
 		}
 		amendment, amendmentErr := queryKnowledgeRefinementContextDB(ctx, db, KnowledgeRefinementContextRequest{
-			Product:       req.Product,
-			Roots:         []string{lookupID},
-			Limit:         req.AmendmentContextLimit,
-			Cursor:        req.AmendmentContextCursor,
-			AllowDegraded: req.AllowDegraded,
-			Sources:       amendmentSources,
+			Product:         req.Product,
+			Roots:           []string{amendmentRoot},
+			Limit:           req.AmendmentContextLimit,
+			Cursor:          req.AmendmentContextCursor,
+			AllowDegraded:   req.AllowDegraded,
+			Sources:         amendmentSources,
+			SeededOmissions: seededOmissions,
 		})
 		if amendmentErr != nil {
 			return out, amendmentErr

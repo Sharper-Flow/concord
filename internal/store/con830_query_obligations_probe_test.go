@@ -158,6 +158,11 @@ func TestCoordinatorCON830EndpointPlanUsesAnIndex(t *testing.T) {
 	seedWorkflowAmendmentFanout(t, s, home, commit)
 	second := seedRefinementScaleSource(t, s, "refinement-plan", "refinement-plan-loc", 32)
 	seedRefinementCrossEndpoints(t, s, home, second, commit, []string{"CD-0017", "CD-0054"}, 8)
+	// CD-0058 carries only two same-home outgoing refines, so its bounded
+	// page also holds its declared cross-source relations: the captured
+	// production path then includes the structured endpoint lookup the
+	// page's cross edges require.
+	seedRefinementCrossEndpoints(t, s, home, second, commit, []string{"CD-0058"}, 8)
 	// Resolve the verifier's conclusions on the pool before the read
 	// transaction opens: the store pools one connection, so a pool read
 	// inside the open transaction would park forever.
@@ -169,6 +174,10 @@ func TestCoordinatorCON830EndpointPlanUsesAnIndex(t *testing.T) {
 	probe := &refinementStatementProbe{queryer: tx}
 	roots := []string{home.HomeProjectID + "/CD-0017", home.HomeProjectID + "/CD-0054"}
 	if _, err := queryKnowledgeRefinementContext(ctx, probe, KnowledgeRefinementContextRequest{}, []KnowledgeHome{home, second}, roots, refinementContextMaxLimit, verification); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := queryKnowledgeRefinementContext(ctx, probe, KnowledgeRefinementContextRequest{}, []KnowledgeHome{home, second}, []string{home.HomeProjectID + "/CD-0058"}, refinementContextMaxLimit, verification); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

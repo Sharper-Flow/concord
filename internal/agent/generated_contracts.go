@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:7510caf9c41c03e0c37efc32f10df1d135e7320cb98918106ef943accfe59c05"
+const ManifestDigest = "sha256:634c10ceb115244cdcf3bd1c88f6edb936b2e3111fb30ec4bcd580013a11426b"
 
 type OperationKind string
 
@@ -132,7 +132,7 @@ type GeneratedPayloadRule struct {
 
 var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"active_worktree_verify_lease":                   {Required: []string{"lease_id", "work_id", "project_id", "path", "command", "acquired_at"}, Properties: []string{"lease_id", "work_id", "project_id", "path", "command", "acquired_at"}},
-	"amendment_context_edge":                         {Required: []string{"root_id", "direction", "kind", "endpoint_project_id", "endpoint_law_id", "source_project_id", "source_locator_id", "scanned_commit_oid"}, Properties: []string{"root_id", "direction", "kind", "endpoint_project_id", "endpoint_locator_id", "endpoint_law_id", "endpoint_kind", "endpoint_status", "endpoint_title", "endpoint_path", "endpoint_content_hash", "source_project_id", "source_locator_id", "scanned_commit_oid"}},
+	"amendment_context_edge":                         {Required: []string{"root_id", "root_scope_project_id", "direction", "kind", "relation_class", "endpoint_project_id", "endpoint_law_id", "source_project_id", "source_locator_id", "scanned_commit_oid"}, Properties: []string{"root_id", "root_scope_project_id", "direction", "kind", "relation_class", "endpoint_project_id", "endpoint_locator_id", "endpoint_law_id", "endpoint_kind", "endpoint_status", "endpoint_title", "endpoint_path", "endpoint_content_hash", "source_project_id", "source_locator_id", "scanned_commit_oid"}},
 	"approval":                                       {Required: []string{"approval_ref"}, Properties: []string{"approval_ref"}},
 	"architecture_binding":                           {Required: []string{"domain_registry_content_hash", "home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"domain_registry_content_hash", "home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
 	"blocked_sessions_page":                          {Required: []string{"sessions"}, Properties: []string{"sessions"}},

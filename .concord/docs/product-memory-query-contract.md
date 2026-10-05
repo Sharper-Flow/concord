@@ -336,20 +336,31 @@ The JSON corpus is executable through a candidate adapter implementing
   qualified endpoint, locator, title, status, source identity, scanned commit,
   and content hash. The read is one hop. It reads only authored relation
   projections and derives no transitive edge, clause authority, or precedence.
-- **Proof separation and authority (amended 2026-10-04 by `CON-830`):** the
+- **Proof separation and authority (amended 2026-10-04 by `CON-830`;
+  amended 2026-10-05 by `CON-830` review):** the
   section carries its own authority and verifies the current source set inside
   the read snapshot against the scanned commit each watermark proved. It never
-  inherits the historical locator proof. A strict read refuses a failed
-  required source or snapshot drift. A read that allows degradation names each
+  inherits the historical locator proof, and a current source set that cannot
+  resolve is never replaced by the historical home: a strict read refuses it
+  outright. A strict read refuses a failed required source or snapshot drift.
+  A read that allows degradation names each
   omission and never claims an authoritative empty graph from incomplete
   sources. Absent the opt-in, the historical-only shape and proof stay
   unchanged. Work notes never carry the section.
-- **Bounds and continuation (amended 2026-10-04 by `CON-830`):** ordering is
-  kind, direction, endpoint source and ID, then root. The cursor binds the
-  roots, filters, source-set digest, participating scanned commit and content
-  identities, and the qualifying edge snapshot. A changed snapshot refuses
-  continuation. Workflow law context over explicitly mandated roots uses the
-  same store-owned query, capped at 32 edges across roots.
+- **Bounds and continuation (amended 2026-10-04 by `CON-830`; amended
+  2026-10-05 by `CON-830` review):** ordering is kind, direction, endpoint
+  source and ID, then root, made total by the root's scope Project, the
+  relation class, and the declaring source identity; every ordering
+  component rides the wire, so no two authored edges share an ordering key
+  and a continuation can neither lose nor repeat an edge. Page selection is
+  a bounded indexed read with keyset continuation and endpoint enrichment
+  bounded to the selected page; counts and hashes never read the unbounded
+  edge population into application memory. The cursor binds the roots,
+  filters, source-set digest, participating scanned commit and content
+  identities, the qualifying edge snapshot through its per-source root
+  counts, and the last ordering key. A changed snapshot refuses
+  continuation. Workflow law context over explicitly mandated roots uses
+  the same store-owned query, capped at 32 edges across roots.
 
 ## 5. Decision and implementation evaluation
 

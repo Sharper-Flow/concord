@@ -52,7 +52,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "amendment_context_edge": {
       "additionalProperties": false,
-      "description": "One authored one-hop relation. direction incoming marks a direct accepted refinement of the root; direction outgoing marks an explicitly declared relation from the root, same-home or cross-source, with a qualified endpoint.",
+      "description": "One authored one-hop relation. direction incoming marks a direct accepted refinement of the root; direction outgoing marks an explicitly declared relation from the root, same-home or cross-source, with a qualified endpoint. The deterministic page order is kind, direction, endpoint_project_id, endpoint_law_id, root_id, root_scope_project_id, relation_class, source_project_id, source_locator_id: a total order whose components are all carried here, so continuation never loses or repeats an authored edge.",
       "properties": {
         "direction": {
           "enum": [
@@ -88,7 +88,18 @@ const GeneratedPayloadSchemaDocument = `{
         "kind": {
           "type": "string"
         },
+        "relation_class": {
+          "enum": [
+            "same_home",
+            "cross_source"
+          ],
+          "type": "string"
+        },
         "root_id": {
+          "type": "string"
+        },
+        "root_scope_project_id": {
+          "description": "The Project whose source the edge's root lives in: the declaring source for same-home and outgoing relations, the declared target Project for an incoming cross-source relation.",
           "type": "string"
         },
         "scanned_commit_oid": {
@@ -103,8 +114,10 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "root_id",
+        "root_scope_project_id",
         "direction",
         "kind",
+        "relation_class",
         "endpoint_project_id",
         "endpoint_law_id",
         "source_project_id",

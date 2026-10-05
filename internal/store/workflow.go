@@ -2685,14 +2685,17 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if attemptWorkID != event.SubjectID {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt belongs to another work item", false, "record the exact worker attempt for this work item")
 	}
-	var dispatchedSeq int64
-	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, WorkerDispatched, payload.WorkerAttemptID).Scan(&dispatchedSeq); err != nil {
+	var attemptSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT seq FROM domain_events WHERE subject_type=? AND subject_id=? AND seq<? AND ((kind=? AND json_extract(payload,'$.attempt_id')=?) OR (? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? AND json_extract(payload,'$.step_id')=?)) ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), event.SubjectID, event.Seq, WorkerDispatched, payload.WorkerAttemptID, requiredLifecycle == "failed", WorkflowActionCompleted, payload.WorkerAttemptID, currentStep).Scan(&attemptSeq); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt dispatch event does not exist", false, "dispatch the worker attempt before recording its result")
 		}
 		return workflowProjectionError(err, "cannot read worker attempt dispatch")
 	}
-	// The epoch fence (CD-0133, CD-0148). At a human_checkpoint step the
+	// Failure can bind to the authorization that created the attempt even
+	// when no worker dispatch evidence was admitted. Success still requires
+	// an actual dispatch. The epoch fence (CD-0133, CD-0148) remains the same.
+	// At a human_checkpoint step the
 	// attempt anchors to the dispatch window that opened it (CD-0193): an
 	// authorized window no worker used must not orphan the failed attempt the
 	// operator records there. Every other step keeps the prior rule: the
@@ -2701,7 +2704,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	// advance the step past the current one.
 	anchorSeq := event.Seq
 	if step != nil && step.Kind == WorkflowStepHumanCheckpoint {
-		anchorSeq = dispatchedSeq
+		anchorSeq = attemptSeq
 	}
 	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, event.SubjectID, currentStep, anchorSeq)
 	if err != nil {
@@ -2710,7 +2713,7 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if (!found || payload.AttemptEpoch != startEpoch) && !isWorkflowReplay(ctx) {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt epoch does not match the latest workflow action start", false, "record the attempt with the epoch of the workflow action start that dispatched it")
 	}
-	if dispatchedSeq <= startSeq {
+	if attemptSeq <= startSeq {
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "worker attempt dispatch is stale", false, "record a worker attempt dispatched after the current action start")
 	}
 	if lifecycle != requiredLifecycle {

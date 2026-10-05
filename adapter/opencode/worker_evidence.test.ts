@@ -150,7 +150,7 @@ test("canonical encoding is order-fixed, not object-key dependent", () => {
 
 test("dispatch and completion evidence each carry a bound assertion", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("ok")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete"])
 
@@ -234,9 +234,9 @@ const requiredFieldsFor = (verb: string): string[] => (workerCLIRequiredFields.v
 
 test("every worker evidence request carries the fields its CLI verb requires", async () => {
   const recorded: Record<string, unknown>[] = []
-  await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   const failed: Record<string, unknown>[] = []
-  await completeWorkerAttempt(lane, packet(), failedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(failed), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  await completeWorkerAttempt(lane, packet(), failedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(failed), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   const all = [...recorded, ...failed]
   expect(all.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-complete", "worker-dispatch", "worker-fail"])
   for (const entry of all) {
@@ -250,7 +250,7 @@ test("every worker evidence request carries the fields its CLI verb requires", a
 
 test("each evidence write carries its own nonce", async () => {
   const recorded: Record<string, unknown>[] = []
-  await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   const nonces = recorded.map((entry) => (entry.request as any).assertion.nonce)
   expect(new Set(nonces).size).toBe(nonces.length)
 })
@@ -268,7 +268,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
       return { exitCode: 0, stdout: "", stderr: "" }
     },
   }
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("ok")
   expect(spawnedArgv.join(" ")).not.toContain("signature")
   expect(spawnedArgv.join(" ")).not.toContain("assertion")
@@ -281,7 +281,7 @@ test("the signing proof never reaches the worker packet or prompt", async () => 
 // assertion that leaves those fields empty cannot match the binding.
 test("failure evidence carries a bound assertion including lane identity", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await completeWorkerAttempt(lane, packet(), failedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), failedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("error")
   expect(recorded.map((entry) => entry.command)).toEqual(["worker-dispatch", "worker-fail"])
 
@@ -306,7 +306,7 @@ test("every verb signs exactly the field set its CLI binding populates", async (
   const signed = new Map<string, Record<string, unknown>>()
   for (const [runner, body] of [[laneRunner, completedBody()], [failingLaneRunner, failedBody()]] as const) {
     const recorded: Record<string, unknown>[] = []
-    await completeWorkerAttempt(lane, packet(), body, { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+    await completeWorkerAttempt(lane, packet(), body, { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
     for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
   }
   expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
@@ -324,7 +324,7 @@ test("every verb signs exactly the field set its CLI binding populates", async (
 test("an unavailable credential fails the run instead of recording unsigned evidence", async () => {
   const recorded: Record<string, unknown>[] = []
   const broken: CredentialStore = { async getPrivateKey() { throw new Error("credential service unavailable") } }
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: broken, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: broken, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("error")
   expect(result.error?.recovery_action).toBe("contact_operator")
   expect(recorded).toHaveLength(0)
@@ -339,7 +339,7 @@ test("an unavailable credential fails the run instead of recording unsigned evid
 // vector-driven loop above.
 test("dispatch evidence carries the packet digest the core recorded", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("ok")
   const dispatched = (recorded[0].request as any).assertion
   expect(dispatched.packet_digest).toBe(PACKET_DIGEST)
@@ -353,7 +353,7 @@ test("dispatch evidence carries the packet digest the core recorded", async () =
 // envelope is the failure surface.
 test("completion refuses to sign without packetDigest", async () => {
   const recorded: Record<string, unknown>[] = []
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(result.error?.recovery_action).toBe("reconcile_operation")

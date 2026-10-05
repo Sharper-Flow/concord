@@ -6,6 +6,10 @@ import (
 	"testing"
 )
 
+func TestWorkflowAdmissionStateComparable(t *testing.T) {
+	_ = make(map[WorkflowAdmissionState]struct{})
+}
+
 // The post-rejection review admission family's decision table: the pure
 // workflowAdmit is total and action-scoped over the folded state space —
 // outstanding debt hides only the advances toward delivery, so dispatch,
@@ -102,6 +106,9 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// This table isolates review debt with the delivery start satisfied.
+			// The prerequisite agreement tests cover missing starts and proofs.
+			tc.state.Delivery.Started = true
 			for actionID, wantAdmitted := range tc.want {
 				decision := workflowAdmit(definition, tc.state, actionID)
 				if decision.Admitted != wantAdmitted {
@@ -168,7 +175,7 @@ func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
 		t.Fatal(txErr)
 	}
 	defer tx.Rollback()
-	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test")
+	state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test")
 	if stateErr != nil {
 		t.Fatal(stateErr)
 	}

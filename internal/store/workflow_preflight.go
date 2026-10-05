@@ -286,7 +286,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	// step-legality refusal is never deferred. The recovery flags and the
 	// supersede classification below read the same folded state instead of
 	// re-deriving the conditions per site.
-	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
+	admission, _, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
 	if admissionErr != nil {
 		return RegisteredDefinition{}, admissionErr
 	}
@@ -337,9 +337,6 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, "workflow_action_preflight"); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// The folded admission owns step legality, applied here — the engine's

@@ -176,11 +176,17 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	// pure workflowAdmit decides whether a dispatch stands behind the
 	// operator's approval. The identity reads below bind that admission to
 	// the attempt the approval must name.
-	state, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
+	state, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
 	if err != nil {
 		return nil, err
 	}
 	decision := workflowAdmit(definition, state, "dispatch_worker")
+	if !decision.Admitted && !decision.ApprovalRequired {
+		return nil, nil
+	}
+	if decision.ApprovalRequired && state.FailedWorkerRetry != nil {
+		return state.FailedWorkerRetry, nil
+	}
 	correction, err := workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
 	if err != nil {
 		return nil, err
@@ -225,6 +231,35 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		binding.CorrectionAttempts = correction.AttemptCount
 	}
 	return binding, nil
+}
+
+// A terminal authorization needs exact retry approval even when its worker
+// supplied no admissible dispatch evidence or its failure has no disposition.
+// The latest authorization at this step owns the identity; an older failure
+// cannot replace a newer live or completed attempt. Step entry and acceptance
+// reset the window through the same anchor the failed-attempt wall reads.
+func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
+	anchor, err := workflowSameStepWindowAnchor(ctx, q, definition, workID, "workflow_correction", 0)
+	if err != nil {
+		return nil, err
+	}
+	var attemptID, lifecycle string
+	var epoch int64
+	err = q.QueryRowContext(ctx, `SELECT a.attempt_id,a.lifecycle_state,json_extract(c.payload,'$.attempt_epoch') FROM domain_events c JOIN worker_attempts a ON a.work_id=c.subject_id AND a.attempt_id=json_extract(c.payload,'$.worker_attempt_id') WHERE c.subject_type=? AND c.subject_id=? AND c.kind=? AND json_extract(c.payload,'$.action_id')='dispatch_worker' AND json_extract(c.payload,'$.step_id')=? AND c.seq>? ORDER BY c.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, stepID, anchor).Scan(&attemptID, &lifecycle, &epoch)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot inspect the latest authorized worker attempt", true, "retry once the worker authorization is readable", err)
+	}
+	if lifecycle != "failed" {
+		return nil, nil
+	}
+	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	return &WorkflowRetryApprovalBinding{FailedAttemptID: attemptID, FailedAttemptEpoch: epoch, ContractVersion: contractVersion}, nil
 }
 
 // workflowSameStepWallRetryBinding binds the same-step wall's approval when
@@ -498,7 +533,9 @@ func workflowCorrectionActiveHealthyBaseline(ctx context.Context, q queryer, wor
 
 func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
 	var count int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts a JOIN domain_events dispatch ON dispatch.subject_type=? AND dispatch.subject_id=a.work_id AND dispatch.kind=? AND json_extract(dispatch.payload,'$.attempt_id')=a.attempt_id WHERE a.work_id=? AND dispatch.seq<=? AND dispatch.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=dispatch.subject_type AND accepted.subject_id=dispatch.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
+	// Authorization already creates an attempt. Dispatch evidence corroborates
+	// that same identity, so count it once rather than requiring or doubling it.
+	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=opening.subject_type AND accepted.subject_id=opening.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil
@@ -801,12 +838,12 @@ func workflowReviewSettlesDebt(verdict string) bool {
 const workflowReviewSettlesDebtSQL = "COALESCE(json_extract(wc.payload,'$.review.verdict'),'') IN ('','ship')"
 
 // workflowPostRejectionFrontier returns the seq frontier a settling review
-// dispatch must postdate: the refinement step's latest rejection, or the
-// latest non-review worker dispatch or completion at the refinement step that
-// follows it, whichever is later. It returns 0 when the workflow carries no
-// correction review shape or no rejection.
+// dispatch must postdate: the refinement step's latest failed review outcome,
+// or the latest non-review dispatch or completion at the refinement step that
+// follows it, whichever is later. A rejection and an accepted no_ship review
+// both require a fresh settling review.
 func workflowPostRejectionFrontier(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, error) {
-	rejectSeq, err := workflowPostRejectionRejectSeq(ctx, q, workID, definition, subject)
+	rejectSeq, _, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
 	if err != nil || rejectSeq == 0 {
 		return 0, err
 	}
@@ -833,32 +870,48 @@ func workflowPostRejectionRepairFrontier(ctx context.Context, q queryer, workID,
 	return frontier, nil
 }
 
-// workflowPostRejectionRejectSeq returns the seq of the refinement step's
-// latest rejected worker result, or 0 when the workflow carries no correction
-// review shape or no rejection.
-func workflowPostRejectionRejectSeq(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, error) {
+// workflowRefinementReviewFailure reads the latest refinement disposition that
+// requires a fresh settling review. Accepting a no_ship report binds findings,
+// not permission to ship; it carries the same review obligation as a rejected
+// result without changing the recorded worker disposition.
+func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, []byte, error) {
 	if !workflowCorrectionWorkflow(definition) {
-		return 0, nil
+		return 0, nil, nil
 	}
 	refineStep := workflowRefinementStepID(definition)
 	if refineStep == "" {
-		return 0, nil
+		return 0, nil, nil
 	}
-	var rejectSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep).Scan(&rejectSeq); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot read the refinement rejection history", true, "retry once the workflow correction projection is readable", err)
+	var seq int64
+	var raw []byte
+	if err := q.QueryRowContext(ctx, `SELECT acc.seq,acc.payload FROM domain_events acc
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.step_id')=?
+		AND (json_extract(acc.payload,'$.action_id')='reject_worker_result'
+		OR (json_extract(acc.payload,'$.action_id')='accept_worker_result' AND EXISTS(
+			SELECT 1 FROM domain_events wd JOIN domain_events wc
+			ON wc.subject_type=wd.subject_type AND wc.subject_id=wd.subject_id AND wc.kind=?
+			AND json_extract(wc.payload,'$.attempt_id')=json_extract(wd.payload,'$.attempt_id')
+			AND wc.seq>wd.seq AND wc.seq<acc.seq AND json_extract(wc.payload,'$.review.verdict')='no_ship'
+			WHERE wd.subject_type=acc.subject_type AND wd.subject_id=acc.subject_id AND wd.kind=?
+			AND json_extract(wd.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
+			AND json_extract(wd.payload,'$.capability_class')='review')))
+		ORDER BY acc.seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, WorkerCompleted, WorkerDispatched).Scan(&seq, &raw); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, nil, nil
+		}
+		return 0, nil, wrapFailure(KindUnavailable, subject, "cannot read the refinement review history", true, "retry once the workflow correction projection is readable", err)
 	}
-	return rejectSeq, nil
+	return seq, raw, nil
 }
 
 // workflowPostRejectionReviewOutstanding reports a refinement history where a
-// rejected worker result has not been covered by a fresh accepted review. A
+// rejected result or accepted no_ship review has no fresh settling review. A
 // review is an accepted worker attempt dispatched on the review capability
 // class after the debt's frontier; a repair attempt accepted after the
 // rejection does not cover it, so the repaired result reaches delivery
 // unreviewed.
 func workflowPostRejectionReviewOutstanding(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (bool, error) {
-	rejectSeq, err := workflowPostRejectionRejectSeq(ctx, q, workID, definition, subject)
+	rejectSeq, _, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
 	if err != nil || rejectSeq == 0 {
 		return false, err
 	}
@@ -892,10 +945,10 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 
 // workflowDeliveryGateCorrectionContext is the correction context of a
 // workflow instance parked on a CD-0166 delivery gate whose refinement history
-// carries an outstanding post-rejection review. The context names the rejected
-// result's predicates, or the active contract's predicates when the rejection
-// named none, so the evidence-bearing corrective return can name what the
-// fresh review must cover. A gate without the outstanding review admits no
+// carries an outstanding review after rejection or an accepted no_ship report.
+// The context names the rejected result's predicates, or the active contract's
+// predicates, so the evidence-bearing return names what the fresh review must
+// cover. A gate without the outstanding review admits no
 // correction: record_delivery stays the only route off an ordinary parked
 // gate.
 func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
@@ -929,7 +982,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// the pool-backed queryer the continuation's queries would park behind
 	// the read transaction this wrapper holds (the store connection
 	// invariant).
-	state, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
+	state, _, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -944,22 +997,19 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if state.ReviewDebt != ReviewDebtOutstanding {
 		return nil, nil
 	}
-	refineStep := workflowRefinementStepID(definition)
-	var rejectSeq int64
-	var raw []byte
-	if err := q.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.step_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep).Scan(&rejectSeq, &raw); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the latest refinement rejection", true, "retry once the workflow correction projection is readable", err)
+	rejectSeq, raw, err := workflowRefinementReviewFailure(ctx, q, workID, definition, subject)
+	if err != nil || rejectSeq == 0 {
+		return nil, err
 	}
 	var fields struct {
+		ActionID             string   `json:"action_id"`
+		AttemptID            string   `json:"worker_attempt_id"`
 		CorrectionPredicates []string `json:"correction_predicate_ids"`
 		CorrectionEvidence   []string `json:"correction_evidence_refs"`
 		ResultEvidence       []string `json:"result_evidence_refs"`
 	}
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, newFailure(KindInvariantViolation, subject, "rejection completion payload is malformed", false, "rebuild workflow projections from the event log")
+		return nil, newFailure(KindInvariantViolation, subject, "review disposition payload is malformed", false, "rebuild workflow projections from the event log")
 	}
 	predicates := correctionReferenceStrings(fields.CorrectionPredicates)
 	if len(predicates) == 0 {
@@ -986,10 +1036,17 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	}
 	attempts := priorCorrections + 1
 	evidence := correctionReferenceStrings(append(fields.CorrectionEvidence, fields.ResultEvidence...))
+	disposition := "rejected"
+	diagnosis := "the refinement pass rejected a result and its repaired result has no fresh accepted review"
+	if fields.ActionID == "accept_worker_result" {
+		disposition = "verification"
+		diagnosis = "the accepted refinement review has a no_ship verdict and no fresh settling review covers it"
+		evidence = correctionReferenceStrings(append(evidence, fields.AttemptID))
+	}
 	return &WorkflowCorrectionContext{
-		Disposition: "rejected", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
+		Disposition: disposition, AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
-		Diagnosis: "the refinement pass rejected a result and its repaired result has no fresh accepted review", Strategy: fmt.Sprintf("return to step %q and dispatch a fresh review of the repaired result", target),
+		Diagnosis: diagnosis, Strategy: fmt.Sprintf("return to step %q and dispatch a fresh review of the repaired result", target),
 		FailedAttemptID: "", FailedAttemptEpoch: 0,
 	}, nil
 }

@@ -14,11 +14,11 @@ import (
 // extending the inventory without a guard, fails here first.
 
 // guardedActions is the closed set of actions that carry an action-specific
-// guard in applyWorkflowActionRawTx. Three guards are deliberately absent,
+// guard in applyWorkflowActionRawTx. Two guards are deliberately absent,
 // because each applies to every action and the dispatcher therefore calls them
-// directly: guardOperatorPremiseActor, guardRecordedActorTuple, and the
-// spec-mandate guard. dispatch_worker carries no guard either: the folded
-// admission workflowAdmit owns its design-currency boundary, and the packet
+// directly: guardOperatorPremiseActor and guardRecordedActorTuple. The folded
+// admission owns the spec-mandate boundary. dispatch_worker carries no guard
+// either: workflowAdmit owns its design-currency boundary, and the packet
 // and identity checks the fold keeps are not action guards.
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
@@ -112,12 +112,12 @@ func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testin
 		{ID: "repair", Actions: []string{"bind_evidence"}},
 		{ID: "verify", Actions: []string{"record_verdict", "confirm_premise"}},
 	}}}
-	err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "verify", "record_verdict", "workflow_action")
+	err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, "verify", "record_verdict")
 	var failure *Failure
 	if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "law:required" is not bound`) || !strings.Contains(failure.RecoveryAction, `bind_evidence on step "repair"`) {
 		t.Fatalf("mandate guard error=%v, want law and binding-step recovery", err)
 	}
-	if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, "repair", "bind_evidence", "workflow_action"); err != nil {
+	if err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, "repair", "bind_evidence"); err != nil {
 		t.Fatalf("binding action refused recovery: %v", err)
 	}
 }
@@ -168,13 +168,13 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				t.Fatalf("%s binding step %q declares no advancing action; the walk cannot prove the trap is closed", definition.Ref, bindingStep)
 			}
 			for _, actionID := range gated {
-				err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, actionID, "workflow_action")
+				err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, actionID)
 				var failure *Failure
 				if err == nil || !failureAs(err, &failure) || !strings.Contains(failure.Detail, `spec mandate law "`+lawID+`" is not bound`) || !strings.Contains(failure.RecoveryAction, `bind_evidence on step "`+bindingStep+`"`) {
 					t.Fatalf("%s %s with unbound mandate: err=%v, want refusal naming %s and step %s", definition.Ref, actionID, err, lawID, bindingStep)
 				}
 			}
-			if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, "bind_evidence", "workflow_action"); err != nil {
+			if err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "bind_evidence"); err != nil {
 				t.Fatalf("%s bind_evidence must stay available while the mandate is unbound: %v", definition.Ref, err)
 			}
 			// An advance from any step before the binding step must pass, or a
@@ -186,7 +186,7 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				}
 				for _, actionID := range step.Actions {
 					if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-						if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, step.ID, actionID, "workflow_action"); err != nil {
+						if err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, step.ID, actionID); err != nil {
 							t.Fatalf("%s %s on pre-binding step %q must pass while unbound, got %v", definition.Ref, actionID, step.ID, err)
 						}
 					}
@@ -197,7 +197,7 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, actionID := range gated {
-				if err := guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, actionID, "workflow_action"); err != nil {
+				if err := mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, actionID); err != nil {
 					t.Fatalf("%s %s after binding %s: %v, want pass", definition.Ref, actionID, lawID, err)
 				}
 			}

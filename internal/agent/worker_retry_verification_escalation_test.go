@@ -116,6 +116,39 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	if dispatched != 1 {
 		t.Fatalf("approved verification retry recorded %d dispatch authorizations for %s, want 1", dispatched, retryAttemptID)
 	}
+	// An authorization can fail before evidence consumes the pending
+	// verification correction. The wall stays armed, but the next approval
+	// must bind the newer terminal attempt rather than only the old count.
+	failure := store.Event{EventID: "verification-unstarted-abandon", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: retryAttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: "verification retry supplied no admissible evidence"})}
+	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{failure}}); err != nil {
+		t.Fatal(err)
+	}
+	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil || pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.Disposition != "verification" {
+		t.Fatalf("abandonment lost the pending verification wall: correction=%#v error=%v", pin.Correction, err)
+	}
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if err != nil || binding == nil || binding.FailedAttemptID != retryAttemptID || binding.FailedAttemptEpoch != retryEpoch || binding.ContractVersion != 1 {
+		t.Fatalf("coexisting wall must bind the latest terminal authorization: binding=%#v error=%v", binding, err)
+	}
+	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextID := "attempt:work-1:verification-6"
+	next := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "verification-retry-after-abandon",
+		"fields": map[string]any{"attempt_id": nextID, "worker_packet": retryMutationPacket(t, s, nextID, pin.Correction)},
+	})}, mutationEnvelope(grant, scopeVersion))
+	if next.Error == nil || next.Error.Kind != "approval_required" {
+		t.Fatalf("coexisting wall retry without approval: %+v", next.Error)
+	}
+	assertBindingContains(t, next.Error.Details["scope"], "failed_attempt_id:"+retryAttemptID)
+	assertBindingContains(t, next.Error.Details["versions"], "failed_attempt_epoch:"+strconv.FormatInt(retryEpoch, 10))
+	assertBindingContains(t, next.Error.Details["versions"], "contract:1")
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 5 {
+		t.Fatalf("coexisting wall challenge created %d attempts, want 5", got)
+	}
 }
 
 // TestEscalatedVerificationCorrectionRetryRefusesStaleApproval pins the fence

@@ -113,8 +113,13 @@ type WorkflowAdmissionState struct {
 	// SameStepFailedAttempts is the failed-attempt count the same-step wall
 	// counts at the current step.
 	SameStepFailedAttempts int64
+	// FailedWorkerRetry names the current terminal authorization that requires
+	// exact retry approval, including a failure without dispatch evidence or
+	// a coordinator disposition. Identity fields are carried for the binding;
+	// admission depends only on whether this current failure exists.
+	FailedWorkerRetry *WorkflowRetryApprovalBinding
 	// EscalatedRetryApproved carries the request's operator approval for a
-	// walled or escalated dispatch; the calling guard fills it from the
+	// failed retry or an escalation wall; the calling guard fills it from the
 	// request identity before the pure decision runs.
 	EscalatedRetryApproved bool
 	// DispatchHold reports a dispatched worker holding the step's advance.
@@ -151,13 +156,16 @@ type WorkflowAdmissionState struct {
 
 // WorkflowAdmissionDecision is the pure admission answer for one action over
 // one folded state: whether the advance is admitted, whether it stands only
-// behind the operator's escalated retry approval, whether a supersede
+// behind the operator's exact retry approval, whether a supersede
 // request classifies as contract recovery, whether the refusal is the
 // consequential external-conditions one the owning boundary resolves and
 // rechecks, the ready review the calling guard may bind the request's
 // attempt identity against, and the typed refusal when the advance refuses.
 type WorkflowAdmissionDecision struct {
-	Admitted                bool
+	Admitted bool
+	// ApprovalRequired classifies the mutation boundary's exact retry
+	// approval. An escalation wall also carries Failure; an ordinary retry
+	// keeps its declared route while the boundary obtains that approval.
 	ApprovalRequired        bool
 	RecoveryRoute           bool
 	ConsequentialConditions bool
@@ -182,7 +190,7 @@ type WorkflowAdmissionDecision struct {
 	// OperatorQuestionClosed marks the closed-question answer over
 	// confirm_premise: the step declares the approval-required confirmation
 	// and no operator question stands open behind it. It is an advertisement
-	// wall like ApprovalRequired — the work pin drops the unadmitted
+	// wall like an escalated approval refusal — the work pin drops the unadmitted
 	// intent, and the interactive refusal plus the payload checks (the
 	// closed choice, the decision-context digest, the operator identity)
 	// stay with the operator-selection chain the payload-blind admission
@@ -339,6 +347,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, wallErr
 	}
 	state.SameStepFailedAttempts = sameStepFailed
+	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
+	if retryErr != nil {
+		return WorkflowAdmissionState{}, nil, retryErr
+	}
+	state.FailedWorkerRetry = failedRetry
 	dispatchHold, holdErr := workflowDispatchHoldsStepAdvance(ctx, q, definition, workID, currentStep, 0)
 	if holdErr != nil {
 		return WorkflowAdmissionState{}, nil, holdErr
@@ -533,6 +546,12 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.OffStep = true
 		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 		return decision
+	}
+	if actionID == "dispatch_worker" && state.FailedWorkerRetry != nil && !state.EscalatedRetryApproved {
+		// The ordinary retry stays a declared route only after the other
+		// admission gates pass. Its exact approval belongs to the mutation
+		// boundary; an unrelated refusal must never become an approval route.
+		decision.ApprovalRequired = true
 	}
 	decision.Admitted = true
 	return decision

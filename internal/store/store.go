@@ -47,8 +47,7 @@ type Store struct {
 
 	// manifestMemoOnce lazily builds manifestMemo, the commit-keyed memo of
 	// composed knowledge manifests that serves Q10's repeated historical
-	// proof over one immutable commit. Tests that build a Store literal
-	// leave both zero and the reader falls back to the uncached owner.
+	// proof over one immutable commit.
 	manifestMemoOnce sync.Once
 	manifestMemo     *knowledgeManifestMemo
 

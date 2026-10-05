@@ -396,9 +396,7 @@ type knowledgeManifestReader func(ctx context.Context, repo, commit string, role
 
 func (read knowledgeManifestReader) orDirect() knowledgeManifestReader {
 	if read == nil {
-		return func(ctx context.Context, repo, commit string, role knowledgeManifestRole) (KnowledgeManifest, bool, error) {
-			return readKnowledgeManifest(ctx, repo, commit, role)
-		}
+		return readKnowledgeManifest
 	}
 	return read
 }
@@ -742,7 +740,7 @@ func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.C
 	for _, source := range sources {
 		var authority string
 		var err error
-		scanned := ""
+		var scanned string
 		if req.IncludeAmendmentContext {
 			scanned, authority, err = validateKnowledgeContextSource(ctx, db, freshen, source, allowDegraded, "PM1.Q10")
 		} else {
@@ -798,39 +796,36 @@ func q10SealContextualNegative(ctx context.Context, q queryer, req Q10Request, h
 		if srcErr != nil {
 			var failure *Failure
 			if errors.As(srcErr, &failure) && (failure.Kind == KindUnknownScope || failure.Kind == KindAmbiguousScope) {
-				return nil, drift("the registered source set is unresolved for "+req.Product, "current_source_set_unresolved:"+req.Product)
+				if err := drift("the registered source set is unresolved for "+req.Product, "current_source_set_unresolved:"+req.Product); err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, srcErr
 			}
-			return nil, srcErr
+		} else {
+			gained, lost := refinementSourceSetDrift(verifiedLabels(current), verifiedLabels(verified))
+			for _, label := range gained {
+				if err := drift("gained "+label, "source_set_gained_unverified_source:"+label); err != nil {
+					return nil, err
+				}
+			}
+			for _, label := range lost {
+				if err := drift("removed "+label, "source_set_member_unregistered:"+label); err != nil {
+					return nil, err
+				}
+			}
 		}
-		gained, lost := refinementSourceSetDrift(verifiedLabels(current), verifiedLabels(verified))
-		if len(gained) == 0 && len(lost) == 0 {
-			return omissions, nil
-		}
-		detail := make([]string, 0, len(gained)+len(lost))
-		for _, label := range gained {
-			detail = append(detail, "gained "+label)
-		}
-		for _, label := range lost {
-			detail = append(detail, "removed "+label)
-		}
-		if strict {
-			return nil, refuse(strings.Join(detail, ", "))
-		}
-		for _, label := range gained {
-			degrade("source_set_gained_unverified_source:" + label)
-		}
-		for _, label := range lost {
-			degrade("source_set_member_unregistered:" + label)
-		}
-		return omissions, nil
 	}
 	if qualifiedProjectID != "" {
 		candidates, candErr := projectCanonicalHomeCandidates(ctx, q, qualifiedProjectID)
 		if candErr != nil {
-			return nil, drift("the canonical designation for "+qualifiedProjectID+" is unresolved", "current_source_designation_drift:"+qualifiedProjectID)
-		}
-		if len(candidates) != 1 || candidates[0].HomeProjectID != req.Home.HomeProjectID || candidates[0].HomeLocatorID != req.Home.HomeLocatorID {
-			return nil, drift("the canonical designation for "+qualifiedProjectID+" changed", "current_source_designation_drift:"+qualifiedProjectID)
+			if err := drift("the canonical designation for "+qualifiedProjectID+" is unresolved", "current_source_designation_drift:"+qualifiedProjectID); err != nil {
+				return nil, err
+			}
+		} else if len(candidates) != 1 || candidates[0].HomeProjectID != req.Home.HomeProjectID || candidates[0].HomeLocatorID != req.Home.HomeLocatorID {
+			if err := drift("the canonical designation for "+qualifiedProjectID+" changed", "current_source_designation_drift:"+qualifiedProjectID); err != nil {
+				return nil, err
+			}
 		}
 	}
 	watermarkDrifts, _ := refinementWatermarkDrift(ctx, q, verified, refinementSourceVerification{watermarks: proofs})

@@ -164,6 +164,10 @@ func TestReviewC922ChangedHeadIndexedPopulation(t *testing.T) {
 				}
 				t.Logf("PRODUCTION freshness plan: %s", d)
 			}
+			if err := plans.Err(); err != nil {
+				plans.Close()
+				t.Fatal(err)
+			}
 			plans.Close()
 			unchanged, err := knowledgeProjectedBlobsUnchanged(ctx, s.db, home, scanned, head)
 			if err != nil || !unchanged {

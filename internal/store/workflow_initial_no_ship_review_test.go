@@ -304,3 +304,71 @@ func TestAcceptedNonReviewReportDoesNotOpenReviewObligation(t *testing.T) {
 		t.Fatalf("non-review capability gained review authority: seq=%d, err=%v", seq, err)
 	}
 }
+
+func TestOutOfOrderCompletionRetiresTheReadyReview(t *testing.T) {
+	breakFix13, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 13)
+	if !ok {
+		t.Fatal("missing break_fix v13")
+	}
+	implementation19, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)
+	if !ok {
+		t.Fatal("missing implementation v19")
+	}
+	for _, pin := range []struct {
+		name       string
+		registered RegisteredDefinition
+	}{
+		{"break_fix-current", mustBuiltinDefinition(t, "workflow.break_fix")},
+		{"implementation-current", mustBuiltinDefinition(t, "workflow.implementation")},
+		{"break_fix-v13", breakFix13},
+		{"implementation-v19", implementation19},
+	} {
+		t.Run(pin.name, func(t *testing.T) {
+			const workID = "out-of-order-completion"
+			f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, pin.registered, "refine", []string{"verification"}, []string{"verification", "review", "artifact"})
+			s := f.store
+			ownerRef, err := WorkflowActorRef(f.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			epoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", f.owner)
+			lane := reviewGateLane(t, "review")
+			// A delayed review dispatches before the rejection, but its
+			// report completes after the ready review: the newest completion
+			// is pre-frontier evidence the ready fold refuses to name.
+			delayed := "attempt:" + workID + ":delayed"
+			version := verdictItemVersion(t, s, workID)
+			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{{
+				EventID: "out-of-order-delayed-action", Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(100, 0).UTC(), PayloadVersion: 2,
+				Payload: mustJSONValue(map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "refine", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": delayed, "actor_ref": ownerRef}),
+			}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
+				EventID: "out-of-order-delayed-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(100, 0).UTC(), PayloadVersion: 2,
+				Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: delayed, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+			}}}); err != nil {
+				t.Fatal(err)
+			}
+			reviewGateRunAttemptWithVerdict(t, s, workID, "attempt:"+workID+":reject", epoch, lane, ownerRef, "no_ship", 102)
+			reviewGateRejectResult(t, s, workID, "attempt:"+workID+":reject", epoch, reviewGateAcceptor(workID))
+			ready := "attempt:" + workID + ":ready"
+			reviewGateRunAttemptWithVerdict(t, s, workID, ready, epoch, lane, ownerRef, "no_ship", 104)
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+				workerCompleteEventForLane(workID, "out-of-order-delayed-complete", delayed, lane, time.Unix(106, 0).UTC()),
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := reviewGateAcceptResult(t, s, workID, ready, epoch, reviewGateAcceptor(workID)); err == nil {
+				t.Fatal("the ready review was accepted while a newer completed review existed")
+			}
+			fresh := "attempt:" + workID + ":fresh"
+			reviewGateRunAttemptWithVerdict(t, s, workID, fresh, epoch, lane, ownerRef, "ship", 108)
+			refineProofSeedGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+			if err := acceptRefineResult(t, s, workID, fresh, epoch, reviewGateAcceptor(workID)); err != nil {
+				t.Fatalf("the newest completed review did not resolve the obligation: %v", err)
+			}
+			reviewGateRequireStep(t, s, workID, "delivery")
+		})
+	}
+}

@@ -23,6 +23,10 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestAcceptedNonReviewReportDoesNotOpenReviewObligation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutOfOrderCompletionRetiresTheReadyReview"
     }
   ],
   "id": "CD-0206",

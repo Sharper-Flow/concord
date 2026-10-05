@@ -999,15 +999,16 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	}
 	// An accept that names a completed review a newer completed review has
 	// superseded is stale: only the newest review's result can bind, whatever
-	// the folded state names (CD-0206 D3). The check runs before the admitted
-	// shortcut because the fresh-review refusal below binds the ready review
-	// only while review debt stands.
+	// the folded state names — the ready review included, because a delayed
+	// pre-frontier report can complete after the ready one (CD-0206 D3). The
+	// check runs before the admitted shortcut because the fresh-review
+	// refusal below binds the ready review only while review debt stands.
 	if g.request.ActionID == "accept_worker_result" {
 		fields, fieldsErr := workflowActionObject(g.request.Payload)
 		if fieldsErr != nil {
 			return fieldsErr
 		}
-		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" && attemptID != decision.ReadyReviewAttemptID {
+		if attemptID := workflowFieldStringDefault(fields, "attempt_id", ""); attemptID != "" {
 			stale, staleErr := workflowStaleReviewAcceptTx(g.ctx, g.tx, g.request.WorkID, attemptID, "workflow_action")
 			if staleErr != nil {
 				return staleErr

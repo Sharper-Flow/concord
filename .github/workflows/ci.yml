@@ -162,10 +162,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.4.0
       - name: Download Go modules
         # `all` scope, not the default: the dependency-inventory generator
         # resolves the full build list offline, including module-graph-only
@@ -216,6 +212,15 @@ jobs:
           path: ~/.cache/go-build
           key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-build-${{ runner.os }}-
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Fetch the released source the coexistence test builds
+        # TestDistinctReleasedCoresCoexistOnOneStore builds its older core
+        # from this tag (releasedPairTag); the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
       - name: Test all packages
         run: go test -timeout=15m ./...
 

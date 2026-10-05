@@ -374,7 +374,7 @@ func AcquireMaintenance(dataRoot string) (func(), error) {
 		return nil, fmt.Errorf("hostlease: cannot create %s: %w", dataRoot, err)
 	}
 	path := dataRoot
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // path is the operator's data root; the lock opens the directory itself.
 	if err != nil {
 		return nil, fmt.Errorf("hostlease: cannot open %s: %w", path, err)
 	}
@@ -394,7 +394,7 @@ func AcquireMaintenance(dataRoot string) (func(), error) {
 // writeSynced writes bytes and fsyncs the file, so a later rename makes the
 // content durable, not only the directory entry.
 func writeSynced(path string, content []byte) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) //nolint:gosec // path is a fence or lease file this package derives under the data root.
 	if err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func writeSynced(path string, content []byte) error {
 
 // syncDir fsyncs a directory so entries created inside it survive a crash.
 func syncDir(path string) error {
-	dir, err := os.Open(path)
+	dir, err := os.Open(path) //nolint:gosec // path is a directory this package derives under the data root.
 	if err != nil {
 		return err
 	}

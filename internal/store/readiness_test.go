@@ -411,11 +411,11 @@ func TestPlanUpgradeReadinessBlocksOnABreakingRowCommittedToTheLiveWAL(t *testin
 
 // ---- Cross-process WAL currency (CON-807) ----
 
-// readinessChildRoles names the subprocess role the cross-process probe
+// readinessChildRoleEnv names the subprocess role the cross-process probe
 // re-executes this test binary for. The env carries the role and its store.
 const readinessChildRoleEnv = "CONCORD_READINESS_CHILD_ROLE"
 
-func readinessChild(t *testing.T) bool {
+func readinessChild() bool {
 	return os.Getenv(readinessChildRoleEnv) != ""
 }
 
@@ -442,7 +442,7 @@ func readinessChildLiveSession(t *testing.T) {
 }
 
 func TestReadinessChildHelper(t *testing.T) {
-	if !readinessChild(t) {
+	if !readinessChild() {
 		return
 	}
 	switch os.Getenv(readinessChildRoleEnv) {
@@ -488,7 +488,7 @@ func releaseChildStdins(t *testing.T) {
 // read-only connection answers through that index with SQLite's own
 // locking and sees the WAL-committed frame.
 func TestPlanUpgradeReadinessSeesACommittedWALThroughALiveIndexCrossProcess(t *testing.T) {
-	if readinessChild(t) {
+	if readinessChild() {
 		return
 	}
 	path := filepath.Join(t.TempDir(), "store.db")

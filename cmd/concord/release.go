@@ -176,7 +176,7 @@ func unfenceableReleaseRoots(dataRoot, selfRoot string) ([]string, error) {
 		if _, err := os.Stat(filepath.Join(root, "bin", "concord")); err != nil {
 			continue // not a runnable release tree
 		}
-		marker, err := os.ReadFile(filepath.Join(root, fenceProtocolMarker))
+		marker, err := os.ReadFile(filepath.Join(root, fenceProtocolMarker)) //nolint:gosec // root is a release tree listed directly under the operator's data root.
 		if err == nil {
 			if protocol, convErr := strconv.Atoi(strings.TrimSpace(string(marker))); convErr == nil && protocol == hostlease.CurrentFenceProtocol {
 				continue

@@ -47,28 +47,20 @@ func extractReleasedSource(t *testing.T, tag string) string {
 		t.Skipf("the test source is not inside a git repository: %v", err)
 	}
 	root := strings.TrimSpace(string(toplevel))
-	destination := filepath.Join(t.TempDir(), "source")
+	if err := exec.Command(git, "-C", root, "rev-parse", "--verify", "--quiet", tag+"^{commit}").Run(); err != nil {
+		t.Fatalf("the released source %s is absent from this clone; fetch it with: git fetch --no-tags --depth=1 origin +refs/tags/%s:refs/tags/%s", tag, tag, tag)
+	}
+	scratch := t.TempDir()
+	tarball := filepath.Join(scratch, "source.tar")
+	if out, err := exec.Command(git, "-C", root, "archive", "--output", tarball, tag).CombinedOutput(); err != nil {
+		t.Fatalf("git archive %s failed: %v: %s", tag, err, out)
+	}
+	destination := filepath.Join(scratch, "source")
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	archive := exec.Command(git, "-C", root, "archive", tag)
-	extract := exec.Command("tar", "-x", "-C", destination)
-	pipe, err := archive.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	extract.Stdin = pipe
-	var archiveErr, extractErr bytes.Buffer
-	archive.Stderr = &archiveErr
-	extract.Stderr = &extractErr
-	if err := archive.Start(); err != nil {
-		t.Fatalf("cannot start git archive %s: %v", tag, err)
-	}
-	if err := extract.Run(); err != nil {
-		t.Fatalf("cannot extract %s: %v: %s", tag, err, extractErr.String())
-	}
-	if err := archive.Wait(); err != nil {
-		t.Fatalf("git archive %s failed: %v: %s", tag, err, archiveErr.String())
+	if out, err := exec.Command("tar", "-x", "-f", tarball, "-C", destination).CombinedOutput(); err != nil {
+		t.Fatalf("cannot extract %s: %v: %s", tag, err, out)
 	}
 	return destination
 }
@@ -615,7 +607,7 @@ func TestUpgradeRefusesAnUnmarkedInstalledReleaseTree(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("an unmarked installed release tree must refuse the upgrade: %d %s", code, errOut)
 	}
-	if !strings.Contains(errOut, "without a fence-protocol marker") || !strings.Contains(errOut, filepath.Join("v0.0.7")) || !strings.Contains(errOut, "confirm_sessions_stopped") {
+	if !strings.Contains(errOut, "without a fence-protocol marker") || !strings.Contains(errOut, "v0.0.7") || !strings.Contains(errOut, "confirm_sessions_stopped") {
 		t.Fatalf("the refusal must name the unmarked tree and the confirmation: %s", errOut)
 	}
 	fence, err := hostlease.ReadFence(root)
@@ -647,7 +639,7 @@ func TestUpgradeProceedsPastAnUnmarkedTreeOnOperatorConfirmation(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("a confirmed upgrade must apply: %d %s", code, errOut)
 	}
-	if !strings.Contains(errOut, "operator's confirmation") || !strings.Contains(errOut, filepath.Join("v0.0.7")) {
+	if !strings.Contains(errOut, "operator's confirmation") || !strings.Contains(errOut, "v0.0.7") {
 		t.Fatalf("the command must name the tree it proceeded past: %s", errOut)
 	}
 	plan, err := store.PlanUpgradeReadiness(context.Background(), path)

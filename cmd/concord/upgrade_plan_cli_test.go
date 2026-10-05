@@ -169,7 +169,7 @@ func TestVersionJSONDescriptorIsSideEffectFree(t *testing.T) {
 		ReleaseRoot    string `json:"release_root"`
 		CoreBinary     string `json:"core_binary"`
 	}
-	if err := json.Unmarshal([]byte(out.String()), &descriptor); err != nil {
+	if err := json.Unmarshal(out.Bytes(), &descriptor); err != nil {
 		t.Fatalf("the descriptor is not JSON: %v: %s", err, out.String())
 	}
 	if descriptor.Version != version.Value {

@@ -18,6 +18,7 @@ package store
 // same-step failed-attempt wall; the active contract count; the law and
 // registry pin staleness; the design currency; the latest predicate verdict;
 // the investigation artifact and the observation after the latest verdict;
+// the delivery start and current-epoch proof; missing and bound mandates;
 // and the completed instance. Breaking impact notices and open external
 // conditions are not folded: the model holds both at zero, so it counts no
 // exit that either would close.
@@ -58,13 +59,19 @@ type admissionModelState struct {
 	// same-work observation recorded after the latest verdict.
 	artifact bool
 	observed bool
+	// started anchors the current delivery-bearing epoch; proof is a green
+	// worktree-verify binding after that start. mandate is absent, missing,
+	// or bound under the active contract.
+	started bool
+	proof   bool
+	mandate string
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q failed %d contracts %d stale %q designStale %v verdict %q artifact %v observed %v done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.failed, s.contracts, s.stale, s.designStale, s.verdict, s.artifact, s.observed, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q failed %d contracts %d stale %q designStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.failed, s.contracts, s.stale, s.designStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -240,6 +247,23 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
+		Delivery:                    workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)},
+	}
+	if folded.Delivery.ProofRequired {
+		folded.Delivery.ProofReady = state.proof
+		if state.started && !state.proof {
+			folded.Delivery.ProofDisqualifier = "no verification evidence is bound in the current refine epoch"
+		}
+	}
+	if state.mandate != "" {
+		folded.Mandate = workflowMandateAdmission{Present: true, BindingStep: workflowEvidenceBindingStep(definition, state.step)}
+		if state.mandate == "missing" {
+			folded.Mandate.LawID = "spec:model"
+			folded.EvidenceRecoveryRoute = state.contracts == 1 && folded.Mandate.BindingStep != ""
+		}
+	}
+	if state.contracts > 1 {
+		folded.Mandate.Failure = newFailure(KindInvariantViolation, "workflow_action", "workflow contract projection has multiple active contracts", false, "use the typed operator recovery for duplicate active contracts")
 	}
 	// The acceptance gate folds the recorded verdict: an open premise
 	// question without one refuses confirm_premise, and record_verdict on the
@@ -326,10 +350,16 @@ func admissionModelMoves(definition WorkflowDefinition, state admissionModelStat
 
 // admissionEnterStep moves the model to a new step: the step entry anchors a
 // fresh same-step wall and a fresh attempt window.
-func admissionEnterStep(state admissionModelState, step string) admissionModelState {
+func admissionEnterStep(definition WorkflowDefinition, state admissionModelState, step string) admissionModelState {
 	if step == "" || step == state.step {
 		return state
 	}
+	// A delivery gate reads the incoming delivery-bearing step's start.
+	// Other step entries need their own start and a new epoch proof.
+	if !workflowStepIsDeliveryGate(workflowStep(definition, step)) {
+		state.started = false
+	}
+	state.proof = false
 	state.step, state.attempt, state.failed = step, "", 0
 	return state
 }
@@ -369,6 +399,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	advance := true
 	switch actionID {
 	case "dispatch_worker":
+		next.started, next.proof = true, false
 		completed := next
 		completed.attempt = "completed"
 		failed := next
@@ -408,6 +439,14 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		next.attempt = "failure_recorded"
 	case "approve_contract":
 		next.contracts = 1
+		plain := admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
+		mandated := plain
+		mandated.mandate = "missing"
+		return []admissionModelState{plain, mandated}
+	case "bind_evidence":
+		if next.mandate == "missing" {
+			next.mandate = "bound"
+		}
 	case "record_verdict":
 		ok, bad := next, next
 		ok.verdict, bad.verdict = "ok", "bad"
@@ -420,9 +459,9 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 				target = failure
 			}
 		}
-		return []admissionModelState{admissionEnterStep(next, target)}
+		return []admissionModelState{admissionEnterStep(definition, next, target)}
 	case "request_correction":
-		return []admissionModelState{admissionEnterStep(next, workflowCorrectionTargetStep(definition, state.step))}
+		return []admissionModelState{admissionEnterStep(definition, next, workflowCorrectionTargetStep(definition, state.step))}
 	case "complete":
 		next.done = true
 		return []admissionModelState{next}
@@ -433,11 +472,12 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// A fresh fenced start opens a new attempt window and releases
 			// the hold of every attempt before it.
 			next.attempt = ""
+			next.started, next.proof = true, false
 		}
 	}
 	if advance {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-			next = admissionEnterStep(next, workflowNextStep(definition, state.step))
+			next = admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
 		}
 	}
 	return []admissionModelState{next}
@@ -451,7 +491,7 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	successor := state
 	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
 	if workflowCompleteStepCorrectionStep(definition, state.step) {
-		successor = admissionEnterStep(successor, workflowCorrectionTargetStep(definition, state.step))
+		successor = admissionEnterStep(definition, successor, workflowCorrectionTargetStep(definition, state.step))
 		return []admissionModelState{successor}
 	}
 	successors := []admissionModelState{successor}
@@ -462,23 +502,43 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 		successors = append(successors, withoutDesign)
 	}
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
-		reset := admissionEnterStep(state, contractStep)
+		reset := admissionEnterStep(definition, state, contractStep)
 		reset.contracts, reset.stale, reset.verdict, reset.observed = 0, "", "", false
+		reset.mandate = ""
 		successors = append(successors, reset)
 	}
 	return successors
 }
 
-// admissionAgentMoves are the moves outside the workflow action surface the
-// agent always holds: recording a same-work observation records the
-// investigation artifact and the observation after the latest verdict.
-func admissionAgentMoves(state admissionModelState) []admissionModelState {
-	if state.done || (state.artifact && state.observed) {
+// admissionAgentMoves models observation records and the native verify route
+// outside workflow_action. Verification still needs an admitted evidence bind.
+func admissionAgentMoves(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
+	if state.done {
 		return nil
 	}
-	observed := state
-	observed.artifact, observed.observed = true, true
-	return []admissionModelState{observed}
+	var successors []admissionModelState
+	if !state.artifact || !state.observed {
+		observed := state
+		observed.artifact, observed.observed = true, true
+		successors = append(successors, observed)
+	}
+	// worktree_verify is outside workflow_action. A green run can prove the
+	// epoch only when it follows the start and bind_evidence is admitted.
+	if state.started && !state.proof && workflowRefineProofGateActive(definition, state.step) {
+		if workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted {
+			verified := state
+			verified.proof = true
+			successors = append(successors, verified)
+		}
+	}
+	return successors
+}
+
+func admissionAgentMoveName(before, after admissionModelState) string {
+	if before.proof != after.proof {
+		return "worktree_verify+bind_evidence"
+	}
+	return "observation_record"
 }
 
 // admissionEnvironmentMoves are the moves no agent controls: a law revision
@@ -588,7 +648,40 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			}
 		}
 	}
-	return states
+	var withEvidence []admissionModelState
+	for _, state := range states {
+		starts := []bool{false}
+		if workflowStepIsDeliveryGate(workflowStep(definition, state.step)) || state.attempt != "" {
+			// The gate is entered from its delivery-bearing predecessor; a
+			// dispatched attempt also records a fenced action start.
+			starts = []bool{true}
+		} else {
+			for _, action := range workflowStep(definition, state.step).Actions {
+				if mode, ok := workflowActionExecutionMode(definition, action); ok && mode == ActionFenced {
+					starts = []bool{false, true}
+					break
+				}
+			}
+		}
+		mandates := []string{""}
+		if state.contracts == 1 {
+			mandates = []string{"", "missing", "bound"}
+		}
+		for _, started := range starts {
+			proofs := []bool{false}
+			if started && workflowRefineProofGateActive(definition, state.step) {
+				proofs = []bool{false, true}
+			}
+			for _, proof := range proofs {
+				for _, mandate := range mandates {
+					next := state
+					next.started, next.proof, next.mandate = started, proof, mandate
+					withEvidence = append(withEvidence, next)
+				}
+			}
+		}
+	}
+	return withEvidence
 }
 
 // admissionExits returns the admitted actions with a successor that leaves
@@ -597,8 +690,8 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 // route the agent always holds, and it changes the folded state.
 func admissionExits(definition WorkflowDefinition, state admissionModelState) []string {
 	var exits []string
-	if len(admissionAgentMoves(state)) != 0 {
-		exits = append(exits, "observation_record")
+	for _, successor := range admissionAgentMoves(definition, state) {
+		exits = append(exits, admissionAgentMoveName(state, successor))
 	}
 	for _, actionID := range admissionModelMoves(definition, state) {
 		if admissionContinuityAction(actionID) {
@@ -768,8 +861,8 @@ func admissionReachableStates(definition WorkflowDefinition, start admissionMode
 				visit(actionID, successor)
 			}
 		}
-		for _, successor := range admissionAgentMoves(state) {
-			visit("observation_record", successor)
+		for _, successor := range admissionAgentMoves(definition, state) {
+			visit(admissionAgentMoveName(state, successor), successor)
 		}
 		for _, successor := range admissionEnvironmentMoves(state) {
 			visit("environment:stale_pin", successor)
@@ -795,7 +888,7 @@ func admissionLiveStates(definition WorkflowDefinition, reachable []admissionMod
 			if live[state] {
 				continue
 			}
-			successors := admissionAgentMoves(state)
+			successors := admissionAgentMoves(definition, state)
 			for _, actionID := range admissionModelMoves(definition, state) {
 				successors = append(successors, admissionSuccessors(definition, state, actionID)...)
 			}

@@ -95,7 +95,7 @@ func TestMandateRecoveryKeepsConditionalGuidanceForAnUnseenCollision(t *testing.
 	seedWorkflowLaw(t, s)
 	seedMandateContract(t, s, workID)
 	seedReservedLawAddition(t, s, workID)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict"))
 	if !strings.Contains(failure.Detail, "one of the contract's own law additions") || strings.Contains(failure.Detail, "publishes") {
 		t.Fatalf("detail=%q, want the conditional added-law detail", failure.Detail)
 	}
@@ -121,7 +121,7 @@ func TestMandateRecoveryTreatsAPublishedAdditionLikeAnUnseenOne(t *testing.T) {
 	seedMandateContract(t, s, workID)
 	seedReservedLawAddition(t, s, workID)
 	seedPublishedLawSubject(t, s, lawID)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict"))
 	if !strings.Contains(failure.Detail, "one of the contract's own law additions") {
 		t.Fatalf("detail=%q, want the conditional added-law detail", failure.Detail)
 	}
@@ -145,7 +145,7 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 	seedWorkflowLaw(t, s)
 	seedMandateContract(t, s, workID)
 	seedPublishedLawSubject(t, s, lawID)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict"))
 	if failure.Detail != `spec mandate law "CD-0189" is not bound` {
 		t.Fatalf("detail=%q, want the plain unbound detail", failure.Detail)
 	}
@@ -166,7 +166,7 @@ func TestMandateRecoveryNamesRejectionFirstAtAWorkerDispatchStep(t *testing.T) {
 	seedMandateContract(t, s, workID)
 	seedReservedLawAddition(t, s, workID)
 	entry := workflowFixtureDefinition(t, 2)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result"))
 	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") {
 		t.Fatalf("recovery=%q, want the conditional bind_evidence guidance", failure.RecoveryAction)
 	}
@@ -194,7 +194,7 @@ func TestMandateRecoveryNamesFailureRecordFirstWhenRejectionIsUnavailable(t *tes
 	if bindingStep == "" {
 		t.Fatal("the old fixture carries no bind_evidence step")
 	}
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "record_verdict"))
 	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") || !strings.Contains(failure.RecoveryAction, "record_worker_failure, then supersede_contract") {
 		t.Fatalf("recovery=%q, want conditional guidance then record_worker_failure and supersede_contract", failure.RecoveryAction)
 	}
@@ -216,7 +216,7 @@ func TestMandateRecoveryNamesDeclaredFailureRecordForAFailedAttempt(t *testing.T
 	}
 	definition.AvailableActions = append(definition.AvailableActions, "record_worker_failure")
 	bindingStep := workflowEvidenceBindingStep(definition, "repair")
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, definition, bindingStep, "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, definition, bindingStep, "record_verdict"))
 	if !strings.Contains(failure.RecoveryAction, "record_worker_failure, then supersede_contract") {
 		t.Fatalf("recovery=%q, want declared record_worker_failure then supersede_contract", failure.RecoveryAction)
 	}
@@ -234,7 +234,7 @@ func TestMandateRecoveryNamesNoCorrectionRouteWhileAWorkerIsLive(t *testing.T) {
 	seedMandateContract(t, s, workID)
 	seedReservedLawAddition(t, s, workID)
 	entry := workflowFixtureDefinition(t, 2)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, entry.Definition, "execution", "accept_worker_result"))
 	if !strings.Contains(failure.RecoveryAction, `only when the branch adds "CD-0189"`) {
 		t.Fatalf("recovery=%q, want conditional bind_evidence guidance", failure.RecoveryAction)
 	}
@@ -256,7 +256,7 @@ func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	seedMandateContract(t, s, workID)
 	seedReservedLawAddition(t, s, workID)
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "complete", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "complete"))
 	if failure.Kind != KindInvariantViolation {
 		t.Fatalf("kind=%q, want %q for a complete gate", failure.Kind, KindInvariantViolation)
 	}
@@ -280,7 +280,7 @@ func TestMandateRecoveryPropagatesQueryFailures(t *testing.T) {
 	if _, err := s.DatabaseForTesting().Exec(`DROP TABLE workflow_contract_law_additions`); err != nil {
 		t.Fatal(err)
 	}
-	failure := wantMandateRefusal(t, guardMandatedWorkflowLawBound(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict", "workflow_action"))
+	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "record_verdict"))
 	if failure.Kind != KindUnavailable {
 		t.Fatalf("kind=%q detail=%q, want the propagated unavailable failure", failure.Kind, failure.Detail)
 	}

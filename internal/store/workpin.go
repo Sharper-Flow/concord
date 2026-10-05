@@ -146,7 +146,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 		// projection, and workflowAdmitSupersede classifies the recovery, so
 		// the pin, the preflight, and the fold answer identically for the
 		// same state.
-		state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+		state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
 		if stateErr != nil {
 			return pin, stateErr
 		}
@@ -234,7 +234,7 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 // refuses; an action standing only behind the operator's approval keeps its
 // intent, because the approval wall is the advertised escape.
 func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) (WorkflowAdmissionState, error) {
-	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
+	state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
 	if stateErr != nil {
 		return WorkflowAdmissionState{}, stateErr
 	}

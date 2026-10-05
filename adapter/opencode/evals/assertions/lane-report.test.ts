@@ -171,9 +171,12 @@ test("an over-long review finding detail is truncated to the UTF-8 byte bound, n
 test("malformed predicate_ids are refused", () => {
   const refusals: Array<{ name: string; predicate_ids: unknown }> = [
     { name: "not an array", predicate_ids: "predicate:adapter-review-admission" },
-    { name: "empty array", predicate_ids: [] },
+    { name: "null", predicate_ids: null },
     { name: "past the item bound", predicate_ids: Array.from({ length: 9 }, () => "predicate:adapter-review-admission") },
     { name: "id outside the declared form", predicate_ids: ["nope"] },
+    { name: "id without a suffix", predicate_ids: ["predicate:"] },
+    { name: "id with an invalid character", predicate_ids: ["predicate:bad/id"] },
+    { name: "past the id bound", predicate_ids: ["predicate:" + "x".repeat(119)] },
   ]
   for (const refusal of refusals) {
     const evidence = [
@@ -389,6 +392,17 @@ test("an evidence entry may carry the schema's declared optional predicate_ids",
   ]
   expect(run(report({ evidence }))).toMatchObject({ pass: true, score: 1 })
 })
+
+for (const shape of ["absent", "empty", "eight"] as const) {
+  test(`a completed report with ${shape} predicate_ids passes eval admission`, () => {
+    const predicate_ids = shape === "eight"
+      ? Array.from({ length: 8 }, (_, index) => `predicate:p${index}`)
+      : []
+    const evidence = (report().evidence as Array<{ obligation: string; detail: string }>)
+      .map((entry) => shape === "absent" ? entry : { ...entry, predicate_ids })
+    expect(run(report({ evidence }))).toMatchObject({ pass: true, score: 1 })
+  })
+}
 
 test("a seeded-defect marker is discharged through the typed review findings", () => {
   const packet = reviewPacket({ attempt_id: "attempt:eval-review-seeded-scope-violation" })

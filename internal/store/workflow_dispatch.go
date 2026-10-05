@@ -202,7 +202,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx *sql.Tx, entry
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
+	state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
 	if stateErr != nil {
 		return stateErr
 	}
@@ -283,17 +283,18 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// unrelated cause can ride the review gate's acceptance route. The
 	// recovery guards and the step-legality check read the same folded
 	// state below.
-	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+	admission, proofRuns, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 	if admissionErr != nil {
 		return result, admissionErr
 	}
 	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
-		return result, decision.Failure
+		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
 	}
 	guards.admissionState = &admission
 	guards.admissionDecision = &decision
+	guards.deliveryProofRuns = proofRuns
 	guards.workerFailureRecovery = admission.WorkerFailureRecovery
 	guards.correctionRecovery = admission.CorrectionRecovery
 	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery
@@ -337,13 +338,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {
 		return result, err
 	}
-	subject := "workflow_action"
-	if request.ActionID == "complete" {
-		subject = "complete_workflow"
-	}
-	if err := guardMandatedWorkflowLawBound(ctx, tx, request.WorkID, entry.Definition, currentStep, request.ActionID, subject); err != nil {
-		return result, err
-	}
 	if err := runWorkflowActionGuard(guards, guardPhasePostValidation); err != nil {
 		return result, err
 	}
@@ -358,7 +352,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// binds the outstanding requirement the request's payload names.
 	if request.ActionID == "bind_evidence" {
 		var recoveryErr error
-		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, subject)
+		guards.recoveryBind, recoveryErr = guardRecoveryEvidenceBind(ctx, tx, request.WorkID, entry.Definition, currentStep, request.Payload, "workflow_action")
 		if recoveryErr != nil {
 			return result, recoveryErr
 		}

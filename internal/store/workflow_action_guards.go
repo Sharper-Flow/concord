@@ -47,6 +47,7 @@ type workflowActionGuardContext struct {
 	// conditions per site.
 	admissionState      *WorkflowAdmissionState
 	admissionDecision   *WorkflowAdmissionDecision
+	deliveryProofRuns   []workflowVerificationRun
 	actorRef            string
 	eventActor          string
 	operatorRef         string
@@ -107,127 +108,6 @@ func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionG
 		return nil
 	}
 	return guard.run(g)
-}
-
-// guardMandatedWorkflowLawBound refuses actions that could strand a contract
-// whose spec mandate still lacks its immutable evidence binding. An ordinary
-// advance is refused only when it leaves a step that declares bind_evidence,
-// because that step is the last place on the path where the mandate can be
-// bound. Terminal acceptance actions are refused wherever they run. A late
-// bind_evidence action remains available as the recovery route, and a
-// mandated law the contract itself adds binds only when the branch adds that
-// id, so the refusal names the contract-correction route the current step
-// admits too.
-func guardMandatedWorkflowLawBound(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) error {
-	if actionID == "supersede_contract" || actionID == "bind_evidence" {
-		return nil
-	}
-	terminalGate := actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
-	if !terminalGate {
-		mode, declared := workflowActionExecutionMode(definition, actionID)
-		if !declared || mode != ActionAdvance || !stepDeclaresAction(definition, currentStep, "bind_evidence") {
-			return nil
-		}
-	}
-	mandate, version, err := workflowSpecMandate(ctx, q, workID, subject)
-	if err != nil || len(mandate) == 0 {
-		return err
-	}
-	cutoff, cutoffErr := workflowCompleteStepCorrectionEvidenceCutoff(ctx, q, workID, version)
-	if cutoffErr != nil {
-		return cutoffErr
-	}
-	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
-	if bindingStep == "" {
-		return newFailure(KindInvariantViolation, subject, "workflow spec mandate has no bind_evidence step", false, "repair the pinned workflow definition")
-	}
-	for _, lawID := range mandate {
-		bound, boundErr := workflowEvidenceReferenceBound(ctx, q, workID, lawID, subject, cutoff)
-		if boundErr != nil {
-			return boundErr
-		}
-		if !bound {
-			kind := KindMissingEvidence
-			if actionID == "complete" {
-				kind = KindInvariantViolation
-			}
-			recovery, detail, recoveryErr := workflowMandateRecovery(ctx, q, workID, definition, currentStep, lawID, version, bindingStep, actionID, subject)
-			if recoveryErr != nil {
-				return recoveryErr
-			}
-			return newFailure(kind, subject, detail, false, recovery)
-		}
-	}
-	return nil
-}
-
-// workflowMandateRecovery names the recovery the refused action can actually
-// take. A mandated law the contract itself adds is the one case where
-// bind_evidence can bind a decision this branch never made: another merge can
-// claim the same CD id first, and the reserved id then names the other work's
-// law. The store cannot read branch contents, so for an added id the refusal
-// stays conditional: bind_evidence is the route when the branch adds the id,
-// and otherwise the contract-correction route the work pin would advertise at
-// this step — supersede_contract where correction is directly available, and
-// the worker-result rejection or the worker-failure record that reopens
-// correction first at a worker-dispatch step. Query failures propagate; a
-// step with no admitted correction route leaves the conditional bind_evidence
-// guidance alone.
-func workflowMandateRecovery(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, lawID string, contractVersion int64, bindingStep, actionID, subject string) (string, string, error) {
-	bindRecovery := fmt.Sprintf("run bind_evidence on step %q before %s", bindingStep, actionID)
-	unboundDetail := fmt.Sprintf("spec mandate law %q is not bound", lawID)
-	added, err := workflowContractAddsLaw(ctx, q, workID, contractVersion, lawID)
-	if err != nil {
-		return "", "", err
-	}
-	if !added {
-		return bindRecovery, unboundDetail, nil
-	}
-	addedDetail := fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", lawID)
-	conditional := fmt.Sprintf("run bind_evidence on step %q before %s only when the branch adds %q", bindingStep, actionID, lawID)
-	correction, err := workflowContractCorrectionRoute(ctx, q, workID, definition, currentStep, actionID, subject)
-	if err != nil {
-		return "", "", err
-	}
-	if correction == "" {
-		return conditional, addedDetail, nil
-	}
-	return fmt.Sprintf("%s; otherwise %s", conditional, correction), addedDetail, nil
-}
-
-// workflowContractCorrectionRoute names the supersession route the work pin
-// admits at the current step, or "" when none is admitted: supersede_contract
-// directly at a human checkpoint, and the worker-result rejection or the
-// worker-failure record that reopens correction first at a worker-dispatch
-// step.
-func workflowContractCorrectionRoute(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, actionID, subject string) (string, error) {
-	direct, err := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
-	if err != nil {
-		return "", err
-	}
-	if direct {
-		return fmt.Sprintf("run supersede_contract on step %q", currentStep), nil
-	}
-	rejected, err := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject, 0)
-	if err != nil {
-		return "", err
-	}
-	if rejected {
-		return fmt.Sprintf("run reject_worker_result, then supersede_contract, before %s", actionID), nil
-	}
-	var failed bool
-	if stepDeclaresAction(definition, currentStep, "record_worker_failure") {
-		failed, err = workflowFailedWorkerAttempt(ctx, q, workID, currentStep, subject, true)
-	} else {
-		failed, err = workflowWorkerFailureRecoveryAvailable(ctx, q, workID, definition, currentStep, subject)
-	}
-	if err != nil {
-		return "", err
-	}
-	if failed {
-		return fmt.Sprintf("run record_worker_failure, then supersede_contract, before %s", actionID), nil
-	}
-	return "", nil
 }
 
 // workflowContractAddsLaw reports whether the active contract itself declares
@@ -870,39 +750,30 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// guardDeliveryFollowsStart admits record_delivery only on a step whose fenced
-// start action has run in the current attempt. Delivery states that the step's
-// own work finished, so a step that never started has nothing to deliver. The
-// fold refuses delivery after a worker dispatch in the current attempt.
-func guardDeliveryFollowsStart(g *workflowActionGuardContext) error {
-	startStep := g.currentStep
-	if workflowStepIsDeliveryGate(workflowStep(g.entry.Definition, g.currentStep)) {
-		for _, edge := range g.entry.Definition.StepGraph.Edges {
-			if edge.To == g.currentStep && edge.Kind == WorkflowEdgeForward {
-				startStep = edge.From
-				break
-			}
-		}
-	}
-	_, _, found, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, startStep)
+// guardDeliveryAdmission consumes the shared decision, then binds the proof
+// to the request's external tool declaration and the ready-review identity.
+func guardDeliveryAdmission(g *workflowActionGuardContext) error {
+	state, err := g.foldedAdmissionState()
 	if err != nil {
 		return err
 	}
-	if !found {
-		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
-	}
-	return nil
-}
-
-// guardDeliveryAdmission composes the delivery admission order: the fenced
-// start fact first, then the refine-exit proof, then the post-rejection
-// review gate.
-func guardDeliveryAdmission(g *workflowActionGuardContext) error {
-	if err := guardDeliveryFollowsStart(g); err != nil {
+	decision, err := g.foldedAdmissionDecision()
+	if err != nil {
 		return err
 	}
-	if err := guardRefineProofAtDelivery(g); err != nil {
-		return err
+	if !decision.Admitted && !workflowAdmissionDefersToReviewGate(*decision, g.request.ActionID) {
+		return workflowExecutionAdmissionFailure(*decision, g.request.ProjectTooling)
+	}
+	if state.Delivery.ProofRequired && g.request.ProjectTooling != nil {
+		qualifying, why, err := workflowVerificationProof(g.deliveryProofRuns, g.request.ProjectTooling)
+		if err != nil {
+			return err
+		}
+		if !qualifying {
+			failure := workflowRefineProofFailure(why)
+			failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
+			return failure
+		}
 	}
 	return guardPostRejectionReviewGate(g)
 }
@@ -987,69 +858,6 @@ func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep st
 	}
 }
 
-// guardRefineProofAtDelivery refuses the refine step's record_delivery exit
-// unless, in the current refine epoch, a bound verification evidence names a
-// completed worktree.verify durable operation for this work item whose lease
-// recorded outcome completed, exit code 0, no tracked-file change, and an
-// acquire after the current refine start (CD-0138 D3 as amended by CD-0192).
-// When the Project's default ref declares a tooling manifest, the run's argv
-// must equal the whitespace-split invocation of at least one declared tool;
-// the manifest itself was resolved outside this transaction and arrives on
-// the request.
-func guardRefineProofAtDelivery(g *workflowActionGuardContext) error {
-	if !workflowRefineProofGateActive(g.entry.Definition, g.currentStep) {
-		return nil
-	}
-	startSeq, _, started, err := latestWorkflowActionStart(g.ctx, g.tx, g.request.WorkID, g.currentStep)
-	if err != nil {
-		return err
-	}
-	if !started {
-		return newFailure(KindInvalidOperation, "workflow_action", "record_delivery requires the delivery step's fenced start action in this attempt", false, "start the delivery-bearing step, do its work, then record delivery")
-	}
-	startedAt, err := workflowActionOccurredAt(g.ctx, g.tx, g.request.WorkID, startSeq)
-	if err != nil {
-		return err
-	}
-	qualifying, why, err := workflowRefineProofRun(g.ctx, g.tx, g.request.WorkID, startSeq, startedAt, g.request.ProjectTooling, "workflow_action")
-	if err != nil {
-		return err
-	}
-	if qualifying {
-		return nil
-	}
-	return newFailure(KindMissingEvidence, "workflow_action",
-		"leaving refine requires a verification binding in the current refine epoch that names a green worktree_verify run for this work item: "+why+" "+ProjectToolingDeclaredText(g.request.ProjectTooling),
-		false, "run worktree_verify on the refined work, then bind_evidence with evidence_kind verification and the run's worktree_verify operation ref before record_delivery")
-}
-
-// workflowRefineProofRun reports whether one verification binding in the
-// current refine epoch names a qualifying worktree-verify run, and carries
-// the first binding's disqualifier back for the refusal to name.
-func workflowRefineProofRun(ctx context.Context, q queryer, workID string, startSeq int64, startedAt time.Time, tooling *ProjectToolingManifest, subject string) (bool, string, error) {
-	boundRefs, err := workflowVerificationBindingsAfter(ctx, q, workID, startSeq, subject)
-	if err != nil {
-		return false, "", err
-	}
-	if len(boundRefs) == 0 {
-		return false, "no verification evidence is bound in the current refine epoch", nil
-	}
-	disqualifier := ""
-	for _, ref := range boundRefs {
-		qualifies, why, err := worktreeVerifyRunQualifies(ctx, q, workID, ref, startedAt, tooling, subject)
-		if err != nil {
-			return false, "", err
-		}
-		if qualifies {
-			return true, "", nil
-		}
-		if disqualifier == "" {
-			disqualifier = why
-		}
-	}
-	return false, disqualifier, nil
-}
-
 // workflowVerificationBindingsAfter lists the immutable subject refs bound as
 // verification evidence after afterSeq, the current refine epoch's start, in
 // binding order.
@@ -1078,26 +886,24 @@ func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID st
 	return refs, nil
 }
 
-// worktreeVerifyRunQualifies reports whether one bound evidence reference
-// names a completed worktree.verify durable operation for this work item
-// whose lease ran green after startedAt, and whose argv is a declared tool
-// when the Project declares one.
-func worktreeVerifyRunQualifies(ctx context.Context, q queryer, workID, reference string, startedAt time.Time, tooling *ProjectToolingManifest, subject string) (bool, string, error) {
+// loadWorkflowVerifyRun folds a bound verify operation and its lease. Command
+// declaration matching remains outside the database fold.
+func loadWorkflowVerifyRun(ctx context.Context, q queryer, workID, reference string, startedAt time.Time, subject string) ([]string, string, error) {
 	var resultPayload string
 	err := q.QueryRowContext(ctx, `SELECT result_payload FROM durable_operations
 		WHERE op_id=? AND work_id=? AND workflow_type_ref='worktree.verify' AND result_kind='completed'`, reference, workID).Scan(&resultPayload)
 	if err == sql.ErrNoRows {
-		return false, "bound evidence " + reference + " names no completed worktree.verify durable operation", nil
+		return nil, "bound evidence " + reference + " names no completed worktree.verify durable operation", nil
 	}
 	if err != nil {
-		return false, "", wrapFailure(KindUnavailable, subject, "cannot read the bound worktree verify operation", true, "retry once the durable operation projection is readable", err)
+		return nil, "", wrapFailure(KindUnavailable, subject, "cannot read the bound worktree verify operation", true, "retry once the durable operation projection is readable", err)
 	}
 	var result struct {
 		LeaseID             string `json:"lease_id"`
 		TrackedFilesChanged bool   `json:"tracked_files_changed"`
 	}
 	if err := json.Unmarshal([]byte(resultPayload), &result); err != nil || result.LeaseID == "" {
-		return false, "", newFailure(KindInvariantViolation, subject, "the bound worktree verify operation's result is malformed", false, "rebuild projections from the event log")
+		return nil, "", newFailure(KindInvariantViolation, subject, "the bound worktree verify operation's result is malformed", false, "rebuild projections from the event log")
 	}
 	var outcome string
 	var exitCode sql.NullInt64
@@ -1105,37 +911,34 @@ func worktreeVerifyRunQualifies(ctx context.Context, q queryer, workID, referenc
 	var commandJSON string
 	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON)
 	if err == sql.ErrNoRows {
-		return false, "the bound worktree.verify run names no verify lease for this work item", nil
+		return nil, "the bound worktree.verify run names no verify lease for this work item", nil
 	}
 	if err != nil {
-		return false, "", wrapFailure(KindUnavailable, subject, "cannot read the bound verify lease", true, "retry once the verify lease record is readable", err)
+		return nil, "", wrapFailure(KindUnavailable, subject, "cannot read the bound verify lease", true, "retry once the verify lease record is readable", err)
 	}
 	if outcome != "completed" {
-		return false, "the bound verify lease recorded outcome " + outcome, nil
+		return nil, "the bound verify lease recorded outcome " + outcome, nil
 	}
 	if !exitCode.Valid || exitCode.Int64 != 0 {
-		return false, "the bound verify lease did not record exit code 0", nil
+		return nil, "the bound verify lease did not record exit code 0", nil
 	}
 	if result.TrackedFilesChanged {
-		return false, "the bound verify run changed tracked files", nil
+		return nil, "the bound verify run changed tracked files", nil
 	}
 	acquired, parseErr := time.Parse(time.RFC3339Nano, acquiredAt)
 	if parseErr != nil {
-		return false, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable acquire time", false, "rebuild projections from the event log")
+		return nil, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable acquire time", false, "rebuild projections from the event log")
 	}
 	if !acquired.After(startedAt) {
 		// A replayed lease keeps its original acquired_at, so a lease held in
 		// an earlier refine epoch cannot prove this one.
-		return false, "the bound verify run was acquired at or before the current refine start", nil
+		return nil, "the bound verify run was acquired at or before the current refine start", nil
 	}
 	var command []string
 	if err := json.Unmarshal([]byte(commandJSON), &command); err != nil {
-		return false, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable command", false, "rebuild projections from the event log")
+		return nil, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable command", false, "rebuild projections from the event log")
 	}
-	if tooling != nil && !ProjectToolingInvocationDeclared(tooling, command) {
-		return false, "the bound verify run's command is not a tool the Project declares", nil
-	}
-	return true, "", nil
+	return command, "", nil
 }
 
 // workflowActionOccurredAt reads one workflow event's occurred_at, the wall
@@ -1182,16 +985,9 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	// The dispatch fold already folded and decided this request's admission;
 	// the guard consumes that derivation. A caller without the fold's state
 	// (no other production caller exists) falls back to its own fold.
-	decision := g.admissionDecision
-	if decision == nil {
-		state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-		if err != nil {
-			return err
-		}
-		decided := workflowAdmit(g.entry.Definition, state, g.request.ActionID)
-		decision = &decided
-		g.admissionState = &state
-		g.admissionDecision = decision
+	decision, err := g.foldedAdmissionDecision()
+	if err != nil {
+		return err
 	}
 	if decision.Admitted {
 		return nil
@@ -1233,12 +1029,26 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	state, proofRuns, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return nil, err
 	}
 	g.admissionState = &state
+	g.deliveryProofRuns = proofRuns
 	return &state, nil
+}
+
+func (g *workflowActionGuardContext) foldedAdmissionDecision() (*WorkflowAdmissionDecision, error) {
+	if g.admissionDecision != nil {
+		return g.admissionDecision, nil
+	}
+	state, err := g.foldedAdmissionState()
+	if err != nil {
+		return nil, err
+	}
+	decision := workflowAdmit(g.entry.Definition, *state, g.request.ActionID)
+	g.admissionDecision = &decision
+	return &decision, nil
 }
 
 // workflowAcceptCarriesDeliveryAssertion reports whether one accept payload

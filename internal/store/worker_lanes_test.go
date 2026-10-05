@@ -767,9 +767,11 @@ func TestWorkerPacketPredicateIDsExtraction(t *testing.T) {
 func TestWorkerReportEvidencePredicateShape(t *testing.T) {
 	t.Parallel()
 	obligation := BuiltinLaneDefinitions()[1].EvidenceObligations[0]
-	valid := []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: []string{"predicate:one", "predicate:two"}}}
-	if err := validateWorkerReportEvidence(WorkerEvidenceReported, valid); err != nil {
-		t.Fatalf("valid predicate tie refused: %v", err)
+	for _, ids := range [][]string{nil, {}, {"predicate:one", "predicate:two"}, {"predicate:p0", "predicate:p1", "predicate:p2", "predicate:p3", "predicate:p4", "predicate:p5", "predicate:p6", "predicate:p7"}} {
+		valid := []WorkerReportEvidence{{Obligation: obligation, Detail: "d", PredicateIDs: ids}}
+		if err := validateWorkerReportEvidence(WorkerEvidenceReported, valid); err != nil {
+			t.Fatalf("valid predicate_ids %v refused: %v", ids, err)
+		}
 	}
 	refusals := []struct {
 		name    string
@@ -885,6 +887,45 @@ func TestWorkerCompletionDischargesDeclaredPredicates(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), "predicate:gamma") {
 			t.Fatalf("refusal %v does not name the undeclared predicate:gamma", err)
+		}
+	})
+
+	t.Run("explicit empty predicate lists complete without recording verdicts", func(t *testing.T) {
+		s := openTemp(t)
+		const workID = "work-discharge-empty"
+		const attemptID = "discharge-empty-attempt"
+		seedDispatchPredicateAuthorization(t, s, workID, attemptID, []string{"predicate:alpha", "predicate:beta"})
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(workID, attemptID, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+		wireEvidence := make([]map[string]any, 0, len(lane.EvidenceObligations))
+		for _, obligation := range lane.EvidenceObligations {
+			wireEvidence = append(wireEvidence, map[string]any{"obligation": obligation, "detail": "discharged " + obligation, "predicate_ids": []string{}})
+		}
+		completion := workerCompleteEventWithEvidence(workID, "discharge-empty-complete", attemptID, model, nil)
+		// Maps preserve explicit [] on the wire; the report struct's omitempty tag does not.
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		payload["evidence"] = mustJSONValue(wireEvidence)
+		completion.Payload = mustJSONValue(payload)
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
+			t.Fatalf("empty-list completion refused: %v", err)
+		}
+		var state string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle_state FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state != "completed" {
+			t.Fatalf("empty-list attempt state = %q, want completed", state)
+		}
+		var verdicts int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
+			t.Fatal(err)
+		}
+		if verdicts != 0 {
+			t.Fatalf("empty predicate lists recorded %d verdicts, want none", verdicts)
 		}
 	})
 

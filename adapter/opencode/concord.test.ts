@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
-import { claimHostLease, configureHostLease, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
+import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
@@ -3174,6 +3174,29 @@ test("the host lease claim names the session directory and worktree", async () =
   expect(claimed[0].input.pid).toBe(4242)
   expect(claimed[0].input.directory).toBe("/home/operator/card-site")
   expect(claimed[0].input.worktree).toBe("/wt")
+  configureHostLease({ reset: true })
+})
+
+// CON-807: while a maintenance boundary is open, the core refuses new session
+// admission. A session that starts mid-boundary fails closed with the fence's
+// own notice, so the operator reads the activation route in the session
+// instead of debugging a vanished release.
+test("a lease claim refused by the maintenance fence carries the boundary notice", async () => {
+  configureHostLease({
+    release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
+    runner: { async run() {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "concord host-lease: hostlease: session admission is excluded by an open maintenance boundary: /releases/v11.0.1/bin/concord opened it at 2026-10-04T10:00:00Z; session admission reopens when the prepared release activates; activation command: python3 /downloads/concord-installer.py activate --version v11.0.1",
+      }
+    } },
+  })
+  await claimHostLease(4243)
+  const fault = hostLeaseFault()
+  expect(fault).toContain("host lease claim failed with exit 1")
+  expect(fault).toContain("session admission is excluded by an open maintenance boundary")
+  expect(fault).toContain("activation command: python3 /downloads/concord-installer.py activate --version v11.0.1")
   configureHostLease({ reset: true })
 })
 

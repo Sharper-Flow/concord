@@ -497,8 +497,12 @@ func TestWorkerAbandonAppliesTheLegacyRowLeaseProof(t *testing.T) {
 			if err != nil {
 				t.Fatalf("cannot read test pid start: %v", err)
 			}
+			self, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := hostlease.Write(filepath.Dir(dbPath), hostlease.Lease{
-				PID: pid, PidStart: pidStart, ReleaseRoot: filepath.Dir(dbPath), CoreBinary: "test",
+				PID: pid, PidStart: pidStart, ReleaseRoot: filepath.Dir(dbPath), CoreBinary: self,
 				SchemaVersion: store.CurrentSchemaVersion(), RecordedAt: time.Now().UTC().Format(time.RFC3339Nano),
 			}); err != nil {
 				t.Fatalf("cannot write the host lease: %v", err)

@@ -6050,7 +6050,19 @@ type appliedMigration struct {
 }
 
 func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT version, checksum, breaking FROM schema_migrations ORDER BY version`)
+	return readManifest(ctx, tx, `SELECT version, checksum, breaking FROM schema_migrations ORDER BY version`)
+}
+
+// legacyManifestMigrations reads a manifest that predates the breaking
+// column as the additive repair would leave it: every recorded row breaking,
+// the column's default (ensureManifestBreakingColumn). It writes nothing, so
+// a read-only plan sees the same manifest the migration command repairs to.
+func legacyManifestMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
+	return readManifest(ctx, tx, `SELECT version, checksum, 1 FROM schema_migrations ORDER BY version`)
+}
+
+func readManifest(ctx context.Context, tx queryer, query string) (map[int]appliedMigration, error) {
+	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot read the schema manifest", true,
 			"confirm the database is readable", err)

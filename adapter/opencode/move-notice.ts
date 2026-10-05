@@ -5,8 +5,19 @@
 // path, redirects reads, edits, and the shell working directory under it, and
 // marks the pre-turn <env> working directory and the pre-move checkout stale,
 // so the agent does not keep using the old checkout for the rest of the turn.
-export function moveNoticeText(newPath: string): string {
-  return `Concord moved this session to ${newPath}. Use paths under ${newPath} for reads, edits, and the shell working directory. The <env> working directory and the pre-move checkout are stale until the next turn.`
+//
+// Every caller records the notice only after a landing the host read back, so
+// the notice never carries unconfirmed-landing recovery: each route's refusal
+// names its own replay. boundaryActive is the turn-move boundary state the
+// caller reads after arming, so the notice names the boundary only when the
+// native question tool and dispatch are in fact closed.
+export const TURN_MOVE_BOUNDARY_NOTICE =
+  "A turn-move boundary is active: the native question tool and dispatch stay closed until the next operator message. To ask the operator a question, write it in normal chat and end the turn."
+
+export function moveNoticeText(newPath: string, boundaryActive: boolean): string {
+  const notice = `Concord moved this session to ${newPath}. Use paths under ${newPath} for reads, edits, and the shell working directory for the rest of this turn. The <env> working directory and the pre-move checkout are stale until the next turn.`
+  if (!boundaryActive) return notice
+  return `${notice} ${TURN_MOVE_BOUNDARY_NOTICE}`
 }
 
 // The notice queue carries the move fact from the move route to the result

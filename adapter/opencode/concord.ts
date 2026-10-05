@@ -13,7 +13,7 @@ import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, ob
 import { concordBinaryPath, CoreBinaryUnavailable } from "./dispatch"
 import { createWorkStateReporter, formatWorkPaneName } from "./workflow-status"
 import { hostLeaseFault, releaseStaleness, type ReleaseStaleness } from "./host-lease"
-import { armTurnMoveBoundary } from "./turn-move-boundary"
+import { armTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, recordUnlandedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktree"
 import { ensureConductLink } from "./project-link"
 import { moveNoticeText, recordMoveNotice, takeMoveNotice } from "./move-notice"
@@ -1073,7 +1073,7 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf
-const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}. Do not combine capture and resume fields.`
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, with an optional project_id naming a member Project in another repository: the call opens the second coordinator session or returns the exact launch command. A member Project in this repository is selected through concord_work_transition worktree_claim instead. Do not combine capture and resume fields.`
 
 function isWorkStartResumeArgs(value: Record<string, unknown>): value is { work_id: string } {
   return saneWorkID(value.work_id)
@@ -1715,13 +1715,18 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // Issue #1322: a host that accepted the retarget can keep running this
     // session's tools in the pre-move directory, so the confirmed read-back
     // alone is a metadata-only move. Success waits until the host tool context
-    // this call runs in resolves inside the claimed worktree; until then the
-    // declared refusal leaves the claimed worktree unarmed and a replay after
-    // the context lands may succeed. The unlanded record keeps the dispatch
-    // gate closed for this session while that move has not landed.
+    // this call runs in resolves inside the claimed worktree. The refusal
+    // separates that unconfirmed landing from an armed turn-move boundary —
+    // this refusal arms neither and reports no success — and names the recovery
+    // the move route actually offers: the next operator message opens a turn
+    // whose tool context can resolve in the claimed worktree (CD-0098 D3),
+    // and the declared replay stays behind an actual target-context
+    // confirmation, because a new message alone is not placement proof. The
+    // unlanded record keeps the dispatch gate closed for this session while
+    // that move has not landed.
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}; the move has not landed, so Concord reports no success and arms no claimed worktree. Replay work_start once the session's tool context runs in the claimed worktree.`, "none", "retry_same_request")
+      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the operator to send the next message, because the next turn's tool context can resolve in the claimed worktree. That message alone is not placement proof: before replaying, confirm from the new turn's tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
     }
     // A resumed session claims no worktree: the read that derives its active
     // worktree records nothing (CD-0104 D1), so the store holds no occupancy
@@ -1792,8 +1797,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // the fact of the move. A rendered handoff appends the bounded job and
       // next action so the receiving session holds both without the envelope.
       output: renderedHandoff
-        ? `${moveNoticeText(target.worktree.path)} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
-        : moveNoticeText(target.worktree.path),
+        ? `${moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
+        : moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID)),
       // The remote Linear check rides the resume result into the envelope so
       // the resuming session sees remote drift before it acts.
       ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
@@ -2054,7 +2059,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
         // is replaced before the result drains the queue. The notice rides
         // the composed answer here rather than the re-land envelope, whose
         // output this sequence discards.
-        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath))
+        if (relandPath) recordMoveNotice(context.sessionID, moveNoticeText(relandPath, dispatchRequiresNextTurn(context.sessionID)))
         steps.push(`work_start: the session re-landed in ${relandPath ?? "the claimed worktree"}`)
       } else {
         const failure = record(relanded) && record(relanded.error) ? relanded.error : null
@@ -2205,7 +2210,7 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   // The confirmed move is a fact the agent must act on, so the result this
   // call encodes carries the notice: the new path, the paths-under-it rule,
   // and the surfaces the move made stale.
-  recordMoveNotice(context.sessionID, moveNoticeText(path))
+  recordMoveNotice(context.sessionID, moveNoticeText(path, dispatchRequiresNextTurn(context.sessionID)))
   return envelope
 }
 
@@ -2238,7 +2243,10 @@ async function recordVacateLanding(workID: string, sessionRef: string, landedDir
 
 // moveSessionToRegisteredMainCheckout applies the core-derived vacate target.
 // The agent can request the operation but cannot name or replace its destination.
-export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
+// premoved reports that the caller already moved the host session to the
+// remembered destination in this turn, so the verified landing arms the turn
+// move boundary before the notice is rendered from it.
+export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope, premoved = false): Promise<HostConcordEnvelope> {
   if (args?.operation !== "session_vacate") return envelope
   const requestID = `${context.sessionID}-${context.messageID}`
   const input = args.input
@@ -2335,11 +2343,12 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   clearClaimedWorktree(context.sessionID)
   // A move the host readback decided completed in this turn even when a
   // stale tool context already names the destination, so the move fact, not
-  // the tool context, arms the boundary.
-  if (moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
+  // the tool context, arms the boundary. A caller's pre-move counts as the
+  // same move fact.
+  if (premoved || moved || !samePath(context.directory, destination)) armTurnMoveBoundary(context.sessionID)
   // The verified landing moved the session to the registered main checkout,
   // so the result this call encodes carries the move notice.
-  recordMoveNotice(context.sessionID, moveNoticeText(destination))
+  recordMoveNotice(context.sessionID, moveNoticeText(destination, dispatchRequiresNextTurn(context.sessionID)))
   return envelope
 }
 
@@ -2439,12 +2448,9 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
       context.directory = remembered
     }
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
-    const settled = await moveSessionToRegisteredMainCheckout(args, context, envelope)
-    // The pre-move relocated the session during this turn, so the turn move
-    // boundary arms exactly as it does for the in-route move once the
-    // verified landing confirms the destination.
-    if (movedToRemembered && settled.outcome === "ok") armTurnMoveBoundary(context.sessionID)
-    return settled
+    // The pre-move relocated the session during this turn, so the verified
+    // landing arms the turn-move boundary exactly as the in-route move does.
+    return await moveSessionToRegisteredMainCheckout(args, context, envelope, movedToRemembered)
   }
   if (args?.operation === "worktree_claim") {
     // The claimed worktree's occupancy row records the recording host's

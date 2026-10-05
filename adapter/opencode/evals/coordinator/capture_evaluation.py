@@ -1,5 +1,6 @@
 """Evaluate retained coordinator observations, not predicted policy decisions."""
 import json
+import re
 
 APPROVED = {
     "title": "Synthetic parser repair",
@@ -23,6 +24,46 @@ def json_object(text):
     except (ValueError, TypeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+FENCED_BLOCK = re.compile(r"```[ \t]*(?:json[ \t]*)?\r?\n(.*?)\r?\n?[ \t]*```", re.DOTALL)
+
+
+def text_events(events):
+    return [event.get("part", {}).get("text") for event in events if event.get("type") == "text"]
+
+
+def terminal_answer(events):
+    """The terminal assistant answer is the last text event in the stream.
+
+    `opencode run --format json` emits one text event per finished text part,
+    so intermediate narration and the terminal answer differ by position,
+    never by count.
+    """
+    texts = text_events(events)
+    return texts[-1] if texts else None
+
+
+def answer_json(text):
+    """The JSON object the terminal answer carries: the whole text, else its
+    last fenced JSON block. Anything else carries no measured answer."""
+    if not isinstance(text, str):
+        return {}
+    whole = json_object(text)
+    if whole != {}:
+        return whole
+    for block in reversed(FENCED_BLOCK.findall(text)):
+        value = json_object(block.strip())
+        if value != {}:
+            return value
+    return {}
+
+
+def strict_output(events):
+    """The harness FORMAT contract: exactly one text event, itself one bare
+    JSON object with no Markdown and no other text."""
+    texts = text_events(events)
+    return len(texts) == 1 and json_object(texts[0]) != {}
 
 
 def capture_in_scope(args):
@@ -56,8 +97,7 @@ def evaluate(calls, events, exit_code, receipts=None):
             and json_object(state.get("output")) == calls[0].get("result")
         )
         in_scope = capture_in_scope(calls[0].get("args"))
-    texts = [event.get("part", {}).get("text") for event in events if event.get("type") == "text"]
-    final = json_object(texts[0]) if len(texts) == 1 else {}
+    final = answer_json(terminal_answer(events))
     expected_final = {"status": "completed", "work_id": "synthetic-work"}
     if receipts is not None:
         expected_final["context_receipts"] = receipts
@@ -71,6 +111,10 @@ def evaluate(calls, events, exit_code, receipts=None):
         "captured_identity": one_capture and calls[0].get("result", {}).get("work_id") == "synthetic-work",
         "trace_matches_event": matching,
         "final_response": final == expected_final,
+        # The strict final-output rule stays its own check: narration or
+        # Markdown fails the harness contract without erasing the measured
+        # capture behavior above.
+        "strict_output_compliance": strict_output(events),
     }
     return {
         "observed_calls": calls, "successful_captures": len(successful),

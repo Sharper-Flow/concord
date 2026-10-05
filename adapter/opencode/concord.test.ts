@@ -12,6 +12,7 @@ import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-cont
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
+import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -1777,6 +1778,10 @@ test("work start replaces the bare move line with the move notice", async () => 
   expect(result.output).toContain(`Use paths under ${WORKTREE} for reads, edits, and the shell working directory`)
   expect(result.output).toContain("The <env> working directory and the pre-move checkout are stale until the next turn")
   expect(result.output).not.toContain("This session now runs in")
+  // work_start succeeds only once the tool context runs in the worktree, so
+  // it arms no turn-move boundary and its notice names none.
+  expect(result.output).not.toContain("turn-move boundary")
+  expect(result.output).not.toContain("replay")
 })
 
 // A refused move records no notice: the notice states a confirmed move, and
@@ -1830,7 +1835,10 @@ test("work start arms nothing and records the pending target when the landing mi
 // Issue #1322: a host can accept the retarget and answer the claimed worktree
 // on the read-back while the session's tools still run in the pre-move
 // directory. That metadata-only move reports no success and arms nothing; the
-// durable claim stays adoptable by a replay.
+// durable claim stays adoptable by a replay. The refusal separates the
+// unconfirmed landing from an armed turn-move boundary, names the next-turn
+// recovery opportunity, and keeps the declared replay behind an actual
+// target-context confirmation.
 test("work start refuses a metadata-only move whose tool context has not landed", async () => {
   try {
     bindRetargetRoute({ landedDirectory: WORKTREE })
@@ -1843,7 +1851,16 @@ test("work start refuses a metadata-only move whose tool context has not landed"
     expect(result.error.kind).toBe("session_directory_mismatch")
     expect(result.error.message).toContain(WORKTREE)
     expect(result.error.message).toContain("/worktree")
-    expect(result.error.message).toContain("Replay work_start")
+    // The refusal distinguishes the unconfirmed landing from the armed
+    // question/dispatch boundary: it asserts neither.
+    expect(result.error.message).toContain("this refusal arms no turn-move boundary")
+    expect(result.error.message).not.toContain("A turn-move boundary is active")
+    // The next operator message is the recovery opportunity, and the replay
+    // stays behind an actual target-context confirmation.
+    expect(result.error.message).toContain("ask the operator to send the next message")
+    expect(result.error.message).toContain("not placement proof")
+    expect(result.error.message).toContain(`actually resolves in ${JSON.stringify(WORKTREE)}`)
+    expect(result.error.message).toContain("replay this same work_start request")
     expect(result.error.effect_state).toBe("none")
     expect(result.error.recovery_action.kind).toBe("retry_same_request")
     // The work item and worktree that exist ride along so the replay's target is visible.
@@ -1857,6 +1874,22 @@ test("work start refuses a metadata-only move whose tool context has not landed"
     expect(calls.map(({ argv }) => argv[1])).toContain("work-bootstrap")
   } finally {
     clearClaimedWorktree("session-1")
+  }
+})
+
+test("an unlanded resume does not deny a boundary armed by an earlier move", async () => {
+  try {
+    bindRetargetRoute({ landedDirectory: WORKTREE })
+    adapter.configureConcordAdapter({ runner: retargetRunner([]) })
+    armTurnMoveBoundary("session-1")
+    const result: any = await rawHostResult(adapter.work_start.execute(bootstrapArgs, contextFor()))
+    expect(result.error.kind).toBe("session_directory_mismatch")
+    expect(dispatchRequiresNextTurn("session-1")).toBe(true)
+    expect(result.error.message).not.toContain("no turn-move boundary is active")
+    expect(result.error.message).toContain("this refusal arms no turn-move boundary")
+  } finally {
+    clearClaimedWorktree("session-1")
+    clearTurnMoveBoundary("session-1")
   }
 })
 

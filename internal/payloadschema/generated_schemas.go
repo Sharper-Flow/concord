@@ -7575,6 +7575,14 @@ const GeneratedPayloadSchemaDocument = `{
         "ready": {
           "type": "boolean"
         },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
         "task": {
           "maxLength": 8192,
           "minLength": 1,
@@ -7601,6 +7609,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "work_pin": {
           "$ref": "#/$defs/work_pin"
+        },
+        "workflow_type_ref": {
+          "$ref": "#/$defs/id"
         }
       },
       "required": [

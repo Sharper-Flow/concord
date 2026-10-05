@@ -1351,20 +1351,27 @@ type workSummary struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	// Task and ValueStatement carry the recorded intent fields the store
-	// populates on the single-record scope read (and full-detail task list
-	// reads): the schema declares them, so the wire projection must not drop
-	// what the folds persist. Empty values stay omitted for list reads.
-	Task           string         `json:"task,omitempty"`
-	ValueStatement string         `json:"value_statement,omitempty"`
-	Lifecycle      string         `json:"lifecycle"`
-	Version        int64          `json:"version"`
-	Priority       int64          `json:"priority,omitempty"`
-	ProjectIDs     []string       `json:"project_ids,omitempty"`
-	Ready          bool           `json:"ready,omitempty"`
-	Narrative      string         `json:"narrative,omitempty"`
-	TerminalAt     *string        `json:"terminal_at"`
-	WorkPin        *store.WorkPin `json:"work_pin,omitempty"`
+	// Task, ValueStatement, Tags, and WorkflowTypeRef carry the recorded
+	// mutable-intent fields the store populates on the authoritative intent
+	// reads — the single-record scope read and the full-detail list read —
+	// because the schema declares them and a coordinator must be able to
+	// carry the complete revisable intent into a complete-replacement
+	// revision. Bounded summary and preview reads leave them empty, and
+	// empty values stay omitted. Urgency is not intent detail: CD-0018
+	// declares it on work_summary, so every summary carries the band.
+	Task            string         `json:"task,omitempty"`
+	ValueStatement  string         `json:"value_statement,omitempty"`
+	Tags            []string       `json:"tags,omitzero"`
+	WorkflowTypeRef string         `json:"workflow_type_ref,omitempty"`
+	Urgency         string         `json:"urgency"`
+	Lifecycle       string         `json:"lifecycle"`
+	Version         int64          `json:"version"`
+	Priority        int64          `json:"priority,omitempty"`
+	ProjectIDs      []string       `json:"project_ids,omitempty"`
+	Ready           bool           `json:"ready,omitempty"`
+	Narrative       string         `json:"narrative,omitempty"`
+	TerminalAt      *string        `json:"terminal_at"`
+	WorkPin         *store.WorkPin `json:"work_pin,omitempty"`
 }
 
 func summary(w store.WorkItem) workSummary {
@@ -1380,7 +1387,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

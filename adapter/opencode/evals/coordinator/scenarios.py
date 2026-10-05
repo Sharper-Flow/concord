@@ -300,7 +300,11 @@ the disposition, including any action the operator must take.""",
                       "contact_operator", False,
                       identity={"work_id": WORK, "project_id": CROSS_REPO_PROJECT},
                       extra={"launch": {"argv": LAUNCH_ARGV, "directory": OTHER_REPO, "runnable": LAUNCH_COMMAND}})},
-        "expected": report("needs_operator", work_id=WORK, boundary=START,
+        # The boundary is the identifier the typed refusal names: its error
+        # kind. The launch command, not a boundary assertion, is the operator
+        # action the refusal carries.
+        "expected": report("needs_operator", work_id=WORK,
+                           boundary="session_opener_unregistered",
                            cause="session_opener_unregistered", effect="none",
                            owner="operator", action="open_session",
                            target=LAUNCH_COMMAND, why="host_owns_session_placement"),
@@ -315,13 +319,22 @@ the item, follow what the tool results permit, and report the disposition.""",
                   "result": start_error(
                       "session_directory_mismatch",
                       f"the host reports the session in the claimed worktree \"{WORKTREE}\", but this "
-                      "session's tool context still resolves in \"/synthetic/repo\"; the move has not "
-                      "landed, so Concord reports no success and arms no claimed worktree. Replay "
-                      "work_start once the session's tool context runs in the claimed worktree.",
+                      "session's tool context still resolves in \"/synthetic/repo\", so the move has not "
+                      "landed: Concord reports no success, arms no claimed worktree, and this refusal "
+                      "arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the "
+                      "operator to send the next message, because the next turn's tool context can "
+                      "resolve in the claimed worktree. That message alone is not placement proof: "
+                      "before replaying, confirm from the new turn's tool context, for example the "
+                      "shell working directory, that it actually resolves in "
+                      f"\"{WORKTREE}\"; only then replay this same work_start request.",
                       "retry_same_request", True,
                       identity={"product_id": PRODUCT, "project_id": PROJECT, "work_id": WORK,
                                 "worktree_path": WORKTREE})},
-        "expected": report("needs_operator", work_id=WORK, boundary=START,
+        # The boundary is the identifier the typed refusal names: its error
+        # kind. No turn-move boundary is armed for this refusal, so naming one
+        # is a false assertion, and the bare tool name names nothing served.
+        "expected": report("needs_operator", work_id=WORK,
+                           boundary="session_directory_mismatch",
                            cause="session_directory_mismatch", effect="none",
                            owner="operator", action="send_next_message",
                            why="context_lands_next_turn"),
@@ -342,7 +355,7 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
         # Production maps every work-resume exit to retry_same_request, so one
         # identical replay follows the declared recovery and is not a fallback.
         "admits_one_replay": True,
-        "expected": report("needs_operator", work_id=WORK, boundary=START,
+        "expected": report("needs_operator", work_id=WORK, boundary="work_bootstrap",
                            cause="resume_failure", effect="none", owner="operator",
                            action="choose_scope", target=ORIGIN_WORKTREE,
                            why="operator_owns_worktree_state"),

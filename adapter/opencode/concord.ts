@@ -1715,13 +1715,18 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // Issue #1322: a host that accepted the retarget can keep running this
     // session's tools in the pre-move directory, so the confirmed read-back
     // alone is a metadata-only move. Success waits until the host tool context
-    // this call runs in resolves inside the claimed worktree; until then the
-    // declared refusal leaves the claimed worktree unarmed and a replay after
-    // the context lands may succeed. The unlanded record keeps the dispatch
-    // gate closed for this session while that move has not landed.
+    // this call runs in resolves inside the claimed worktree. The refusal
+    // separates that unconfirmed landing from an armed turn-move boundary —
+    // this refusal arms neither and reports no success — and names the recovery
+    // the move route actually offers: the next operator message opens a turn
+    // whose tool context can resolve in the claimed worktree (CD-0098 D3),
+    // and the declared replay stays behind an actual target-context
+    // confirmation, because a new message alone is not placement proof. The
+    // unlanded record keeps the dispatch gate closed for this session while
+    // that move has not landed.
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}; the move has not landed, so Concord reports no success and arms no claimed worktree. Replay work_start once the session's tool context runs in the claimed worktree.`, "none", "retry_same_request")
+      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the operator to send the next message, because the next turn's tool context can resolve in the claimed worktree. That message alone is not placement proof: before replaying, confirm from the new turn's tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
     }
     // A resumed session claims no worktree: the read that derives its active
     // worktree records nothing (CD-0104 D1), so the store holds no occupancy

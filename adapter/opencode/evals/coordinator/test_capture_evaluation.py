@@ -80,6 +80,22 @@ class EvaluationTests(unittest.TestCase):
         self.events[1]["part"]["text"] = "Capture succeeded"
         self.assertFalse(evaluate(self.calls, self.events, 0)["passed"])
 
+    def test_intermediate_narration_does_not_erase_the_terminal_answer(self):
+        # The terminal answer is the last text event, so narration before it
+        # fails only the strict output check, not the measured behavior.
+        self.events.insert(1, {"type": "text", "part": {"text": "Capturing the item."}})
+        result = evaluate(self.calls, self.events, 0)
+        self.assertTrue(result["checks"]["final_response"])
+        self.assertFalse(result["checks"]["strict_output_compliance"])
+        self.assertFalse(result["passed"])
+
+    def test_fenced_terminal_answer_keeps_the_formatter_failure_visible(self):
+        self.events[1]["part"]["text"] = "```json\n" + self.events[1]["part"]["text"] + "\n```"
+        result = evaluate(self.calls, self.events, 0)
+        self.assertTrue(result["checks"]["final_response"])
+        self.assertFalse(result["checks"]["strict_output_compliance"])
+        self.assertFalse(result["passed"])
+
     def test_missing_context_receipt(self):
         self.assertFalse(evaluate(self.calls, self.events, 0, {"continuation.md": "nonce"})["passed"])
 

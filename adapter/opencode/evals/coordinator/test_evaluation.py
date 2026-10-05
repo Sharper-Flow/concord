@@ -8,9 +8,10 @@ from pathlib import Path
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
                         evaluate, start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
-                       move_notice, runtime_response)
+                       WORKTREE, move_notice, runtime_response)
 
 MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
+CONCORD_SOURCE = Path(__file__).resolve().parents[2] / "concord.ts"
 
 
 def dispatch_args():
@@ -290,6 +291,129 @@ class EvaluationTests(unittest.TestCase):
         # fixture declaring the wrong route must not admit it either.
         case = {"start": {"admit": {"work_id": WORK, "project_id": "synthetic-same-repo-project"}}}
         self.assertFalse(start_in_scope({"work_id": WORK, "project_id": "synthetic-same-repo-project"}, case))
+
+    def test_intermediate_narration_does_not_erase_the_terminal_answer(self):
+        # The terminal assistant answer is identified structurally as the
+        # last text event, so narration before it cannot discard the measured
+        # relocation behavior; it fails only the strict output check.
+        case = SCENARIOS["dirty-same-target-reuse"]
+        calls, events = observation(case)
+        events.insert(1, {"type": "text", "part": {"text": "Resuming the item now."}})
+        events.insert(2, {"type": "text", "part": {"text": "The tool reported the landing."}})
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertTrue(result["checks"]["final_response"])
+        self.assertFalse(result["checks"]["strict_output_compliance"])
+        self.assertFalse(result["passed"])
+
+    def test_fenced_terminal_answer_keeps_the_formatter_failure_visible(self):
+        # A fenced final answer still measures the behavior it carries, while
+        # the harness FORMAT violation stays its own failed check.
+        case = SCENARIOS["default-checkout-resume"]
+        calls, events = observation(case)
+        events[-2]["part"]["text"] = (
+            "The resume completed.\n```json\n" + events[-2]["part"]["text"] + "\n```"
+        )
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertTrue(result["checks"]["final_response"])
+        self.assertFalse(result["checks"]["strict_output_compliance"])
+        self.assertFalse(result["passed"])
+
+    def test_terminal_prose_without_a_json_answer_still_refuses(self):
+        case = SCENARIOS["default-checkout-resume"]
+        calls, events = observation(case)
+        events[-2]["part"]["text"] = "The resume completed."
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertEqual(result["final_response"], {})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["checks"]["strict_output_compliance"])
+
+    def test_relocation_boundaries_derive_from_typed_observations(self):
+        # The measured boundary is the identifier the typed stopping
+        # observation names: the refusal's boundary, a core boundary carried
+        # in its message, or its error kind; the turn-move boundary only
+        # while the served move notice announces it as active.
+        from evaluation import typed_boundary
+        for name, boundary in (
+            ("default-checkout-resume", None),
+            ("dirty-same-target-reuse", None),
+            ("same-repository-second-project", "turn_move_boundary"),
+            ("cross-repository-second-session", "session_opener_unregistered"),
+            ("stale-context-turn-boundary", "session_directory_mismatch"),
+            ("genuine-refusal-no-fallback", "work_bootstrap"),
+            ("authority-denial", None),
+            ("missing-credential", None),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(typed_boundary(SCENARIOS[name]), boundary)
+                if boundary is not None:
+                    self.assertEqual(SCENARIOS[name]["expected"]["boundary"], boundary)
+
+    def test_unlanded_refusal_boundary_accepts_only_the_typed_name(self):
+        # Naming the refusal's own typed identifier passes; asserting an
+        # armed turn-move boundary or the bare tool name does not.
+        case = SCENARIOS["stale-context-turn-boundary"]
+        for boundary, admitted in (
+            ("session_directory_mismatch", True),
+            ("turn_move_boundary", False),
+            (START, False),
+        ):
+            with self.subTest(boundary=boundary):
+                calls, events = observation(case)
+                final = json.loads(events[-2]["part"]["text"])
+                final["boundary"] = boundary
+                events[-2]["part"]["text"] = json.dumps(final)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertEqual(result["checks"]["final_response"], admitted)
+
+    def test_core_boundary_does_not_depend_on_a_fixture_label(self):
+        from evaluation import typed_boundary
+        case = copy.deepcopy(SCENARIOS["genuine-refusal-no-fallback"])
+        case["start"].pop("boundary", None)
+        self.assertEqual(typed_boundary(case), "work_bootstrap")
+        case["start"]["boundary"] = "invalid_operation"
+        self.assertEqual(typed_boundary(case), "work_bootstrap")
+
+    def test_boundary_words_in_unstructured_details_are_not_core_identifiers(self):
+        from evaluation import typed_boundary
+        for message in (
+            "Operator must resolve work_bootstrap state before resume.",
+            "noise concord work-resume: store: work_bootstrap: invalid_operation: detail",
+            "concord work-resume: store: work_bootstrap: detail",
+        ):
+            with self.subTest(message=message):
+                case = copy.deepcopy(SCENARIOS["genuine-refusal-no-fallback"])
+                case["start"]["result"]["error"]["message"] = message
+                self.assertEqual(typed_boundary(case), "resume_failure")
+
+    def test_refusal_boundary_names_accept_only_the_typed_identifier(self):
+        for name, typed in (
+            ("genuine-refusal-no-fallback", "work_bootstrap"),
+            ("cross-repository-second-session", "session_opener_unregistered"),
+        ):
+            for boundary, admitted in ((typed, True), (START, False)):
+                with self.subTest(name=name, boundary=boundary):
+                    case = SCENARIOS[name]
+                    calls, events = observation(case)
+                    final = json.loads(events[-2]["part"]["text"])
+                    final["boundary"] = boundary
+                    events[-2]["part"]["text"] = json.dumps(final)
+                    result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                    self.assertEqual(result["checks"]["final_response"], admitted)
+
+    def test_unlanded_refusal_double_mirrors_the_adapter_source(self):
+        # The stale-context fixture message is the production
+        # move_context_not_landed refusal verbatim, with the synthetic paths
+        # substituted, so the evaluated guidance is the shipped guidance.
+        source = CONCORD_SOURCE.read_text()
+        template = re.search(r'move_context_not_landed", `([^`]+)`', source)
+        self.assertIsNotNone(template)
+        rendered = (
+            template.group(1)
+            .replace("${JSON.stringify(target.worktree.path)}", json.dumps(WORKTREE))
+            .replace("${JSON.stringify(context.directory)}", json.dumps("/synthetic/repo"))
+        )
+        served = SCENARIOS["stale-context-turn-boundary"]["start"]["result"]["error"]["message"]
+        self.assertEqual(served, rendered)
 
 
 if __name__ == "__main__":

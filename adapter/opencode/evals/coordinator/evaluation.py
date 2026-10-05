@@ -1,5 +1,6 @@
 """Deterministic assertions over actual coordinator events and recording tools."""
-from capture_evaluation import evaluate as evaluate_capture, json_object
+from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
+                               strict_output, terminal_answer)
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 # work_start resume selects a member Project in another repository only
@@ -100,6 +101,55 @@ def tool_output(output):
     return (json_object(envelope), notice or None)
 
 
+def typed_start_boundary(case):
+    """The boundary a served start refusal names, in the FORMAT's order: a
+    typed boundary field on the error, a core boundary carried in the refusal
+    message, then the refusal's error kind. None when no refusal is served."""
+    start = start_fixture(case)
+    if start is None:
+        return None
+    result = start.get("result")
+    error = result.get("error") if isinstance(result, dict) else None
+    if not isinstance(error, dict):
+        return None
+    named = error.get("boundary")
+    if isinstance(named, str) and named:
+        return named
+    message = error.get("message")
+    if isinstance(message, str):
+        # cmd/concord/main.go writeOperatorDiagnostic wraps Failure.Error
+        # from internal/store/errors.go. Recognize the complete diagnostic
+        # prefix, not a fixture-supplied word anywhere in the detail.
+        parts = message.split(": ", 4)
+        if (len(parts) == 5 and parts[:2] == ["concord work-resume", "store"]
+                and parts[2].isidentifier() and parts[3].isidentifier() and parts[4]):
+            return parts[2]
+    kind = error.get("kind")
+    if isinstance(kind, str) and kind:
+        return kind
+    return START
+
+
+def typed_transition_boundary(case):
+    """The boundary a served claim result names: turn_move_boundary only
+    while the appended move notice announces that boundary as active."""
+    transition = transition_fixture(case)
+    if transition is None:
+        return None
+    notice = transition.get("notice")
+    if isinstance(notice, str) and "A turn-move boundary is active" in notice:
+        return "turn_move_boundary"
+    return None
+
+
+def typed_boundary(case):
+    """The boundary the typed stopping observation names, or None when the
+    served observations name none and the FORMAT falls back to the tool."""
+    if transition_fixture(case) is not None:
+        return typed_transition_boundary(case)
+    return typed_start_boundary(case)
+
+
 def collapse_declared_replay(case, sequence, calls):
     """Admit one identical start replay only where the scenario declares the production result invites it."""
     starts = [call.get("args") for call in calls if call.get("tool") == START]
@@ -156,8 +206,15 @@ def evaluate(case, calls, events, exit_code, receipts):
                     or claim_in_scope(part.get("state", {}).get("input"), case))
         )
     )]
-    texts = [event.get("part", {}).get("text") for event in events if event.get("type") == "text"]
-    final = json_object(texts[0]) if len(texts) == 1 else {}
+    final = answer_json(terminal_answer(events))
+    # The measured boundary comes from the typed stopping observation, never
+    # from a label the scenario hand-picks: a refusal names its boundary
+    # through its typed fields, and a move notice names the turn-move
+    # boundary only while it is active.
+    expected = dict(case["expected"])
+    boundary = typed_boundary(case)
+    if boundary is not None:
+        expected["boundary"] = boundary
     checks = {
         "normal_exit": exit_code == 0,
         "terminal_stop": any(event.get("type") == "step_finish" and event.get("part", {}).get("reason") == "stop" for event in events),
@@ -166,7 +223,11 @@ def evaluate(case, calls, events, exit_code, receipts):
         "trace_matches_event": matching,
         "read_scope": read_scope,
         "no_unauthorized_mutations": not unauthorized,
-        "final_response": final == {**case["expected"], "context_receipts": receipts},
+        "final_response": final == {**expected, "context_receipts": receipts},
+        # The strict final-output rule stays its own check: narration or
+        # Markdown fails the harness contract without erasing the measured
+        # relocation behavior above.
+        "strict_output_compliance": strict_output(events),
     }
     return {
         "checks": checks, "passed": all(checks.values()), "final_response": final,

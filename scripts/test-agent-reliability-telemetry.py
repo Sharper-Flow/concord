@@ -21,14 +21,28 @@ NOW_MS = 1_800_000_000_000  # far above the seconds threshold the script detects
 
 
 def tool_part(tool: str, status: str, output: str = "", subagent_type: str = "", model: str = "glm-5.3-flash") -> tuple[str, str]:
-    state: dict = {"status": status}
-    if status == "error":
-        state["output"] = output
+    # The shapes OpenCode stores: a tool part's state carries its status and
+    # output, and the assistant message that owns the part names its serving
+    # model in top-level providerID and modelID fields.
+    state: dict = {"status": status, "output": output}
     if subagent_type:
         state["input"] = {"subagent_type": subagent_type}
     part = {"type": "tool", "tool": tool, "state": state, "time": {"start": NOW_MS}}
-    message = {"role": "assistant", "model": {"providerID": "zai-coding-plan", "modelID": model}}
+    message = {"role": "assistant", "providerID": "zai-coding-plan", "modelID": model}
     return json.dumps(part), json.dumps(message)
+
+
+def envelope(outcome: str, kind: str = "", message: str = "") -> str:
+    # A Concord tool answers a refusal as a completed call whose output is the
+    # result envelope; the refusal kind is error.kind.
+    document: dict = {"schema_version": "1.0", "outcome": outcome}
+    if kind:
+        document["error"] = {"kind": kind, "retry_safe": False, "message": message}
+    return json.dumps(document)
+
+
+def refusal(tool: str, kind: str, message: str = "", model: str = "glm-5.3-flash") -> tuple[str, str]:
+    return tool_part(tool, "completed", envelope("error", kind, message), model=model)
 
 
 class AgentReliabilityTelemetryTests(unittest.TestCase):
@@ -63,9 +77,9 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
 
     def test_invalid_input_counts_per_tool_and_model(self) -> None:
         for _ in range(3):
-            self.add(*tool_part("concord_work_transition", "error", 'kind invalid_input: missing payload field reason'))
-        self.add(*tool_part("concord_work_transition", "completed"))
-        self.add(*tool_part("concord_work_transition", "error", "kind version_conflict", model="gpt-6.1-sol"))
+            self.add(*refusal("concord_work_transition", "invalid_input", "missing payload field reason"))
+        self.add(*tool_part("concord_work_transition", "completed", envelope("ok")))
+        self.add(*refusal("concord_work_transition", "version_conflict", model="gpt-6.1-sol"))
         document = self.document()
         bucket = document["measures"]["invalid_input"]["concord_work_transition"]
         self.assertEqual(bucket["calls"], 5)
@@ -75,23 +89,40 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         self.assertEqual(bucket["by_model"]["glm-5.3-flash"]["invalid_input"], 3)
         self.assertEqual(bucket["by_model"]["gpt-6.1-sol"]["invalid_input"], 0)
 
-    def test_non_invalid_concord_errors_do_not_count(self) -> None:
-        self.add(*tool_part("concord_work_browse", "error", "kind unknown_scope: work reference is not in Product scope"))
+    def test_non_invalid_refusals_do_not_count(self) -> None:
+        self.add(*refusal("concord_work_browse", "unknown_scope", "work reference is not in Product scope"))
         document = self.document()
         bucket = document["measures"]["invalid_input"]["concord_work_browse"]
         self.assertEqual(bucket["calls"], 1)
         self.assertEqual(bucket["invalid_input"], 0)
 
+    def test_refusal_kind_comes_from_the_envelope_not_its_text(self) -> None:
+        # A successful result may quote refusal vocabulary in its payload, and
+        # a host failure has no envelope; neither is an invalid_input refusal.
+        self.add(*tool_part("concord_work_browse", "completed", json.dumps({"outcome": "ok", "result": {"title": "missing payload field invalid_input"}})))
+        self.add(*tool_part("concord_work_define", "error", "undefined is not an object (evaluating 'args.operation')"))
+        self.add(*tool_part("concord_ci_watch", "completed", json.dumps({"status": "started"})))
+        self.add(*tool_part("concord_work_define", "completed", "not an envelope: invalid_input"))
+        document = self.document()
+        for tool in ("concord_work_browse", "concord_work_define", "concord_ci_watch"):
+            self.assertEqual(document["measures"]["invalid_input"][tool]["invalid_input"], 0, tool)
+
+    def test_serving_model_is_read_from_the_assistant_message(self) -> None:
+        self.add(*refusal("concord_work_define", "invalid_input", model="gpt-6.1-sol"))
+        bucket = self.document()["measures"]["invalid_input"]["concord_work_define"]
+        self.assertEqual(list(bucket["by_model"]), ["gpt-6.1-sol"])
+
     def test_execute_guess_classification(self) -> None:
         self.add(*tool_part("execute", "error", 'tools.codemode: "unknown tool concord_work_trace.research"'))
         self.add(*tool_part("execute", "error", 'json: unknown field "budget"'))
         self.add(*tool_part("execute", "error", "transport_failure: the binary is missing"))
+        self.add(*tool_part("execute", "error", "[codemode-signature-guard] execute script refused: it calls tool path(s) this session has not seen a signature for: linear.get_issue."))
         self.add(*tool_part("execute", "completed", ""))
         document = self.document()
         execute = document["measures"]["execute"]
-        self.assertEqual(execute["calls"], 4)
-        self.assertEqual(execute["errors"], 3)
-        self.assertEqual(execute["guessed"], 2)
+        self.assertEqual(execute["calls"], 5)
+        self.assertEqual(execute["errors"], 4)
+        self.assertEqual(execute["guessed"], 3)
 
     def test_subagent_use_counts_task_calls_per_type(self) -> None:
         self.add(*tool_part("task", "completed", subagent_type="concord-explore"))
@@ -101,12 +132,12 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
         self.assertEqual(document["measures"]["subagent_use"], {"concord-explore": 2, "concord-lookup": 1})
 
     def test_window_excludes_older_parts(self) -> None:
-        self.add(*tool_part("concord_work_define", "error", "invalid_input inside the window"))
+        self.add(*refusal("concord_work_define", "invalid_input", "inside the window"))
         self.connection.execute(
             "INSERT INTO message (id, time_created, data) VALUES ('msg-old', ?, ?)",
-            (NOW_MS - 40 * 86400 * 1000, json.dumps({"role": "assistant", "model": {"providerID": "z", "modelID": "glm-5.3-flash"}})),
+            (NOW_MS - 40 * 86400 * 1000, json.dumps({"role": "assistant", "providerID": "z", "modelID": "glm-5.3-flash"})),
         )
-        old_part = json.dumps({"type": "tool", "tool": "concord_work_define", "state": {"status": "error", "output": "invalid_input outside the window"}, "time": {"start": NOW_MS - 40 * 86400 * 1000}})
+        old_part = json.dumps({"type": "tool", "tool": "concord_work_define", "state": {"status": "completed", "output": envelope("error", "invalid_input", "outside the window")}, "time": {"start": NOW_MS - 40 * 86400 * 1000}})
         self.connection.execute(
             "INSERT INTO part (id, message_id, time_created, data) VALUES ('part-old', 'msg-old', ?, ?)",
             (NOW_MS - 40 * 86400 * 1000, old_part),
@@ -118,14 +149,14 @@ class AgentReliabilityTelemetryTests(unittest.TestCase):
 
     def test_baseline_round_trip_and_regression(self) -> None:
         for _ in range(2):
-            self.add(*tool_part("concord_work_define", "error", "invalid_input: missing payload field reason"))
-        self.add(*tool_part("concord_work_define", "completed"))
+            self.add(*refusal("concord_work_define", "invalid_input", "missing payload field reason"))
+        self.add(*tool_part("concord_work_define", "completed", envelope("ok")))
         baseline_path = self.shard / "baseline.json"
         document = self.document()
         baseline_path.write_text(json.dumps(document), encoding="utf-8")
         self.assertEqual(telemetry.compare(document, baseline_path, 0.0), [])
         # One more refusal on the same population raises the rate above baseline.
-        self.add(*tool_part("concord_work_define", "error", "invalid_input: missing payload field reason"))
+        self.add(*refusal("concord_work_define", "invalid_input", "missing payload field reason"))
         regressed = self.document()
         findings = telemetry.compare(regressed, baseline_path, 0.0)
         self.assertTrue(findings and "concord_work_define" in findings[0])

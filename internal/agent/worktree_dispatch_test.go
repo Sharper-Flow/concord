@@ -384,7 +384,7 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 	}
 	claim, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil || claim.Outcome != OutcomeOK {
-		t.Fatalf("claim response=%+v err=%v", claim, err)
+		t.Fatalf("claim response=%+v error=%+v err=%v", claim, claim.Error, err)
 	}
 }
 

@@ -217,7 +217,7 @@ func workflowFailureOf(err error) *Failure {
 // a pool-backed store: a nested s.db call inside the transaction parks on the
 // single pooled connection forever. Ordered proof candidates are a separate
 // result for the guard's external tooling check, not part of the abstract state.
-func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, error) {
+func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
 		CorrectionWorkflow: workflowCorrectionWorkflow(definition),
@@ -226,9 +226,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	if err := q.QueryRowContext(ctx, `SELECT wi.instance_state,(SELECT lifecycle FROM work_items WHERE id=wi.work_id),(SELECT count(*) FROM workflow_contracts wc WHERE wc.work_id=wi.work_id AND wc.superseded_by IS NULL) FROM workflow_instances wi WHERE wi.work_id=?`, workID).Scan(&state.InstanceState, &state.Lifecycle, &state.ActiveContracts); err != nil {
 		if err == sql.ErrNoRows {
-			return WorkflowAdmissionState{}, nil, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
+			return WorkflowAdmissionState{}, nil, nil, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
 		}
-		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
+		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
 	}
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
@@ -242,7 +242,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// inside one fold, so the loader refuses rather than read past the tx.
 	lawTx, isTx := q.(*sql.Tx)
 	if !isTx {
-		return WorkflowAdmissionState{}, nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
+		return WorkflowAdmissionState{}, nil, nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 	}
 	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitNone)
 	// The staleness boundary's overlap half resolves the one active contract,
@@ -259,32 +259,32 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		state.LawPinSelfError = nil
 	}
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_impact_notices n JOIN workflow_impact_edges e ON e.work_id=n.edge_owner_work_id AND e.edge_id=n.edge_id WHERE n.target_work_id=? AND n.severity='breaking' AND e.edge_class='hard'`, workID).Scan(&state.BreakingNotices); err != nil {
-		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
+		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot inspect workflow impact notices", true, "retry once the database is readable", err)
 	}
 	if openErr := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, workID).Scan(&state.ExternalConditionsOpen); openErr != nil {
-		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot inspect consequential workflow conditions", true, "retry once the database is readable", openErr)
+		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot inspect consequential workflow conditions", true, "retry once the database is readable", openErr)
 	}
 	_, designStale, designErr := readCurrentWorkflowDesign(ctx, q, workID)
 	if designErr != nil {
-		return WorkflowAdmissionState{}, nil, designErr
+		return WorkflowAdmissionState{}, nil, nil, designErr
 	}
 	state.DesignStale = designStale
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
-		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
+		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(f.payload,'$.action_id'),'') FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY f.seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
-		return WorkflowAdmissionState{}, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
+		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
 	}
 	if state.CorrectionWorkflow && state.ReviewStep {
 		outstanding, err := workflowPostRejectionReviewOutstanding(ctx, q, workID, definition, subject)
 		if err != nil {
-			return WorkflowAdmissionState{}, nil, err
+			return WorkflowAdmissionState{}, nil, nil, err
 		}
 		if outstanding {
 			state.ReviewDebt = ReviewDebtOutstanding
 			readyAttemptID, readyVerdict, readyErr := workflowReadyReviewAttemptTx(ctx, q, workID, definition, subject)
 			if readyErr != nil {
-				return WorkflowAdmissionState{}, nil, readyErr
+				return WorkflowAdmissionState{}, nil, nil, readyErr
 			}
 			state.ReadyReviewAttemptID, state.ReadyReviewVerdict = readyAttemptID, readyVerdict
 			state.ReadyReviewSettles = workflowReviewSettlesDebt(readyVerdict)
@@ -292,17 +292,17 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	lateRoute, lateErr := workflowLateVerdictRecoveryAvailable(ctx, q, workID, definition, currentStep)
 	if lateErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(lateErr)) {
-		return WorkflowAdmissionState{}, nil, lateErr
+		return WorkflowAdmissionState{}, nil, nil, lateErr
 	}
 	state.LateVerdictRoute = lateRoute && lateErr == nil
 	workerFailureRoute, workerFailureErr := workflowWorkerFailureRecoveryAvailable(ctx, q, workID, definition, currentStep, subject)
 	if workerFailureErr != nil {
-		return WorkflowAdmissionState{}, nil, workerFailureErr
+		return WorkflowAdmissionState{}, nil, nil, workerFailureErr
 	}
 	state.WorkerFailureRecovery = workerFailureRoute
 	correctionRoute, correctionRouteErr := workflowRejectedWorkerResultAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 	if correctionRouteErr != nil {
-		return WorkflowAdmissionState{}, nil, correctionRouteErr
+		return WorkflowAdmissionState{}, nil, nil, correctionRouteErr
 	}
 	// The rejection recovery is a worker-dispatch-step route: off a step that
 	// declares dispatch_worker the state carries no recovery, so a caller
@@ -317,7 +317,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if workflowCorrectionWorkflow(definition) && workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(ctx, q, workID, definition, currentStep, subject, state)
 		if gateErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(gateErr)) {
-			return WorkflowAdmissionState{}, nil, gateErr
+			return WorkflowAdmissionState{}, nil, nil, gateErr
 		}
 		state.CorrectionRequestRecovery = gateErr == nil && gateContext != nil
 		if gateErr == nil && gateContext == nil {
@@ -329,7 +329,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else {
 		correctionRequestContext, correctionRequestMissing, correctionRequestErr := workflowCorrectionRequestAdmission(ctx, q, workID, definition, currentStep, subject, 0)
 		if correctionRequestErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionRequestErr)) {
-			return WorkflowAdmissionState{}, nil, correctionRequestErr
+			return WorkflowAdmissionState{}, nil, nil, correctionRequestErr
 		}
 		state.CorrectionRequestRecovery, state.CorrectionRequestMissing = correctionRequestContext != nil && correctionRequestErr == nil, correctionRequestMissing
 		if correctionRequestErr == nil {
@@ -338,28 +338,28 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	correction, correctionErr := workflowCorrectionContext(ctx, q, workID, currentStep)
 	if correctionErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(correctionErr)) {
-		return WorkflowAdmissionState{}, nil, correctionErr
+		return WorkflowAdmissionState{}, nil, nil, correctionErr
 	} else if correctionErr == nil && correction != nil {
 		state.CorrectionEscalated = correction.Escalated
 	}
 	sameStepFailed, wallErr := workflowSameStepFailedAttemptCount(ctx, q, definition, workID, currentStep, subject)
 	if wallErr != nil {
-		return WorkflowAdmissionState{}, nil, wallErr
+		return WorkflowAdmissionState{}, nil, nil, wallErr
 	}
 	state.SameStepFailedAttempts = sameStepFailed
 	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
 	if retryErr != nil {
-		return WorkflowAdmissionState{}, nil, retryErr
+		return WorkflowAdmissionState{}, nil, nil, retryErr
 	}
 	state.FailedWorkerRetry = failedRetry
 	dispatchHold, holdErr := workflowDispatchHoldsStepAdvance(ctx, q, definition, workID, currentStep, 0)
 	if holdErr != nil {
-		return WorkflowAdmissionState{}, nil, holdErr
+		return WorkflowAdmissionState{}, nil, nil, holdErr
 	}
 	state.DispatchHold = dispatchHold
 	if evidenceRecovery, evidenceErr := workflowEvidenceBindingRecoveryAvailable(ctx, q, definition, workID, currentStep); evidenceErr != nil {
 		if !duplicatedProjection || !workflowDuplicateContractProjection(evidenceErr) {
-			return WorkflowAdmissionState{}, nil, evidenceErr
+			return WorkflowAdmissionState{}, nil, nil, evidenceErr
 		}
 		state.EvidenceRecoveryRoute = false
 	} else {
@@ -374,7 +374,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 			if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
 				state.PendingOperatorDecision = false
 			} else {
-				return WorkflowAdmissionState{}, nil, artifactErr
+				return WorkflowAdmissionState{}, nil, nil, artifactErr
 			}
 		}
 	}
@@ -385,7 +385,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 				// unreadable projection fails the fold.
 				var failure *Failure
 				if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
-					return WorkflowAdmissionState{}, nil, deliverablesErr
+					return WorkflowAdmissionState{}, nil, nil, deliverablesErr
 				}
 				state.AcceptanceDeliverablesMissing = deliverablesErr
 			}
@@ -394,26 +394,26 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
 		if completeErr != nil {
-			return WorkflowAdmissionState{}, nil, completeErr
+			return WorkflowAdmissionState{}, nil, nil, completeErr
 		}
 		state.CompleteStepCorrection = completeCorrection
 	}
 	contractCorrection, contractCorrectionErr := workflowContractCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
 	if contractCorrectionErr != nil {
-		return WorkflowAdmissionState{}, nil, contractCorrectionErr
+		return WorkflowAdmissionState{}, nil, nil, contractCorrectionErr
 	}
 	state.ContractCorrectionAvailable = contractCorrection
-	delivery, proofRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep)
+	delivery, proofRuns, integrationRuns, deliveryErr := loadWorkflowDeliveryAdmission(ctx, q, workID, definition, currentStep)
 	if deliveryErr != nil {
-		return WorkflowAdmissionState{}, nil, deliveryErr
+		return WorkflowAdmissionState{}, nil, nil, deliveryErr
 	}
 	state.Delivery = delivery
 	mandate, mandateErr := loadWorkflowMandateAdmission(ctx, q, workID, definition, currentStep, subject, state, correctionRoute)
 	if mandateErr != nil {
-		return WorkflowAdmissionState{}, nil, mandateErr
+		return WorkflowAdmissionState{}, nil, nil, mandateErr
 	}
 	state.Mandate = mandate
-	return state, proofRuns, nil
+	return state, proofRuns, integrationRuns, nil
 }
 
 // workflowAdmit decides one action's admission over one folded admission

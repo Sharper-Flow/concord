@@ -179,7 +179,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	// pure workflowAdmit decides whether a dispatch stands behind the
 	// operator's approval. The identity reads below bind that admission to
 	// the attempt the approval must name.
-	state, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
+	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
 	if err != nil {
 		return nil, err
 	}
@@ -1168,7 +1168,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 	// the pool-backed queryer the continuation's queries would park behind
 	// the read transaction this wrapper holds (the store connection
 	// invariant).
-	state, _, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
+	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, lawTx, workID, definition, currentStep, subject)
 	if err != nil {
 		return nil, err
 	}

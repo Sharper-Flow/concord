@@ -50,8 +50,10 @@ func runDeliveryAdmissionAction(t *testing.T, s *Store, workID, action string, p
 
 // acceptRefineResult accepts a completed worker attempt at the refinement
 // step. On the CD-0198 D4 versions the accept carries its delivery fields and
-// the admission reads a green verify run, which this helper seeds first;
-// earlier versions keep the plain advancing accept they shipped with.
+// the admission reads a green verify run, which this helper seeds first; on
+// the job-capable versions the run must additionally integrate the recorded
+// job acceptances, so the seed anchors after the latest acceptance. Earlier
+// versions keep the plain advancing accept they shipped with.
 func acceptRefineResult(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) error {
 	t.Helper()
 	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
@@ -61,7 +63,11 @@ func acceptRefineResult(t *testing.T, s *Store, workID, attemptID string, epoch 
 	step := currentStep(t, s, workID)
 	payload := json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `}`)
 	if workflowAcceptDeliveryAdmissionActive(entry.Definition, step) {
-		refineProofSeedGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
+		if workflowWorkerJobsActive(entry.Definition) {
+			workerJobIntegrationGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
+		} else {
+			refineProofSeedGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
+		}
 		payload = json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `,"delivery_artifact":"artifact:accept-delivery-` + workID + `","delivery_state":"asserted"}`)
 	}
 	return runVerdictActionAs(t, s, workID, "accept_worker_result", payload, 0, acceptor)

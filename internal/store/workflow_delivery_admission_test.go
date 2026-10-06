@@ -19,7 +19,7 @@ func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, pin.Step, "admission_test")
+	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, pin.Step, "admission_test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, runs, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, "refine", "workflow_action")
+	state, runs, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, "refine", "workflow_action")
 	if err != nil {
 		t.Fatal(err)
 	}

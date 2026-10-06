@@ -495,12 +495,16 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // delivery assertion.
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
     expect(dbValue(dbPath, `SELECT state FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).state).toBe("satisfied")
-    // The delivery admission requires integration evidence whose immutable
-    // subject is the recorded acceptance that satisfied the job (CD-0205 D3).
-    const acceptanceRef = dbValue(dbPath, `SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).satisfied_result_ref as string
-    expect(acceptanceRef).toBeTruthy()
+    // The delivery admission requires qualifying core-owned worktree
+    // verification evidence bound after the recorded acceptance, covering the
+    // job's Project (CD-0205 D3): run one verify on the integrated work and
+    // bind its operation ref between the local accept and the delivery.
+    response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "status", "--porcelain"], idempotency_key: "e2e-repair-integration-verify" } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const integrationRef = (response.result as JSONRecord).operation_ref as string
+    expect(integrationRef).toMatch(/^worktree_verify:/)
     const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(integrationVersion, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", immutable_subject_ref: acceptanceRef })
+    response = await transition(integrationVersion, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const repairDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(repairDeliveryVersion, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: ".concord/docs/dispatch-marker.txt", delivery_state: "asserted" })

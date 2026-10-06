@@ -66,10 +66,16 @@ func refineProofRequireMissingEvidence(t *testing.T, err error, wantContains str
 // refineProofSeedVerifyRun seeds one verify lease and, when the run is green,
 // the durable worktree.verify operation the production release path records.
 func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time) string {
+	return refineProofSeedVerifyRunForProject(t, s, workID, digest, command, acquired, "project-1")
+}
+
+// refineProofSeedVerifyRunForProject seeds the same green run under a named
+// Project, so the integration facet's per-scope coverage can be exercised.
+func refineProofSeedVerifyRunForProject(t *testing.T, s *Store, workID, digest string, command []string, acquired time.Time, project string) string {
 	t.Helper()
 	leaseID := digest + ":worktree-verify:" + workID
 	outcome := "completed"
-	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: "project-1", Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
+	resultJSON, err := json.Marshal(WorktreeVerifyResult{WorkID: workID, ProjectID: project, Branch: "work/" + workID, Path: "/tmp/worktrees/" + workID, LeaseID: leaseID, Command: command, ExitCode: 0, TrackedFilesChanged: false})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +86,7 @@ func refineProofSeedVerifyRun(t *testing.T, s *Store, workID, digest string, com
 	acquiredText := acquired.UTC().Format(time.RFC3339Nano)
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		leaseID, workID, "project-1", "/tmp/worktrees/"+workID, "released", "client/concord-1", "agent/owner", "session/"+workID, "principal/operator",
+		leaseID, workID, project, "/tmp/worktrees/"+workID, "released", "client/concord-1", "agent/owner", "session/"+workID, "principal/operator",
 		string(commandJSON), acquiredText, acquired.Add(time.Second).UTC().Format(time.RFC3339Nano), 0, outcome, string(resultJSON)); err != nil {
 		t.Fatalf("seed the verify lease: %v", err)
 	}
@@ -136,6 +142,60 @@ func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 	}
 	ref := refineProofSeedVerifyRun(t, s, workID, digest, []string{"go", "vet", "./..."}, startedAt.Add(time.Second))
 	refineProofBindVerification(t, s, workID, ref, ref)
+}
+
+// workerJobIntegrationGreenRun seeds the integration evidence the job-capable
+// delivery admission requires (CD-0205 D3): one green worktree_verify run of
+// the fixture's Project acquired after the current refine start and after
+// every recorded worker-job acceptance, then bound as verification evidence.
+func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string) {
+	t.Helper()
+	var occurred string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
+		t.Fatalf("read the refine start: %v", err)
+	}
+	anchor, err := time.Parse(time.RFC3339Nano, occurred)
+	if err != nil {
+		t.Fatalf("parse the refine start: %v", err)
+	}
+	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,''),e.occurred_at FROM worker_job_revisions j LEFT JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=j.work_id AND e.event_id=j.satisfied_result_ref WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
+	if err != nil {
+		t.Fatalf("read the required job scopes: %v", err)
+	}
+	defer func() { _ = srows.Close() }()
+	scopes := []string{}
+	anyScope := false
+	for srows.Next() {
+		var scope, accepted string
+		var acceptedAny any
+		acceptedAny = &accepted
+		if err := srows.Scan(&scope, &acceptedAny); err != nil {
+			t.Fatal(err)
+		}
+		if scope == "" {
+			anyScope = true
+		} else {
+			scopes = append(scopes, scope)
+		}
+		if at, err := time.Parse(time.RFC3339Nano, accepted); err == nil && at.After(anchor) {
+			anchor = at
+		}
+	}
+	if err := srows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	seed := len(scopes)
+	if seed == 0 && anyScope {
+		seed = 1
+	}
+	for i := 0; i < seed; i++ {
+		scope := "project-1"
+		if len(scopes) > 0 {
+			scope = scopes[i]
+		}
+		ref := refineProofSeedVerifyRunForProject(t, s, workID, digest+fmt.Sprintf("-%02d", i), []string{"go", "vet", "./..."}, anchor.Add(time.Second), scope)
+		refineProofBindVerification(t, s, workID, ref, ref)
+	}
 }
 
 func TestRefineExitRefusesWithoutGreenVerifyRunInEpoch(t *testing.T) {

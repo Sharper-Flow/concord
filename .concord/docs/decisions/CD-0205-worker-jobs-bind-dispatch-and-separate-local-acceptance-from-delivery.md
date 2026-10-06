@@ -75,17 +75,23 @@ revision satisfied, and holds the step. The core derives the disposition from
 the dispatch record. The caller never supplies it.
 
 Whole-work delivery keeps its two routes: `record_delivery`, and the accept
-that carries `delivery_artifact` and `delivery_state`. Each route runs the
-complete delivery admission. That admission includes the fenced start, the
-refine proof, the declared tooling, the review debt, the verdicts, the
-operator checkpoint, and — where the work has recorded worker jobs — the
-satisfied required jobs and the integration evidence bound to their recorded
-acceptances. Local acceptances and their count prove no integration and no
-delivery: `record_delivery` refuses while a required job's latest revision is
-unsatisfied, and refuses without one durable evidence binding whose immutable
-subject is a satisfied job's recorded acceptance. The combined accept counts
-its own accepting revision as satisfied, because one completion records the
-disposition and the delivery assertion together.
+that carries `delivery_artifact` and `delivery_state`. Both routes run one
+complete delivery admission — the same function, not two. That admission
+includes the fenced start, the refine proof, the declared tooling, the review
+debt, the verdicts, the operator checkpoint, and — where the work has recorded
+worker jobs — the satisfied required jobs and the integration evidence. Local
+acceptances and their count prove no integration and no delivery:
+`record_delivery` refuses while a required job's latest revision is
+unsatisfied, and refuses without qualifying core-owned worktree verification
+evidence: a green, unchanged-tree verify run of every required Project, bound
+after the required job acceptances and the phase start, in log order. A
+binding that merely mentions an acceptance, the acceptance count, or
+timestamps alone prove nothing. The combined accept counts its own accepting
+revision as satisfied for the population check — its pending disposition
+derives from the accepting attempt's exact dispatched revision and report —
+but that pending satisfaction never supplies integration, so a combined
+acceptance behind missing integration evidence refuses exactly as
+`record_delivery` does.
 
 Each job-capable step also declares `record_delivery`. A held step therefore
 keeps its exit, and no new phase-exit action is necessary.
@@ -127,10 +133,11 @@ not change.
 
 On a job-capable pin the payload-blind admission of `accept_worker_result` is
 local acceptance, so it does not apply the delivery admission. An accept that
-carries the delivery fields applies the same delivery derivation at its guard,
-before any effect. At a refine step, a plain accept of an attempt without a job
-still refuses. That accept would assert neither a job disposition nor a
-delivery.
+carries the delivery fields applies the one delivery admission at its guard,
+before any effect, with the same integration evidence, fenced start, refine
+proof, review debt, verdict, and operator gates as `record_delivery`. At a
+refine step, a plain accept of an attempt without a job still refuses. That
+accept would assert neither a job disposition nor a delivery.
 
 ### D6. Historical pins and histories keep their behavior
 
@@ -203,6 +210,7 @@ Scenario: Every reachable state stays live on the new versions
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.
 - `go test ./internal/store/ -run 'TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery|TestWorkerJobDispatchRequiresRecordedRevision'` proves the second scenario.
+- `go test ./internal/store/ -run 'TestCombinedAcceptanceRequiresIntegration|TestCombinedAcceptanceAdmitsBehindIntegrationEvidence|TestIntegrationCoverageRequiresEveryRequiredProject|TestIntegrationToolingRequiresDeclaredQualifyingRuns'` proves the delivery-integration half: both routes share one admission, and absent, partial, wrong-Project, stale, failed, dirty, and undeclared-tool integration all refuse while a fully proven combined route stays reachable and atomic.
 - `go test ./internal/store/ -run 'TestUnrelatedAcceptedJobPreservesCorrectionWindow|TestSatisfyingAcceptedJobResetsCorrectionWindow|TestPartialSatisfactionPreservesOtherUnresolvedJobs'` proves the third scenario's identity half.
 - `go test ./internal/store/ -run 'TestReviewRejectedJobWindow|TestReviewRewrittenRevisionResetsFailedJob|TestReviewWorkerJobPredicateShape|TestReviewUnsatisfiedJobPhaseExit|TestReviewJobAuthoritySurvivesSupersession'` proves the third and fourth scenarios' closure, integration, and authority halves. A rejected result joins the unresolved window. A rewritten revision cannot discharge it. `record_delivery` refuses behind unsatisfied jobs and unbound integration evidence. Stale contract authority refuses dispatch. The predicate grammar admits the report schema's short predicate ids.
 - `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario.

@@ -100,7 +100,7 @@ func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition Wor
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatalf("%s: read step: %v", label, err)
 	}
-	loaded, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
+	loaded, _, _, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
 	if err != nil {
 		t.Fatalf("%s: load: %v", label, err)
 	}

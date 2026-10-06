@@ -175,7 +175,7 @@ func TestAdmissionLoaderFoldsDispatchCapabilityClass(t *testing.T) {
 		t.Fatal(txErr)
 	}
 	defer tx.Rollback()
-	state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test")
+	state, _, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition.Definition, "refine", "workflow_admission_test")
 	if stateErr != nil {
 		t.Fatal(stateErr)
 	}

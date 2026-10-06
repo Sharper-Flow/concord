@@ -134,7 +134,7 @@ func TestAuthorizedFailedWorkerRetryBindingPrecedesDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	state, _, err := loadWorkflowAdmissionStateTx(context.Background(), tx, workID, entry.Definition, "execution", "authorized_failure_test")
+	state, _, _, err := loadWorkflowAdmissionStateTx(context.Background(), tx, workID, entry.Definition, "execution", "authorized_failure_test")
 	if err != nil {
 		t.Fatal(err)
 	}

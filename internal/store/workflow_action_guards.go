@@ -45,14 +45,15 @@ type workflowActionGuardContext struct {
 	// derivation: the tx-scoped loader's folded state and workflowAdmit's
 	// decision over it. Guards consume them instead of re-deriving the
 	// conditions per site.
-	admissionState      *WorkflowAdmissionState
-	admissionDecision   *WorkflowAdmissionDecision
-	deliveryProofRuns   []workflowVerificationRun
-	actorRef            string
-	eventActor          string
-	operatorRef         string
-	actorNeedsRecord    bool
-	operatorNeedsRecord bool
+	admissionState          *WorkflowAdmissionState
+	admissionDecision       *WorkflowAdmissionDecision
+	deliveryProofRuns       []workflowVerificationRun
+	deliveryIntegrationRuns []workflowVerificationRun
+	actorRef                string
+	eventActor              string
+	operatorRef             string
+	actorNeedsRecord        bool
+	operatorNeedsRecord     bool
 }
 
 type workflowActionGuardFunc func(*workflowActionGuardContext) error
@@ -774,11 +775,13 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	}
 	// On a job-capable pin the payload-blind accept admission is local
 	// acceptance and carries no delivery facet (CD-0205), so the
-	// delivery-asserting accept applies the same delivery derivation here,
+	// delivery-asserting accept applies the one delivery admission here,
 	// where the payload names the assertion. The accepting attempt's own
-	// dispatched revision counts as satisfied: the accept's completion
-	// records that disposition in the same event that asserts delivery, so
-	// the derivation runs over the post-event state.
+	// dispatched revision counts as satisfied for the population check; the
+	// core derives that binding from the attempt's dispatch record, so the
+	// caller never asserts it. Its pending satisfaction supplies no
+	// integration: missing integration evidence refuses the combined route
+	// exactly as it refuses record_delivery.
 	if g.request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(g.entry.Definition) {
 		fields, fieldsErr := workflowActionObject(g.defaultedPayload())
 		if fieldsErr != nil {
@@ -802,6 +805,13 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 			failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
 			return failure
 		}
+	}
+	// The integration facet re-validates the same runs against the request's
+	// declared tooling, the split the refine proof keeps: a qualifying run of
+	// an undeclared tool covers no required Project.
+	if failure := workflowIntegrationToolingFailure(state.Delivery, g.deliveryIntegrationRuns, g.request.ProjectTooling); failure != nil {
+		failure.Detail += " " + ProjectToolingDeclaredText(g.request.ProjectTooling)
+		return failure
 	}
 	return guardPostRejectionReviewGate(g)
 }
@@ -930,58 +940,61 @@ func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID st
 }
 
 // loadWorkflowVerifyRun folds a bound verify operation and its lease. Command
-// declaration matching remains outside the database fold.
-func loadWorkflowVerifyRun(ctx context.Context, q queryer, workID, reference string, startedAt time.Time, subject string) ([]string, string, error) {
+// declaration matching remains outside the database fold. The lease's Project
+// rides with the command so the integration facet can validate reference
+// scope without a second fold.
+func loadWorkflowVerifyRun(ctx context.Context, q queryer, workID, reference string, startedAt time.Time, subject string) ([]string, string, string, error) {
 	var resultPayload string
 	err := q.QueryRowContext(ctx, `SELECT result_payload FROM durable_operations
 		WHERE op_id=? AND work_id=? AND workflow_type_ref='worktree.verify' AND result_kind='completed'`, reference, workID).Scan(&resultPayload)
 	if err == sql.ErrNoRows {
-		return nil, "bound evidence " + reference + " names no completed worktree.verify durable operation", nil
+		return nil, "", "bound evidence " + reference + " names no completed worktree.verify durable operation", nil
 	}
 	if err != nil {
-		return nil, "", wrapFailure(KindUnavailable, subject, "cannot read the bound worktree verify operation", true, "retry once the durable operation projection is readable", err)
+		return nil, "", "", wrapFailure(KindUnavailable, subject, "cannot read the bound worktree verify operation", true, "retry once the durable operation projection is readable", err)
 	}
 	var result struct {
 		LeaseID             string `json:"lease_id"`
 		TrackedFilesChanged bool   `json:"tracked_files_changed"`
 	}
 	if err := json.Unmarshal([]byte(resultPayload), &result); err != nil || result.LeaseID == "" {
-		return nil, "", newFailure(KindInvariantViolation, subject, "the bound worktree verify operation's result is malformed", false, "rebuild projections from the event log")
+		return nil, "", "", newFailure(KindInvariantViolation, subject, "the bound worktree verify operation's result is malformed", false, "rebuild projections from the event log")
 	}
 	var outcome string
 	var exitCode sql.NullInt64
 	var acquiredAt string
 	var commandJSON string
-	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON)
+	var projectID string
+	err = q.QueryRowContext(ctx, `SELECT outcome,exit_code,acquired_at,command_json,project_id FROM worktree_verify_leases WHERE lease_id=? AND work_id=?`, result.LeaseID, workID).Scan(&outcome, &exitCode, &acquiredAt, &commandJSON, &projectID)
 	if err == sql.ErrNoRows {
-		return nil, "the bound worktree.verify run names no verify lease for this work item", nil
+		return nil, "", "the bound worktree.verify run names no verify lease for this work item", nil
 	}
 	if err != nil {
-		return nil, "", wrapFailure(KindUnavailable, subject, "cannot read the bound verify lease", true, "retry once the verify lease record is readable", err)
+		return nil, "", "", wrapFailure(KindUnavailable, subject, "cannot read the bound verify lease", true, "retry once the verify lease record is readable", err)
 	}
 	if outcome != "completed" {
-		return nil, "the bound verify lease recorded outcome " + outcome, nil
+		return nil, "", "the bound verify lease recorded outcome " + outcome, nil
 	}
 	if !exitCode.Valid || exitCode.Int64 != 0 {
-		return nil, "the bound verify lease did not record exit code 0", nil
+		return nil, "", "the bound verify lease did not record exit code 0", nil
 	}
 	if result.TrackedFilesChanged {
-		return nil, "the bound verify run changed tracked files", nil
+		return nil, "", "the bound verify run changed tracked files", nil
 	}
 	acquired, parseErr := time.Parse(time.RFC3339Nano, acquiredAt)
 	if parseErr != nil {
-		return nil, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable acquire time", false, "rebuild projections from the event log")
+		return nil, "", "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable acquire time", false, "rebuild projections from the event log")
 	}
 	if !acquired.After(startedAt) {
 		// A replayed lease keeps its original acquired_at, so a lease held in
 		// an earlier refine epoch cannot prove this one.
-		return nil, "the bound verify run was acquired at or before the current refine start", nil
+		return nil, "", "the bound verify run was acquired at or before the current refine start", nil
 	}
 	var command []string
 	if err := json.Unmarshal([]byte(commandJSON), &command); err != nil {
-		return nil, "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable command", false, "rebuild projections from the event log")
+		return nil, "", "", newFailure(KindInvariantViolation, subject, "the bound verify lease records an unreadable command", false, "rebuild projections from the event log")
 	}
-	return command, "", nil
+	return command, projectID, "", nil
 }
 
 // workflowActionOccurredAt reads one workflow event's occurred_at, the wall
@@ -1093,12 +1106,13 @@ func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionS
 	if g.admissionState != nil {
 		return g.admissionState, nil
 	}
-	state, proofRuns, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
+	state, proofRuns, integrationRuns, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
 	if err != nil {
 		return nil, err
 	}
 	g.admissionState = &state
 	g.deliveryProofRuns = proofRuns
+	g.deliveryIntegrationRuns = integrationRuns
 	return &state, nil
 }
 

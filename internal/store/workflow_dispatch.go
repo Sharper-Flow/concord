@@ -202,7 +202,7 @@ func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx *sql.Tx, entry
 		}
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow step", true, "retry once the workflow projection is readable", err)
 	}
-	state, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
+	state, _, _, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, currentStep, "workflow_action")
 	if stateErr != nil {
 		return stateErr
 	}
@@ -283,7 +283,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// unrelated cause can ride the review gate's acceptance route. The
 	// recovery guards and the step-legality check read the same folded
 	// state below.
-	admission, proofRuns, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
+	admission, proofRuns, integrationRuns, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action")
 	if admissionErr != nil {
 		return result, admissionErr
 	}
@@ -295,6 +295,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	guards.admissionState = &admission
 	guards.admissionDecision = &decision
 	guards.deliveryProofRuns = proofRuns
+	guards.deliveryIntegrationRuns = integrationRuns
 	guards.workerFailureRecovery = admission.WorkerFailureRecovery
 	guards.correctionRecovery = admission.CorrectionRecovery
 	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery

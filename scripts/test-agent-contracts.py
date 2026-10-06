@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import copy, importlib.util, json, re, unittest
+import copy, importlib.util, io, json, os, re, tempfile, unittest, unittest.mock
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -632,6 +633,227 @@ class MutationApprovalPropertyTests(unittest.TestCase):
         defs["work_define_observation_record_input"]["properties"]["approval"] = {"type": "string"}
         refusals = self.mutation_approval_refusals(defs)
         self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
+
+
+def verify_job_steps() -> list[dict]:
+    """The verify job's steps as name/run/env records.
+
+    Pinned to the indents scripts/check-script-tests.py enforces (step names
+    at six spaces, `run:` and `env:` at eight, their bodies at ten), so the
+    read stays structural and needs no YAML parser on a contributor laptop.
+    """
+    text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    steps: list[dict] = []
+    current: dict | None = None
+    section: str | None = None
+    in_job = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (
+            in_job
+            and line.startswith("  ")
+            and not line.startswith("   ")
+            and not stripped.startswith("#")
+            and stripped.endswith(":")
+        ):
+            break  # the next job's key ends the verify job
+        if not in_job:
+            if line == "  verify:":
+                in_job = True
+            continue
+        if line.startswith("      - name:"):
+            current = {"name": line.split(":", 1)[1].strip(), "run": "", "env": {}}
+            steps.append(current)
+            section = None
+            continue
+        if current is None:
+            continue
+        if line.startswith("        run:"):
+            inline = line.split(":", 1)[1].strip()
+            current["run"] = "" if inline in {"|", ">"} else inline
+            section = "run"
+        elif line.startswith("        env:"):
+            section = "env"
+        elif stripped and line.startswith("          "):
+            if section == "run":
+                current["run"] += "\n" + stripped
+            elif section == "env" and ":" in stripped:
+                key, _, value = stripped.partition(":")
+                current["env"][key.strip()] = value.strip().strip('"')
+        elif stripped:
+            section = None
+    return steps
+
+
+class CIContractRoutingTests(unittest.TestCase):
+    """The complete contract check executes once, through the JSON umbrella.
+
+    The verify job used to run scripts/check-agent-contracts.py twice: once
+    directly under CONCORD_REQUIRE_BUN=1 and once nested through
+    scripts/check-json.py without it, so the nested copy degraded to the
+    contributor-laptop fallbacks whenever Bun was missing. The duplicate
+    direct step is gone; the strict environment lives on the umbrella step
+    and reaches the nested checker because subprocess.run without `env=`
+    inherits the caller's environment. These assertions fail on the old
+    wiring (a direct step exists, the umbrella carries no env) and pass on
+    the new one.
+    """
+
+    def test_the_complete_contract_check_runs_only_through_the_umbrella(self):
+        steps = verify_job_steps()
+        direct = [step for step in steps if "scripts/check-agent-contracts.py" in step["run"]]
+        self.assertEqual(
+            direct,
+            [],
+            f"standalone complete-contract steps must not exist: {[step['name'] for step in direct]}",
+        )
+        umbrella = [step for step in steps if "scripts/check-json.py" in step["run"]]
+        self.assertEqual(len(umbrella), 1, "expected exactly one JSON umbrella step")
+        self.assertEqual(
+            umbrella[0]["env"].get("CONCORD_REQUIRE_BUN"),
+            "1",
+            "the umbrella must run under CONCORD_REQUIRE_BUN=1 so the nested check fails closed",
+        )
+
+    def test_the_direct_adapter_suite_step_is_retained(self):
+        # The nested contract check also runs `bun test adapter/opencode`,
+        # but the adapter_test evidence anchors resolve only against a direct
+        # workflow invocation, so deleting the direct step would strand them.
+        direct = [step for step in verify_job_steps() if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "the direct bun test adapter/opencode/ step is required coverage")
+
+
+class _Completed:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class _FakeSubprocess:
+    """Answers the checker's subprocess orchestration without spawning it.
+
+    Each control below targets one failure branch. The checker's own
+    subprocesses (the tamper suite, the generators, the Bun invocations) are
+    routed through this fake so the control reaches its branch regardless of
+    the host; every validator that runs before those subprocesses is real.
+    """
+
+    def __init__(self, results=()):
+        self.results = list(results)  # (predicate over the argument words, result)
+        self.calls: list[list[str]] = []
+
+    def run(self, args, **kwargs):
+        words = [str(arg) for arg in args]
+        self.calls.append(words)
+        for predicate, result in self.results:
+            if predicate(words):
+                return result
+        return _Completed()
+
+
+class StrictFailureControls(unittest.TestCase):
+    """The umbrella is exactly as strict as its failure branches.
+
+    CONCORD_REQUIRE_BUN=1 turns two contributor-laptop tolerances (Bun not
+    installed; the pinned host declarations not installable) into required-
+    check failures. Each control exercises the real main() up to its branch,
+    faking only the subprocess layer, and each tolerant twin proves the
+    environment variable is what fails the check rather than the condition
+    alone.
+    """
+
+    def _main(self, *, fake, staging, require_bun, which="/fake/bun"):
+        environment = {"CONCORD_REQUIRE_BUN": "1"} if require_bun else {}
+        patches = [
+            unittest.mock.patch.object(lane_checker, "subprocess", fake),
+            unittest.mock.patch.object(lane_checker, "stage_host_workspace", staging),
+            unittest.mock.patch("shutil.which", return_value=which),
+        ]
+        if require_bun:
+            patches.append(unittest.mock.patch.dict(os.environ, environment))
+        else:
+            patches.append(unittest.mock.patch.dict(os.environ))
+        out, err = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            with redirect_stdout(out), redirect_stderr(err):
+                if not require_bun:
+                    os.environ.pop("CONCORD_REQUIRE_BUN", None)
+                code = lane_checker.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_missing_bun_fails_closed_under_the_strict_environment(self):
+        code, _, err = self._main(fake=_FakeSubprocess(), staging=lambda *a: None, require_bun=True, which=None)
+        self.assertEqual(code, 1)
+        self.assertIn("Bun is not installed", err)
+
+    def test_missing_bun_stays_tolerable_on_a_contributor_laptop(self):
+        code, out, _ = self._main(fake=_FakeSubprocess(), staging=lambda *a: None, require_bun=False, which=None)
+        self.assertEqual(code, 0)
+        self.assertIn("generated-marker fallback only", out)
+
+    def test_an_unreachable_registry_fails_closed_under_the_strict_environment(self):
+        error = "host declarations could not be installed: simulated registry unreachable"
+        code, _, err = self._main(fake=_FakeSubprocess(), staging=lambda *a: error, require_bun=True)
+        self.assertEqual(code, 1)
+        self.assertIn(error, err)
+
+    def test_an_unreachable_registry_stays_tolerable_on_a_contributor_laptop(self):
+        code, out, _ = self._main(
+            fake=_FakeSubprocess(),
+            staging=lambda *a: "host declarations could not be installed: simulated",
+            require_bun=False,
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("host typecheck NOT run", out)
+
+    def test_a_host_typecheck_failure_fails_the_check(self):
+        # TS9999 is not a code the TypeScript compiler emits, so no recorded
+        # allowance can absorb the simulated diagnostic; reconcile_diagnostics
+        # must report it and main() must propagate the failure.
+        typecheck = _Completed(1, "src/concord.ts(1,1): error TS9999: simulated host type failure\n", "")
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "x", typecheck)])
+        code, _, err = self._main(fake=fake, staging=lambda *a: None, require_bun=True)
+        self.assertEqual(code, 1)
+        self.assertIn("TS9999", err)
+        self.assertIn("does not satisfy the pinned host declarations", err)
+
+    def test_a_failed_registry_install_reports_a_staging_error(self):
+        # The staging mechanism itself, not main()'s handling of it: a Bun
+        # binary that cannot reach the registry must surface as the staging
+        # error string the strict branch above prints.
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bun = Path(directory) / "bun"
+            fake_bun.write_text("#!/bin/sh\necho 'npm ERR! network unreachable' >&2\nexit 1\n", encoding="utf-8")
+            os.chmod(fake_bun, 0o755)
+            pin = json.loads((ROOT / ".concord/docs/adapter-host-pin.v1.json").read_text())
+            error = lane_checker.stage_host_workspace(str(fake_bun), pin, Path(directory) / "workspace")
+        self.assertIsNotNone(error)
+        self.assertTrue(error.startswith("host declarations could not be installed"), error)
+        self.assertIn("network unreachable", error)
+
+    def test_a_broken_contract_fixture_fails_the_check(self):
+        # A digest that no longer matches its definition makes a valid-marked
+        # fixture invalid; the corpus validators are real, so main() must
+        # fail before any subprocess orchestration is reached.
+        real_load = lane_checker._load_json
+
+        def broken_fixture(path):
+            value = real_load(path)
+            if getattr(path, "name", str(path)) == "workflow-engine.fixtures.json":
+                for case in value["cases"]:
+                    if case["id"] == "definition-implementation-valid":
+                        case["instance"]["digest"] = "sha256:" + "0" * 64
+            return value
+
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(lane_checker, "_load_json", broken_fixture):
+            with redirect_stdout(out), redirect_stderr(err):
+                code = lane_checker.main()
+        self.assertEqual(code, 1)
+        self.assertIn("expected valid instance", err.getvalue())
 
 
 if __name__ == "__main__": unittest.main()

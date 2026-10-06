@@ -155,31 +155,39 @@ type Q3Result struct {
 	Items []WorkItem `json:"items"`
 }
 
-// WorkItem is one projected work item. ValueStatement rides the
-// single-record read only, the way Task does: list queries keep their
-// eight-column shape, and an item without a recorded value omits the field.
+// WorkItem is one projected work item. Priority and Urgency are columns and
+// ride every read. Task, ValueStatement, Tags, and WorkflowTypeRef are the
+// recorded mutable-intent detail (the complete revise_intent field set
+// beside identity): they ride only the authoritative intent reads — the
+// single-record scope read and the full-detail list read — so bounded list,
+// preview, and graph reads keep their column-only shape. Tags stays nil when
+// the intent recorded no array, so the lawful absent state stays distinct
+// from a recorded empty array, and WorkflowTypeRef comes from the stored
+// intent only, never from a pinned workflow instance.
 type WorkItem struct {
-	ID             string              `json:"id"`
-	Kind           string              `json:"kind"`
-	Title          string              `json:"title"`
-	Lifecycle      string              `json:"lifecycle"`
-	Version        int64               `json:"version"`
-	Priority       int64               `json:"priority"`
-	Urgency        string              `json:"urgency"`
-	CreatedAt      string              `json:"created_at"`
-	UpdatedAt      string              `json:"updated_at"`
-	TerminalAt     string              `json:"terminal_at,omitempty"`
-	Task           string              `json:"task,omitempty"`
-	ValueStatement string              `json:"value_statement,omitempty"`
-	Narrative      string              `json:"narrative,omitempty"`
-	Projects       []ProjectMembership `json:"projects,omitempty"`
-	Blocked        bool                `json:"blocked"`
-	Ready          bool                `json:"ready"`
-	Active         bool                `json:"active"`
-	Terminal       bool                `json:"terminal"`
-	Liveness       *WorkLiveness       `json:"liveness,omitempty"`
-	Blockers       []WorkItem          `json:"blockers,omitempty"`
-	WorkPin        *WorkPin            `json:"work_pin,omitempty"`
+	ID              string              `json:"id"`
+	Kind            string              `json:"kind"`
+	Title           string              `json:"title"`
+	Lifecycle       string              `json:"lifecycle"`
+	Version         int64               `json:"version"`
+	Priority        int64               `json:"priority"`
+	Urgency         string              `json:"urgency"`
+	CreatedAt       string              `json:"created_at"`
+	UpdatedAt       string              `json:"updated_at"`
+	TerminalAt      string              `json:"terminal_at,omitempty"`
+	Task            string              `json:"task,omitempty"`
+	ValueStatement  string              `json:"value_statement,omitempty"`
+	Tags            []string            `json:"tags,omitzero"`
+	WorkflowTypeRef string              `json:"workflow_type_ref,omitempty"`
+	Narrative       string              `json:"narrative,omitempty"`
+	Projects        []ProjectMembership `json:"projects,omitempty"`
+	Blocked         bool                `json:"blocked"`
+	Ready           bool                `json:"ready"`
+	Active          bool                `json:"active"`
+	Terminal        bool                `json:"terminal"`
+	Liveness        *WorkLiveness       `json:"liveness,omitempty"`
+	Blockers        []WorkItem          `json:"blockers,omitempty"`
+	WorkPin         *WorkPin            `json:"work_pin,omitempty"`
 }
 
 type Q4Result struct {
@@ -781,7 +789,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	if req.Detail == "full" {
-		if err := attachWorkTasks(ctx, tx, items); err != nil {
+		if err := attachRecordedIntent(ctx, tx, items); err != nil {
 			return out, err
 		}
 		for i := range items {
@@ -822,7 +830,13 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	return out, nil
 }
 
-func attachWorkTasks(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
+// attachRecordedIntent copies the recorded mutable-intent detail onto each
+// item: task, value statement, tags, and workflow type reference from the
+// stored intent projection. Only the authoritative intent reads call it, so
+// bounded summary and preview reads never carry intent detail. A tag array
+// the intent recorded as empty stays the empty array; a null or absent array
+// stays nil.
+func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -834,21 +848,38 @@ func attachWorkTasks(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
 		args[i] = items[i].ID
 		byID[items[i].ID] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, coalesce(json_extract(intent_json, '$.task'), '') FROM work_items WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT id, intent_json FROM work_items WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
-		return wrapFailure(KindUnavailable, "query", "cannot read work tasks", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "query", "cannot read the recorded work intent", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, task string
-		if err := rows.Scan(&id, &task); err != nil {
-			return wrapFailure(KindInvariantViolation, "query", "cannot decode work task", false, "repair the live projection from its event log", err)
+		var id, intentJSON string
+		if err := rows.Scan(&id, &intentJSON); err != nil {
+			return wrapFailure(KindInvariantViolation, "query", "cannot decode the recorded work intent", false, "repair the live projection from its event log", err)
 		}
 		if i, ok := byID[id]; ok {
-			items[i].Task = task
+			if err := decodeRecordedIntent(&items[i], intentJSON); err != nil {
+				return err
+			}
 		}
 	}
 	return rows.Err()
+}
+
+// decodeRecordedIntent projects the intent fields a carrying revision needs
+// onto one item. It reads the same shape the capture and revise folds store,
+// so every revisable value the fold can persist the read can expose.
+func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
+	var intent workIntentProjection
+	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
+		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "repair the live projection from its event log", err)
+	}
+	item.Task = intent.Task
+	item.ValueStatement = intent.ValueStatement
+	item.Tags = intent.Tags
+	item.WorkflowTypeRef = intent.WorkflowTypeRef
+	return nil
 }
 
 func nonEmptyStrings(values []string) []string {
@@ -1255,14 +1286,19 @@ func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
 	if len(items) == 0 {
 		return WorkItem{}, unknownScope("query", "work item does not exist")
 	}
-	// The bounded narrative, the persisted task, and the recorded value
-	// statement ride the single-record read only; list queries keep their
-	// eight-column shape.
-	var task string
-	if err := tx.QueryRowContext(ctx, `SELECT narrative, coalesce(json_extract(intent_json, '$.task'), ''), coalesce(json_extract(intent_json, '$.value_statement'), '') FROM work_items WHERE id=?`, id).Scan(&items[0].Narrative, &task, &items[0].ValueStatement); err != nil {
+	// The bounded narrative rides the single-record read only. The recorded
+	// mutable-intent detail (task, value statement, tags, workflow type
+	// reference) rides with it so a coordinator can carry the complete
+	// revisable intent off this one authoritative read; list queries keep
+	// their column-only shape.
+	var narrative, intentJSON string
+	if err := tx.QueryRowContext(ctx, `SELECT narrative, intent_json FROM work_items WHERE id=?`, id).Scan(&narrative, &intentJSON); err != nil {
 		return WorkItem{}, wrapFailure(KindUnavailable, "query", "cannot read work narrative", true, "retry once the database is readable", err)
 	}
-	items[0].Task = task
+	items[0].Narrative = narrative
+	if err := decodeRecordedIntent(&items[0], intentJSON); err != nil {
+		return WorkItem{}, err
+	}
 	return items[0], nil
 }
 func readWorkProjects(ctx context.Context, tx *sql.Tx, id string) ([]ProjectMembership, error) {

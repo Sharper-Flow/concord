@@ -1101,6 +1101,17 @@
         "value_statement": {
           "$ref": "#/$defs/short"
         },
+        "tags": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "workflow_type_ref": {
+          "$ref": "#/$defs/id"
+        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },

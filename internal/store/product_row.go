@@ -246,7 +246,7 @@ WITH page_products AS (
 		MIN(CASE WHEN project.stage_maturity_override IS NOT NULL THEN project.stage_maturity_override || char(31) || project.stage_audience_commitment_override END) AS stage_override_min,
 		MAX(CASE WHEN project.stage_maturity_override IS NOT NULL THEN project.stage_maturity_override || char(31) || project.stage_audience_commitment_override END) AS stage_override_max,
 		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id) AS liveness_attempts,
-		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id AND a.lifecycle_state='dispatched') AS liveness_dispatched,
+		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id AND a.lifecycle_state IN ('in_flight','dispatched')) AS liveness_open_attempts,
 		(SELECT COUNT(*) FROM worker_attempts a WHERE a.work_id=w.id AND a.lifecycle_state='failed') AS liveness_failed,
 		(SELECT COUNT(*) FROM workflow_external_conditions c WHERE c.work_id=w.id AND c.condition_state='open' AND c.expected_within_seconds IS NOT NULL) AS liveness_open_waits,
 		(SELECT COUNT(*) FROM workflow_external_conditions c WHERE c.work_id=w.id AND c.condition_state='open' AND c.expected_within_seconds IS NULL) AS liveness_unbounded_waits,
@@ -266,7 +266,7 @@ SELECT
 	sw.work_id, sw.kind, sw.title, sw.lifecycle, sw.priority, sw.urgency, sw.created_at, sw.updated_at, sw.project_count,
 	sw.blocked, sw.ready, sw.active_problem, sw.overdue_awaits,
 	sw.current_step, sw.definition_ref, sw.definition_version, sw.definition_digest, sw.instance_state, sw.stage_override_min, sw.stage_override_max,
-		sw.liveness_attempts, sw.liveness_dispatched, sw.liveness_failed, sw.liveness_open_waits, sw.liveness_unbounded_waits, sw.liveness_decisions, sw.liveness_last_progress
+		sw.liveness_attempts, sw.liveness_open_attempts, sw.liveness_failed, sw.liveness_open_waits, sw.liveness_unbounded_waits, sw.liveness_decisions, sw.liveness_last_progress
 FROM page_products pp
 LEFT JOIN scoped_work sw ON sw.product_id = pp.id`
 
@@ -585,11 +585,11 @@ func scanProductRowPage(ctx context.Context, tx *sql.Tx, args []any) ([]rawProdu
 		var priority, projectCount, definitionVersion sql.NullInt64
 		var blocked, ready, activeProblem, overdueAwaits sql.NullBool
 		var currentStep, definitionRef, definitionDigest, instanceState, stageOverrideMin, stageOverrideMax, livenessLastProgress sql.NullString
-		var livenessAttempts, livenessDispatched, livenessFailed, livenessOpenWaits, livenessUnboundedWaits, livenessDecisions sql.NullInt64
+		var livenessAttempts, livenessOpenAttempts, livenessFailed, livenessOpenWaits, livenessUnboundedWaits, livenessDecisions sql.NullInt64
 		if err := rows.Scan(&p.ID, &p.DisplayName, &p.StageMaturity, &p.StageAudienceCommitment, &p.Version, &p.CreatedAt, &p.UpdatedAt,
 			&workID, &workKind, &title, &lifecycle, &priority, &urgency, &createdAt, &updatedAt, &projectCount, &blocked, &ready, &activeProblem, &overdueAwaits,
 			&currentStep, &definitionRef, &definitionVersion, &definitionDigest, &instanceState, &stageOverrideMin, &stageOverrideMax,
-			&livenessAttempts, &livenessDispatched, &livenessFailed, &livenessOpenWaits, &livenessUnboundedWaits, &livenessDecisions, &livenessLastProgress); err != nil {
+			&livenessAttempts, &livenessOpenAttempts, &livenessFailed, &livenessOpenWaits, &livenessUnboundedWaits, &livenessDecisions, &livenessLastProgress); err != nil {
 			return nil, wrapFailure(KindUnavailable, productRowQueryID, "cannot decode Product row", true, "retry once the database is readable", err)
 		}
 		idx, ok := productIndex[p.ID]
@@ -614,7 +614,7 @@ func scanProductRowPage(ctx context.Context, tx *sql.Tx, args []any) ([]rawProdu
 			CreatedAt: createdAt.String, UpdatedAt: updatedAt.String, ProjectCount: int(projectCount.Int64), Blocked: blocked.Bool,
 			Ready: ready.Bool, ActiveProblem: activeProblem.Bool, ApprovalRequired: approvalRequired, OverdueAwaits: overdueAwaits.Bool, ParkedDelivery: parkedDelivery, WorkflowStepLabel: stepLabel,
 			StageOverrides: parseProductRowStageOverrides(stageOverrideMin.String, stageOverrideMax.String),
-			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessDispatched.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
+			Liveness:       workLivenessPtrFromCounts(workID.String, livenessAttempts.Int64, livenessOpenAttempts.Int64, livenessFailed.Int64, livenessOpenWaits.Int64, livenessUnboundedWaits.Int64, livenessDecisions.Int64, livenessLastProgress),
 		})
 	}
 	if err := rows.Err(); err != nil {

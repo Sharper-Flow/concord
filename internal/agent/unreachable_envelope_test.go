@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -39,6 +40,32 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 	}
 	if out.Error.Message != failure.Detail || !out.Error.RetrySafe {
 		t.Fatalf("refusal detail lost: %+v", out.Error)
+	}
+}
+
+// An unreachable refusal names the database error that caused it. Without the
+// cause, "cannot begin transaction" reads the same for lock contention, a full
+// disk, and a corrupt file, and the caller cannot choose between a retry and an
+// escalation.
+func TestUnavailableStoreRefusalCarriesItsCause(t *testing.T) {
+	t.Parallel()
+	failure := &store.Failure{
+		Kind:           store.KindUnavailable,
+		Op:             "transaction",
+		Detail:         "cannot begin transaction",
+		RetrySafe:      true,
+		RecoveryAction: "retry once the database is writable",
+		Err:            errors.New("database is locked (5) (SQLITE_BUSY)"),
+	}
+	out := failureEnvelope(NewBase("unreachable-cause-1", "concord_work_transition", "workflow_action"), failure)
+	if out.Error == nil || out.Error.Kind != "unreachable" {
+		t.Fatalf("error=%+v, want kind unreachable", out.Error)
+	}
+	if want := "cannot begin transaction: database is locked (5) (SQLITE_BUSY)"; out.Error.Message != want {
+		t.Fatalf("message=%q, want %q", out.Error.Message, want)
+	}
+	if _, err := out.Encode(); err != nil {
+		t.Fatalf("a refusal with its cause must be deliverable, got %v", err)
 	}
 }
 

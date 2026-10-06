@@ -767,7 +767,13 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		// envelope's first validation: an ambiguous_scope refusal the caller
 		// cannot act on is one that never marshals. The store carries them on
 		// every ambiguous-scope refusal it mints.
-		out := coreErrorAction(base, kind, sf.Detail, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+		message := sf.Detail
+		if kind == "unreachable" && sf.Err != nil {
+			// The cause tells contention from a full disk or a corrupt file;
+			// the detail alone reads the same for all three.
+			message += ": " + sf.Err.Error()
+		}
+		out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 		// Carry typed current-version carriers into the agent envelope so
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for

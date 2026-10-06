@@ -110,8 +110,9 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	const failedID = "attempt:work-1:authorized-failed"
+	recordReadyRetryJob(t, s, service, env, "job:authorize-unstarted-worker")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
+		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, env)
 	if first.Outcome != OutcomeOK {

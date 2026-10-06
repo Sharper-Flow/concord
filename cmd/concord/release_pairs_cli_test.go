@@ -22,9 +22,9 @@ import (
 
 // releasedPairTag names the actually released source the coexistence test
 // builds its older core from (CON-807). v11.61.0 is a real published
-// release whose migration set ends at schema version 114, one additive step
-// (115) behind this source: the pair is two genuinely distinct sources —
-// a released one and this change's build — separated by exactly the
+// release whose migration set ends at schema version 114, additive steps
+// (115 onward) behind this source: the pair is two genuinely distinct
+// sources — a released one and this change's build — separated by only the
 // additive distance the compatibility floor is designed to admit.
 const releasedPairTag = "v11.61.0"
 const releasedPairSchema = 114
@@ -163,7 +163,7 @@ func coreAnswersRoute(binary string, args ...string) bool {
 //
 //   - the older core is built from the actually released source tagged
 //     v11.61.0 (migration set ends at 114), the newer core from this
-//     change's source (defines the additive step 115). Two distinct
+//     change's source (defines the additive steps from 115). Two distinct
 //     sources, two distinct artifacts, one store;
 //   - the sessions are real adapter operations, not CLI substitutions: each
 //     release's own adapter code — the released tree's for the old session,
@@ -256,7 +256,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	// adapter claims its lease by running its own pinned core (CD-0111 D1).
 	oldSession := startAdapterSessionOperation(t, oldAdapter, path, "/srv/old-session")
 
-	// The newer core advances the store by its additive step (115).
+	// The newer core advances the store by its additive steps (115 onward).
 	var newUpgrade struct {
 		SchemaVersion int   `json:"schema_version"`
 		Applied       []int `json:"applied"`

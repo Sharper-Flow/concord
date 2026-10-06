@@ -96,6 +96,17 @@ func recordReadyRetryJob(t *testing.T, s *store.Store, service *Service, env Cal
 	}
 }
 
+// retryWorkVersion reads work-1's current version, the expected version a
+// dispatch takes after the fixture records its ready worker job.
+func retryWorkVersion(t *testing.T, s *store.Store) int64 {
+	t.Helper()
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
 // recordedWorkQuestion reads the question the store binds a read-only packet
 // to before contract approval: the recorded task when it holds visible text,
 // else the title, else the narrative. The fixtures here carry ASCII

@@ -58,11 +58,18 @@ func (q *coordinatorCON830CountingQueryer) QueryRowContext(ctx context.Context, 
 
 // seedRefinementScaleSource seeds one auxiliary verified source holding the
 // given number of accepted EXT laws plus its consistent watermark, and
-// returns the seeded home.
+// returns the seeded home. Every EXT law is a real committed blob with its
+// recorded content hash, so cross-source endpoints the fixtures declare
+// are live objects the shared current-source proof can verify.
 func seedRefinementScaleSource(t *testing.T, s *Store, projectID, locatorID string, subjects int) KnowledgeHome {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "acceptance-scale source fixture")
+	hashes := make([]string, subjects)
+	for i := 0; i < subjects; i++ {
+		id := fmt.Sprintf("EXT-%04d", i)
+		hashes[i] = refinementSeedSubjectFile(t, repo, id, "Scale endpoint "+id)
+	}
 	commit := commitKnowledgeRepo(t, repo, "acceptance-scale source fixture")
 	second := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, second)
@@ -78,7 +85,7 @@ func seedRefinementScaleSource(t *testing.T, s *Store, projectID, locatorID stri
 	for i := 0; i < subjects; i++ {
 		id := fmt.Sprintf("EXT-%04d", i)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			projectID, locatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Scale endpoint "+id, "sha256:"+strings.Repeat("9", 64), commit); err != nil {
+			projectID, locatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Scale endpoint "+id, hashes[i], commit); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,6 +163,10 @@ func TestCoordinatorCON830EndpointPlanUsesAnIndex(t *testing.T) {
 	defer s.Close()
 	commit := firstCommitOID(t, s, home)
 	seedWorkflowAmendmentFanout(t, s, home, commit)
+	// The fanout rebases the home onto its own committed laws; later seeds
+	// must carry the rebased scanned commit so relation rows keep matching
+	// the watermark the verifier binds.
+	commit = firstCommitOID(t, s, home)
 	second := seedRefinementScaleSource(t, s, "refinement-plan", "refinement-plan-loc", 32)
 	seedRefinementCrossEndpoints(t, s, home, second, commit, []string{"CD-0017", "CD-0054"}, 8)
 	// CD-0058 carries only two same-home outgoing refines, so its bounded

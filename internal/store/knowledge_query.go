@@ -294,14 +294,36 @@ func queryQ9(ctx context.Context, db *sql.DB, req Q9Request, observedAt time.Tim
 // It takes *sql.DB because its probe reaches the home's git head; a
 // transaction caller is a compile-time error (CD-0195 D2).
 func validateKnowledgeHomeForQueryCore(ctx context.Context, db *sql.DB, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
-	current, err := resolveKnowledgeHead(ctx, home)
-	if err != nil {
+	pool := newGitProverPool(ctx)
+	defer pool.close()
+	return validateKnowledgeHomeProven(ctx, db, pool, home, allowDegraded, op)
+}
+
+// validateKnowledgeHomeProven is the same freshness verdict through a
+// caller-owned prover pool: the live head commit, the content digest, and
+// the projected-blob comparison all resolve through one read-scoped batch
+// process per repository, pinned to the live commit OID that process
+// returned. A pass that verifies several sources shares its pool, so the
+// process count stays bounded by distinct repositories.
+func validateKnowledgeHomeProven(ctx context.Context, db *sql.DB, pool *gitProverPool, home KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
+	if err := validateKnowledgeHomeFields(home); err != nil {
+		return "", "", err
+	}
+	unreachable := func() (string, string, error) {
 		if allowDegraded {
 			return "unreachable", "degraded", nil
 		}
 		return "", "", newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
 	}
-	watermark, err := readKnowledgeWatermark(ctx, db, home, current)
+	prover, err := pool.prover(home.RepoPath)
+	if err != nil {
+		return unreachable()
+	}
+	current, currentRoot, err := prover.resolveHeadWithRoot(home.HeadRef)
+	if err != nil {
+		return unreachable()
+	}
+	watermark, err := readKnowledgeWatermarkProver(ctx, db, prover, home, current, currentRoot)
 	if err != nil {
 		if allowDegraded {
 			return "unreachable", "degraded", nil
@@ -315,6 +337,15 @@ func validateKnowledgeHomeForQueryCore(ctx context.Context, db *sql.DB, home Kno
 		return "", "", newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
 	}
 	return watermark.Scanned, "authoritative", nil
+}
+
+// validateKnowledgeHomeFields admits only complete explicit homes and
+// refs a prover request can carry safely.
+func validateKnowledgeHomeFields(home KnowledgeHome) error {
+	if home.HomeProjectID == "" || home.HomeLocatorID == "" || home.RepoPath == "" || home.HeadRef == "" {
+		return newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome requires stable IDs, repository path, and head ref", false, "supply a complete explicit KnowledgeHome")
+	}
+	return validateKnowledgeHomeRef(home.HeadRef)
 }
 
 func validateKnowledgeCoverageCore(ctx context.Context, q queryer, home KnowledgeHome, commit string, kinds []string) error {
@@ -629,7 +660,13 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 		if txErr != nil {
 			return out, wrapFailure(KindUnavailable, "PM1.Q10", "cannot open a consistent negative-lookup read snapshot", true, "retry once the database is readable", txErr)
 		}
-		driftOmissions, sealErr := q10SealContextualNegative(ctx, tx, req, homeSupplied, qualifiedProjectID, verifiedSources, populationProofs, len(populationOmissions) == 0)
+		// Strictness derives from the caller's independent current-context
+		// degradation policy, not from the omissions the pre-lookup
+		// verification happened to collect: an explicitly degraded-allowed
+		// first read over a healthy population names a healthy-to-degraded
+		// drift as an omission instead of refusing it, matching the shared
+		// refinement reader (CON-830 review).
+		driftOmissions, sealErr := q10SealContextualNegative(ctx, tx, req, homeSupplied, qualifiedProjectID, verifiedSources, populationProofs, !req.AmendmentContextAllowDegraded)
 		if sealErr != nil {
 			tx.Rollback()
 			return out, sealErr
@@ -731,21 +768,26 @@ func queryQ10(ctx context.Context, db *sql.DB, freshen func(context.Context, Kno
 
 // verifyQ10Population uses the same source verifier for uniqueness and
 // classified negatives. Historical reads verify their recorded sources;
-// contextual reads first reuse the existing demand-freshness owner. The
-// returned watermarks carry each source's scanned commit and authority, so
-// a later negative can seal its lookup snapshot against the same identity.
+// contextual reads route through the one shared current-source proof owner
+// — watermark and head verification with demand freshening plus the live
+// object proof of the relation-projected endpoint subjects — so a
+// contextual negative can never claim an authoritative absence over a
+// source whose current objects are missing or tampered (CON-830 review).
+// The returned watermarks carry each source's scanned commit and authority,
+// so a later negative can seal its lookup snapshot against the same
+// identity.
 func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, req Q10Request, sources []KnowledgeHome, allowDegraded bool, omissionPrefix string) ([]string, []KnowledgeSourceWatermark, error) {
+	if req.IncludeAmendmentContext {
+		verification, err := verifyKnowledgeContextSourceSet(ctx, db, freshen, sources, allowDegraded, omissionPrefix, "PM1.Q10")
+		if err != nil {
+			return nil, nil, err
+		}
+		return append([]string{}, verification.omissions...), verification.watermarks, nil
+	}
 	omissions := make([]string, 0)
 	watermarks := make([]KnowledgeSourceWatermark, 0, len(sources))
 	for _, source := range sources {
-		var authority string
-		var err error
-		var scanned string
-		if req.IncludeAmendmentContext {
-			scanned, authority, err = validateKnowledgeContextSource(ctx, db, freshen, source, allowDegraded, "PM1.Q10")
-		} else {
-			scanned, authority, err = validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, "PM1.Q10")
-		}
+		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, "PM1.Q10")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -764,9 +806,12 @@ func verifyQ10Population(ctx context.Context, db *sql.DB, freshen func(context.C
 // Project's canonical knowledge locators for a qualified read — and compares
 // it with the set the pool verifier proved, then checks each verified
 // source's watermark against the scanned commit its proof bound. Drift
-// refuses a still-strict read and names one omission per finding on a read
-// that already allows degradation; neither can present an authoritative
-// negative (CON-830 review, PM1 Q10 proof separation). Every read stays on
+// refuses a read whose caller refused current-context degradation and
+// names one omission per finding on a read that explicitly allows it —
+// the same policy the shared refinement reader applies — so a
+// healthy-to-degraded first read degrades instead of refusing, and
+// neither can present an authoritative negative (CON-830 review, PM1 Q10
+// proof separation). Every read stays on
 // the caller's queryer: no git probe and no nested pool read runs here
 // (CD-0195 D2, single-connection invariant).
 func q10SealContextualNegative(ctx context.Context, q queryer, req Q10Request, homeSupplied bool, qualifiedProjectID string, verified []KnowledgeHome, proofs []KnowledgeSourceWatermark, strict bool) ([]string, error) {

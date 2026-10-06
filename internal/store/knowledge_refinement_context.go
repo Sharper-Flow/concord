@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -206,10 +207,97 @@ func (s *Store) QueryKnowledgeRefinementContext(ctx context.Context, req Knowled
 // treats an unreachable home as a no-op, and a rebuild that fails keeps the
 // pre-freshen verdict — the re-verification decides, never the freshen
 // attempt itself. Historical-only reads pass no freshener and keep their
-// verdicts unchanged. freshen runs on the pool connection before any read
-// transaction opens (CD-0195 D2).
-func validateKnowledgeContextSource(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, source KnowledgeHome, allowDegraded bool, op string) (string, string, error) {
-	scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, op)
+// verdicts unchanged. Everything here runs on the pool connection before
+// any read transaction opens (CD-0195 D2).
+//
+// A source whose watermark verification succeeded must still prove the
+// live git objects behind its relation projections: projected metadata — a
+// watermark that still matches, an unchanged HEAD, an indexed content hash
+// — describes blobs; it never proves the objects still exist and still
+// hash to the recorded values, so an unchanged-metadata snapshot cannot
+// excuse a deleted or tampered endpoint object (CON-830 review, T7). The
+// proof is never memoized: every verdict re-proves the objects, so
+// same-HEAD object loss or tampering between two reads cannot ride an
+// earlier verdict. findings names the per-object omissions of a source
+// that verified its watermark but could not prove its objects; a strict
+// caller receives those findings as a typed refusal instead.
+func validateKnowledgeContextSource(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, pool *gitProverPool, source KnowledgeHome, allowDegraded bool, op string) (string, string, []refinementObjectSpec, error) {
+	verdict := func() (string, string, []refinementObjectSpec, error) {
+		if err := validateKnowledgeHomeFields(source); err != nil {
+			return "", "", nil, err
+		}
+		// The source's relation-referenced subjects are a pure projection
+		// read: it overlaps the git-backed freshness proof instead of
+		// following it, and joins before any spec depends on it. The two
+		// database reads serialize on the pool's single connection while
+		// the git round trips proceed in parallel with them.
+		type subjectsResult struct {
+			subjects []refinementSubjectRef
+			err      error
+		}
+		subjectsDone := make(chan subjectsResult, 1)
+		go func() {
+			subjects, err := refinementSourceRelationSubjects(ctx, db, source)
+			subjectsDone <- subjectsResult{subjects: subjects, err: err}
+		}()
+		unreachable := func(scanned string) (string, string, []refinementObjectSpec, error) {
+			<-subjectsDone
+			if allowDegraded {
+				return scanned, "degraded", nil, nil
+			}
+			return "", "", nil, newFailure(KindUnreachable, op, "git knowledge authority is unreachable", true, "restore the git home and retry")
+		}
+		// This source drives its repository's own session for the whole
+		// verdict: one fused exchange resolves the live head and its root
+		// tree, one leveled batch warms every directory tree both the
+		// content digest and the endpoint subjects traverse, and the
+		// freshness comparison then resolves from trees this pass proved.
+		// The warming is best-effort: the digest's and the object proof's
+		// own walks still decide every verdict.
+		prover, proverErr := pool.prover(source.RepoPath)
+		if proverErr != nil {
+			return unreachable("unreachable")
+		}
+		current, currentRoot, headErr := prover.resolveHeadWithRoot(source.HeadRef)
+		if headErr != nil {
+			return unreachable("unreachable")
+		}
+		joined := <-subjectsDone
+		warmPaths := knowledgeDigestSlotPaths()
+		if joined.err == nil {
+			for _, subject := range joined.subjects {
+				warmPaths = append(warmPaths, subject.path)
+			}
+		}
+		_ = prover.prefetchTreePaths(currentRoot, warmPaths[0], warmPaths[1:]...)
+		watermark, wmErr := readKnowledgeWatermarkProver(ctx, db, prover, source, current, currentRoot)
+		if wmErr != nil {
+			if allowDegraded {
+				return "unreachable", "degraded", nil, nil
+			}
+			return "", "", nil, wmErr
+		}
+		if !watermark.Fresh {
+			if allowDegraded {
+				return watermark.Scanned, "degraded", nil, nil
+			}
+			return "", "", nil, newFailure(KindIndexDegraded, op, "knowledge index watermark is stale or incomplete", true, "rebuild the git-derived knowledge index")
+		}
+		if joined.err != nil {
+			return "", "", nil, joined.err
+		}
+		label := source.HomeProjectID + "/" + source.HomeLocatorID
+		specs := make([]refinementObjectSpec, 0, len(joined.subjects))
+		for _, subject := range joined.subjects {
+			specs = append(specs, refinementObjectSpec{label: label, repo: source.RepoPath, commit: watermark.Scanned, path: subject.path, hash: subject.hash})
+		}
+		// The scanned commit — the one the projection was built at, which
+		// the head may since have moved past while the digest stayed
+		// identical — is the identity the read snapshot and every endpoint
+		// proof pin, exactly as the standalone predicate returns.
+		return watermark.Scanned, "authoritative", specs, nil
+	}
+	scanned, authority, specs, err := verdict()
 	freshenable := err == nil && authority != "authoritative" && scanned != "unreachable"
 	if err != nil {
 		var failure *Failure
@@ -219,10 +307,531 @@ func validateKnowledgeContextSource(ctx context.Context, db *sql.DB, freshen fun
 	}
 	if freshenable && freshen != nil {
 		if freshen(ctx, source) == nil {
-			return validateKnowledgeHomeForQueryCore(ctx, db, source, allowDegraded, op)
+			return verdict()
 		}
 	}
-	return scanned, authority, err
+	return scanned, authority, specs, err
+}
+
+// verifyKnowledgeContextSourceSet is the one shared current-source proof
+// owner behind every contextual route — the PM1 Q10 opt-in
+// current_amendment_context read, the contextual negative lookup, and
+// workflow law_context. Per source it runs validateKnowledgeContextSource:
+// watermark and head verification with demand freshening, then the live
+// object proof of the relation-projected endpoint subjects of that source.
+// Set-wide it proves the endpoint subjects that the set's declared
+// cross-source relations resolve into, through
+// refinementCrossTargetSpecs: the page reports those endpoints
+// with the target home's projected identity, so their objects are as
+// required as a same-home endpoint's. The whole proof runs on the pool
+// before any read transaction opens (CD-0195 D2), subprocess count scales
+// with sources and never with edges or roots, and nothing is memoized
+// across reads. A source that verified its watermark but not its objects
+// contributes its findings as omissions and degrades the set; a strict
+// read refuses on the first typed failure instead.
+func verifyKnowledgeContextSourceSet(ctx context.Context, db *sql.DB, freshen func(context.Context, KnowledgeHome) error, sources []KnowledgeHome, allowDegraded bool, omissionPrefix, op string) (refinementSourceVerification, error) {
+	verification := refinementSourceVerification{watermarks: make([]KnowledgeSourceWatermark, 0, len(sources))}
+	// One read-scoped Git batch process per distinct repository owns every
+	// live object read of this verification pass — head commit, digest
+	// identities, and endpoint path/content proof — and closes before the
+	// caller's read transaction opens (CD-0195 D2). Each distinct
+	// repository is validated and proven on one goroutine: sources that
+	// share a repository run in source order inside their repository's
+	// goroutine, each session keeps exactly one driving goroutine, and the
+	// endpoint object proof of one repository starts the moment that
+	// repository's own specs exist, overlapping the other repositories'
+	// validations instead of waiting behind them. The database reads
+	// serialize on the pool's single connection and the process count
+	// stays bounded by distinct repositories. Results land in source
+	// order, so omissions and watermarks stay deterministic regardless of
+	// completion order.
+	pool := newGitProverPool(ctx)
+	defer pool.close()
+	type sourceVerdict struct {
+		scanned   string
+		authority string
+		err       error
+		degraded  bool
+	}
+	type repoVerdict struct {
+		sources  []sourceVerdict
+		specs    []refinementObjectSpec
+		findings []string
+		err      error
+	}
+	verdicts := make([]repoVerdict, len(sources))
+	repoOrder := make([]string, 0, len(sources))
+	repoSources := map[string][]int{}
+	for index, source := range sources {
+		if _, seen := repoSources[source.RepoPath]; !seen {
+			repoOrder = append(repoOrder, source.RepoPath)
+		}
+		repoSources[source.RepoPath] = append(repoSources[source.RepoPath], index)
+	}
+	var wg sync.WaitGroup
+	for repoIndex, repo := range repoOrder {
+		wg.Add(1)
+		go func(repoIndex int, indices []int) {
+			defer wg.Done()
+			verdict := &verdicts[repoIndex]
+			verdict.sources = make([]sourceVerdict, len(indices))
+			for position, index := range indices {
+				source := sources[index]
+				scanned, authority, specs, err := validateKnowledgeContextSource(ctx, db, freshen, pool, source, allowDegraded, op)
+				verdict.sources[position] = sourceVerdict{scanned: scanned, authority: authority, err: err}
+				if err != nil {
+					verdict.err = err
+					return
+				}
+				if authority == "authoritative" {
+					verdict.specs = append(verdict.specs, specs...)
+				}
+			}
+			if len(verdict.specs) == 0 {
+				return
+			}
+			prover, proverErr := pool.prover(repo)
+			if proverErr != nil {
+				probeFindings, probeErr := refinementSpecUnavailable(&refinementObjectSpec{label: repo, repo: repo}, proverErr, allowDegraded, op)
+				verdict.findings, verdict.err = probeFindings, probeErr
+				return
+			}
+			repoSpecs := make([]*refinementObjectSpec, len(verdict.specs))
+			for index := range verdict.specs {
+				repoSpecs[index] = &verdict.specs[index]
+			}
+			findings, err := proveRefinementSpecsOnRepo(prover, repoSpecs, allowDegraded, op)
+			verdict.findings, verdict.err = findings, err
+		}(repoIndex, repoSources[repo])
+	}
+	wg.Wait()
+	// The strict refusal policy of the object proof applies to the fused
+	// repo proofs exactly as the shared verifier applies it: findings
+	// refuse a strict read instead of degrading it.
+	if !allowDegraded {
+		for repoIndex := range repoOrder {
+			if findings := verdicts[repoIndex].findings; len(findings) > 0 {
+				return refinementSourceVerification{}, refinementRefuseObjectProof(findings[0], op)
+			}
+		}
+	}
+	for repoIndex := range repoOrder {
+		verdict := &verdicts[repoIndex]
+		if verdict.err != nil {
+			return refinementSourceVerification{}, verdict.err
+		}
+		for position, index := range repoSources[repoOrder[repoIndex]] {
+			source := sources[index]
+			result := verdict.sources[position]
+			label := source.HomeProjectID + "/" + source.HomeLocatorID
+			if result.err != nil {
+				return refinementSourceVerification{}, result.err
+			}
+			if result.authority != "authoritative" {
+				verification.degraded = true
+				verification.omissions = append(verification.omissions, omissionPrefix+label)
+			} else {
+				verification.scanned = append(verification.scanned, label+"@"+result.scanned)
+			}
+			verification.watermarks = append(verification.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: result.scanned, Authority: result.authority})
+		}
+	}
+	crossSpecs, err := refinementCrossTargetSpecs(ctx, db, sources, verification)
+	if err != nil {
+		return verification, err
+	}
+	findings := make([]string, 0)
+	for repoIndex := range repoOrder {
+		findings = append(findings, verdicts[repoIndex].findings...)
+	}
+	if len(crossSpecs) > 0 {
+		// The set's cross-source endpoints resolve through member homes,
+		// whose sessions the pass already proved: this proof is usually
+		// warm and small.
+		crossFindings, crossErr := refinementVerifyObjectSpecs(ctx, pool, crossSpecs, allowDegraded, op)
+		if crossErr != nil {
+			return verification, crossErr
+		}
+		findings = append(findings, crossFindings...)
+	}
+	if len(findings) > 0 {
+		// Failed current object verification is degradation, never an
+		// authoritative graph: the watermark verdict stands, the objects it
+		// claims do not.
+		verification.degraded = true
+		verification.omissions = append(verification.omissions, findings...)
+	}
+	return verification, nil
+}
+
+// refinementSubjectRef is one relation-referenced endpoint subject of a
+// source: the law ID and the authored path and recorded content hash its
+// projection named.
+type refinementSubjectRef struct {
+	lawID string
+	path  string
+	hash  string
+}
+
+// refinementSourceRelationSubjects reads the distinct endpoint subjects of
+// one source that its own relation projections reference: both endpoints of
+// every same-home relation and the declaring endpoint of every cross-source
+// relation the source authored. One statement per source, keyed on the home
+// prefix of law_subjects_lookup with IN subqueries on the home prefixes of
+// law_relations_target and law_cross_source_relations_target, so the read
+// stays bounded by the source's subject population and never fans out per
+// edge or per root. It takes *sql.DB because it runs in the pool-owned
+// verification before any read transaction opens (CD-0195 D2).
+func refinementSourceRelationSubjects(ctx context.Context, db *sql.DB, home KnowledgeHome) ([]refinementSubjectRef, error) {
+	rows, err := db.QueryContext(ctx, `
+SELECT ls.law_id, ls.path, ls.content_hash FROM law_subjects ls
+WHERE ls.home_project_id=? AND ls.home_locator_id=? AND ls.law_id IN (
+  SELECT r.source_law_id FROM law_relations r WHERE r.home_project_id=? AND r.home_locator_id=?
+  UNION
+  SELECT r.target_law_id FROM law_relations r WHERE r.home_project_id=? AND r.home_locator_id=?
+  UNION
+  SELECT r.source_law_id FROM law_cross_source_relations r WHERE r.home_project_id=? AND r.home_locator_id=?
+)`, home.HomeProjectID, home.HomeLocatorID, home.HomeProjectID, home.HomeLocatorID, home.HomeProjectID, home.HomeLocatorID, home.HomeProjectID, home.HomeLocatorID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the relation-referenced endpoint subjects of "+home.HomeProjectID+"/"+home.HomeLocatorID, true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	subjects := make([]refinementSubjectRef, 0)
+	for rows.Next() {
+		var subject refinementSubjectRef
+		if err := rows.Scan(&subject.lawID, &subject.path, &subject.hash); err != nil {
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot decode a relation-referenced endpoint subject of "+home.HomeProjectID+"/"+home.HomeLocatorID, true, "retry once the database is readable", err)
+		}
+		subjects = append(subjects, subject)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot finish reading the relation-referenced endpoint subjects of "+home.HomeProjectID+"/"+home.HomeLocatorID, true, "retry once the database is readable", err)
+	}
+	return subjects, nil
+}
+
+// refinementObjectSpec is one live-object proof obligation the shared
+// current-source owner owes: the endpoint home whose projection carries the
+// subject, the commit that home's proof bound, and the authored path and
+// recorded content hash the projection named.
+type refinementObjectSpec struct {
+	label  string
+	repo   string
+	commit string
+	path   string
+	hash   string
+}
+
+// refinementVerifyObjectSpecs proves every spec's live git object through
+// the pass's prover pool: one batch process per distinct repository. Each
+// spec's path is resolved by walking the scanned commit's live tree
+// objects — root tree through every intermediate tree to the entry — so a
+// deleted or unreachable tree object fails the walk, and the resolved blob
+// objects are then read through one pipelined batch and hashed against the
+// recorded value. Repositories are proven concurrently, one session and one
+// goroutine each, so subprocess count stays bounded by repositories and
+// never grows with edges, roots, or specs, while wall time is the slowest
+// repository's proof. No cached path map or memoized resolution stands
+// between the read and the object store. A strict read refuses a missing,
+// non-blob, or content-mismatched object; a degraded read names one
+// omission per finding. An unreadable repository cannot prove the objects
+// either: strict refuses as unreachable, degraded names the unavailable
+// proof.
+func refinementVerifyObjectSpecs(_ context.Context, pool *gitProverPool, specs []refinementObjectSpec, allowDegraded bool, op string) ([]string, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	deduped := make([]refinementObjectSpec, 0, len(specs))
+	for _, spec := range specs {
+		key := spec.label + "\x00" + spec.commit + "\x00" + spec.path + "\x00" + spec.hash
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		deduped = append(deduped, spec)
+	}
+	findings := make([]string, 0)
+	byRepo := map[string][]*refinementObjectSpec{}
+	repos := make([]string, 0)
+	for index := range deduped {
+		spec := &deduped[index]
+		if _, ok := byRepo[spec.repo]; !ok {
+			repos = append(repos, spec.repo)
+		}
+		byRepo[spec.repo] = append(byRepo[spec.repo], spec)
+	}
+	sort.Strings(repos)
+	// Every repository's session is started on the caller's goroutine and
+	// then proven on one dedicated goroutine per repository: each session
+	// has exactly one owner, wall time is the slowest repository's proof
+	// rather than the sum, and the process count stays bounded by distinct
+	// repositories.
+	sessions := make([]*gitObjectProver, len(repos))
+	sessionErrs := make([]error, len(repos))
+	for index, repo := range repos {
+		sessions[index], sessionErrs[index] = pool.prover(repo)
+	}
+	type repoProof struct {
+		findings []string
+		err      error
+	}
+	proofs := make([]repoProof, len(repos))
+	var wg sync.WaitGroup
+	for index := range repos {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			repoSpecs := byRepo[repos[index]]
+			if sessionErrs[index] != nil {
+				probeFindings, probeErr := refinementSpecUnavailable(repoSpecs[0], sessionErrs[index], allowDegraded, op)
+				proofs[index] = repoProof{findings: probeFindings, err: probeErr}
+				return
+			}
+			findings, err := proveRefinementSpecsOnRepo(sessions[index], repoSpecs, allowDegraded, op)
+			proofs[index] = repoProof{findings: findings, err: err}
+		}(index)
+	}
+	wg.Wait()
+	for _, proof := range proofs {
+		if proof.err != nil {
+			return nil, proof.err
+		}
+		findings = append(findings, proof.findings...)
+	}
+	if len(findings) > 0 && !allowDegraded {
+		return nil, refinementRefuseObjectProof(findings[0], op)
+	}
+	return findings, nil
+}
+
+// refinementSpecUnavailable is the shared unavailability policy of the
+// object proof: a repository the pass cannot reach proves nothing, so a
+// strict read refuses as unreachable and a degraded read names the
+// unavailable proof.
+func refinementSpecUnavailable(spec *refinementObjectSpec, err error, allowDegraded bool, op string) ([]string, error) {
+	if !allowDegraded {
+		return nil, wrapFailure(KindUnreachable, op, "cannot verify current amendment-context endpoint objects of "+spec.label, true, "restore access to the git home and retry", err)
+	}
+	return []string{"endpoint_verification_unavailable:" + spec.label + ":" + spec.path}, nil
+}
+
+// refinementRefuseObjectProof is the strict refusal for failed object
+// proof.
+func refinementRefuseObjectProof(detail string, op string) error {
+	return newFailure(KindInvalidNoteProof, op, "a required current amendment-context endpoint object is missing or does not match its recorded content: "+detail, false, "restore the endpoint git object and retry the read")
+}
+
+// proveRefinementSpecsOnRepo proves one repository's endpoint specs on the
+// session the pass already owns for that repository. Warming failures are
+// deliberately not verdicts: the per-spec walk re-reads each path's own
+// trees and derives each spec's finding exactly as it would without the
+// warming, so a missing or corrupt intermediate tree still names only the
+// specs whose paths traverse it.
+func proveRefinementSpecsOnRepo(prover *gitObjectProver, repoSpecs []*refinementObjectSpec, allowDegraded bool, op string) (findings []string, err error) {
+	repoFindings := make([]string, 0)
+	type pendingObject struct {
+		spec *refinementObjectSpec
+		oid  string
+	}
+	objects := make([]pendingObject, 0, len(repoSpecs))
+	oids := make([]string, 0, len(repoSpecs))
+	warmPaths := map[string][]string{}
+	warmOrder := make([]string, 0, 4)
+	for _, spec := range repoSpecs {
+		if root, rootErr := prover.commitRootTree(spec.commit); rootErr == nil {
+			if _, seen := warmPaths[root]; !seen {
+				warmOrder = append(warmOrder, root)
+			}
+			warmPaths[root] = append(warmPaths[root], spec.path)
+		}
+	}
+	for _, root := range warmOrder {
+		paths := warmPaths[root]
+		_ = prover.prefetchTreePaths(root, paths[0], paths[1:]...)
+	}
+	for _, spec := range repoSpecs {
+		root, rootErr := prover.commitRootTree(spec.commit)
+		if rootErr != nil {
+			// A missing scanned commit is object loss behind unchanged
+			// metadata: a content finding. A commit whose served bytes
+			// do not hash to its object ID is corruption behind an
+			// unchanged identity, equally a content finding. Only a
+			// transport failure leaves the proof unavailable.
+			switch {
+			case errors.Is(rootErr, errGitProverUnreachable):
+				probeFindings, probeErr := refinementSpecUnavailable(spec, rootErr, allowDegraded, op)
+				if probeErr != nil {
+					return repoFindings, probeErr
+				}
+				repoFindings = append(repoFindings, probeFindings...)
+			case errors.Is(rootErr, errGitProverCorrupt):
+				repoFindings = append(repoFindings, "endpoint_object_corrupt:"+spec.label+":"+spec.path)
+			default:
+				repoFindings = append(repoFindings, "endpoint_object_missing:"+spec.label+":"+spec.path)
+			}
+			continue
+		}
+		entry, found, walkErr := prover.pathEntry(root, spec.path)
+		if walkErr != nil {
+			switch {
+			case errors.Is(walkErr, errGitProverUnreachable):
+				probeFindings, probeErr := refinementSpecUnavailable(spec, walkErr, allowDegraded, op)
+				if probeErr != nil {
+					return repoFindings, probeErr
+				}
+				repoFindings = append(repoFindings, probeFindings...)
+			case errors.Is(walkErr, errGitProverCorrupt):
+				// A tree behind the path kept its object ID but not
+				// its content: the walk reached live bytes that do not
+				// prove the recorded endpoint.
+				repoFindings = append(repoFindings, "endpoint_object_corrupt:"+spec.label+":"+spec.path)
+			default:
+				// The live traversal could not reach the path: a tree
+				// object behind it is gone, so the endpoint object is
+				// missing rather than unverifiable.
+				repoFindings = append(repoFindings, "endpoint_object_missing:"+spec.label+":"+spec.path)
+			}
+			continue
+		}
+		// A path the verified commit's live trees do not carry is a
+		// missing endpoint object; a non-blob or non-regular entry is
+		// not the recorded document. Both are content findings, never
+		// unavailability.
+		if !found {
+			repoFindings = append(repoFindings, "endpoint_object_missing:"+spec.label+":"+spec.path)
+			continue
+		}
+		if entry.typ != "blob" || (entry.mode != "100644" && entry.mode != "100755") {
+			repoFindings = append(repoFindings, "endpoint_object_not_regular:"+spec.label+":"+spec.path)
+			continue
+		}
+		objects = append(objects, pendingObject{spec: spec, oid: entry.oid})
+		oids = append(oids, entry.oid)
+	}
+	if len(objects) == 0 {
+		return repoFindings, nil
+	}
+	frames, burstErr := prover.blobContents(oids)
+	if burstErr != nil {
+		probeFindings, probeErr := refinementSpecUnavailable(objects[0].spec, burstErr, allowDegraded, op)
+		return append(repoFindings, probeFindings...), probeErr
+	}
+	for frameIndex, frame := range frames {
+		spec := objects[frameIndex].spec
+		// A tree entry whose object the store no longer holds reads as
+		// missing: the unchanged tree cannot excuse the deleted or
+		// corrupt object behind it.
+		if !frame.ok {
+			repoFindings = append(repoFindings, "endpoint_object_missing:"+spec.label+":"+spec.path)
+			continue
+		}
+		if frame.corrupt {
+			// The blob kept its object ID but its served bytes do not
+			// hash to it: no content behind that address is proved.
+			repoFindings = append(repoFindings, "endpoint_object_corrupt:"+spec.label+":"+spec.path)
+			continue
+		}
+		if frame.typ != "blob" {
+			repoFindings = append(repoFindings, "endpoint_object_not_regular:"+spec.label+":"+spec.path)
+			continue
+		}
+		sum := sha256.Sum256(frame.content)
+		if "sha256:"+hex.EncodeToString(sum[:]) != spec.hash {
+			repoFindings = append(repoFindings, "endpoint_content_mismatch:"+spec.label+":"+spec.path)
+		}
+	}
+	return repoFindings, nil
+}
+
+// refinementCrossTargetSpecs collects the endpoint object specs that the
+// set's declared cross-source relations resolve into. An outgoing
+// cross-source edge reports its endpoint with the target home's projected
+// identity, so the target home's projection is as required as the
+// declarer's: the page would carry the endpoint's path and content hash,
+// and a deleted or tampered target object must not ride an authoritative
+// page. The pass reads each source's declared cross-source targets in one
+// home-prefix statement and resolves the target subjects through the same
+// structured lookup the page's endpoint enrichment uses — set-member homes
+// of the target Project only — bound to the commit of a home whose
+// watermark verified authoritative. Endpoints outside the set, missing
+// projections, and ambiguous identities stay page omissions the enrichment
+// already names; unverified homes are already named degradations. The
+// caller batches the returned specs with every source's own specs into one
+// object proof per repository and commit. Statement count stays tied to
+// sources plus distinct target Projects. It takes *sql.DB because it runs
+// in the pool-owned verification before any read transaction opens
+// (CD-0195 D2).
+func refinementCrossTargetSpecs(ctx context.Context, db *sql.DB, sources []KnowledgeHome, verification refinementSourceVerification) ([]refinementObjectSpec, error) {
+	homes := make(map[string]KnowledgeHome, len(sources))
+	for _, source := range sources {
+		homes[source.HomeProjectID+"/"+source.HomeLocatorID] = source
+	}
+	targets := map[string][]string{}
+	targetSeen := map[string]bool{}
+	for _, source := range sources {
+		rows, err := db.QueryContext(ctx, `SELECT DISTINCT target_project_id, target_law_id FROM law_cross_source_relations WHERE home_project_id=? AND home_locator_id=?`, source.HomeProjectID, source.HomeLocatorID)
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot read the declared cross-source targets of "+source.HomeProjectID+"/"+source.HomeLocatorID, true, "retry once the database is readable", err)
+		}
+		for rows.Next() {
+			var targetProject, targetLaw string
+			if err := rows.Scan(&targetProject, &targetLaw); err != nil {
+				rows.Close()
+				return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot decode a declared cross-source target of "+source.HomeProjectID+"/"+source.HomeLocatorID, true, "retry once the database is readable", err)
+			}
+			pair := targetProject + "\x00" + targetLaw
+			if !targetSeen[pair] {
+				targetSeen[pair] = true
+				targets[targetProject] = append(targets[targetProject], targetLaw)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot finish reading the declared cross-source targets of "+source.HomeProjectID+"/"+source.HomeLocatorID, true, "retry once the database is readable", err)
+		}
+		rows.Close()
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	verified := refinementVerifiedWatermarks(verification)
+	specs := make([]refinementObjectSpec, 0)
+	projects := make([]string, 0, len(targets))
+	for project := range targets {
+		projects = append(projects, project)
+	}
+	sort.Strings(projects)
+	for _, project := range projects {
+		laws := orderedStrings(targets[project])
+		rows, err := db.QueryContext(ctx, `SELECT home_project_id, home_locator_id, law_id, path, content_hash FROM law_subjects WHERE home_project_id=? AND law_id IN (`+placeholdersFor(laws)+`)`, append([]any{project}, stringArgs(laws)...)...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every value stays parameter-bound.
+		if err != nil {
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot resolve cross-source amendment-context endpoint subjects", true, "retry once the database is readable", err)
+		}
+		for rows.Next() {
+			var rowProject, locator, lawID, path, hash string
+			if err := rows.Scan(&rowProject, &locator, &lawID, &path, &hash); err != nil {
+				rows.Close()
+				return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot decode a cross-source amendment-context endpoint subject", true, "retry once the database is readable", err)
+			}
+			label := rowProject + "/" + locator
+			home, member := homes[label]
+			if !member {
+				continue
+			}
+			commit, authoritative := verified[label]
+			if !authoritative {
+				continue
+			}
+			specs = append(specs, refinementObjectSpec{label: label, repo: home.RepoPath, commit: commit, path: path, hash: hash})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, wrapFailure(KindUnavailable, "PM1.Q10.amendment_context", "cannot finish reading cross-source amendment-context endpoint subjects", true, "retry once the database is readable", err)
+		}
+		rows.Close()
+	}
+	return specs, nil
 }
 
 // queryKnowledgeRefinementContextDB owns source verification and the
@@ -257,22 +866,9 @@ func queryKnowledgeRefinementContextDB(ctx context.Context, db *sql.DB, freshen 
 	if limit < 1 || limit > refinementContextMaxLimit {
 		return out, newFailure(KindInvalidFilter, "PM1.Q10.amendment_context", "limit must be between 1 and 32", false, "supply a bounded amendment-context limit")
 	}
-	verification := refinementSourceVerification{
-		watermarks: make([]KnowledgeSourceWatermark, 0, len(sources)),
-	}
-	for _, source := range sources {
-		label := source.HomeProjectID + "/" + source.HomeLocatorID
-		scanned, authority, err := validateKnowledgeContextSource(ctx, db, freshen, source, req.AllowDegraded, "PM1.Q10.amendment_context")
-		if err != nil {
-			return out, err
-		}
-		if authority != "authoritative" {
-			verification.degraded = true
-			verification.omissions = append(verification.omissions, "knowledge_source_degraded:"+label)
-		} else {
-			verification.scanned = append(verification.scanned, label+"@"+scanned)
-		}
-		verification.watermarks = append(verification.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: scanned, Authority: authority})
+	verification, err := verifyKnowledgeContextSourceSet(ctx, db, freshen, sources, req.AllowDegraded, "knowledge_source_degraded:", "PM1.Q10.amendment_context")
+	if err != nil {
+		return out, err
 	}
 	// A caller-named source-set omission (an unresolved current source set
 	// on a degraded read) marks the whole context degraded before any

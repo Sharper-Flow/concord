@@ -175,13 +175,18 @@ func TestReadWorkflowContinuityCarriesAmendmentContext(t *testing.T) {
 // one-hop read issues a source-scaled statement count that stays flat as
 // roots and edges grow, one full page serializes inside the agent result
 // envelope cap, and uninstrumented P50/P99 hold the 100ms metadata budget.
+// Serial execution keeps package test scheduling outside the sampled
+// workload. The 100ms assertion remains unconditional.
 func TestQ10AmendmentQueryPlansAndLatency(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	s, home := refinementTestStore(t)
 	defer s.Close()
 	commit := firstCommitOID(t, s, home)
 	seedWorkflowAmendmentFanout(t, s, home, commit)
+	// The fanout rebases the home onto its own committed laws; later seeds
+	// must carry the rebased scanned commit so relation rows keep matching
+	// the watermark the verifier binds.
+	commit = firstCommitOID(t, s, home)
 	second := seedRefinementScaleSource(t, s, "refinement-scale-2", "refinement-scale-2-loc", 32)
 	seedRefinementCrossEndpoints(t, s, home, second, commit, []string{"CD-0017", "CD-0054"}, 8)
 	sources := []KnowledgeHome{home, second}
@@ -239,10 +244,11 @@ func TestQ10AmendmentQueryPlansAndLatency(t *testing.T) {
 		t.Fatalf("core statement count grows with the edge population: %d edges later=%d, before=%d", 200, grown, six)
 	}
 	// PM1 synthetic acceptance scale: the seeded fanout fixture at the
-	// corpus dataset multiplier, one bounded page per iteration, measured
-	// without race instrumentation against the 100ms P99 metadata budget.
-	// A full 32-edge page must also serialize inside the agent result
-	// envelope cap, the boundary the read envelope budget enforces.
+	// corpus dataset multiplier — 1000 genuinely indexed laws, multiple
+	// roots, cross-source endpoints — one bounded page per iteration,
+	// measured without race instrumentation against the 100ms P99 metadata
+	// budget. A full 32-edge page must also serialize inside the agent
+	// result envelope cap, the boundary the read envelope budget enforces.
 	const refinementPageBudgetBytes = 51200
 	roots := []string{home.HomeProjectID + "/CD-0017", home.HomeProjectID + "/CD-0054", home.HomeProjectID + "/CD-0058"}
 	const iterations = 200

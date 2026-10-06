@@ -56,9 +56,11 @@ func TestCoordinatorRefine4CursorCountsCannotHideIncompleteRoot(t *testing.T) {
 	s, home := refinementTestStore(t)
 	defer s.Close()
 	commit := firstCommitOID(t, s, home)
+	// The seeded edge joins two real committed subjects, so the shared
+	// current-source object proof stays green and the probe exercises the
+	// cursor's count-hint immunity, not an unprovable endpoint.
 	mutateRefine4Probe(t, s, []refine4ProbeStatement{
-		{"INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,'CD-PROBE','decision','accepted','synthetic.md','Probe',?,?)", []any{home.HomeProjectID, home.HomeLocatorID, "sha256:" + strings.Repeat("c", 64), commit}},
-		{"INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,'CD-PROBE','refines','CD-0017',?)", []any{home.HomeProjectID, home.HomeLocatorID, commit}},
+		{"INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,'CD-0017','subordinate_to','CD-0058',?)", []any{home.HomeProjectID, home.HomeLocatorID, commit}},
 	})
 	req := KnowledgeRefinementContextRequest{Sources: []KnowledgeHome{home}, Roots: []string{home.HomeProjectID + "/CD-0017"}, Limit: 1}
 	first, err := s.QueryKnowledgeRefinementContext(ctx, req)

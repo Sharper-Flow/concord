@@ -654,20 +654,9 @@ func verifyWorkflowLawContextSources(ctx context.Context, db *sql.DB, freshen fu
 			sources = resolved
 		}
 	}
-	verification := refinementSourceVerification{watermarks: make([]KnowledgeSourceWatermark, 0, len(sources))}
-	for _, source := range sources {
-		label := source.HomeProjectID + "/" + source.HomeLocatorID
-		scanned, authority, err := validateKnowledgeContextSource(ctx, db, freshen, source, true, "workflow.law_context")
-		if err != nil {
-			return degraded
-		}
-		if authority != "authoritative" {
-			verification.degraded = true
-			verification.omissions = append(verification.omissions, "knowledge_source_degraded:"+label)
-		} else {
-			verification.scanned = append(verification.scanned, label+"@"+scanned)
-		}
-		verification.watermarks = append(verification.watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: scanned, Authority: authority})
+	verification, err := verifyKnowledgeContextSourceSet(ctx, db, freshen, sources, true, "knowledge_source_degraded:", "workflow.law_context")
+	if err != nil {
+		return degraded
 	}
 	return &workflowAmendmentSources{sources: sources, verification: verification}
 }

@@ -99,8 +99,24 @@ func TestReviewC922NegativeSourceSetDrift(t *testing.T) {
 			if srcErr != nil || len(current) != 2 {
 				t.Fatalf("drift fixture did not register two sources: %v %v", current, srcErr)
 			}
-			if err == nil && result.Authority == "authoritative" {
-				t.Fatalf("negative claimed verified population after required source gained: state=%s authority=%s omissions=%v sources=%d", result.Status, result.Authority, result.Omissions, len(current))
+			if !allow {
+				// A strict first read over a healthy population refuses
+				// the healthy-to-degraded drift outright (0552 review).
+				if err == nil {
+					t.Fatalf("strict negative accepted unverified gained source: state=%s authority=%s omissions=%v", result.Status, result.Authority, result.Omissions)
+				}
+				assertFailureKind(t, err, KindStaleContext)
+				return
+			}
+			// An explicitly degraded-allowed first read names the newly
+			// unverified source as an omission and returns a degraded
+			// negative, never a refusal and never an authoritative one
+			// (0552 review).
+			if err != nil {
+				t.Fatalf("degraded-allowed first read refused instead of naming the gained source: %v", err)
+			}
+			if result.Authority != "degraded" || len(result.Omissions) == 0 {
+				t.Fatalf("degraded-allowed negative lost drift omissions: state=%s authority=%s omissions=%v", result.Status, result.Authority, result.Omissions)
 			}
 		})
 	}

@@ -319,12 +319,21 @@ func parseTreeEntries(out []byte) ([]treeEntry, error) {
 	return entries, nil
 }
 
+// validateKnowledgeHomeRef admits only a ref a prover request can carry
+// safely: no leading dash, whitespace, or NUL bytes.
+func validateKnowledgeHomeRef(headRef string) error {
+	if headRef == "" || strings.HasPrefix(headRef, "-") || strings.ContainsAny(headRef, " \t\n\r\x00") {
+		return newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome head ref contains option or delimiter bytes", false, "supply a Git ref without a leading dash, whitespace, or NUL")
+	}
+	return nil
+}
+
 func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, error) {
 	if home.HomeProjectID == "" || home.HomeLocatorID == "" || home.RepoPath == "" || home.HeadRef == "" {
 		return "", newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome requires stable IDs, repository path, and head ref", false, "supply a complete explicit KnowledgeHome")
 	}
-	if strings.HasPrefix(home.HeadRef, "-") || strings.ContainsAny(home.HeadRef, " \t\n\r\x00") {
-		return "", newFailure(KindInvalidFilter, "knowledge_home", "KnowledgeHome head ref contains option or delimiter bytes", false, "supply a Git ref without a leading dash, whitespace, or NUL")
+	if err := validateKnowledgeHomeRef(home.HeadRef); err != nil {
+		return "", err
 	}
 	ref, err := runGit(ctx, home.RepoPath, "rev-parse", "--verify", home.HeadRef+"^{commit}")
 	if err != nil {
@@ -506,32 +515,89 @@ var knowledgeNoteDirs = []string{
 // content alone: a commit that touches none of the objects leaves it
 // unchanged. An absent object contributes its absence, so a manifest added or
 // removed changes the digest. The note blobs the shards point at are covered
-// separately, by knowledgeProjectedBlobsUnchanged in the freshness predicate:
-// a body-only edit moves none of the objects above.
+// separately, by knowledgeProjectedBlobsUnchanged in the freshness predicate.
 func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID string) (string, error) {
-	out, err := runGit(ctx, home.RepoPath, "ls-tree", "-z", commitOID, "--", knowledgeShardRoot, "docs/knowledge", knowledgeManifestPath, strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"))
+	pool := newGitProverPool(ctx)
+	defer pool.close()
+	prover, err := pool.prover(home.RepoPath)
 	if err != nil {
 		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
 	}
-	entries, err := parseTreeEntries(out)
-	if err != nil {
-		return "", wrapFailure(KindInvalidNoteProof, "knowledge_index", "git returns malformed tree entries", false, "repair the canonical git tree", err)
+	return knowledgeContentDigestProver(prover, commitOID, "")
+}
+
+// knowledgeDigestSlotPaths is the digest's fixed path set in Git's sorted
+// path order, the order ls-tree emits, so overwrites and appends reproduce
+// it exactly. Callers that warm the digest's directory trees — alone or
+// fused with other paths of the same pass — walk exactly these.
+func knowledgeDigestSlotPaths() []string {
+	return []string{
+		knowledgeShardRoot,
+		strings.TrimSuffix(knowledgeWorkNoteTree, "/"),
+		knowledgeManifestPath,
+		"docs/knowledge",
+		strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"),
+	}
+}
+
+// knowledgeContentDigestProver computes the content identity through one
+// live prover session: the commit's root tree is read live (or reused when
+// the caller's head resolution already proved it), every digest path is
+// resolved by walking live tree objects of that commit, and the slot
+// semantics are exactly the standalone digest's — the same entries
+// `ls-tree <commit> -- <paths>` would name, in Git's sorted path order.
+func knowledgeContentDigestProver(prover *gitObjectProver, commitOID, provedRoot string) (string, error) {
+	root := provedRoot
+	if root == "" {
+		var err error
+		root, err = prover.commitRootTree(commitOID)
+		if err != nil {
+			return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
+		}
+	}
+	// Digest slots resolve in Git's sorted path order, the order ls-tree
+	// emits, so overwrites and appends reproduce it exactly.
+	type slotPath struct {
+		path string
+		slot string
+	}
+	slots := []slotPath{
+		{knowledgeShardRoot, "shards"},
+		{strings.TrimSuffix(knowledgeWorkNoteTree, "/"), "notes"},
+		{knowledgeManifestPath, "manifest"},
+		{"docs/knowledge", "shards"},
+		{strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"), "notes"},
 	}
 	shards, manifest := "absent", "absent"
 	notes := []string{}
-	for _, entry := range entries {
-		switch entry.path {
-		case knowledgeShardRoot, "docs/knowledge":
+	// One leveled batch reads every intermediate tree the slot paths
+	// traverse, so the digest resolves through few pipelined exchanges
+	// rather than one sequential round trip per slot.
+	digestPaths := knowledgeDigestSlotPaths()
+	if err := prover.prefetchTreePaths(root, digestPaths[0], digestPaths[1:]...); err != nil {
+		return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", err)
+	}
+	for _, target := range slots {
+		entry, found, walkErr := prover.pathEntry(root, target.path)
+		if walkErr != nil {
+			return "", wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge content identity", true, "restore access to the git home and retry", walkErr)
+		}
+		if !found {
+			continue
+		}
+		identity := entry.typ + ":" + entry.oid
+		switch target.slot {
+		case "shards":
 			// One commit carries exactly one shard-home tier (CD-0194 D5),
 			// so both tiers contribute to the same content slot.
-			shards = entry.kind + ":" + entry.oid
-		case knowledgeManifestPath:
-			manifest = entry.kind + ":" + entry.oid
-		case strings.TrimSuffix(knowledgeWorkNoteTree, "/"), strings.TrimSuffix(legacyKnowledgeWorkNoteTree, "/"):
+			shards = identity
+		case "manifest":
+			manifest = identity
+		case "notes":
 			// Both note tiers feed one slot, so an edit in either changes
-			// the digest (CD-0194 D5). Git sorts entries by path, so the
-			// order is deterministic.
-			notes = append(notes, entry.kind+":"+entry.oid)
+			// the digest (CD-0194 D5). Sorted path order keeps it
+			// deterministic.
+			notes = append(notes, identity)
 		}
 	}
 	sum := sha256.Sum256([]byte("shards=" + shards + "\nmanifest=" + manifest + "\nnotes=" + strings.Join(notes, ",") + "\n"))

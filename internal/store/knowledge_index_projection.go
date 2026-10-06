@@ -988,7 +988,23 @@ type knowledgeWatermark struct {
 // digest column exists carries an empty digest and reads as stale, so it
 // rebuilds once.
 func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome, current string) (knowledgeWatermark, error) {
-	currentDigest, err := knowledgeContentDigest(ctx, home, current)
+	pool := newGitProverPool(ctx)
+	defer pool.close()
+	prover, err := pool.prover(home.RepoPath)
+	if err != nil {
+		return knowledgeWatermark{}, wrapFailure(KindGitUnreachable, "knowledge_index", "cannot read the knowledge watermark", true, "restore access to the git home and retry", err)
+	}
+	return readKnowledgeWatermarkProver(ctx, db, prover, home, current, "")
+}
+
+// readKnowledgeWatermarkProver is the shared freshness comparison: the
+// digest and the projected-blob comparison both resolve through the
+// caller's live prover session, so a verification pass that already proved
+// the head reuses one process end to end. currentRoot is the head's proved
+// root tree when the caller already resolved it, or empty to derive it.
+// The comparison rules are the standalone predicate's, unchanged.
+func readKnowledgeWatermarkProver(ctx context.Context, db *sql.DB, prover *gitObjectProver, home KnowledgeHome, current, currentRoot string) (knowledgeWatermark, error) {
+	currentDigest, err := knowledgeContentDigestProver(prover, current, currentRoot)
 	if err != nil {
 		return knowledgeWatermark{}, err
 	}
@@ -1005,7 +1021,7 @@ func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome,
 	if !complete || scannedDigest == "" || scannedDigest != currentDigest || projectionVersion != knowledgeProjectionVersion {
 		return knowledgeWatermark{Scanned: scanned, Fresh: false}, nil
 	}
-	unchanged, err := knowledgeProjectedBlobsUnchanged(ctx, db, home, scanned, current)
+	unchanged, err := knowledgeProjectedBlobsUnchangedProver(ctx, db, prover, home, scanned, current)
 	if err != nil {
 		return knowledgeWatermark{Scanned: scanned}, err
 	}
@@ -1018,6 +1034,23 @@ func readKnowledgeWatermark(ctx context.Context, db *sql.DB, home KnowledgeHome,
 // reads stale so the freshness owner rebuilds at the reachable head.
 // It takes *sql.DB because Git verification must stay outside transactions.
 func knowledgeProjectedBlobsUnchanged(ctx context.Context, db *sql.DB, home KnowledgeHome, scanned, current string) (bool, error) {
+	pool := newGitProverPool(ctx)
+	defer pool.close()
+	prover, err := pool.prover(home.RepoPath)
+	if err != nil {
+		return false, nil
+	}
+	return knowledgeProjectedBlobsUnchangedProver(ctx, db, prover, home, scanned, current)
+}
+
+// knowledgeProjectedBlobsUnchangedProver compares each indexed note path's
+// tree entry between the scanned commit and the current head through live
+// prover traversal. A path is unchanged exactly when both commits resolve
+// it to the same entry object ID and mode — the same paths `git diff
+// --name-only scanned current -- <paths>` reports unchanged, read without
+// a second subprocess. An unreachable comparison still reads stale: the
+// freshness owner rebuilds at the reachable head.
+func knowledgeProjectedBlobsUnchangedProver(ctx context.Context, db *sql.DB, prover *gitObjectProver, home KnowledgeHome, scanned, current string) (bool, error) {
 	if scanned == "" || scanned == current {
 		return true, nil
 	}
@@ -1043,12 +1076,35 @@ func knowledgeProjectedBlobsUnchanged(ctx context.Context, db *sql.DB, home Know
 		return true, nil
 	}
 	sort.Strings(paths)
-	diffArgs := append([]string{"diff", "--name-only", scanned, current, "--"}, paths...)
-	out, err := runGit(ctx, home.RepoPath, diffArgs...)
-	if err != nil {
+	scannedRoot, rootErr := prover.commitRootTree(scanned)
+	if rootErr != nil {
 		return false, nil
 	}
-	return len(strings.TrimSpace(string(out))) == 0, nil
+	currentRoot, rootErr := prover.commitRootTree(current)
+	if rootErr != nil {
+		return false, nil
+	}
+	// Warm both commits' directory trees in leveled batches so a
+	// thousand-path comparison costs a few pipelined exchanges, not a
+	// round trip per path. A failed warming is not a verdict: the
+	// per-path comparison below still reads each path's own trees and
+	// decides unchanged-or-stale exactly as it would without it.
+	_ = prover.prefetchTreePaths(scannedRoot, paths[0], paths[1:]...)
+	_ = prover.prefetchTreePaths(currentRoot, paths[0], paths[1:]...)
+	for _, notePath := range paths {
+		scannedEntry, scannedFound, scannedErr := prover.pathEntry(scannedRoot, notePath)
+		if scannedErr != nil {
+			return false, nil
+		}
+		currentEntry, currentFound, currentErr := prover.pathEntry(currentRoot, notePath)
+		if currentErr != nil {
+			return false, nil
+		}
+		if scannedFound != currentFound || scannedEntry != currentEntry {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // EnsureWorkProductKnowledgeFresh freshens the index behind the Product a

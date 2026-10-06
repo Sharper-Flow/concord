@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -17,7 +16,31 @@ import (
 // paged roots, so the workflow page shape stays deterministic.
 func seedWorkflowAmendmentFanout(t *testing.T, s *Store, home KnowledgeHome, commit string) {
 	t.Helper()
+	_ = commit // the fanout rebases the home onto the commit it creates below
 	ctx := context.Background()
+	// Every paged endpoint must be a real committed blob: the fanout writes
+	// its refiner laws into the repository and rebases the projection onto
+	// that commit, so live object verification proves them (CON-830 T7).
+	hashes9001 := make([]string, 20)
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("CD-9001%02d", i)
+		hashes9001[i] = refinementSeedSubjectFile(t, home.RepoPath, id, "Fanout refiner "+id)
+	}
+	hashes9101 := make([]string, 18)
+	for i := 0; i < 18; i++ {
+		id := fmt.Sprintf("CD-9101%02d", i)
+		hashes9101[i] = refinementSeedSubjectFile(t, home.RepoPath, id, "Fanout refiner "+id)
+	}
+	// The filler population is genuinely indexed too: every filler law is a
+	// real committed blob, so the synthetic acceptance scale measures the
+	// production object proof over real objects and no law_subjects-only
+	// filler substitution can shrink it (CON-830 VERIFY).
+	fillerHashes := make([]string, knowledgeBodyBenchmarkRows-42)
+	for i := 0; i < knowledgeBodyBenchmarkRows-42; i++ {
+		id := fmt.Sprintf("CD-F%04d", i)
+		fillerHashes[i] = refinementSeedSubjectFile(t, home.RepoPath, id, "Acceptance-scale filler "+id)
+	}
+	scanned := commitKnowledgeRepo(t, home.RepoPath, "workflow amendment fanout laws")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -29,31 +52,43 @@ func seedWorkflowAmendmentFanout(t *testing.T, s *Store, home KnowledgeHome, com
 	for i := 0; i < 20; i++ {
 		id := fmt.Sprintf("CD-9001%02d", i)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Fanout refiner "+id, "sha256:"+strings.Repeat("a", 64), commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Fanout refiner "+id, hashes9001[i], scanned); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, id, "refines", "CD-0017", commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, id, "refines", "CD-0017", scanned); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 18; i++ {
 		id := fmt.Sprintf("CD-9101%02d", i)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Fanout refiner "+id, "sha256:"+strings.Repeat("b", 64), commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Fanout refiner "+id, hashes9101[i], scanned); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, id, "refines", "CD-0054", commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, id, "refines", "CD-0054", scanned); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < knowledgeBodyBenchmarkRows-42; i++ {
 		id := fmt.Sprintf("CD-F%04d", i)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Acceptance-scale filler "+id, "sha256:"+strings.Repeat("c", 64), commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, id, "decision", "accepted", ".concord/docs/decisions/"+id+".md", "Acceptance-scale filler "+id, fillerHashes[i], scanned); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, statement := range []string{
+		`UPDATE law_relations SET scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=?`,
+		`UPDATE law_subjects SET scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, scanned, home.HomeProjectID, home.HomeLocatorID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_index_watermark SET scanned_commit_oid=?, scanned_content_digest=?, scanned_at=?, complete=1, projection_version=? WHERE home_project_id=? AND home_locator_id=? AND head_ref=?`,
+		scanned, seedRefinementDigest(t, home, scanned), scanned, knowledgeProjectionVersion, home.HomeProjectID, home.HomeLocatorID, home.HeadRef); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard WHERE active=1`); err != nil {
 		t.Fatal(err)

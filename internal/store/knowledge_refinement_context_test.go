@@ -2,25 +2,29 @@ package store
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
 
+// refinementSeedSubjectFile writes one real committed decision body and
+// returns its content hash, so every seeded endpoint projection is backed
+// by a live git object the current-source proof can verify (CON-830 T7).
+func refinementSeedSubjectFile(t *testing.T, repo, id, title string) string {
+	t.Helper()
+	body := "# " + title + "\n\nSeeded decision body for " + id + ".\n"
+	writeKnowledgeFile(t, repo, ".concord/docs/decisions/"+id+".md", body)
+	sum := sha256.Sum256([]byte(body))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 // seedRefinementContextLaw seeds the authored CD-0017/CD-0054/CD-0058
 // refinement chain plus one superseded refiner, exactly as the git-derived
 // projection would fold the three accepted record shards.
-func seedRefinementContextLaw(t *testing.T, s *Store, home KnowledgeHome, commit string) {
+func seedRefinementContextLaw(t *testing.T, s *Store, home KnowledgeHome) string {
 	t.Helper()
 	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
 	subjects := []struct {
 		id, kind, status, title string
 	}{
@@ -29,10 +33,22 @@ func seedRefinementContextLaw(t *testing.T, s *Store, home KnowledgeHome, commit
 		{"CD-0058", "decision", "accepted", "Concord performs no model routing"},
 		{"CD-0999", "decision", "superseded", "Superseded stray refiner"},
 	}
-	for _, subject := range subjects {
-		hash := "sha256:" + strings.Repeat(fmt.Sprintf("%x", len(subject.id)%16), 64)[:64]
+	hashes := make([]string, len(subjects))
+	for i, subject := range subjects {
+		hashes[i] = refinementSeedSubjectFile(t, home.RepoPath, subject.id, subject.title)
+	}
+	commit := commitKnowledgeRepo(t, home.RepoPath, "refinement context fixture laws")
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for i, subject := range subjects {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			home.HomeProjectID, home.HomeLocatorID, subject.id, subject.kind, subject.status, ".concord/docs/decisions/"+subject.id+".md", subject.title, hash, commit); err != nil {
+			home.HomeProjectID, home.HomeLocatorID, subject.id, subject.kind, subject.status, ".concord/docs/decisions/"+subject.id+".md", subject.title, hashes[i], commit); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -60,6 +76,7 @@ func seedRefinementContextLaw(t *testing.T, s *Store, home KnowledgeHome, commit
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	return commit
 }
 
 func seedRefinementDigest(t *testing.T, home KnowledgeHome, commit string) string {
@@ -75,11 +92,10 @@ func refinementTestStore(t *testing.T) (*Store, KnowledgeHome) {
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "refinement context fixture")
-	commit := commitKnowledgeRepo(t, repo, "refinement context fixture")
 	home := KnowledgeHome{HomeProjectID: "refinement-project", HomeLocatorID: "refinement-locator", RepoPath: repo, HeadRef: "HEAD"}
 	s := openTemp(t)
 	authorizeKnowledgeProductHome(t, s, "refinement-product", home)
-	seedRefinementContextLaw(t, s, home, commit)
+	seedRefinementContextLaw(t, s, home)
 	return s, home
 }
 
@@ -194,7 +210,9 @@ func TestRefinementContextPagesWithSnapshotBoundCursor(t *testing.T) {
 		t.Fatalf("second page did not advance: %+v", second.Edges)
 	}
 	// Snapshot drift: an authored relation change between pages refuses
-	// continuation instead of splicing two snapshots.
+	// continuation instead of splicing two snapshots. The inserted edge
+	// joins two real committed subjects, so the drift the cursor must catch
+	// is the changed relation population, not an unprovable endpoint.
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -202,12 +220,8 @@ func TestRefinementContextPagesWithSnapshotBoundCursor(t *testing.T) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-		home.HomeProjectID, home.HomeLocatorID, "CD-0015", "decision", "accepted", ".concord/docs/decisions/CD-0015-typed-law-relations.md", "Typed law relations", "sha256:"+strings.Repeat("1", 64), first.Edges[0].ScannedCommitOID); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES(?,?,?,?,?,?)`,
-		home.HomeProjectID, home.HomeLocatorID, "CD-0017", "subordinate_to", "CD-0015", first.Edges[0].ScannedCommitOID); err != nil {
+		home.HomeProjectID, home.HomeLocatorID, "CD-0017", "subordinate_to", "CD-0058", first.Edges[0].ScannedCommitOID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard WHERE active=1`); err != nil {
@@ -237,10 +251,21 @@ func seedRefinementSecondSource(t *testing.T, s *Store, projectID, locatorID str
 	t.Helper()
 	repo := initKnowledgeRepo(t)
 	writeKnowledgeFile(t, repo, "README.md", "second source fixture")
-	commit := commitKnowledgeRepo(t, repo, "second source fixture")
 	second := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID, RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeLocator(t, s, second)
 	ctx := context.Background()
+	subjects := []struct {
+		id, kind, status, title string
+	}{
+		{"CD-0017", "decision", "accepted", "Foreign typed workers"},
+		{"SRC-2", "decision", "accepted", "Second-source refiner"},
+		{"EXT-LAW", "decision", "accepted", "Cross-source endpoint"},
+	}
+	hashes := make([]string, len(subjects))
+	for i, subject := range subjects {
+		hashes[i] = refinementSeedSubjectFile(t, repo, subject.id, subject.title)
+	}
+	commit := commitKnowledgeRepo(t, repo, "second source fixture laws")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -249,16 +274,9 @@ func seedRefinementSecondSource(t *testing.T, s *Store, projectID, locatorID str
 	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	for _, subject := range []struct {
-		id, kind, status, title string
-	}{
-		{"CD-0017", "decision", "accepted", "Foreign typed workers"},
-		{"SRC-2", "decision", "accepted", "Second-source refiner"},
-		{"EXT-LAW", "decision", "accepted", "Cross-source endpoint"},
-	} {
-		hash := "sha256:" + strings.Repeat(fmt.Sprintf("%x", len(subject.id)%16), 64)[:64]
+	for i, subject := range subjects {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`,
-			projectID, locatorID, subject.id, subject.kind, subject.status, ".concord/docs/decisions/"+subject.id+".md", subject.title, hash, commit); err != nil {
+			projectID, locatorID, subject.id, subject.kind, subject.status, ".concord/docs/decisions/"+subject.id+".md", subject.title, hashes[i], commit); err != nil {
 			t.Fatal(err)
 		}
 	}

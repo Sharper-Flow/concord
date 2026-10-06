@@ -129,10 +129,7 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 	}
 }
 
-// TestSessionPrepareReadFailureExit proves read-failure classification: a
-// typed failure the store marks safe to repeat, or an untyped failure, keeps
-// the ordinary status; a typed failure unsafe to repeat is a refusal.
-func TestSessionPrepareReadFailureExit(t *testing.T) {
+func TestSessionPrepareFailureExit(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
@@ -141,11 +138,20 @@ func TestSessionPrepareReadFailureExit(t *testing.T) {
 		{"retry-safe store failure", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}, 1},
 		{"wrapped retry-safe store failure", fmt.Errorf("resolve: %w", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}), 1},
 		{"store failure unsafe to repeat", &store.Failure{Kind: store.KindUnavailable, RetrySafe: false}, sessionPrepareRefusalExit},
+		{"wrapped store failure unsafe to repeat", fmt.Errorf("resolve: %w", &store.Failure{Kind: store.KindUnavailable, RetrySafe: false}), sessionPrepareRefusalExit},
 		{"untyped failure", errors.New("disk I/O error"), 1},
 	}
-	for _, tc := range cases {
-		if got := sessionPrepareReadFailureExit(tc.err); got != tc.want {
-			t.Errorf("%s: exit=%d want %d", tc.name, got, tc.want)
+	for _, untypedExit := range []int{1, sessionPrepareRefusalExit} {
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("default-%d/%s", untypedExit, tc.name), func(t *testing.T) {
+				want := tc.want
+				if tc.name == "untyped failure" {
+					want = untypedExit
+				}
+				if got := sessionPrepareFailureExit(tc.err, untypedExit); got != want {
+					t.Errorf("exit=%d want %d", got, want)
+				}
+			})
 		}
 	}
 }

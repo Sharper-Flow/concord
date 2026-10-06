@@ -96,6 +96,8 @@ type WorkflowAdmissionState struct {
 	// CorrectionRecovery reports a completed result the reject_worker_result
 	// recovery can reject.
 	CorrectionRecovery bool
+	// RefineReviewEvidenceAttemptID names the review available for hold-mode acceptance at refine.
+	RefineReviewEvidenceAttemptID string
 	// CorrectionRequestRecovery reports the delivery-gate corrective return
 	// stands open, with CorrectionRequestMissing naming the one missing
 	// prerequisite when it does not.
@@ -308,6 +310,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// declares dispatch_worker the state carries no recovery, so a caller
 	// cannot admit the rejection onto an unrelated step.
 	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(definition, currentStep, "dispatch_worker")
+	reviewEvidenceAttempt, reviewEvidenceErr := workflowRefineReviewEvidenceAttempt(ctx, q, workID, definition, currentStep, subject, 0)
+	if reviewEvidenceErr != nil {
+		return WorkflowAdmissionState{}, nil, reviewEvidenceErr
+	}
+	state.RefineReviewEvidenceAttemptID = reviewEvidenceAttempt
 	// The delivery gate's corrective return reads the review debt this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
@@ -575,6 +582,8 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return state.WorkerFailureRecovery
 	case "reject_worker_result":
 		return state.CorrectionRecovery
+	case "accept_worker_evidence":
+		return state.RefineReviewEvidenceAttemptID != ""
 	case "request_correction":
 		return state.CorrectionRequestRecovery
 	}

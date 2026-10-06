@@ -1998,9 +1998,11 @@ func workflowCorrectionSchemaValuesFault(predicateIDs, correctionRefs, resultRef
 }
 
 // admitWorkflowActionOffStep decides whether an action the pinned step does
-// not declare may still fold. Worker failure recovery, rejected result
-// correction, and recovery evidence binding are the three admitted routes.
+// not declare may still fold under an engine-owned recovery route.
 func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+	if p.ActionID == "accept_worker_evidence" {
+		return validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.WorkerAttemptID, p.AttemptEpoch, "fold_event", event.Seq)
+	}
 	workerFailureRecovery := false
 	correctionRecovery := false
 	if p.ActionID == "record_worker_failure" {
@@ -2646,6 +2648,12 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
 	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
+	if !allowed && payload.ActionID == "accept_worker_evidence" {
+		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
+			return err
+		}
+		allowed = true
+	}
 	if !allowed && payload.ActionID == "record_worker_failure" {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")

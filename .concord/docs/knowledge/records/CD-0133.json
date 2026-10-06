@@ -17,7 +17,9 @@
     "internal/agent/supersede_contract_dispatch_test.go",
     "internal/agent/design_contract_correction_test.go",
     "internal/store/workflow_design.go",
-    "internal/store/workflow_design_test.go"
+    "internal/store/workflow_design_test.go",
+    "internal/store/workflow_review_disposition.go",
+    "internal/store/workflow_review_disposition_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0133",
@@ -48,9 +50,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7cc413d19a140786d866a8db9faf538ead101c7e32acc56cad97350d76de0ac4",
+  "sha256": "sha256:a3e58539883175aca2bacb6360718c45f750b6fb7f35d8a8ed5eb6fc5a39a737",
   "status": "accepted",
-  "summary": "Admits operator-approved contract correction with atomic design replacement, preserving definition digests, worker fences, audit history, and overlap admission for subsequent execution.",
+  "summary": "Admits operator-approved contract correction before dispatch, after recorded failure, or after refinement review evidence acceptance when every current authorization has a terminal disposition. Exact approval, atomic design replacement, frozen definition digests, worker fences, audit history, and overlap checks remain required.",
   "tags": [
     "workflow",
     "worker",

@@ -365,6 +365,15 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	}
+	if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+		fields, fieldsErr := workflowActionObject(request.Payload)
+		if fieldsErr != nil {
+			return RegisteredDefinition{}, fieldsErr
+		}
+		if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
+			return RegisteredDefinition{}, err
+		}
+	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {
 		return RegisteredDefinition{}, err
 	}

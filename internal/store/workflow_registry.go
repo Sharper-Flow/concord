@@ -1553,6 +1553,23 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("attempt_id", true), actionObjectField("worker_packet", true, "worker_packet"),
 	), actionRefField("lane_id", true)),
 	"supersede_contract": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionAdvance, ActionEventTyped),
+	// CD-0205: record_worker_job records one immutable worker-job revision
+	// under the work aggregate and holds the step. The caller authors the
+	// bounded job; the core derives the parent contract version, the Project
+	// scope, the next revision, and the digest.
+	"record_worker_job": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventTyped,
+		actionRefField("job_id", true),
+		actionStringField("objective", true, 4096),
+		actionStringField("stopping_condition", true, 2048),
+		actionListField("path_scope", false, 0, 64),
+		actionIDListField("predicate_ids", false, 0, 8),
+		actionProseListField("checks", false, 0, 64, "worker_job_text"),
+		actionItemArrayField("prerequisites", false, 0, 64, "worker_job_prerequisite"),
+		actionProseListField("unresolved_refs", false, 0, 64, "worker_job_text"),
+		actionStringField("reserved_integration", false, 4096),
+		WorkflowPayloadField{Name: "ready", ValueType: PayloadBoolean, Required: true},
+		actionListField("readiness_evidence", false, 0, 16),
+	),
 }
 
 // workflowCallerEvidenceBinders names the actions whose completed event binds

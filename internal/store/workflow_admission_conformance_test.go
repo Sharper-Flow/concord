@@ -145,7 +145,11 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair", 1, acceptor); err != nil {
 		t.Fatalf("accept repair: %v", err)
 	}
-	model = admissionSuccessor(def, model, "accept_worker_result")
+	// The fixture appends this repair attempt without a worker-job binding,
+	// so its accept is the advancing successor; the job-bound accept that
+	// holds is replayed by TestAdmissionConformanceLocalJobAcceptHolds.
+	repairAccepts := admissionSuccessors(def, model, "accept_worker_result")
+	model = repairAccepts[len(repairAccepts)-1]
 	conformanceCheckpoint(t, s, workID, def, model, "after repair accept")
 
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
@@ -176,9 +180,72 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	if err := acceptRefineResult(t, s, workID, "attempt:"+workID+":review-2", 1, acceptor); err != nil {
 		t.Fatalf("accept the settling review: %v", err)
 	}
-	model = admissionSuccessor(def, model, "accept_worker_result")
+	// The settling review carries no worker job and asserts delivery, so
+	// its accept is the advancing successor.
+	settlingAccepts := admissionSuccessors(def, model, "accept_worker_result")
+	model = settlingAccepts[len(settlingAccepts)-1]
 	conformanceCheckpoint(t, s, workID, def, model, "after settling accept")
 	if model.debt != ReviewDebtNone || model.step != "delivery" {
 		t.Fatalf("settling accept left model step %q debt %q", model.step, model.debt)
+	}
+}
+
+// TestAdmissionConformanceLocalJobAcceptHolds replays the CD-0205 local
+// acceptance on the current break-fix definition through the real store: a
+// recorded job, its job-bound dispatch and report, and the plain accept that
+// satisfies the job. The loader's fold must equal the model's holding
+// successor, and the held state must still exit through the delivery
+// assertion the step declares.
+func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
+	const workID = "admission-conformance-local-job"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	if !admissionLocalJobAcceptStep(def, "repair") {
+		t.Fatalf("%s v%d repair does not carry the worker-job lifecycle", def.Ref, def.Version)
+	}
+	acceptor := reviewGateAcceptor(workID)
+
+	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
+	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
+	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
+	model = admissionSuccessor(def, model, "start_repair")
+	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
+
+	job := &WorkerJobBinding{JobID: "job:conformance-repair", Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
+	model = admissionSuccessor(def, model, "record_worker_job")
+	conformanceCheckpoint(t, s, workID, def, model, "after record_worker_job")
+
+	attempt := "attempt:" + workID + ":repair"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "conformance-repair", job)
+	if err := completeJobBoundAttemptForTest(s, workID, attempt, BuiltinLaneDefinitions()[0], job); err != nil {
+		t.Fatal(err)
+	}
+	model = admissionSuccessor(def, model, "dispatch_worker")
+	conformanceCheckpoint(t, s, workID, def, model, "after job-bound repair completion")
+
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
+		t.Fatalf("local accept: %v", err)
+	}
+	accepts := admissionSuccessors(def, model, "accept_worker_result")
+	if len(accepts) != 2 || accepts[0].step != "repair" || accepts[1].step == "repair" {
+		t.Fatalf("model accept successors = %v, want the held local acceptance then the advance", accepts)
+	}
+	model = accepts[0]
+	conformanceCheckpoint(t, s, workID, def, model, "after local job accept")
+
+	held := false
+	for _, actionID := range admissionStateActions(def, model) {
+		if actionID == "record_delivery" {
+			held = true
+			if next := admissionSuccessor(def, model, actionID); next.step == "repair" {
+				t.Fatalf("record_delivery from the held state stays at repair: %s", next)
+			}
+		}
+	}
+	if !held {
+		t.Fatal("the held repair state declares no record_delivery exit")
 	}
 }

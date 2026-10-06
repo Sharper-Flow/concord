@@ -84,6 +84,13 @@ func admissionContinuityAction(actionID string) bool {
 	return actionID == "checkpoint_context" || actionID == "cross_context_boundary"
 }
 
+// admissionLocalJobAcceptStep reports whether an accept at the step may be
+// local acceptance of one worker job (CD-0205): the pin carries the worker-job
+// lifecycle and the step declares record_worker_job.
+func admissionLocalJobAcceptStep(definition WorkflowDefinition, step string) bool {
+	return workflowWorkerJobsActive(definition) && stepDeclaresAction(definition, step, "record_worker_job")
+}
+
 // admissionStateActions resolves the action universe of one abstract state:
 // the actions the step declares plus every off-step recovery action. The
 // admission decision and the guard preconditions decide which admit.
@@ -480,7 +487,20 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	}
 	if advance {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-			next = admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
+			advanced := admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
+			if actionID == "accept_worker_result" && admissionLocalJobAcceptStep(definition, state.step) {
+				// CD-0205: on a job-capable pin the accept of a job-bound
+				// attempt is local acceptance and holds the step. The
+				// accept advances only for an attempt without a job, or
+				// where the step exits through delivery, only when the
+				// delivery derivation admits the assertion it carries.
+				successors := []admissionModelState{next}
+				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+					successors = append(successors, advanced)
+				}
+				return successors
+			}
+			next = advanced
 		}
 	}
 	return []admissionModelState{next}

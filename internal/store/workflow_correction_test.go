@@ -319,7 +319,7 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	const workID = "work-c1b9adae6631673333fc94b8"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 
@@ -1444,7 +1444,7 @@ func dispatchCountingAttempt(t *testing.T, s *Store, stepID, attemptID string, c
 func TestAcceptedWorkerResultResetsCorrectionAttemptCount(t *testing.T) {
 	const workID = "correction-count-accept-reset"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	lane := BuiltinLaneDefinitions()[0]

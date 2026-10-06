@@ -107,7 +107,7 @@ func TestEscalatedApprovalAdmitsTheSameStepDispatch(t *testing.T) {
 func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	const workID = "same-step-wall-accept-reset"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}

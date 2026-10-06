@@ -531,14 +531,105 @@ func workflowCorrectionActiveHealthyBaseline(ctx context.Context, q queryer, wor
 	return workflowCorrectionHealthyBaseline(ctx, q, workID, contractVersion, beforeSeq)
 }
 
+// workflowCorrectionAttemptCount counts the dispatched worker attempts in
+// the open correction window (CD-0164 D1). The window boundary is derived by
+// workflowCorrectionWindowBoundary, which owns the CD-0164 D2 reset and its
+// CD-0205 refinement: while a job-bound failed attempt is unresolved, only
+// an acceptance whose attempt was dispatched under the same job identity
+// opens a new window.
 func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
+	boundary, err := workflowCorrectionWindowBoundary(ctx, q, workID, seq, subject)
+	if err != nil {
+		return 0, err
+	}
 	var count int64
 	// Authorization already creates an attempt. Dispatch evidence corroborates
 	// that same identity, so count it once rather than requiring or doubling it.
-	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=opening.subject_type AND accepted.subject_id=opening.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>?`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, boundary).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil
+}
+
+// workflowCorrectionWindowBoundary walks the work item's dispatch, failure,
+// and acceptance history in log order and returns the sequence the
+// correction counting window opens after.
+//
+// CD-0164 D2: an accepted worker result opens a new window. CD-0205 refines
+// that reset for job-bound dispatches: while a failed attempt dispatched
+// under a recorded worker job is unresolved, only an acceptance that carries
+// a recorded worker-job disposition naming that job opens a new window. The
+// disposition is recorded on the acceptance event itself by the accept guard,
+// derived from the accepted attempt's dispatch binding — never asserted by
+// the caller and never inferred here by matching names against dispatches.
+// An unrelated accepted job — a disposition naming a different job_id, or an
+// acceptance with no job binding — leaves the boundary, the counted
+// dispatches, and the retry budget exactly as they were. Every job-bound
+// failed dispatch in the open window adds its own unresolved job, so several
+// unresolved failures each stay open until their own recorded disposition.
+//
+// Histories with no job binding on any dispatched attempt keep the CD-0164
+// D2 behavior byte-for-byte: every acceptance opens a window. The walk is a
+// pure function of the event log prefix at seq — failure facts come from
+// record_worker_failure events inside the prefix, not from the current
+// worker_attempts lifecycle — so replaying any prefix derives the same
+// boundary (CD-0201 parity).
+func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),'') FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','accept_worker_result'))) ORDER BY e.seq`, string(SubjectWorkItem), workID, seq, WorkerDispatched, WorkflowActionCompleted)
+	if err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
+	}
+	defer func() { _ = rows.Close() }()
+	boundary := int64(0)
+	unresolved := make(map[string]bool)
+	dispatchJob := make(map[string]string)
+	for rows.Next() {
+		var rowSeq int64
+		var kind, dispatchAttempt, actionAttempt, actionID, jobID string
+		if err := rows.Scan(&rowSeq, &kind, &dispatchAttempt, &actionAttempt, &actionID, &jobID); err != nil {
+			return 0, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+		}
+		switch kind {
+		case string(WorkerDispatched):
+			if jobID != "" {
+				dispatchJob[dispatchAttempt] = jobID
+			}
+		case string(WorkflowActionCompleted):
+			if actionID == "record_worker_failure" {
+				if job := dispatchJob[actionAttempt]; job != "" {
+					// A job-bound attempt failed inside the walked prefix:
+					// its job joins the unresolved set and stays there
+					// until an acceptance records a disposition naming it.
+					unresolved[job] = true
+				}
+				continue
+			}
+			if rowSeq >= seq {
+				continue
+			}
+			if len(unresolved) == 0 {
+				// CD-0164 D2: with no unresolved job-bound failure, any
+				// accepted result opens a new window.
+				boundary = rowSeq
+				continue
+			}
+			if jobID != "" && unresolved[jobID] {
+				// The acceptance carries a recorded worker-job disposition
+				// naming one unresolved job. The window opens only when the
+				// last unresolved job is satisfied.
+				delete(unresolved, jobID)
+				if len(unresolved) == 0 {
+					boundary = rowSeq
+				}
+			}
+			// Any other acceptance leaves the boundary and the unresolved
+			// jobs unchanged (CD-0205).
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
+	}
+	return boundary, nil
 }
 
 // workflowSameStepFailedAttemptCount counts the failed worker attempts whose
@@ -1337,10 +1428,25 @@ func workflowCorrectionContext(ctx context.Context, q queryer, workID, stepID st
 // operator-approvable escape. json_extract returns NULL for a missing path and
 // a plain = with NULL on either side matches no row, so a completion without a
 // worker_attempt_id consumes nothing.
+//
+// Job-aware consumption (the worker-job lifecycle repair): when the failed
+// attempt was dispatched under a recorded worker job, only a newer dispatch
+// under the same job identity consumes its correction record. An unrelated
+// job's dispatch — a different job_id, or a dispatch with no job binding —
+// leaves the record live, so the pin keeps carrying the open window, its
+// counted dispatches, and the exact retry approval to the corrective retry.
+// A failure with no job binding keeps the historical behavior: any newer
+// materialized dispatch consumes it.
 func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID, stepID, dispatchAttemptID string) (*WorkflowCorrectionContext, error) {
+	// failedJob selects the worker-job identity the failed attempt was
+	// dispatched under; nextJob selects the identity the consuming dispatch
+	// was dispatched under. Both read the recorded worker.dispatched
+	// bindings, never caller-asserted fields.
+	const failedJob = `(SELECT json_extract(failed.payload,'$.worker_job.job_id') FROM domain_events failed WHERE failed.subject_type=d.subject_type AND failed.subject_id=d.subject_id AND failed.kind=? AND json_extract(failed.payload,'$.attempt_id')=json_extract(d.payload,'$.worker_attempt_id') ORDER BY failed.seq DESC LIMIT 1)`
+	const nextJob = `(SELECT json_extract(nextdis.payload,'$.worker_job.job_id') FROM domain_events nextdis WHERE nextdis.subject_type=newer.subject_type AND nextdis.subject_id=newer.subject_id AND nextdis.kind=? AND json_extract(nextdis.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id') ORDER BY nextdis.seq DESC LIMIT 1)`
 	query := `SELECT d.seq,d.payload FROM domain_events d
 WHERE d.subject_type=? AND d.subject_id=? AND d.kind=?
-	  AND json_extract(d.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction')
+  AND json_extract(d.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction')
   AND NOT EXISTS (SELECT 1 FROM domain_events newer
     WHERE newer.subject_type=d.subject_type AND newer.subject_id=d.subject_id
       AND newer.kind=? AND newer.seq>d.seq
@@ -1348,8 +1454,10 @@ WHERE d.subject_type=? AND d.subject_id=? AND d.kind=?
       AND EXISTS (SELECT 1 FROM domain_events dispatched
         WHERE dispatched.subject_type=newer.subject_type AND dispatched.subject_id=newer.subject_id
           AND dispatched.kind=?
-          AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id'))`
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, WorkflowActionCompleted, WorkerDispatched}
+          AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id'))
+      AND (COALESCE(` + failedJob + `,'')=''
+        OR COALESCE(` + failedJob + `,'')=COALESCE(` + nextJob + `,''))`
+	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, WorkflowActionCompleted, WorkerDispatched, WorkerDispatched, WorkerDispatched, WorkerDispatched}
 	if dispatchAttemptID != "" {
 		query += ` AND json_extract(newer.payload,'$.worker_attempt_id')<>?`
 		args = append(args, dispatchAttemptID)
@@ -1405,7 +1513,20 @@ ORDER BY d.seq DESC LIMIT 1`
 			return nil, nil
 		}
 	}
-	count, err := workflowCorrectionAttemptCount(ctx, q, workID, seq, "workflow_correction")
+	countThrough := seq
+	job, err := workflowDispatchedJobForAttempt(ctx, q, workID, fields.AttemptID)
+	if err != nil {
+		return nil, err
+	}
+	if job != nil {
+		// A retained job correction remains open across unrelated dispatches.
+		// Count its current window, not the prefix at which the failure was
+		// recorded. Unbound histories retain their recorded-prefix semantics.
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),?) FROM domain_events WHERE subject_type=? AND subject_id=?`, seq, string(SubjectWorkItem), workID).Scan(&countThrough); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
+		}
+	}
+	count, err := workflowCorrectionAttemptCount(ctx, q, workID, countThrough, "workflow_correction")
 	if err != nil {
 		return nil, err
 	}

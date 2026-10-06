@@ -772,6 +772,15 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	if !decision.Admitted && !workflowAdmissionDefersToReviewGate(*decision, g.request.ActionID) {
 		return workflowExecutionAdmissionFailure(*decision, g.request.ProjectTooling)
 	}
+	// On a job-capable pin the payload-blind accept admission is local
+	// acceptance and carries no delivery facet (CD-0205), so the
+	// delivery-asserting accept applies the same delivery derivation here,
+	// where the payload names the assertion.
+	if g.request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(g.entry.Definition) {
+		if delivery := workflowAdmitDelivery(*state, WorkflowAdmissionDecision{}); delivery.Failure != nil {
+			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
+		}
+	}
 	if state.Delivery.ProofRequired && g.request.ProjectTooling != nil {
 		qualifying, why, err := workflowVerificationProof(g.deliveryProofRuns, g.request.ProjectTooling)
 		if err != nil {
@@ -831,6 +840,21 @@ func guardAcceptWorkerResultDeliveryRoute(g *workflowActionGuardContext) error {
 		// does carry the assertion, and admits the one that does not.
 		if workflowAcceptBindsReadyUnsettledReview(g.admissionState, fields) {
 			return guardPostRejectionReviewGate(g)
+		}
+		// On a job-capable pin a plain accept of a job-bound attempt is local
+		// acceptance of that one worker job: the fold holds the step, so the
+		// accept carries no exit and keeps the post-rejection review gate
+		// (CD-0205). An attempt dispatched without a job binding has no local
+		// disposition to record, and the refine step still exits only through
+		// an admitted delivery assertion.
+		if artifact == "" && state == "" && workflowWorkerJobsActive(g.entry.Definition) {
+			job, jobErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+			if jobErr != nil {
+				return jobErr
+			}
+			if job != nil {
+				return guardPostRejectionReviewGate(g)
+			}
 		}
 		if artifact == "" || state == "" {
 			return newFailure(KindInvalidOperation, "workflow_action",
@@ -1361,17 +1385,37 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["delivery_artifact"] = artifact
 		completionValues["delivery_state"] = state
 	}
+	// CD-0205: an acceptance records the worker-job disposition it
+	// satisfies. The binding is derived here from the accepted attempt's
+	// worker.dispatched event — the caller never asserts it — so the
+	// correction window closes on a recorded disposition under the exact
+	// dispatched job, and an unrelated accepted job cannot close another
+	// job's window by name.
+	var acceptedJob *WorkerJobBinding
+	if in.request.ActionID == "accept_worker_result" {
+		job, jobErr := workflowDispatchedJobForAttempt(in.ctx, in.tx, in.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+		if jobErr != nil {
+			return events, "", jobErr
+		}
+		acceptedJob = job
+		if job != nil {
+			completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
+		}
+	}
 	// CD-0198 D4: the combined accept asserts the same delivery fields on the
 	// same completion event a record_delivery appends, so delivery readers
 	// identify the assertion by its asserted fields rather than by action_id.
 	// The guard already required the fields; this refuses closed if the
-	// route ever runs without them. The accepted non-delivery disposition of
-	// a ready non-settling review is the one exempt shape: the guard admitted
-	// it and a refused result carries no delivery assertion (CD-0201 D3).
+	// route ever runs without them. Two non-delivery shapes are exempt, each
+	// admitted by the guard: the accepted disposition of a ready non-settling
+	// review, whose refused result carries no delivery assertion (CD-0201
+	// D3), and on a job-capable pin the local acceptance of a job-bound
+	// attempt, which the fold holds at the step (CD-0205).
 	if in.request.ActionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(in.entry.Definition, in.currentStep) {
 		artifact := workflowFieldStringDefault(fields, "delivery_artifact", "")
 		state := workflowFieldStringDefault(fields, "delivery_state", "")
-		if (artifact == "" || state == "") && !workflowAcceptBindsReadyUnsettledReview(in.admission, fields) {
+		localJobAccept := artifact == "" && state == "" && acceptedJob != nil && workflowWorkerJobsActive(in.entry.Definition)
+		if (artifact == "" || state == "") && !workflowAcceptBindsReadyUnsettledReview(in.admission, fields) && !localJobAccept {
 			return events, "", newFailure(KindInvalidPayload, "workflow_action", "the combined accept requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
 		}
 		if artifact != "" && state != "" {
@@ -1457,6 +1501,16 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			}
 			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
 				return events, "", err
+			}
+			// CD-0205: the completion records the selected worker-job
+			// revision the packet binds, so worker.dispatched, the report,
+			// and the acceptance can each be held to that exact revision.
+			job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
+			if jobErr != nil {
+				return events, "", jobErr
+			}
+			if job != nil {
+				completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 			}
 		}
 		// The registry lane identity rides the completion so the fold can

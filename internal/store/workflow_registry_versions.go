@@ -1084,6 +1084,63 @@ func breakFixAcceptDeliveryV19() WorkflowDefinition {
 	return withCurrentAcceptDelivery(d)
 }
 
+// withWorkerJobs publishes the CD-0205 worker-job lifecycle: record_worker_job
+// joins every step where a job-executing lane may dispatch, so a coordinator
+// records the bounded job where it dispatches it. The behavior the version gates —
+// a dispatch must bind the selected ready revision, and a job-bound accept
+// without a delivery assertion holds the step — lives in the guards and the
+// fold, keyed on workflowWorkerJobsActive.
+func withWorkerJobs(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	record := currentActionDefinition("record_worker_job", true)
+	record.RequiredCapability = "work_transition"
+	definition.AvailableActions = append(definition.AvailableActions, record.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
+	for i := range definition.StepGraph.Steps {
+		if containsString(definition.StepGraph.Steps[i].Actions, "dispatch_worker") && workerJobStepKind(definition.StepGraph.Steps[i].Kind) {
+			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, record.ID)
+		}
+	}
+	return definition
+}
+
+// workerJobStepKind reports whether some job-executing lane class may
+// dispatch at a step of this kind.
+func workerJobStepKind(kind WorkflowStepKind) bool {
+	for _, class := range LaneStepDispatchClasses(kind) {
+		if workerJobCapabilityClass(class) {
+			return true
+		}
+	}
+	return false
+}
+
+func implementationWorkerJobsV23() WorkflowDefinition {
+	d := implementationProposalOutOfScopeV22()
+	d.Version = 23
+	return withWorkerJobs(d)
+}
+
+func breakFixWorkerJobsV20() WorkflowDefinition {
+	d := breakFixAcceptDeliveryV19()
+	d.Version = 20
+	return withWorkerJobs(d)
+}
+
+// workflowWorkerJobsActive reports whether a pinned definition carries the
+// CD-0205 worker-job lifecycle. Earlier versions keep the behavior and digest
+// they shipped with: no job binding, and an accept that advances as before.
+func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
+	switch definition.Ref {
+	case "workflow.implementation":
+		return definition.Version >= 23
+	case "workflow.break_fix":
+		return definition.Version >= 20
+	default:
+		return false
+	}
+}
+
 func researchVerdictBatchV12() WorkflowDefinition {
 	d := researchConfirmPremiseV11()
 	d.Version = 12

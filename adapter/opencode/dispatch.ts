@@ -73,7 +73,44 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+// AgentLanePacketWorkerJob mirrors inputs.worker_job of
+// contracts/agent-lane-packet.schema.json: the one recorded ready worker-job
+// revision the attempt executes (CD-0205). inputs.task stays the complete
+// parent contract premise.
+export interface AgentLanePacketWorkerJob {
+  job_id: string
+  revision: number
+  digest: string
+  objective: string
+  stopping_condition: string
+  project_scope: string
+  path_scope: string[]
+  predicate_ids: string[]
+  checks: string[]
+  prerequisites: { job_id: string; revision: number; result_ref?: string }[]
+  unresolved_refs: string[]
+  reserved_integration: string
+}
+
+// AgentLaneReportWorkerJob mirrors the report's worker_job claim: the
+// revision the report completes, copied from the packet's inputs.worker_job.
+export interface AgentLaneReportWorkerJob {
+  job_id: string
+  revision: number
+  digest: string
+}
+
+// packetWorkerJobBinding projects the packet's worker-job revision onto the
+// worker-dispatch evidence binding (CD-0205). The core refuses dispatch
+// evidence whose binding differs from the one its authorization recorded, so
+// a job-bound packet must carry its binding onto every dispatch record,
+// born-failed records included.
+function packetWorkerJobBinding(packet: Pick<AgentLanePacket, "inputs">): { worker_job?: AgentLaneReportWorkerJob } {
+  const job = packet.inputs?.worker_job
+  return job ? { worker_job: { job_id: job.job_id, revision: job.revision, digest: job.digest } } : {}
 }
 
 // AgentLanePacketOutcomePredicate is one typed outcome predicate the packet
@@ -157,6 +194,7 @@ export interface AgentLaneReport {
   evidence: AgentLaneReportEvidence[]
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
+  worker_job?: AgentLaneReportWorkerJob
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
@@ -1229,7 +1267,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
     readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
     report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
-    host_provenance: provenance, assertion,
+    host_provenance: provenance, ...packetWorkerJobBinding(packet), assertion,
   }, signal)
   if (failure === null) onRecorded?.()
   return failure
@@ -1981,6 +2019,7 @@ async function completeWorkerSession(
     // claims is the value the core recorded (CD-0067 D6).
     packet_digest: options.packetDigest,
     host_provenance: provenance,
+    ...packetWorkerJobBinding(packet),
     assertion: dispatchAssertion,
   }, signal)
   if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
@@ -2056,6 +2095,7 @@ async function completeWorkerSession(
     evidence: terminal.report.evidence,
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
+    worker_job: terminal.report.worker_job,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)

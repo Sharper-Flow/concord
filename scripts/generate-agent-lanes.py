@@ -158,6 +158,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     review_block = review
     review_findings = review["properties"]["findings"]
     review_finding = report_schema["$defs"]["review_finding"]
+    worker_job = properties["worker_job"]
     return [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
@@ -246,6 +247,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "review verdict consistency: "
         "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
         "and one with a `no_ship` verdict and zero findings.",
+        "worker_job: optional top-level object; "
+        f"type={worker_job['type']}, "
+        f"additionalProperties={json.dumps(worker_job['additionalProperties'])}, "
+        f"required={json.dumps(worker_job['required'], ensure_ascii=False)}. "
+        "When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; "
+        "omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, "
+        "or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; "
+        "`inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.",
     ]
 
 

@@ -25,9 +25,17 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 		t.Fatalf("pin test definition: %v", err)
 	}
 	attemptID := "attempt:" + workID
+	if workflowWorkerJobsActive(entry.Definition) {
+		seedActiveContract(t, s, workID, 1, "Recover a failed worker authorization.\n")
+	}
+	job := readyWorkerJobForTest(t, s, workID, entry.Definition, seed.ownerActor, "job:authorized-failure")
+	packet := dispatchWorkerPacket(t, s, workID, "execution", attemptID)
+	if job != nil {
+		packet["inputs"].(map[string]any)["worker_job"] = job
+	}
 	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
-		Payload:         mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": dispatchWorkerPacket(t, s, workID, "execution", attemptID)}),
+		Payload:         mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": packet}),
 		SessionWorktree: dispatchSessionWorktree(t, s, workID), Actor: seed.ownerActor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64),
 		IdempotencyIdentity:  "authorize:" + workID, OperationID: "authorize:" + workID,
@@ -202,7 +210,15 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	laneVersion, laneDigest := registeredLaneIdentity(t, "implement")
+	breakFix, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := readyWorkerJobForTest(t, s, workID, breakFix.Definition, fixture.owner, "job:stale-registry-retry")
 	packet := joinPacketFor(t, s, workID, "repair", attemptID, "implement", laneVersion, laneDigest)
+	if job != nil {
+		packet["inputs"].(map[string]any)["worker_job"] = job
+	}
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatal(err)
 	}

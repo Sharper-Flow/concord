@@ -216,6 +216,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
+	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
 	dispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
 	failure := store.Event{EventID: "retry-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {

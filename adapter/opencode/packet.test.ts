@@ -1134,3 +1134,53 @@ test("generated guidance teaches the canonical task, binding authority, and coun
   expect(agent).toContain("do not ask to reapprove unchanged scope")
   expect(agent).not.toMatch(/Task prompt (cap|limit)/i)
 })
+
+// CD-0205: a job-executing lane at a step that declares record_worker_job
+// binds the one dispatch-ready worker-job revision verbatim; zero or several
+// ready revisions refuse, and a step without the declaration binds no job.
+const READY_JOB = {
+  job_id: "job:projected-repair",
+  revision: 2,
+  digest: `sha256:${"a".repeat(64)}`,
+  objective: "Apply the bounded repair.",
+  stopping_condition: "The recorded checks pass.",
+  project_scope: "project-1",
+  path_scope: ["internal/store"],
+  predicate_ids: [],
+  checks: ["go test ./internal/store/"],
+  prerequisites: [{ job_id: "job:earlier", revision: 1 }],
+  unresolved_refs: [],
+  reserved_integration: "",
+}
+
+const jobContinuity = (stepActions: string[], ready: unknown[]) => {
+  const envelope = continuityEnvelope() as any
+  envelope.result.pinned.step_actions = stepActions
+  if (ready.length > 0) envelope.result.pinned.ready_worker_jobs = ready
+  return envelope
+}
+
+test("a job-executing lane binds the one ready worker-job revision verbatim", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) })
+  expect(built.failure).toBeUndefined()
+  expect(built.packet!.inputs.worker_job).toEqual(READY_JOB)
+  expect(built.packet!.inputs.task).toBe(pinnedContract().premise)
+})
+
+test("a job-capable step refuses a dispatch without exactly one ready worker job", async () => {
+  const none = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], []) })
+  expect(none.failure?.kind).toBe("worker_job_unavailable")
+  const several = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB, { ...READY_JOB, job_id: "job:other", revision: 1 }]) })
+  expect(several.failure?.kind).toBe("worker_job_ambiguous")
+  expect(several.failure?.message).toContain("job:projected-repair@2")
+  expect(several.failure?.message).toContain("job:other@1")
+})
+
+test("a step without record_worker_job and a non-job lane bind no worker job", async () => {
+  const legacy = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker"], [READY_JOB]) })
+  expect(legacy.failure).toBeUndefined()
+  expect(legacy.packet!.inputs.worker_job).toBeUndefined()
+  const review = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) }, { laneId: "review" })
+  expect(review.failure).toBeUndefined()
+  expect(review.packet!.inputs.worker_job).toBeUndefined()
+})

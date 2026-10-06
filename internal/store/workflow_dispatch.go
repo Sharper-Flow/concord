@@ -826,6 +826,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowRecordAlignmentEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "supersede_contract":
 		return workflowSupersedeContractEvents(ctx, tx, definition, request, actor, raw, fields, eventID, expected)
+	case "record_worker_job":
+		return workflowRecordWorkerJobEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "accept_worker_result", "accept_worker_evidence":
 		return workflowAcceptWorkerResultEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":

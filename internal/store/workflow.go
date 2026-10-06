@@ -240,6 +240,13 @@ type workflowActionCompletedPayload struct {
 	// field only and never re-derives the verdict, so an event without the
 	// field advances as recorded and recorded history replays unchanged.
 	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
+	// WorkerJob carries the recorded worker-job disposition an acceptance
+	// satisfies (CD-0205). The accept guard derives it from the accepted
+	// attempt's worker.dispatched binding — the caller never asserts it —
+	// so the correction window closes on the dispatched job's own recorded
+	// disposition and never on a name match against another job. Absent on
+	// every acceptance whose attempt was dispatched without a job binding.
+	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
 	// VerdictEntryCount carries the number of entries one batched
 	// record_verdict operation judged, so the fold bounds the operation's
 	// result evidence at the schema-bounded batch union instead of the
@@ -1920,6 +1927,17 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.ActionID != "accept_worker_result" && p.ActionID != "accept_worker_evidence" && p.ActionID != "record_worker_failure" && p.ActionID != "reject_worker_result" && p.ActionID != "dispatch_worker" && p.WorkerAttemptID != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_attempt_id is reserved for worker result actions and dispatch_worker", false, "omit worker_attempt_id for ordinary action completion")
 	}
+	// The worker-job binding is recorded authority (CD-0205): the
+	// dispatch_worker completion records the revision the packet binds, and
+	// the accept_worker_result completion records the disposition it
+	// satisfies. Both must be whole — a job_id, a positive revision, and a digest — because
+	// the correction window reads it as the durable fact that one recorded
+	// job was satisfied.
+	if p.WorkerJob != nil {
+		if p.ActionID != "accept_worker_result" && p.ActionID != "dispatch_worker" || !workflowString(p.WorkerJob.JobID, 128) || p.WorkerJob.Revision < 1 || !workflowString(p.WorkerJob.Digest, 128) {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for dispatch_worker and accept_worker_result and requires job_id, revision, and digest", false, "record the disposition derived from the accepted attempt's dispatch binding")
+		}
+	}
 	// The lane identity is the dispatch_worker completion's in-flight
 	// binding input, so it is reserved for that action and must arrive all
 	// together: a partial identity would bind an attempt the fold cannot
@@ -2104,6 +2122,15 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := validateWorkflowActionCompletedShape(p); err != nil {
 		return err
 	}
+	// CD-0205: an accepted worker result records the worker-job disposition
+	// it satisfies, on the exact revision the accept guard derived from the
+	// attempt's dispatch binding. The update fails closed when the derived
+	// disposition names a revision that is not recorded under that digest.
+	if p.ActionID == "accept_worker_result" && p.WorkerJob != nil {
+		if err := markWorkerJobSatisfiedTx(ctx, tx, event, p.WorkerJob); err != nil {
+			return err
+		}
+	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -2141,8 +2168,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 		// it authors (review_advance_held), and the fold honors the recorded
 		// field only. An event without the field advances as recorded, so
 		// recorded history replays unchanged.
+		//
+		// A job-bound acceptance without a delivery assertion is local
+		// acceptance (CD-0205): it records the disposition of its one worker
+		// job and holds the parent step. Whole-work delivery stays with
+		// record_delivery and the delivery-asserting accept. The fold reads
+		// the recorded worker_job and delivery fields only.
 		if p.ActionID == "accept_worker_result" {
-			advancesStep = advancesStep && !p.ReviewAdvanceHeld
+			advancesStep = advancesStep && !p.ReviewAdvanceHeld && !(p.WorkerJob != nil && p.DeliveryState == "")
 		}
 		if advancesStep {
 			if err := rejectWorkerDispatchedStepAdvance(ctx, tx, entry.Definition, event.SubjectID, currentStep, p.ActionID, event.Seq); err != nil {

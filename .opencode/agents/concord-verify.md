@@ -146,6 +146,7 @@ Report contract constraints:
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.
 - review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
+- worker_job: optional top-level object; type=object, additionalProperties=false, required=["job_id", "revision", "digest"]. When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; `inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

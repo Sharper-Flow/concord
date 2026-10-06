@@ -473,7 +473,11 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = workflowFailureOf(err)
 		return decision
 	}
-	if actionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(definition, state.Step) && !(state.ReadyReviewAttemptID != "" && !state.ReadyReviewSettles) {
+	// On a job-capable pin (CD-0205) the payload-blind accept is admissible
+	// as local acceptance of one worker job, which holds the step; the
+	// delivery-asserting accept applies workflowAdmitDelivery at its
+	// payload-bound guard instead.
+	if actionID == "accept_worker_result" && workflowAcceptDeliveryAdmissionActive(definition, state.Step) && !workflowWorkerJobsActive(definition) && !(state.ReadyReviewAttemptID != "" && !state.ReadyReviewSettles) {
 		decision = workflowAdmitDelivery(state, decision)
 		if decision.Failure != nil {
 			return decision

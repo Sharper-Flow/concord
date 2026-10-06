@@ -286,8 +286,12 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	if state != "completed" {
 		t.Fatalf("workflow state = %q, want completed", state)
 	}
+	beforeReplay := s.DurableCommits()
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("completion replay: %v", err)
+	}
+	if after := s.DurableCommits(); after != beforeReplay+1 {
+		t.Fatalf("completion replay bypassed the durable commit owner: %d -> %d", beforeReplay, after)
 	}
 	assertTableCount(t, s, "workflow_impact_notices", 0)
 }

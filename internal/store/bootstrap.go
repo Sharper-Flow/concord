@@ -326,7 +326,7 @@ func (s *Store) existingBootstrapIdentity(ctx context.Context, workID, productID
 // bootstrap with the stored governing requirements as the declared set, and
 // derives the operation identity from the Product, Project, and work
 // identities alone, so a retry reconciles the same claim.
-func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBootstrapRequest, declared []string, runner GitRunner) (BootstrapResult, error) {
+func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBootstrapRequest, declared []string, runner GitRunner) (_ BootstrapResult, retErr error) {
 	operationID, _, _, err := CanonicalExistingBootstrapIdentity(req)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot derive existing bootstrap identity", false, "supply bounded work identity", err)
@@ -370,7 +370,7 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the resume scope", true, "retry the same operation", err)
 	}
-	defer tx.Rollback()
+	defer tx.finish(&retErr)
 	if err := validateBootstrapScopeTx(ctx, tx.Tx, req.ProductID, req.ProjectID, declared); err != nil {
 		return BootstrapResult{}, err
 	}
@@ -1162,7 +1162,7 @@ func (s *Store) probeBootstrapJournal(ctx context.Context, runner GitRunner, req
 	return probe, nil
 }
 
-func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, location WorktreeLocation, runner GitRunner) (bootstrapPrepared, error) {
+func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, operationID, workID, digest string, existing bool, journalRequest any, location WorktreeLocation, runner GitRunner) (_ bootstrapPrepared, retErr error) {
 	var out bootstrapPrepared
 	// The pre-transaction observation (CD-0195 D2) runs in
 	// probeBootstrapJournal. The transaction re-reads both rows and refuses
@@ -1175,7 +1175,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)
 	}
-	defer tx.Rollback()
+	defer tx.finish(&retErr)
 	var storedDigest, state string
 	replayed := false
 	restarted := false
@@ -1203,7 +1203,11 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		if state == "completed" {
 			switch claimState {
 			case worktreeStatePending, worktreeStateVerified:
-				return replayCompletedBootstrapTx(ctx, tx.Tx, req, operationID, workID, state, location)
+				replay, err := replayCompletedBootstrapTx(ctx, tx.Tx, req, operationID, workID, state, location)
+				if err != nil {
+					return out, err
+				}
+				return replay, tx.Commit()
 			case worktreeStateReclaimed:
 				location, expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx.Tx, operationID, workID, location, probe.branchSHA, probe.branchExists, s.Clock)
 				if err != nil {
@@ -1228,7 +1232,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				return out, existingErr
 			}
 			if handled {
-				return replay, nil
+				return replay, tx.Commit()
 			}
 		}
 		if existing && !restarted {
@@ -1327,9 +1331,6 @@ func replayCompletedBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapRe
 	if err != nil {
 		return bootstrapPrepared{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return bootstrapPrepared{}, err
-	}
 	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: state, Location: location}, nil
 }
 
@@ -1339,9 +1340,6 @@ func replayExistingBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapReq
 		version, versionErr := workVersionTx(ctx, tx, workID)
 		if versionErr != nil {
 			return bootstrapPrepared{}, false, versionErr
-		}
-		if err := tx.Commit(); err != nil {
-			return bootstrapPrepared{}, false, err
 		}
 		return bootstrapPrepared{Result: BootstrapResult{Replayed: true, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID, WorkVersion: version, Entry: entry}, State: "completed", Location: WorktreeLocation{Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path}}, true, nil
 	}
@@ -1387,18 +1385,18 @@ func reopenReclaimedBootstrapStoreTx(ctx context.Context, tx *sql.Tx, operationI
 	return location, version, nil
 }
 
-func (s *Store) setBootstrapState(ctx context.Context, operationID, from, to string) error {
+func (s *Store) setBootstrapState(ctx context.Context, operationID, from, to string) (retErr error) {
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap phase record", true, "retry the same operation", err)
 	}
-	defer tx.Rollback()
+	defer tx.finish(&retErr)
 	var state string
 	if err := tx.QueryRowContext(ctx, `SELECT state FROM bootstrap_operations WHERE operation_id=?`, operationID).Scan(&state); err != nil {
 		return err
 	}
 	if state == to || state == "native_ready" || state == "completed" {
-		return nil
+		return tx.Commit()
 	}
 	if state != from {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "bootstrap journal phase conflicts with the requested transition", true, "retry the exact operation")
@@ -1617,12 +1615,12 @@ func validateBootstrapScopeTx(ctx context.Context, tx *sql.Tx, productID, projec
 	return nil
 }
 
-func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, operationID, workID string, location WorktreeLocation, facts worktreeFacts) (BootstrapResult, error) {
+func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, operationID, workID string, location WorktreeLocation, facts worktreeFacts) (_ BootstrapResult, retErr error) {
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	defer tx.Rollback()
+	defer tx.finish(&retErr)
 	var digest, state string
 	var expected int64
 	if err := tx.QueryRowContext(ctx, `SELECT request_digest,state,expected_version FROM bootstrap_operations WHERE operation_id=?`, operationID).Scan(&digest, &state, &expected); err != nil {

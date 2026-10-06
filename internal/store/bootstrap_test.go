@@ -1397,12 +1397,16 @@ func TestBootstrapCaptureIdentityIsCallerIntent(t *testing.T) {
 	if first.Entry.BaseSHA != defaultSHA {
 		t.Fatalf("pinned base=%s want the resolved default branch %s", first.Entry.BaseSHA, defaultSHA)
 	}
+	beforeReplay := s.DurableCommits()
 	replay, err := s.BootstrapWorktree(context.Background(), main, nil)
 	if err != nil || !replay.Replayed {
 		t.Fatalf("main-checkout replay=%+v err=%v", replay, err)
 	}
 	if replay.WorkID != first.WorkID || replay.Entry.Path != first.Entry.Path {
 		t.Fatalf("replay work=%s path=%s want work=%s path=%s", replay.WorkID, replay.Entry.Path, first.WorkID, first.Entry.Path)
+	}
+	if after := s.DurableCommits(); after != beforeReplay+1 {
+		t.Fatalf("bootstrap replay bypassed the durable commit owner: %d -> %d", beforeReplay, after)
 	}
 	var operations int
 	if err := s.db.QueryRow("SELECT count(*) FROM bootstrap_operations").Scan(&operations); err != nil || operations != 1 {

@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // FailureKind classifies a storage failure. Callers branch on the kind rather
 // than matching message text, so failure handling stays stable as wording
@@ -365,7 +368,27 @@ func newRouteFailure(kind FailureKind, op, detail string, retrySafe bool, route 
 func wrapFailure(kind FailureKind, op, detail string, retrySafe bool, recovery string, err error) *Failure {
 	f := newFailure(kind, op, detail, retrySafe, recovery)
 	f.Err = err
+	f.EffectPossible = failureEffectPossible(err)
 	return f
+}
+
+// failureEffectPossible preserves uncertainty from every cause, including a
+// joined cleanup failure. A false outer flag does not prove an inner effect absent.
+func failureEffectPossible(err error) bool {
+	if failure, ok := err.(*Failure); ok && failure != nil && failure.EffectPossible {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, cause := range wrapped.Unwrap() {
+			if failureEffectPossible(cause) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return failureEffectPossible(wrapped.Unwrap())
+	}
+	return false
 }
 
 func attributeFailure(err error, event Event, stage FailureStage) error {
@@ -386,23 +409,7 @@ func attributeFailure(err error, event Event, stage FailureStage) error {
 	return failure
 }
 
-// failureAs is kept local so attribution can preserve wrapped typed failures
-// without requiring callers to know the implementation of errors.As.
+// failureAs follows the standard error tree for typed failure attribution.
 func failureAs(err error, target **Failure) bool {
-	if err == nil {
-		return false
-	}
-	for err != nil {
-		if failure, ok := err.(*Failure); ok {
-			*target = failure
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
+	return errors.As(err, target)
 }

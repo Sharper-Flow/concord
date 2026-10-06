@@ -63,6 +63,10 @@ func violates(q queryer, r GitRunner) { r.RunStdin(nil, "dir", nil, "patch-id") 
 func foldTx() { os.RemoveAll("path") }`},
 		{"Transact closure spawns a subprocess", `package store
 func plans(s *Store) { s.Transact(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
+		{"TransactDurable closure spawns a subprocess", `package store
+func plans(s *Store) { s.TransactDurable(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
+		{"write transaction reaches a git runner", `package store
+func violates(tx *writeTx, r GitRunner) { r.Run(nil, "dir", "status") }`},
 		{"agent effect closure reaches a git runner", `package store
 func plan() { _ = func(tx *store.Transaction) error { _, err := runner.Run(nil, "dir", "worktree", "remove"); return err } }`},
 		{"nested cleanup in a transaction function", `package store
@@ -353,7 +357,7 @@ func (g *txSubprocessGraph) classifyBody(fn *txSubprocessFunc, pkg string, alias
 			walk(n.Body, holding || txSubprocessHoldingParams(n.Type.Params))
 			return
 		case *ast.CallExpr:
-			if selector, ok := n.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Transact" {
+			if selector, ok := n.Fun.(*ast.SelectorExpr); ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable") {
 				for _, arg := range n.Args {
 					if lit, ok := arg.(*ast.FuncLit); ok {
 						fn.txHolding = true
@@ -471,7 +475,7 @@ func txSubprocessHoldingParams(fields *ast.FieldList) bool {
 			if star, ok := expr.(*ast.StarExpr); ok {
 				switch inner := star.X.(type) {
 				case *ast.Ident:
-					if inner.Name == "Transaction" {
+					if inner.Name == "Transaction" || inner.Name == "writeTx" {
 						return true
 					}
 				case *ast.SelectorExpr:

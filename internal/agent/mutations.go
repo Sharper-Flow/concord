@@ -610,6 +610,43 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if !scopeWithinAuthority(authorizedScope, grant) {
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), true, nil
 	}
+	// The replay acknowledges the original authority, not only its observation
+	// count. Required approvals and persisted durability bindings select FULL;
+	// workflow actions and native claims carry their own durable boundaries.
+	durable := op.Approval == ApprovalClass("required") || op.ID == "concord_work_transition.workflow_action" || op.ID == "concord_work_transition.worktree_claim" || r.Tool == "concord_work_compact"
+	if rawDurability, present := authorizedScope["durable_commit"]; present {
+		committedDurably, valid := rawDurability.(bool)
+		if !valid {
+			return coreError(base, "invariant_violation", "stored mutation durability binding is malformed", "contact_operator", false), true, nil
+		}
+		durable = durable || committedDurably
+	} else if op.Approval == ApprovalClass("conditional") {
+		// Legacy records do not retain whether a conditional approval was
+		// consumed. Preserve a possible authority effect with a FULL replay.
+		durable = true
+	}
+	// Cross-Product authority requires approval even when the operation's
+	// base class does not. Replays use the stored, re-authorized Product set.
+	if products, present := authorizedScope["product_ids"].([]any); present && r.Envelope.SelectedProductID != "" {
+		for _, rawProduct := range products {
+			product, valid := rawProduct.(string)
+			if !valid || product == "" {
+				return coreError(base, "invariant_violation", "stored mutation Product binding is malformed", "contact_operator", false), true, nil
+			}
+			if product != r.Envelope.SelectedProductID {
+				durable = true
+			}
+		}
+	}
+	transact := r.Store.Transact
+	if durable {
+		transact = r.Store.TransactDurable
+	}
+	touchReplay := func() error {
+		return transact(ctx, func(tx *store.Transaction) error {
+			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now())
+		})
+	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		step, stepErr := store.Step(ctx, r.Store, opID)
 		if stepErr != nil {
@@ -624,7 +661,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
+		if err := touchReplay(); err != nil {
 			return Envelope{}, false, err
 		}
 		return replay, true, nil
@@ -645,7 +682,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
+		if err := touchReplay(); err != nil {
 			return Envelope{}, false, err
 		}
 		return response, true, nil
@@ -664,12 +701,12 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
+		if err := touchReplay(); err != nil {
 			return Envelope{}, false, err
 		}
 		return response, true, nil
 	}
-	if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
+	if err := touchReplay(); err != nil {
 		return Envelope{}, false, err
 	}
 	ref := operationRefFromFence(step, "pending", "git_proof")
@@ -1307,7 +1344,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	if requiresApproval && approval == "" {
 		spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: approvalConsequence, HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 		var challengeRef string
-		txErr := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+		txErr := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 			var err error
 			challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 			return err
@@ -3691,7 +3728,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 	if hostErr != nil {
 		return failureEnvelope(base, hostErr), nil
 	}
-	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
+	err = r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
 			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
@@ -4493,7 +4530,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			challengeScope := boundedApprovalScope(scope)
 			spec := ApprovalChallengeSpec{OperationDigest: digest, Scope: challengeScope, Versions: map[string]any{"work": publish.ExpectedVersion}, Consequence: string(op.Consequence), HostAssertionDigest: inv.HostAssertionDigest, ExpiresAt: r.Authority.now().Add(10 * time.Minute)}
 			var challengeRef string
-			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+			if err := r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 				var err error
 				challengeRef, err = r.Authority.CreateApprovalChallengeTx(ctx, tx, host, inv, spec)
 				return err
@@ -4995,6 +5032,8 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 	return response
 }
 
+var errApprovalDurabilityRequired = errors.New("approval authority requires a durable transaction")
+
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
@@ -5008,7 +5047,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 	if hostErr != nil {
 		return Envelope{}, hostErr
 	}
-	err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+	baseApprovalRequirement := requiresApproval
+	// A worktree claim binds SQL authority to an already-created native tree,
+	// including the no-approval path and its exact replay.
+	durable := requiresApproval || (r.Tool == "concord_work_transition" && r.Operation == "worktree_claim")
+	mutation := func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
 			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
@@ -5025,8 +5068,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		if err != nil {
 			return err
 		}
-		if crossProduct {
-			requiresApproval = true
+		requiresApproval = baseApprovalRequirement || crossProduct
+		if requiresApproval && !durable {
+			// SQL-only scope discovery runs before any effect or challenge.
+			// Reopen under FULL and revalidate scope before issuing authority.
+			return errApprovalDurabilityRequired
 		}
 		key := idempotencyKey(raw)
 		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
@@ -5121,7 +5167,9 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, r.Authority.now())
 		}
 		changedJSON, _ := json.Marshal(changed)
-		authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
+		authorizedSnapshot := boundedApprovalScope(scope)
+		authorizedSnapshot["durable_commit"] = durable
+		authorizedScope, _ := json.Marshal(authorizedSnapshot)
 		insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
 		if nativeFinalize != nil {
 			// The native removal runs after this commit; the record waits
@@ -5130,7 +5178,17 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return nil
 		}
 		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
-	})
+	}
+	transact := r.Store.Transact
+	if durable {
+		transact = r.Store.TransactDurable
+	}
+	err := transact(ctx, mutation)
+	if err == errApprovalDurabilityRequired {
+		durable = true
+		transact = r.Store.TransactDurable
+		err = transact(ctx, mutation)
+	}
 	if err == nil && nativeFinalize != nil {
 		if err := nativeFinalize(ctx); err != nil {
 			// The event is committed; the retryable failure names the native
@@ -5138,7 +5196,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			return failureEnvelope(base, err), nil
 		}
 		if deferredInsert != nil {
-			if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
+			if err := transact(ctx, func(tx *store.Transaction) error {
 				return store.InsertMutationIdempotencyTx(ctx, tx, *deferredInsert)
 			}); err != nil {
 				return failureEnvelope(base, err), nil
@@ -5156,11 +5214,10 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 	}
 	if err != nil {
-		// The transaction failed after the effect ran. An operation that
-		// created native state outside it — the worktree_claim's git tree and
-		// branch — compensates here; a removal that cannot be proven reports
-		// effect-possible through the cause.
-		if nativeCleanup != nil {
+		// Only compensate a proven rollback. A commit or restoration failure
+		// may follow persisted authority that still names the native state.
+		var committedFailure *store.Failure
+		if nativeCleanup != nil && (!errors.As(err, &committedFailure) || !committedFailure.EffectPossible) {
 			err = nativeCleanup(ctx, err)
 		}
 		var failure *store.Failure

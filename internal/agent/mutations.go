@@ -3088,7 +3088,16 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	}
 	scope["product_ids"] = products
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "inspect_verified_worktree", RequiredFields: []string{"work_id", "mode"}}}
-	leaseID := digest + ":worktree-verify:" + in.WorkID
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
+	// Intent equality does not identify a run: a new request must execute even
+	// when its command is unchanged. Bind the lease to the logical request as
+	// well as its intent, while the canonical digest still guards replay.
+	leaseInput, _ := json.Marshal(struct {
+		Key          store.MutationIdempotencyKey
+		IntentDigest string
+	}{key, digest})
+	leaseDigest := sha256Hex(leaseInput)
+	leaseID := leaseDigest + ":worktree-verify:" + in.WorkID
 	result, err := r.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
 		Owner:        store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
 		WorkID:       in.WorkID,
@@ -3123,9 +3132,9 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
 	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
-			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
+			Key:                     key,
 			CanonicalDigest:         digest,
-			OperationID:             "mutation-" + digest[7:31],
+			OperationID:             "mutation-" + leaseDigest[7:31],
 			ResultPayload:           string(payload),
 			ChangedRefs:             string(changedJSON),
 			AuthorizedScopeSnapshot: string(authorizedScope),

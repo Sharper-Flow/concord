@@ -1112,16 +1112,21 @@ func retryApprovalApprovedAttempts(assertion *HostApprovalAssertion) (int64, boo
 	return 0, false
 }
 
-// retryApprovalFenceTx rereads the retry wall inside the action transaction
-// and refuses when it no longer matches what the approval binds. A failed,
-// escalated rejected, or same-step wall binding names its failed attempt
-// identity and epoch. An escalated verification correction binds the attempt
-// count the operator's signed approval carries, so an approval minted for one
-// correction cannot authorize a different or consumed one.
-func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, scope, versions map[string]any, approval *HostApprovalAssertion) error {
+// retryApprovalFenceTx fences both the presence and absence of a retry
+// requirement inside the action transaction. A newly failed attempt requires
+// a fresh read and exact approval. An approved retry must preserve its failed
+// attempt identity and epoch, or its escalated correction count, and its
+// approved contract binding.
+func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, required bool, scope, versions map[string]any, approval *HostApprovalAssertion) error {
 	binding, err := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
+	}
+	if !required {
+		if binding != nil {
+			return newRuntimeFailure("version_conflict", "worker retry approval requirement changed before dispatch", "reread_entities", false)
+		}
+		return nil
 	}
 	if binding != nil && binding.FailedAttemptID == "" {
 		approvedAttempts, attemptsOK := retryApprovalApprovedAttempts(approval)
@@ -1372,8 +1377,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	ctx = verifiedCtx
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
-		if retryApproval {
-			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, scope, versions, r.Envelope.HostApproval); err != nil {
+		if in.ActionID == "dispatch_worker" {
+			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions, r.Envelope.HostApproval); err != nil {
 				return err
 			}
 		}

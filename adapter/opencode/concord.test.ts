@@ -13,6 +13,9 @@ import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult }
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
+import { syntheticHostVersionFixture } from "./host-version.test-support"
+
+syntheticHostVersionFixture()
 
 function schemaBuilder(kind: string, ...args: unknown[]) {
   return {
@@ -3635,6 +3638,7 @@ test("an own-row recovery reports a committed vacate when the host move fails", 
   // live session in a worktree recorded as empty.
   expect(result.error.details.recovery_steps).toContain("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
   expect(result.error.message).toContain("host move failed")
+  expect(result.error.message).toContain("host version synthetic-test-host")
   expect(calls).toEqual(["worker-abandon", "project-resolve", "invoke"])
 })
 

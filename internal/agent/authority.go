@@ -767,9 +767,8 @@ func approvalVersionBindings(versions map[string]any) []string {
 	return bindings
 }
 
-// ValidateHostApprovalAssertionTx proves that the trusted client signed the
-// exact approved intent. It also consumes the nonce in the same transaction as
-// the resulting approval/domain effect.
+// ValidateHostApprovalAssertionTx checks the host assertion's intent, caller,
+// freshness, and challenge bindings before approval consumption in this transaction.
 func (s *Service) ValidateHostApprovalAssertionTx(ctx context.Context, tx *store.Transaction, in Invocation, assertion HostApprovalAssertion, check ApprovalCheck) (bool, error) {
 	if err := s.authorityReady("agent_validate_host_approval"); err != nil {
 		return false, err
@@ -781,7 +780,7 @@ func (s *Service) ValidateHostApprovalAssertionTx(ctx context.Context, tx *store
 	return isChallenge, nil
 }
 
-// validateHostApprovalAssertionIdentityTx is the shared signed-approval path.
+// validateHostApprovalAssertionIdentityTx is the shared host-approval path.
 // The assertion authenticates the invoking trusted client and exact challenge;
 // it carries no human identity. Operator attribution is derived later from
 // the durable consumed approval record.
@@ -796,15 +795,32 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 		return false, newRuntimeFailure("approval_invalid", "host approval assertion does not match the requested operation or caller", "request_approval", false)
 	}
 	issued, err := time.Parse(time.RFC3339Nano, assertion.IssuedAt)
-	if err != nil || issued.Before(s.now().Add(-s.skew())) || issued.After(s.now().Add(s.skew())) {
-		return false, errors.New("host approval assertion timestamp invalid")
+	now, skew := s.now(), s.skew()
+	reason := ""
+	switch {
+	case err != nil:
+		reason = "malformed"
+	case issued.Before(now.Add(-skew)):
+		reason = "expired"
+	case issued.After(now.Add(skew)):
+		reason = "future"
+	}
+	if reason != "" {
+		// The host assertion failed, not the operator's approved decision.
+		// Do not request another approval or disclose malformed host input.
+		failure := newRuntimeFailure("internal_error", "host approval assertion timestamp invalid", "contact_operator", false)
+		failure.Details = map[string]any{"boundary": "host_approval_timestamp", "reason": reason, "validated_at": now.Format(time.RFC3339Nano), "allowed_clock_skew_seconds": skew.Seconds()}
+		if err == nil {
+			failure.Details["issued_at"] = issued.UTC().Format(time.RFC3339Nano)
+		}
+		return false, failure
 	}
 	wantScope, _ := json.Marshal(approvalScopeBindings(check.Scope))
 	wantVersions, _ := json.Marshal(approvalVersionBindings(check.Versions))
 	assertedScope, _ := json.Marshal(assertion.Scope)
 	assertedVersions, _ := json.Marshal(assertion.Versions)
 	if string(assertedScope) != string(wantScope) || string(assertedVersions) != string(wantVersions) {
-		return false, errors.New("host approval assertion scope or versions invalid")
+		return false, newRuntimeFailure("approval_invalid", "host approval assertion scope or versions invalid", "request_approval", false)
 	}
 	isChallenge := true
 	challenge, challengeErr := store.ReadApprovalChallengeRefTx(ctx, tx, assertion.ChallengeRef)
@@ -813,7 +829,7 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 		storedVersions, _ := json.Marshal(check.Versions)
 		challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
 		if challenge.Status != "active" || challengeExpired || challenge.OperationDigest != check.OperationDigest || challenge.ScopeJSON != string(storedScope) || challenge.VersionJSON != string(storedVersions) || challenge.Consequence != check.Consequence || challenge.HostAssertionDigest != in.HostAssertionDigest {
-			return false, errors.New("approval challenge binding invalid")
+			return false, newRuntimeFailure("approval_invalid", "approval challenge binding invalid", "request_approval", false)
 		}
 	} else if challengeErr != nil {
 		var failure *store.Failure

@@ -2539,6 +2539,23 @@ test("dispatchWorker aborts when dispatch_worker authorization is refused", asyn
   expect(authorizeCalls).toBe(1)
 })
 
+test("dispatchWorker preserves the core timestamp cause without opening a worker window", async () => {
+  let spawned = 0
+  const windows = new DispatchWindows()
+  const cause = { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none", message: "host approval assertion timestamp invalid", details: { boundary: "host_approval_timestamp", reason: "malformed" } }
+  const result = await dispatchWorker(packet(), {
+    credentials: testCredentials, workerDirectory: WORKER_DIRECTORY, sessionID: SESSION, windows,
+    runner: { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } },
+    async authorize() { return { outcome: "error", error: cause } },
+  })
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.details?.core_error).toEqual(cause)
+  expect(windows.has(SESSION)).toBe(false)
+  expect(spawned).toBe(0)
+})
+
 // The probe guards execution, not dispatch. Authorization runs first, because
 // an approval challenge or a refused dispatch returns without a worker and must
 // not require a credential. Once authorization passes, a spawn is imminent, so

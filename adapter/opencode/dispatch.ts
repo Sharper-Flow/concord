@@ -849,7 +849,9 @@ function reportCandidates(text: string): { candidate: string; announced: boolean
   return result
 }
 
-export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: boolean }
+// malformed carries why the last announced JSON candidate failed to parse, or
+// null when every announced candidate parsed or none was announced.
+export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: string | null }
 
 // readWorkerReport locates the worker's report in the host run stream. A worker
 // emits several text parts, so neither the first nor a concatenation is the
@@ -868,21 +870,33 @@ export function readWorkerReport(stdout: string): WorkerReportScan {
 // last candidate anywhere in the stream that parses as a JSON object wins
 // (CON-203: a lead-in or trailing sentence does not discard a report).
 export function scanReportTexts(texts: string[]): WorkerReportScan {
-  let malformed = false
+  let malformed: string | null = null
   const found: Record<string, unknown>[] = []
   for (const text of texts) {
     for (const { candidate, announced } of reportCandidates(text)) {
       if (!candidate.startsWith("{")) continue
       let parsed: unknown
-      try { parsed = JSON.parse(candidate) } catch {
-        if (announced) malformed = true
+      try { parsed = JSON.parse(candidate) } catch (error) {
+        if (announced) malformed = malformedReason(candidate, error)
         continue
       }
       if (isRecord(parsed)) found.push(parsed)
-      else if (announced) malformed = true
+      else if (announced) malformed = malformedReason(candidate, "the document is not a JSON object")
     }
   }
   return { report: found.at(-1) ?? null, malformed }
+}
+
+// malformedReason states why an announced report failed to parse: the parser's
+// message, the document length, and a bounded tail. A worker report most often
+// breaks by truncation, which the tail shows without the worker transcript.
+const MALFORMED_TAIL_CHARS = 120
+const MALFORMED_MESSAGE_CHARS = 120
+function malformedReason(candidate: string, error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, MALFORMED_MESSAGE_CHARS)
+  const flat = candidate.replace(/\s+/g, " ")
+  const tail = flat.length > MALFORMED_TAIL_CHARS ? "..." + flat.slice(-MALFORMED_TAIL_CHARS) : flat
+  return `${message}; ${candidate.length} chars; ends with: ${tail}`
 }
 
 // Dispatch-owned fields the adapter strips from a worker-authored report
@@ -950,8 +964,8 @@ function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unkn
 // packet.
 function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   if (!scan.report) {
-    return { detail: scan.malformed
-      ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
+    return { detail: scan.malformed !== null
+      ? `worker output carried a malformed JSON document and no agent-lane-report.v1 report: ${scan.malformed}`
       : "worker output carried no agent-lane-report.v1 report" }
   }
   const stripped: Record<string, unknown> = { ...scan.report }

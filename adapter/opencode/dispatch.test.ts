@@ -1952,6 +1952,11 @@ test("an unparseable report is worker-fail with invalid_report", async () => {
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
   expect(payloads[1].detail).toContain("malformed JSON document")
+  // The detail carries the parser's reason and the document's tail, so a
+  // recorded failure shows why the report did not parse (truncation, a stray
+  // token) without the worker transcript.
+  expect(payloads[1].detail).toMatch(/JSON/)
+  expect(payloads[1].detail).toContain('"lane_id":')
   expect(result.error?.kind).toBe("invalid_report")
 })
 
@@ -2092,16 +2097,16 @@ test("the multi-byte failure detail cut never splits a code point", async () => 
 
 test("the report scan reads part.text only and separates absence from malformed content", () => {
   expect(readWorkerReport(runOutput()).report).toEqual(report())
-  expect(readWorkerReport(runOutput("", null))).toEqual({ report: null, malformed: false })
-  expect(readWorkerReport(reportEvent("{ not json"))).toEqual({ report: null, malformed: true })
+  expect(readWorkerReport(runOutput("", null))).toEqual({ report: null, malformed: null })
+  expect(readWorkerReport(reportEvent("{ not json")).malformed).toContain("{ not json")
   // No key other than part.text on a `text` event carries the report.
   for (const key of ["report", "result", "output", "data", "text"]) {
     const misplaced = JSON.stringify({ type: "text", timestamp: 3, sessionID: "session-1", [key]: report(), part: { type: "text", [key]: report() } })
-    expect(readWorkerReport(misplaced)).toEqual({ report: null, malformed: false })
+    expect(readWorkerReport(misplaced)).toEqual({ report: null, malformed: null })
   }
   // A step_finish part is not a text part, whatever it holds.
   const stepPart = JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", text: JSON.stringify(report()) } })
-  expect(readWorkerReport(stepPart)).toEqual({ report: null, malformed: false })
+  expect(readWorkerReport(stepPart)).toEqual({ report: null, malformed: null })
 })
 
 // This is the carrier-shape regression guard. The envelope below is a real
@@ -2132,7 +2137,7 @@ test("the last text part wins when an earlier part is working prose", async () =
     reportEvent(report()),
     JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
-  expect(readWorkerReport(stdout)).toEqual({ report: report(), malformed: false })
+  expect(readWorkerReport(stdout)).toEqual({ report: report(), malformed: null })
 })
 
 test("a fenced report is admitted and prose around the JSON no longer discards it", async () => {
@@ -2151,7 +2156,7 @@ test("a run with no text part at all carries no report", async () => {
     JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
     JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
-  expect(readWorkerReport(stdout)).toEqual({ report: null, malformed: false })
+  expect(readWorkerReport(stdout)).toEqual({ report: null, malformed: null })
 })
 
 test("report resolution composes packet identity over closed worker content", () => {
@@ -2646,14 +2651,19 @@ test("scanReportTexts admits a report wrapped in surrounding prose", () => {
   for (const [name, text] of cases) {
     const scan = scanReportTexts([text])
     expect(scan.report, name).toEqual(report())
-    expect(scan.malformed, name).toBe(false)
+    expect(scan.malformed, name).toBeNull()
   }
 })
 
 test("scanReportTexts still distinguishes broken announced json from prose", () => {
-  expect(scanReportTexts(["prose with a stray { brace and no report"])).toEqual({ report: null, malformed: false })
+  expect(scanReportTexts(["prose with a stray { brace and no report"])).toEqual({ report: null, malformed: null })
   const corrupt = "```json\n{\"schema_version\": \"1.0\", \"truncated\n```"
-  expect(scanReportTexts([corrupt])).toEqual({ report: null, malformed: true })
+  const broken = scanReportTexts([corrupt])
+  expect(broken.report).toBeNull()
+  expect(broken.malformed).toContain("truncated")
+  // A long broken document keeps only a bounded tail in the reason.
+  const long = scanReportTexts(["```json\n{\"detail\": \"" + "x".repeat(5000) + "\n```"]).malformed ?? ""
+  expect(long.length).toBeLessThan(400)
   const lastWins = scanReportTexts([`earlier superseded answer ${JSON.stringify(report({ status: "failed" }))}`, `final answer:\n\`\`\`json\n${JSON.stringify(report())}\n\`\`\``])
   expect(lastWins.report).toEqual(report())
 })

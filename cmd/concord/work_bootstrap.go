@@ -165,24 +165,26 @@ var sessionPrepareID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 // entry declares it.
 const sessionPrepareRefusalExit = 2
 
-// sessionPrepareReadFailureExit classifies a store read failure. A typed
-// failure the store marks unsafe to repeat is a refusal; every other failure
-// may clear on a replay, so it keeps the ordinary failure status.
-func sessionPrepareReadFailureExit(err error) int {
+// sessionPrepareFailureExit preserves the store's retry-safety classification.
+// Untyped failures keep the caller's ordinary failure or identity-refusal status.
+func sessionPrepareFailureExit(err error, untypedExit int) int {
 	var failure *store.Failure
-	if errors.As(err, &failure) && !failure.RetrySafe {
+	if errors.As(err, &failure) {
+		if failure.RetrySafe {
+			return 1
+		}
 		return sessionPrepareRefusalExit
 	}
-	return 1
+	return untypedExit
 }
 
 // runSessionPrepare verifies that the current directory is an active claimed
 // worktree of the work item — a multi-Project item holds one active worktree
 // per Project, so the claimed entry is the active one whose path is this
 // directory — then verifies the active host agent and the lane identity that
-// directory defines, and derives the session boot packet. It records
-// nothing: the session's worktree is the directory it runs in, and the host
-// owns that fact. The registry probe runs through the resolved host command
+// directory defines, and derives the session boot packet. The identity callback
+// records an assertion before the boot packet is derived. The host owns the
+// session's directory. The registry probe runs through the resolved host command
 // in this directory, the same probe `concord session` launches with
 // (CD-0189), so the registry the caller is told the session verified is the
 // one the configured host resolves.
@@ -204,7 +206,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	entries, err := s.WorktreeEntries(context.Background(), input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareFailureExit(err, 1)
 	}
 	// A multi-Project work item holds one active worktree per Project, so the
 	// claimed entry is the active one whose path is this directory; another
@@ -224,7 +226,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	resolution, err := s.ResolveProject(context.Background(), cwd, cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return sessionPrepareReadFailureExit(err)
+		return sessionPrepareFailureExit(err, 1)
 	}
 	if resolution.ProjectID != entry.ProjectID || resolution.MainWorktree {
 		writeOperatorDiagnostic(errOut, "session-prepare", "current directory does not resolve to the claimed Project worktree")
@@ -233,7 +235,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	workProjects, err := s.ProjectsForWork(context.Background(), input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareFailureExit(err, 1)
 	}
 	projectMember := false
 	for _, project := range workProjects {
@@ -249,7 +251,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	_, products, err := s.ScopeVersion(context.Background(), entry.ProjectID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return sessionPrepareReadFailureExit(err)
+		return sessionPrepareFailureExit(err, 1)
 	}
 	if len(products) != 1 || products[0] != input.ProductID {
 		writeOperatorDiagnostic(errOut, "session-prepare", "claimed Project is not in the requested Product scope")
@@ -280,7 +282,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return sessionPrepareRefusalExit
+		return sessionPrepareFailureExit(err, sessionPrepareRefusalExit)
 	}
 	database, err := databasePath()
 	if err != nil {
@@ -290,7 +292,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareFailureExit(err, 1)
 	}
 	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
 	if input.Task != "" {
@@ -306,7 +308,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	summary, err := s.ReadWorkItemSummary(context.Background(), input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
-		return 1
+		return sessionPrepareFailureExit(err, 1)
 	}
 	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: prompt}, errOut)
 }

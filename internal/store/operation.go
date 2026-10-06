@@ -79,16 +79,16 @@ type operationObserver struct {
 	commitDuration time.Duration
 }
 
-func beginObservedTx(ctx context.Context, db *sql.DB, observer *operationObserver) (*sql.Tx, error) {
+func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
 	started := time.Now()
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := beginWriteTx(ctx, s, durable)
 	if observer != nil {
 		observer.beginWait = time.Since(started)
 	}
 	return tx, err
 }
 
-func commitObservedTx(tx *sql.Tx, observer *operationObserver) error {
+func commitObservedTx(tx *writeTx, observer *operationObserver) error {
 	started := time.Now()
 	err := tx.Commit()
 	if observer != nil {
@@ -544,7 +544,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 	}
 
-	tx, err := beginObservedTx(ctx, s.db, observer)
+	tx, err := beginObservedTx(ctx, s, false, observer)
 	if err != nil {
 		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot begin domain operation", true,
 			"retry once the database is writable", err)
@@ -553,11 +553,11 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		_ = tx.Rollback()
 		return cause
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginFold(ctx, tx.Tx)
 	if err != nil {
 		return output, rollback(err)
 	}
-	startSeq, err := operationEventSequence(ctx, tx)
+	startSeq, err := operationEventSequence(ctx, tx.Tx)
 	if err != nil {
 		return output, rollback(err)
 	}
@@ -573,7 +573,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			return output, rollback(err)
 		}
 		if event.SubjectType == SubjectWorkItem && event.Kind != WorkRemoved {
-			if err := refuseRemovedWorkTx(ctx, tx, event.SubjectID, "apply_operation"); err != nil {
+			if err := refuseRemovedWorkTx(ctx, tx.Tx, event.SubjectID, "apply_operation"); err != nil {
 				return output, rollback(err)
 			}
 		}
@@ -586,7 +586,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 		}
 		ref := VersionRef(event.SubjectType, event.SubjectID)
 		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
-			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
+			got, exists, err := projectionVersion(ctx, tx.Tx, event.SubjectType, event.SubjectID)
 			if err != nil {
 				return output, rollback(err)
 			}
@@ -594,7 +594,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 				return output, rollback(absentSubject(event.SubjectType, event.SubjectID))
 			}
 			if (expected == 0 && exists) || got != expected {
-				actions, actionErr := interveningWorkflowActions(ctx, tx, event.SubjectType, event.SubjectID, expected, got)
+				actions, actionErr := interveningWorkflowActions(ctx, tx.Tx, event.SubjectType, event.SubjectID, expected, got)
 				if actionErr != nil {
 					return output, rollback(actionErr)
 				}
@@ -602,29 +602,29 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			}
 			checked[ref] = true
 		}
-		seq, err := AppendEvent(ctx, tx, event)
+		seq, err := AppendEvent(ctx, tx.Tx, event)
 		if err != nil {
 			return output, rollback(err)
 		}
 		event.Seq = seq
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx.Tx, event); err != nil {
 			return output, rollback(err)
 		}
 	}
-	output.EventIDs, err = operationEventIDsSince(ctx, tx, startSeq)
+	output.EventIDs, err = operationEventIDsSince(ctx, tx.Tx, startSeq)
 	if err != nil {
 		return output, rollback(err)
 	}
-	if err := validateMembershipInvariantsTx(ctx, tx); err != nil {
+	if err := validateMembershipInvariantsTx(ctx, tx.Tx); err != nil {
 		return output, rollback(err)
 	}
-	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
+	if err := validateDomainAttachmentInvariantsTx(ctx, tx.Tx); err != nil {
 		return output, rollback(err)
 	}
-	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
+	if err := validateInitiativeInvariantsTx(ctx, tx.Tx); err != nil {
 		return output, rollback(err)
 	}
-	output.Impact, err = membershipImpact(ctx, tx, operation)
+	output.Impact, err = membershipImpact(ctx, tx.Tx, operation)
 	if err != nil {
 		return output, rollback(err)
 	}

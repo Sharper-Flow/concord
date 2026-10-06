@@ -1155,7 +1155,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 		if !isDB {
 			return nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 		}
-		readTx, beginErr := db.BeginTx(ctx, nil)
+		readTx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 		if beginErr != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot open the read transaction", true, "retry once the store is readable", beginErr)
 		}

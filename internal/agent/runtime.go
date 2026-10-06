@@ -735,7 +735,13 @@ func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
 	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
 }
 func failureEnvelope(base Envelope, err error) Envelope {
-	if errors.Is(err, context.DeadlineExceeded) {
+	// A failure marked EffectPossible followed a committed transaction
+	// (CD-0050 D2), so it must not read as a clean timeout even when its
+	// wrapped cause is a deadline. The store-failure branch below carries
+	// the possible effect.
+	var effectFailure *store.Failure
+	effectPossible := errors.As(err, &effectFailure) && effectFailure.EffectPossible
+	if errors.Is(err, context.DeadlineExceeded) && !effectPossible {
 		// CD-0038 D5: expiry before any durable effect claims no effect. The
 		// store rolls an open transaction back on error, so an in-process
 		// deadline reaching this point means no commit happened. External
@@ -767,7 +773,13 @@ func failureEnvelope(base Envelope, err error) Envelope {
 		// envelope's first validation: an ambiguous_scope refusal the caller
 		// cannot act on is one that never marshals. The store carries them on
 		// every ambiguous-scope refusal it mints.
-		out := coreErrorAction(base, kind, sf.Detail, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
+		message := sf.Detail
+		if kind == "unreachable" && sf.Err != nil {
+			// The cause tells contention from a full disk or a corrupt file;
+			// the detail alone reads the same for all three.
+			message += ": " + sf.Err.Error()
+		}
+		out := coreErrorAction(base, kind, message, RecoveryAction{Kind: recovery, RequiredRefs: refs}, sf.RetrySafe, nonNilStrings(sf.CandidateIDs))
 		// Carry typed current-version carriers into the agent envelope so
 		// callers can recover the live projection version structurally without
 		// having to parse the human detail string. Mirrors the same path for
@@ -1351,20 +1363,27 @@ type workSummary struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	// Task and ValueStatement carry the recorded intent fields the store
-	// populates on the single-record scope read (and full-detail task list
-	// reads): the schema declares them, so the wire projection must not drop
-	// what the folds persist. Empty values stay omitted for list reads.
-	Task           string         `json:"task,omitempty"`
-	ValueStatement string         `json:"value_statement,omitempty"`
-	Lifecycle      string         `json:"lifecycle"`
-	Version        int64          `json:"version"`
-	Priority       int64          `json:"priority,omitempty"`
-	ProjectIDs     []string       `json:"project_ids,omitempty"`
-	Ready          bool           `json:"ready,omitempty"`
-	Narrative      string         `json:"narrative,omitempty"`
-	TerminalAt     *string        `json:"terminal_at"`
-	WorkPin        *store.WorkPin `json:"work_pin,omitempty"`
+	// Task, ValueStatement, Tags, and WorkflowTypeRef carry the recorded
+	// mutable-intent fields the store populates on the authoritative intent
+	// reads — the single-record scope read and the full-detail list read —
+	// because the schema declares them and a coordinator must be able to
+	// carry the complete revisable intent into a complete-replacement
+	// revision. Bounded summary and preview reads leave them empty, and
+	// empty values stay omitted. Urgency is not intent detail: CD-0018
+	// declares it on work_summary, so every summary carries the band.
+	Task            string         `json:"task,omitempty"`
+	ValueStatement  string         `json:"value_statement,omitempty"`
+	Tags            []string       `json:"tags,omitzero"`
+	WorkflowTypeRef string         `json:"workflow_type_ref,omitempty"`
+	Urgency         string         `json:"urgency"`
+	Lifecycle       string         `json:"lifecycle"`
+	Version         int64          `json:"version"`
+	Priority        int64          `json:"priority,omitempty"`
+	ProjectIDs      []string       `json:"project_ids,omitempty"`
+	Ready           bool           `json:"ready,omitempty"`
+	Narrative       string         `json:"narrative,omitempty"`
+	TerminalAt      *string        `json:"terminal_at"`
+	WorkPin         *store.WorkPin `json:"work_pin,omitempty"`
 }
 
 func summary(w store.WorkItem) workSummary {
@@ -1380,7 +1399,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

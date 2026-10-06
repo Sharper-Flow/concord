@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/version"
@@ -48,6 +49,9 @@ type Store struct {
 	// so a test can interleave a committed state change into exactly that
 	// window. Production leaves it nil.
 	retireProbeInterleave func()
+
+	// durableCommits counts the durable transactions this handle committed.
+	durableCommits atomic.Uint64
 }
 
 func (s *Store) now() time.Time {
@@ -458,7 +462,9 @@ func dataSourceName(path string) string {
 	// BEGIN IMMEDIATE acquires the write lock before migration reads begin. This
 	// avoids SQLite's read-to-write upgrade path, where SQLITE_BUSY can skip the
 	// busy handler and return immediately. This only affects explicit BeginTx
-	// calls; plain autocommit QueryContext reads do not issue BEGIN.
+	// calls; plain autocommit QueryContext reads do not issue BEGIN, and a
+	// read snapshot passes sql.TxOptions{ReadOnly: true} to get a deferred
+	// BEGIN that holds no write lock.
 	query := []string{"_txlock=immediate"}
 	for _, p := range pragmas {
 		query = append(query, "_pragma="+url.QueryEscape(p))

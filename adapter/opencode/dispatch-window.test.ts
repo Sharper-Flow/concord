@@ -18,6 +18,16 @@ const packet = {
 
 const here = async () => process.cwd()
 
+function pendingDirectory() {
+  let resolve!: (directory: string) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<string>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 describe("dispatch authorization window", () => {
   test("refuses a task call when no window is open for the session", async () => {
     const windows = new DispatchWindows()
@@ -295,5 +305,69 @@ describe("retained attempt release", () => {
 
   test("reports nothing to release for a session without a retained record", () => {
     expect(new DispatchWindows().releaseRetained("session-none", "attempt-1", "implement")).toBe(false)
+  })
+
+  for (const revocation of ["release", "close"] as const) {
+    test(`${revocation} during an awaited bind does not resurrect the window`, async () => {
+      const windows = new DispatchWindows()
+      windows.open("session-a", packet, "", process.cwd())
+      const directory = pendingDirectory()
+      const args = { subagent_type: "general", prompt: "unchanged", description: "unchanged", task_id: "unchanged" }
+      const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "call-after-abandon", () => directory.promise)
+      if (revocation === "release") {
+        expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
+      } else {
+        windows.close("session-a")
+      }
+      expect(windows.has("session-a")).toBe(false)
+      directory.resolve(process.cwd())
+      await expect(binding).rejects.toThrow(/no authorized dispatch window/i)
+      expect(args).toEqual({ subagent_type: "general", prompt: "unchanged", description: "unchanged", task_id: "unchanged" })
+      expect(windows.inFlightAttempt("session-a")).toBeNull()
+    })
+  }
+
+  for (const resolution of ["matching", "mismatch", "failure"] as const) {
+    test(`an old bind preserves a replacement window after ${resolution} directory resolution`, async () => {
+      const windows = new DispatchWindows()
+      windows.open("session-a", packet, "", process.cwd())
+      const directory = pendingDirectory()
+      const args: Record<string, unknown> = {}
+      const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "old-call", () => directory.promise)
+      expect(windows.releaseRetained("session-a", "attempt-1", "implement")).toBe(true)
+      // Even equal packet identities name distinct single-use authorizations.
+      const replacement = { ...packet, inputs: { ...packet.inputs, task: "replacement authorization" } }
+      windows.open("session-a", replacement, "", process.cwd())
+      if (resolution === "failure") {
+        directory.reject(new Error("synthetic resolver failure"))
+      } else {
+        directory.resolve(resolution === "matching" ? process.cwd() : realpathSync(tmpdir()))
+      }
+      await expect(binding).rejects.toThrow(/no authorized dispatch window|could not resolve/i)
+      expect(args).toEqual({})
+      expect(windows.has("session-a")).toBe(true)
+      expect(windows.inFlightAttempt("session-a")).toBeNull()
+      const replacementArgs: Record<string, unknown> = {}
+      await windows.bind(TASK_TOOL_ID, "session-a", replacementArgs, "replacement-call", here)
+      expect(JSON.parse(replacementArgs.prompt as string).inputs.task).toBe("replacement authorization")
+      expect(windows.inFlight("session-a", "replacement-call")?.packet).toBe(replacement)
+    })
+  }
+
+  test("concurrent binds consume one window once and preserve the winning in-flight record", async () => {
+    const windows = new DispatchWindows()
+    windows.open("session-a", packet, "", process.cwd())
+    const directory = pendingDirectory()
+    const args: Record<string, unknown> = {}
+    const binding = windows.bind(TASK_TOOL_ID, "session-a", args, "losing-call", () => directory.promise)
+    const winnerArgs: Record<string, unknown> = {}
+    await windows.bind(TASK_TOOL_ID, "session-a", winnerArgs, "winning-call", here)
+    expect(windows.inFlight("session-a", "winning-call")?.packet).toBe(packet)
+    directory.resolve(process.cwd())
+    await expect(binding).rejects.toThrow(/no authorized dispatch window/i)
+    expect(args).toEqual({})
+    expect(windows.inFlight("session-a", "winning-call")?.packet).toBe(packet)
+    expect(windows.inFlight("session-a", "losing-call")).toBeNull()
+    expect(windows.has("session-a")).toBe(false)
   })
 })

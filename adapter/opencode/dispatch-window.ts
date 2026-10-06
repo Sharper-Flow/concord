@@ -266,8 +266,15 @@ export class DispatchWindows {
     try {
       sessionDirectory = await resolveSessionDirectory()
     } catch {
-      this.#open.delete(sessionID)
+      if (this.#open.get(sessionID) === record) this.#open.delete(sessionID)
       throw new DispatchWindowError("worker dispatch could not resolve the host session directory")
+    }
+    // The await permits revocation, replacement, or another bind's consumption.
+    // Only the exact still-open record can authorize this Task call.
+    if (this.#open.get(sessionID) !== record) {
+      throw new DispatchWindowError(
+        `no authorized dispatch window is open for session ${sessionID}; start a worker through dispatch_worker`,
+      )
     }
     const mismatch = dispatchDirectoryIdentityMismatch(record.workerDirectoryIdentity, sessionDirectory)
     if (mismatch) {

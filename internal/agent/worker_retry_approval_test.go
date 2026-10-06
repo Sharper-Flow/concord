@@ -175,6 +175,99 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	}
 }
 
+func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
+	grant.Worktree = seedWorkerRetryMutationFixture(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const failedID = "attempt:work-1:concurrent-abandonment"
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
+		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
+	})}, mutationEnvelope(grant, scopeVersion))
+	if first.Outcome != OutcomeOK {
+		t.Fatalf("first authorization: %+v", first.Error)
+	}
+	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const freshID = "attempt:work-1:concurrent-retry"
+	input := map[string]any{
+		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "retry-concurrent-abandonment",
+		"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, nil)},
+	}
+	originalProbe := service.ProjectHostProber
+	probes := 0
+	service.ProjectHostProber = func(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
+		probes++
+		// The mutation's host probe follows the initial retry-binding read;
+		// the two dispatch identity probes precede it.
+		if probes == 3 {
+			failure := store.Event{EventID: "concurrent-abandonment", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "synthetic concurrent abandonment"})}
+			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{failure}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return originalProbe(ctx, directory, worktree)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
+	service.ProjectHostProber = originalProbe
+	if probes != 3 {
+		t.Fatalf("host probes=%d, want abandonment after the initial binding read", probes)
+	}
+	if refused.Error == nil || refused.Error.Kind != "version_conflict" {
+		t.Fatalf("concurrent abandonment retry: outcome=%s error=%+v, want version_conflict", refused.Outcome, refused.Error)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
+		t.Fatalf("refused retry created %d attempts, want 1", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker'`); got != 1 {
+		t.Fatalf("refused retry created %d dispatch epochs, want 1", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='worker.dispatched'`); got != 0 {
+		t.Fatalf("refused retry fabricated %d dispatch events", got)
+	}
+	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input["expected_version"] = pin.Version
+	input["fields"] = map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, nil)}
+	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
+	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
+		t.Fatalf("reread retry: %+v, want approval_required", challenge.Error)
+	}
+	ref, ok := challenge.Error.Details["approval_ref"].(string)
+	if !ok || ref == "" {
+		t.Fatal("reread retry challenge has no approval reference")
+	}
+	scopeBindings, scopeOK := challenge.Error.Details["scope"].([]string)
+	versionBindings, versionsOK := challenge.Error.Details["versions"].([]string)
+	if !scopeOK || !versionsOK || !slices.Contains(scopeBindings, "failed_attempt_id:"+failedID) || !slices.Contains(versionBindings, "failed_attempt_epoch:1") || !slices.Contains(versionBindings, "contract:1") {
+		t.Fatalf("reread retry challenge lacks exact bindings: %#v", challenge.Error.Details)
+	}
+	approvedRaw := retryJSON(cloneWithApproval(t, input, ref))
+	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
+	versions := map[string]any{"work": pin.Version, "contract": 1, "failed_attempt_epoch": 1}
+	env.HostApproval = signedHostApproval(privateKey, ref, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(ref))
+	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("exact approved retry: %+v", approved.Error)
+	}
+	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil || pin.Attempt == nil || pin.Attempt.ID != freshID || pin.Attempt.Epoch != 2 {
+		t.Fatalf("approved retry pin=%#v err=%v, want fresh epoch 2", pin.Attempt, err)
+	}
+}
+
 func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {

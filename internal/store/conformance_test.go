@@ -739,17 +739,17 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		claim.PrincipalRef = fmt.Sprintf("agent-%d", worker)
 		claim.RequestID = fmt.Sprintf("fence-request-%d", worker)
 		var fence FenceResult
-		fence, err = claimStepObserved(ctx, s, claim, observer)
+		fence, err = claimStepObservedAuthorized(ctx, s, claim, false, observer, nil)
 		result.OperationIDs = []string{fence.OpID}
 	case "stale_completion":
 		req := completionRequest("conformance-stale", 1, fmt.Sprintf("stale-key-%d", worker), `{"stale":true}`)
 		var fence FenceResult
-		fence, err = completeStepObserved(ctx, s, req, observer)
+		fence, err = completeStep(ctx, s, req, false, observer)
 		result.OperationIDs = []string{fence.OpID}
 	case "idempotent":
 		req := completionRequest("conformance-idempotent", 1, "same-result", `{"accepted":true}`)
 		var fence FenceResult
-		fence, err = completeStepObserved(ctx, s, req, observer)
+		fence, err = completeStep(ctx, s, req, false, observer)
 		result.OperationIDs = []string{fence.OpID}
 		if fence.Replayed {
 			result.Outcome = outcomeDuplicate
@@ -757,7 +757,7 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 	case "idempotency_conflict":
 		req := completionRequest("conformance-idempotency-conflict", 1, "same-conflict", fmt.Sprintf(`{"worker":%d}`, worker))
 		var fence FenceResult
-		fence, err = completeStepObserved(ctx, s, req, observer)
+		fence, err = completeStep(ctx, s, req, false, observer)
 		result.OperationIDs = []string{fence.OpID}
 	case "step_read":
 		_, err = Step(ctx, s, "conformance-fence")

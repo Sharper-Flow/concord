@@ -1,0 +1,46 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableTxCommitsUnderFull"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableCommitIgnoresPinnedReader"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableTransactFailureSurfaces"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGrantRequestAcknowledgementIsDurable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGrantRequestAcknowledgesUnderPinnedReader"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestPredecessorImportAcknowledgesUnderPinnedReader"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0207",
+  "state": "satisfied"
+}

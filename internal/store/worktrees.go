@@ -469,12 +469,12 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 		}
 		return WorktreeClaimResult{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return WorktreeClaimResult{}, wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	defer tx.Rollback()
-	out, err := claimWorktreeStoreTx(ctx, tx, req, native)
+	out, err := claimWorktreeStoreTx(ctx, tx.Tx, req, native)
 	if err != nil {
 		if created != nil {
 			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)

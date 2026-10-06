@@ -61,16 +61,16 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
 	}
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginFold(ctx, tx.Tx)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, event, scope); err != nil {
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -80,10 +80,6 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
-	}
-	// committed; the durability barrier must hold before acknowledging
-	if err := s.SyncDurable(ctx); err != nil {
-		return err
 	}
 	return nil
 }

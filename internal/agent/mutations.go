@@ -1112,16 +1112,21 @@ func retryApprovalApprovedAttempts(assertion *HostApprovalAssertion) (int64, boo
 	return 0, false
 }
 
-// retryApprovalFenceTx rereads the retry wall inside the action transaction
-// and refuses when it no longer matches what the approval binds. A failed,
-// escalated rejected, or same-step wall binding names its failed attempt
-// identity and epoch. An escalated verification correction binds the attempt
-// count the operator's signed approval carries, so an approval minted for one
-// correction cannot authorize a different or consumed one.
-func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, scope, versions map[string]any, approval *HostApprovalAssertion) error {
+// retryApprovalFenceTx fences both the presence and absence of a retry
+// requirement inside the action transaction. A newly failed attempt requires
+// a fresh read and exact approval. An approved retry must preserve its failed
+// attempt identity and epoch, or its escalated correction count, and its
+// approved contract binding.
+func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, required bool, scope, versions map[string]any, approval *HostApprovalAssertion) error {
 	binding, err := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
+	}
+	if !required {
+		if binding != nil {
+			return newRuntimeFailure("version_conflict", "worker retry approval requirement changed before dispatch", "reread_entities", false)
+		}
+		return nil
 	}
 	if binding != nil && binding.FailedAttemptID == "" {
 		approvedAttempts, attemptsOK := retryApprovalApprovedAttempts(approval)
@@ -1372,8 +1377,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	}
 	ctx = verifiedCtx
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
-		if retryApproval {
-			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, scope, versions, r.Envelope.HostApproval); err != nil {
+		if in.ActionID == "dispatch_worker" {
+			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions, r.Envelope.HostApproval); err != nil {
 				return err
 			}
 		}
@@ -3088,7 +3093,16 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	}
 	scope["product_ids"] = products
 	intents := []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "inspect_verified_worktree", RequiredFields: []string{"work_id", "mode"}}}
-	leaseID := digest + ":worktree-verify:" + in.WorkID
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
+	// Intent equality does not identify a run: a new request must execute even
+	// when its command is unchanged. Bind the lease to the logical request as
+	// well as its intent, while the canonical digest still guards replay.
+	leaseInput, _ := json.Marshal(struct {
+		Key          store.MutationIdempotencyKey
+		IntentDigest string
+	}{key, digest})
+	leaseDigest := sha256Hex(leaseInput)
+	leaseID := leaseDigest + ":worktree-verify:" + in.WorkID
 	result, err := r.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
 		Owner:        store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
 		WorkID:       in.WorkID,
@@ -3123,9 +3137,9 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	authorizedScope, _ := json.Marshal(boundedApprovalScope(scope))
 	if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{
-			Key:                     store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey},
+			Key:                     key,
 			CanonicalDigest:         digest,
-			OperationID:             "mutation-" + digest[7:31],
+			OperationID:             "mutation-" + leaseDigest[7:31],
 			ResultPayload:           string(payload),
 			ChangedRefs:             string(changedJSON),
 			AuthorizedScopeSnapshot: string(authorizedScope),
@@ -3873,7 +3887,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 	if hostErr != nil {
 		return failureEnvelope(base, hostErr), nil
 	}
-	err = r.Store.Transact(ctx, func(tx *store.Transaction) error {
+	err = r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
 		contractOp, registered := ValidateContractOperation(r.Tool, r.Operation)
 		if !registered {
 			return newRuntimeFailure("invariant_violation", fmt.Sprintf("mutation dispatch reached unregistered operation %s.%s", r.Tool, r.Operation), "contact_operator", false)
@@ -3998,13 +4012,6 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 			return response, nil
 		}
 		return failureEnvelope(base, err), nil
-	}
-	// committed; the durability barrier must hold before acknowledging a
-	// minted challenge or an applied grant — both bind client and approval
-	// authority (CD-0050 D3). A barrier failure is committed-but-not-yet-
-	// durable and surfaces as the retry-safe failure the caller sees.
-	if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
-		return failureEnvelope(base, syncErr), nil
 	}
 	return response, nil
 }
@@ -4522,10 +4529,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		if claimErr != nil {
 			return failureEnvelope(base, claimErr), nil
 		}
-		// committed; the durability barrier must hold before acknowledging the claim dispatch
-		if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
-			return failureEnvelope(base, syncErr), nil
-		}
 		if claim.ResultKind == store.ResultCompleted {
 			changed := decodeChangedRefs(claim.ChangedRefs)
 			base.Replayed = claim.Replayed
@@ -4569,10 +4572,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: opID, AttemptEpoch: claim.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 		if completeErr != nil {
 			return pendingCompaction(base, workID, claim, "operation_complete", completed, completeErr), nil
-		}
-		// committed; the durability barrier must hold before acknowledging the completion
-		if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
-			return failureEnvelope(base, syncErr), nil
 		}
 		base.Replayed = complete.Replayed
 		result.Replayed = complete.Replayed
@@ -4678,10 +4677,6 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	complete, completeErr := store.CompleteStep(ctx, r.Store, store.CompleteRequest{OpID: reconcile.OperationID, AttemptEpoch: step.AttemptEpoch, ResultKind: store.ResultCompleted, ResultPayload: string(resultPayload), ChangedRefs: []string{string(changedJSON)}, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: idempotencyKey(raw) + ":complete", RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), CompletedAt: timePtr(r.Authority.now())})
 	if completeErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "operation_complete", []string{"operation_claimed", "git_proof", "sqlite_link"}, completeErr), nil
-	}
-	// committed; the durability barrier must hold before acknowledging the completion
-	if syncErr := r.Store.SyncDurable(ctx); syncErr != nil {
-		return failureEnvelope(base, syncErr), nil
 	}
 	base.Replayed = complete.Replayed
 	result.Replayed = complete.Replayed

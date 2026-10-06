@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -39,6 +41,62 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 	}
 	if out.Error.Message != failure.Detail || !out.Error.RetrySafe {
 		t.Fatalf("refusal detail lost: %+v", out.Error)
+	}
+}
+
+// An unreachable refusal names the database error that caused it. Without the
+// cause, "cannot begin transaction" reads the same for lock contention, a full
+// disk, and a corrupt file, and the caller cannot choose between a retry and an
+// escalation.
+func TestUnavailableStoreRefusalCarriesItsCause(t *testing.T) {
+	t.Parallel()
+	failure := &store.Failure{
+		Kind:           store.KindUnavailable,
+		Op:             "transaction",
+		Detail:         "cannot begin transaction",
+		RetrySafe:      true,
+		RecoveryAction: "retry once the database is writable",
+		Err:            errors.New("database is locked (5) (SQLITE_BUSY)"),
+	}
+	out := failureEnvelope(NewBase("unreachable-cause-1", "concord_work_transition", "workflow_action"), failure)
+	if out.Error == nil || out.Error.Kind != "unreachable" {
+		t.Fatalf("error=%+v, want kind unreachable", out.Error)
+	}
+	if want := "cannot begin transaction: database is locked (5) (SQLITE_BUSY)"; out.Error.Message != want {
+		t.Fatalf("message=%q, want %q", out.Error.Message, want)
+	}
+	if _, err := out.Encode(); err != nil {
+		t.Fatalf("a refusal with its cause must be deliverable, got %v", err)
+	}
+}
+
+// A post-commit failure whose wrapped cause is a deadline keeps its possible
+// effect. The deadline branch reads "no commit happened"; a store failure
+// marked EffectPossible followed a committed transaction (CD-0050 D2), so
+// reporting it as a clean timeout tells the caller no effect exists when the
+// effect stands.
+func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T) {
+	t.Parallel()
+	failure := &store.Failure{
+		Kind:           store.KindUnavailable,
+		Op:             "sync_durable",
+		Detail:         "durability checkpoint did not complete",
+		RetrySafe:      true,
+		EffectPossible: true,
+		Err:            context.DeadlineExceeded,
+	}
+	out := failureEnvelope(NewBase("deadline-possible-1", "concord_work_transition", "workflow_action"), failure)
+	if out.Error == nil || out.Error.Kind != "unreachable" {
+		t.Fatalf("error=%+v, want kind unreachable", out.Error)
+	}
+	if out.Error.EffectState != EffectPossible {
+		t.Fatalf("effect state=%q, want possible", out.Error.EffectState)
+	}
+	if out.Error.Message == "operation budget expired" {
+		t.Fatal("a committed effect read as a clean timeout with no effect")
+	}
+	if _, err := out.Encode(); err != nil {
+		t.Fatalf("the refusal must be deliverable, got %v", err)
 	}
 }
 

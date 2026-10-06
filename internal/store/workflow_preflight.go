@@ -106,8 +106,8 @@ func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry
 // advancing the instance. The admission is the single implementation: the
 // action resolution runs against the store (it takes the pool-backed reader),
 // and the transaction preflight — the same function the owning boundary runs
-// — folds and decides inside one transaction, so this surface and the
-// boundary cannot drift on the answer that gates the effect.
+// — folds and decides inside one read snapshot. Inspection does not acquire
+// the write lock; the owning boundary revalidates before any effect.
 func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_preflight", "store is not open", false, "open the authority database")
@@ -118,17 +118,12 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return preflightWorkflowActionAdmissionTx(ctx, transaction.tx, registry, request)
-	})
-}
-
-// preflightWorkflowActionAdmissionTx drops the definition the transaction
-// preflight returns, because an inspecting caller asks only whether the action
-// is admissible. It keeps the Transact closure above a single delegating
-// return.
-func preflightWorkflowActionAdmissionTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
-	_, err := workflowActionPreflightTx(ctx, tx, registry, request, true)
+	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	_, err = workflowActionPreflightTx(ctx, readTx, registry, request, true)
 	return err
 }
 
@@ -160,14 +155,14 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot begin owning action", true, "retry once the database is writable", err)
 	}
-	transaction := &Transaction{tx: tx}
+	transaction := &Transaction{tx: tx.Tx}
 	rollback := func(cause error) error { _ = tx.Rollback(); transaction.tx = nil; return cause }
 	defer func() { transaction.tx = nil }()
-	scope, err := beginFold(ctx, tx)
+	scope, err := beginFold(ctx, tx.Tx)
 	if err != nil {
 		return rollback(err)
 	}
@@ -185,10 +180,10 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 			if err := tx.Commit(); err != nil {
 				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
 			}
-			return s.SyncDurable(ctx)
+			return nil
 		}
 	}
-	entry, err := workflowActionPreflightTx(ctx, tx, registry, request, false)
+	entry, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, false)
 	if err != nil {
 		return rollback(err)
 	}
@@ -197,7 +192,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		// whose receiving Project holds an unconsumed, stale, or foreign
 		// handoff executes no managed external effect until it consumes the
 		// handoff addressed to it. A work with no handoffs is unaffected.
-		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx, request.WorkID, request.Actor.SessionRef); err != nil {
+		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.Actor.SessionRef); err != nil {
 			return rollback(err)
 		}
 		var open int
@@ -208,7 +203,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 			if resolver == nil || now.IsZero() {
 				return rollback(newFailure(KindNotTerminal, "workflow_action_boundary", "consequential action requires an explicit condition resolver", false, "reread_entities"))
 			}
-			if _, err := resolveWorkflowConditionsAtBoundaryTx(ctx, tx, request.WorkID, resolver, now); err != nil {
+			if _, err := resolveWorkflowConditionsAtBoundaryTx(ctx, tx.Tx, request.WorkID, resolver, now); err != nil {
 				return rollback(err)
 			}
 			if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&request.ExpectedVersion); err != nil {
@@ -216,7 +211,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 			}
 		}
 	}
-	if _, err := workflowActionPreflightTx(ctx, tx, registry, request, true); err != nil {
+	if _, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, true); err != nil {
 		return rollback(err)
 	}
 	if authorize != nil {
@@ -232,10 +227,6 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)
-	}
-	// committed; the durability barrier must hold before acknowledging
-	if err := s.SyncDurable(ctx); err != nil {
-		return err
 	}
 	return nil
 }
@@ -915,19 +906,7 @@ func preflightWorkflowOperation(ctx context.Context, s *Store, opID string) erro
 
 // InspectWorkflowActionAdmission answers whether the named workflow action is
 // admissible against current authority, without advancing the instance. It
-// opens one transaction and defers to workflowActionPreflightTx, so admission
-// has a single implementation and a caller outside this package cannot reach
-// the rules through an untransacted read.
+// uses the builtin registry and the same read snapshot as registry preflight.
 func InspectWorkflowActionAdmission(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return inspectWorkflowActionAdmissionTx(ctx, transaction.tx, request)
-	})
-}
-
-// inspectWorkflowActionAdmissionTx drops the definition the admission rules
-// resolve, because an inspecting caller asks only whether the action is
-// admissible. It keeps the Transact closure above a single delegating return.
-func inspectWorkflowActionAdmissionTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) error {
-	_, err := workflowActionPreflightTx(ctx, tx, BuiltinWorkflowRegistry(), request, true)
-	return err
+	return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request)
 }

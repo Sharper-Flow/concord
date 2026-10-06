@@ -117,24 +117,42 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 		return origin, wrapFailure(KindInvalidOperation, "work_bootstrap", "cannot resolve the linked bootstrap origin path", false, "run work_start from a reachable worktree", err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	readOrigin := func(q queryer) (BootstrapOrigin, string, error) {
+		var current BootstrapOrigin
+		var claimID string
+		err := q.QueryRowContext(ctx, `SELECT e.project_id,e.branch,e.path,w.id,w.lifecycle,e.claim_op_id FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id JOIN work_items w ON w.id=c.work_id WHERE e.project_id=? AND e.path=? AND e.state='active'`, projectID, filepath.Clean(path)).Scan(&current.ProjectID, &current.Branch, &current.Path, &current.WorkID, &current.Lifecycle, &claimID)
+		if err == sql.ErrNoRows {
+			return current, claimID, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree")
+		}
+		if err != nil {
+			return current, claimID, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry once the database is readable", err)
+		}
+		return current, claimID, nil
+	}
+	origin, claimID, err := readOrigin(s.db)
 	if err != nil {
-		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry the same operation", err)
+		return origin, err
 	}
-	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, `SELECT e.project_id,e.branch,e.path,w.id,w.lifecycle FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id JOIN work_items w ON w.id=c.work_id WHERE e.project_id=? AND e.path=? AND e.state='active'`, projectID, filepath.Clean(path)).Scan(&origin.ProjectID, &origin.Branch, &origin.Path, &origin.WorkID, &origin.Lifecycle)
-	if err == sql.ErrNoRows {
-		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "linked bootstrap origin is not an active Concord worktree", false, "run work_start from the active worktree")
-	}
-	if err != nil {
-		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry once the database is readable", err)
-	}
+	// Git runs without a transaction so native probing holds neither the
+	// writer lock nor the pool's only connection.
 	status, err := runner.Run(ctx, filepath.Clean(path), "status", "--porcelain")
 	if err != nil {
 		return origin, wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot inspect linked bootstrap origin "+origin.WorkID, true, "restore access to the origin worktree and retry", err)
 	}
 	if strings.TrimSpace(string(status)) != "" {
 		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain from dirty worktree of "+origin.WorkID, false, "commit or discard the origin changes before starting new work")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry the same operation", err)
+	}
+	defer tx.Rollback()
+	current, currentClaimID, err := readOrigin(tx)
+	if err != nil {
+		return origin, err
+	}
+	if current != origin || currentClaimID != claimID {
+		return origin, newFailure(KindProjectionConflict, "work_bootstrap", "linked bootstrap origin changed during the git probe", true, "retry from the current active worktree")
 	}
 	var leased bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_verify_leases WHERE path=? AND state='held')`, filepath.Clean(path)).Scan(&leased); err != nil {
@@ -348,12 +366,12 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 			return BootstrapResult{}, err
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the resume scope", true, "retry the same operation", err)
 	}
 	defer tx.Rollback()
-	if err := validateBootstrapScopeTx(ctx, tx, req.ProductID, req.ProjectID, declared); err != nil {
+	if err := validateBootstrapScopeTx(ctx, tx.Tx, req.ProductID, req.ProjectID, declared); err != nil {
 		return BootstrapResult{}, err
 	}
 	var version int64
@@ -372,17 +390,12 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 	// and a retry after an interruption takes the recovery branch with the
 	// stored base and owes no new fetch.
 	if rowErr == sql.ErrNoRows {
-		if err := pinBootstrapClaimTx(ctx, tx, operationID, req.WorkID, req.ProjectID, location, s.now()); err != nil {
+		if err := pinBootstrapClaimTx(ctx, tx.Tx, operationID, req.WorkID, req.ProjectID, location, s.now()); err != nil {
 			return BootstrapResult{}, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return BootstrapResult{}, wrapFailure(KindUnavailable, "work_bootstrap", "cannot record the resume claim intent", true, "retry the same operation", err)
-	}
-	if rowErr == sql.ErrNoRows {
-		if err := s.SyncDurable(ctx); err != nil {
-			return BootstrapResult{}, err
-		}
 	}
 	claim, err := s.ClaimWorktree(ctx, WorktreeClaimRequest{
 		OpID: operationID, WorkID: req.WorkID, ProjectID: req.ProjectID, BaseSHA: location.BaseSHA,
@@ -390,9 +403,6 @@ func (s *Store) claimCrossProjectWorktree(ctx context.Context, req ExistingBoots
 		ExpectedVersion: version, Runner: ExecGitRunner{},
 	})
 	if err != nil {
-		return BootstrapResult{}, err
-	}
-	if err := s.SyncDurable(ctx); err != nil {
 		return BootstrapResult{}, err
 	}
 	return BootstrapResult{OperationID: operationID, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: req.WorkID, WorkVersion: version + 1, Entry: claim.Entry}, nil
@@ -695,9 +705,6 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	if err := s.SyncDurable(ctx); err != nil {
-		return BootstrapResult{}, err
-	}
 	result.Replayed = prepared.Result.Replayed
 	return result, nil
 }
@@ -707,13 +714,10 @@ func (s *Store) bootstrapWorktreeMode(ctx context.Context, req BootstrapRequest,
 func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID string, location WorktreeLocation, runner GitRunner, cause error) error {
 	now := s.now()
 	done := false
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	err := s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return beginBootstrapRollbackTx(ctx, transaction, operationID, workID, now, cause.Error(), &done)
 	})
 	if err != nil || done {
-		return err
-	}
-	if err := s.SyncDurable(ctx); err != nil {
 		return err
 	}
 	if err := removeBootstrapWorktree(ctx, runner, location); err != nil {
@@ -734,13 +738,13 @@ func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID strin
 			return wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot remove the failed bootstrap branch", false, "remove the exact pinned branch before retrying", err)
 		}
 	}
-	err = s.Transact(ctx, func(transaction *Transaction) error {
+	err = s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return rollbackBootstrapTx(ctx, transaction, operationID, workID, now, cause.Error())
 	})
 	if err != nil {
 		return wrapFailure(KindUnavailable, "work_bootstrap", "cannot record bootstrap rollback", false, "restore the authority database before retrying", err)
 	}
-	return s.SyncDurable(ctx)
+	return nil
 }
 
 func removeBootstrapWorktree(ctx context.Context, runner GitRunner, location WorktreeLocation) error {
@@ -1167,7 +1171,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if probeErr != nil {
 		return out, probeErr
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap journal", true, "retry the same operation", err)
 	}
@@ -1199,9 +1203,9 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		if state == "completed" {
 			switch claimState {
 			case worktreeStatePending, worktreeStateVerified:
-				return replayCompletedBootstrapTx(ctx, tx, req, operationID, workID, state, location)
+				return replayCompletedBootstrapTx(ctx, tx.Tx, req, operationID, workID, state, location)
 			case worktreeStateReclaimed:
-				location, expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx, operationID, workID, location, probe.branchSHA, probe.branchExists, s.Clock)
+				location, expectedVersion, err = reopenReclaimedBootstrapStoreTx(ctx, tx.Tx, operationID, workID, location, probe.branchSHA, probe.branchExists, s.Clock)
 				if err != nil {
 					return out, err
 				}
@@ -1219,7 +1223,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 	if err == sql.ErrNoRows {
 		state = "pending"
 		if existing {
-			replay, handled, existingErr := replayExistingBootstrapTx(ctx, tx, req, workID)
+			replay, handled, existingErr := replayExistingBootstrapTx(ctx, tx.Tx, req, workID)
 			if existingErr != nil {
 				return out, existingErr
 			}
@@ -1236,7 +1240,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				return out, newFailure(KindProjectionConflict, "work_bootstrap", "existing work item has a bootstrap operation for another Project or Product", false, "resume with the original Project and Product")
 			}
 		}
-		if err := validateBootstrapScopeTx(ctx, tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
+		if err := validateBootstrapScopeTx(ctx, tx.Tx, req.ProductID, req.ProjectID, req.GoverningRequirements); err != nil {
 			return out, err
 		}
 		var exists bool
@@ -1276,7 +1280,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: workPayload},
 				{EventID: operationID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 			}
-			if _, err := applyOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(tx), false); err != nil {
+			if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(tx.Tx), false); err != nil {
 				return out, err
 			}
 			// Session-prepare reads C19 continuity unconditionally, so a
@@ -1294,7 +1298,7 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 				return out, definitionErr
 			}
 			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/" + operationID, ActorClass: ActorOperator}
-			if err := InitializeWorkflowTx(ctx, &Transaction{tx: tx, clock: s.Clock}, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
+			if err := InitializeWorkflowTx(ctx, &Transaction{tx: tx.Tx, clock: s.Clock}, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: now}); err != nil {
 				return out, err
 			}
 			expectedVersion = 4
@@ -1303,16 +1307,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			if _, err := tx.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, req.IdempotencyKey, operationID, digest, bootstrapJSON(journalRequest), req.ProductID, req.ProjectID, workID, location.Repo, expectedVersion, "pending", now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
 				return out, err
 			}
-			if err := pinBootstrapClaimTx(ctx, tx, operationID, workID, req.ProjectID, location, now); err != nil {
+			if err := pinBootstrapClaimTx(ctx, tx.Tx, operationID, workID, req.ProjectID, location, now); err != nil {
 				return out, err
 			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return out, wrapFailure(KindUnavailable, "work_bootstrap", "cannot commit bootstrap journal", true, "retry the same idempotency key", err)
-	}
-	if err := s.SyncDurable(ctx); err != nil {
-		return out, err
 	}
 	return bootstrapPrepared{Result: BootstrapResult{OperationID: operationID, Replayed: replayed, ProductID: req.ProductID, ProjectID: req.ProjectID, WorkID: workID}, State: state, Location: location}, nil
 }
@@ -1387,7 +1388,7 @@ func reopenReclaimedBootstrapStoreTx(ctx context.Context, tx *sql.Tx, operationI
 }
 
 func (s *Store) setBootstrapState(ctx context.Context, operationID, from, to string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "work_bootstrap", "cannot begin bootstrap phase record", true, "retry the same operation", err)
 	}
@@ -1408,7 +1409,7 @@ func (s *Store) setBootstrapState(ctx context.Context, operationID, from, to str
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "work_bootstrap", "cannot commit bootstrap phase record", true, "retry the same operation", err)
 	}
-	return s.SyncDurable(ctx)
+	return nil
 }
 
 func reconcileBootstrapNative(ctx context.Context, runner GitRunner, repo string, location WorktreeLocation, allowExisting bool) (worktreeFacts, error) {
@@ -1617,7 +1618,7 @@ func validateBootstrapScopeTx(ctx context.Context, tx *sql.Tx, productID, projec
 }
 
 func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, operationID, workID string, location WorktreeLocation, facts worktreeFacts) (BootstrapResult, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
@@ -1635,11 +1636,11 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 		return BootstrapResult{}, newFailure(KindInvariantViolation, "work_bootstrap", "bootstrap finalization differs from the pinned worktree intent", false, "contact_operator")
 	}
 	if state == "completed" {
-		entry, err := worktreeEntryByClaim(ctx, tx, operationID)
+		entry, err := worktreeEntryByClaim(ctx, tx.Tx, operationID)
 		if err != nil {
 			return BootstrapResult{}, err
 		}
-		version, err := workVersionTx(ctx, tx, workID)
+		version, err := workVersionTx(ctx, tx.Tx, workID)
 		if err != nil {
 			return BootstrapResult{}, err
 		}
@@ -1674,7 +1675,7 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 	if priorCreation {
 		eventID = fmt.Sprintf("%s:%d", eventID, expected)
 	}
-	if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newFoldScope(tx), false); err != nil {
+	if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: []Event{{EventID: eventID, Kind: "work.worktree_created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}}, newFoldScope(tx.Tx), false); err != nil {
 		return BootstrapResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worktree_claims SET state=?,updated_at=? WHERE op_id=? AND state=?`, worktreeStateVerified, s.now().Format(time.RFC3339Nano), operationID, worktreeStatePending); err != nil {
@@ -1683,7 +1684,7 @@ func (s *Store) finalizeBootstrap(ctx context.Context, req BootstrapRequest, ope
 	if _, err := tx.ExecContext(ctx, `UPDATE bootstrap_operations SET state='completed',updated_at=? WHERE operation_id=? AND state='native_ready'`, s.now().Format(time.RFC3339Nano), operationID); err != nil {
 		return BootstrapResult{}, err
 	}
-	entry, err := worktreeEntryByClaim(ctx, tx, operationID)
+	entry, err := worktreeEntryByClaim(ctx, tx.Tx, operationID)
 	if err != nil {
 		return BootstrapResult{}, err
 	}

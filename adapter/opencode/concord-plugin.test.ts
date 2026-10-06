@@ -14,6 +14,9 @@ import { hostToolSchemas } from "./generated-contracts"
 import { bindCiWatchClient, ciWatchSettled, configureCiWatch, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
+import { syntheticHostVersionFixture } from "./host-version.test-support"
+
+syntheticHostVersionFixture()
 
 test("work start publishes optional fields through the host definition hook", async () => {
   const plugin = await ConcordAdapterPlugin()
@@ -265,7 +268,7 @@ describe("plugin entry binds the control plane to the host client", () => {
     await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toBeInstanceOf(MoveSessionUnavailable)
     // A server URL is present and still yields no route: the URL is not what
     // the adapter needs, so its presence must not read as a usable transport.
-    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(/handed the plugin no client/)
+    await expect(hostControlPlane().moveSession("session-1", "/w")).rejects.toThrow(/handed the plugin no client \(host version synthetic-test-host\)/)
   })
 })
 

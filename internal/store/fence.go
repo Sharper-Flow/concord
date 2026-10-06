@@ -133,13 +133,9 @@ func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, author
 	})
 }
 
-// claimStepObserved is the claim the conformance harness measures: an
-// ordinary commit, because the durable commit belongs to the acknowledging
-// entry points above (CD-0050 D4).
-func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver) (FenceResult, error) {
-	return claimStepObservedAuthorized(ctx, s, req, false, observer, nil)
-}
-
+// claimStepObservedAuthorized is the claim core. The public entry points
+// commit durably; the conformance harness passes durable=false because it
+// measures the ordinary commit path (CD-0050 D4).
 func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
@@ -212,12 +208,7 @@ func CompleteStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResu
 	return completeStep(ctx, s, req, true, nil)
 }
 
-// completeStepObserved is the completion the conformance harness measures:
-// an ordinary commit (CD-0050 D4).
-func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, observer *operationObserver) (FenceResult, error) {
-	return completeStep(ctx, s, req, false, observer)
-}
-
+// completeStep is the completion core; durable follows the claim core's rule.
 func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (FenceResult, error) {
 	if err := validateComplete(req); err != nil {
 		return FenceResult{}, err

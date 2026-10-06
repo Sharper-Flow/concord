@@ -35,7 +35,6 @@
         "internal/store.ResolveWorkflowConditionsAtBoundary",
         "internal/store.ResumeWorkflow",
         "internal/store.WorkflowProjectionHash",
-        "internal/store.claimStepObserved",
         "internal/store.compareSubjectSets",
         "internal/store.compareTokenSets",
         "internal/store.evaluateWorkflowOutcomePredicateCore",

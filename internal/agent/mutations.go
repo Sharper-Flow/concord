@@ -666,17 +666,21 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 }
 
 func (r runtime) finishMutationReplay(ctx context.Context, response Envelope, key store.MutationIdempotencyKey, op ContractOperation) (Envelope, bool, error) {
-	if err := r.Store.TouchMutationIdempotency(ctx, key, r.Authority.now()); err != nil {
-		return Envelope{}, false, err
-	}
-	// CD-0050 D3: a cached consequential result proves a commit, not that
-	// its post-commit durability barrier succeeded. Acknowledge only after
-	// syncing, outside the replay metadata transaction.
+	observed := r.Authority.now()
+	var err error
+	// Consequential replay acknowledges the cached effect and every earlier
+	// commit. The metadata update supplies a durable write without repeating
+	// the business operation; ordinary replay retains its existing tier.
 	switch op.ID {
 	case "concord_work_transition.workflow_action", "concord_work_relate.client_policy_grant_request", "concord_work_compact.publish", "concord_work_compact.reconcile":
-		if err := r.Store.SyncDurable(ctx); err != nil {
-			return Envelope{}, false, err
-		}
+		err = r.Store.TransactDurable(ctx, func(tx *store.Transaction) error {
+			return store.TouchMutationIdempotencyTx(ctx, tx, key, observed)
+		})
+	default:
+		err = r.Store.TouchMutationIdempotency(ctx, key, observed)
+	}
+	if err != nil {
+		return Envelope{}, false, err
 	}
 	return response, true, nil
 }

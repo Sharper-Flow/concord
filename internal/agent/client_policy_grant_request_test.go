@@ -553,10 +553,8 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	}
 }
 
-// TestGrantRequestAcknowledgesUnderPinnedReader pins CD-0050 D1: the grant
-// commits durably in its own transaction, so a reader that another process
-// holds open cannot turn the applied union into a failure. The replaced
-// post-commit TRUNCATE checkpoint reported busy in exactly this shape.
+// The grant and its replay acknowledge durably under a pinned reader,
+// without applying the policy union again.
 func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
@@ -595,19 +593,21 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 		t.Fatalf("the acknowledged grant was not applied: %+v", stored)
 	}
 
-	replay := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	requireReplayDurabilityFailure(t, replay)
-	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
-		t.Fatal("failed-barrier replay changed the committed policy")
-	}
-	if err := readTx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	replay = dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if replay.Outcome != OutcomeOK || !replay.Replayed {
-		t.Fatalf("grant replay after reader release: %+v", replay)
-	}
-	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
-		t.Fatal("successful replay changed the committed policy")
+	for _, pinned := range []bool{true, false} {
+		if !pinned {
+			if err := readTx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before = s.DurableCommits()
+		metadataBefore := replayMetadataCount(t, s, "grant-request-1")
+		replay := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+		if replay.Outcome != OutcomeOK || replay.Error != nil || !replay.Replayed {
+			t.Fatalf("grant replay pinned=%t: response=%+v error=%+v", pinned, replay, replay.Error)
+		}
+		requireReplayCommit(t, s, "grant-request-1", before, metadataBefore, true)
+		if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
+			t.Fatal("replay changed the committed policy")
+		}
 	}
 }

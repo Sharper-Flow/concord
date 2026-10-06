@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -66,6 +67,36 @@ func TestUnavailableStoreRefusalCarriesItsCause(t *testing.T) {
 	}
 	if _, err := out.Encode(); err != nil {
 		t.Fatalf("a refusal with its cause must be deliverable, got %v", err)
+	}
+}
+
+// A post-commit failure whose wrapped cause is a deadline keeps its possible
+// effect. The deadline branch reads "no commit happened"; a store failure
+// marked EffectPossible followed a committed transaction (CD-0050 D2), so
+// reporting it as a clean timeout tells the caller no effect exists when the
+// effect stands.
+func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T) {
+	t.Parallel()
+	failure := &store.Failure{
+		Kind:           store.KindUnavailable,
+		Op:             "sync_durable",
+		Detail:         "durability checkpoint did not complete",
+		RetrySafe:      true,
+		EffectPossible: true,
+		Err:            context.DeadlineExceeded,
+	}
+	out := failureEnvelope(NewBase("deadline-possible-1", "concord_work_transition", "workflow_action"), failure)
+	if out.Error == nil || out.Error.Kind != "unreachable" {
+		t.Fatalf("error=%+v, want kind unreachable", out.Error)
+	}
+	if out.Error.EffectState != EffectPossible {
+		t.Fatalf("effect state=%q, want possible", out.Error.EffectState)
+	}
+	if out.Error.Message == "operation budget expired" {
+		t.Fatal("a committed effect read as a clean timeout with no effect")
+	}
+	if _, err := out.Encode(); err != nil {
+		t.Fatalf("the refusal must be deliverable, got %v", err)
 	}
 }
 

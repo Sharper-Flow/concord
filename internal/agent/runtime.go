@@ -735,7 +735,13 @@ func newRouteFailure(kind, message string, route ...string) *runtimeFailure {
 	return &runtimeFailure{kind: kind, message: message, recovery: "use_declared_route", retry: false, recoveryRefs: route}
 }
 func failureEnvelope(base Envelope, err error) Envelope {
-	if errors.Is(err, context.DeadlineExceeded) {
+	// A failure marked EffectPossible followed a committed transaction
+	// (CD-0050 D2), so it must not read as a clean timeout even when its
+	// wrapped cause is a deadline. The store-failure branch below carries
+	// the possible effect.
+	var effectFailure *store.Failure
+	effectPossible := errors.As(err, &effectFailure) && effectFailure.EffectPossible
+	if errors.Is(err, context.DeadlineExceeded) && !effectPossible {
 		// CD-0038 D5: expiry before any durable effect claims no effect. The
 		// store rolls an open transaction back on error, so an in-process
 		// deadline reaching this point means no commit happened. External

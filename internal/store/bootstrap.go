@@ -133,8 +133,8 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	if err != nil {
 		return origin, err
 	}
-	// Git runs without a transaction: even a read snapshot pins the WAL and
-	// prevents a concurrent durability barrier from completing its reset.
+	// Git runs without a transaction so native probing holds neither the
+	// writer lock nor the pool's only connection.
 	status, err := runner.Run(ctx, filepath.Clean(path), "status", "--porcelain")
 	if err != nil {
 		return origin, wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot inspect linked bootstrap origin "+origin.WorkID, true, "restore access to the origin worktree and retry", err)

@@ -77,7 +77,18 @@ func TestBootstrapOriginGitProbeHoldsNoDatabaseTransaction(t *testing.T) {
 					var count int
 					return nil, s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM work_items").Scan(&count)
 				}
-				return nil, other.SyncDurable(ctx)
+				before := other.DurableCommits()
+				err := other.RegisterTrustedClient(ctx,
+					TrustedClientRecord{ClientRef: "probe-client", Status: "active", PrincipalRef: "probe-principal", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`},
+					TrustedClientKeyRecord{ClientRef: "probe-client", KeyID: "probe-key", PublicKey: make([]byte, 32), Status: "active"},
+					time.Now().UTC().Format(time.RFC3339Nano))
+				if err != nil {
+					return nil, err
+				}
+				if got := other.DurableCommits(); got != before+1 {
+					t.Errorf("consequential write committed %d durable transactions, want %d", got-before, 1)
+				}
+				return nil, nil
 			})
 			if _, err := s.ValidateBootstrapOrigin(ctx, origin.ProjectID, origin.Entry.Path, probe); err != nil {
 				t.Fatalf("git probe blocked a concurrent %s: %v", operation, err)

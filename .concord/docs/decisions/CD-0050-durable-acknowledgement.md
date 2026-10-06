@@ -18,6 +18,7 @@
   harness, its pacing, threshold, and population authority; CD-0011's
   falsifier list and retention decision
 - **Supersedes:** nothing; adds a mechanism the retained architecture lacked
+- **Amended by:** [CD-0207](CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md) at D1, D3, D4, and the statements that describe `SyncDurable`: a durable commit under `synchronous=FULL` replaces the TRUNCATE checkpoint barrier, D3 adds the bootstrap, predecessor-import, and fold-guard-recovery families, and the fence entry points commit durably. D2 and D5 stand unchanged.
 
 ## Context
 

@@ -77,9 +77,15 @@ the dispatch record. The caller never supplies it.
 Whole-work delivery keeps its two routes: `record_delivery`, and the accept
 that carries `delivery_artifact` and `delivery_state`. Each route runs the
 complete delivery admission. That admission includes the fenced start, the
-refine proof, the declared tooling, the review debt, the verdicts, and the
-operator checkpoint. Local acceptances and their count prove no integration
-and no delivery.
+refine proof, the declared tooling, the review debt, the verdicts, the
+operator checkpoint, and — where the work has recorded worker jobs — the
+satisfied required jobs and the integration evidence bound to their recorded
+acceptances. Local acceptances and their count prove no integration and no
+delivery: `record_delivery` refuses while a required job's latest revision is
+unsatisfied, and refuses without one durable evidence binding whose immutable
+subject is a satisfied job's recorded acceptance. The combined accept counts
+its own accepting revision as satisfied, because one completion records the
+disposition and the delivery assertion together.
 
 Each job-capable step also declares `record_delivery`. A held step therefore
 keeps its exit, and no new phase-exit action is necessary.
@@ -89,17 +95,29 @@ keeps its exit, and no new phase-exit action is necessary.
 CD-0164 D1 holds: each dispatched attempt counts, whatever its failure kind.
 CD-0164 D2 changes for job-bound failures.
 
-A job-bound attempt that fails makes its job unresolved. While a job is
-unresolved, an accepted result opens a new window only when its recorded
-disposition names that job. When several jobs are unresolved, the window opens
-when the last of them is satisfied.
+A job-bound attempt that fails, or whose completed result is rejected, makes
+its recorded revision unresolved. While a revision is unresolved, an accepted
+result opens a new window only when its recorded disposition names that job
+and carries the same recorded obligation. When several revisions are
+unresolved, the window opens when the last of them is satisfied.
 
 An acceptance of an unrelated job does not change the window, the count, or
 the exact retry approval. The same is true for an acceptance without a job, a
 new job name, a lane change, and a contract supersession. Recording a new
-revision does not reset the count. An accepted result for any revision of the
-same job identity satisfies the job, because the identity owns the
-obligation.
+revision does not reset the count. An acceptance satisfies an unresolved
+revision only when it discharges the recorded obligation itself: the accepted
+revision must carry the same objective, stopping condition, scope, predicates,
+checks, prerequisites, unresolved references, and reserved integration work as
+the unresolved revision. Job identity alone is not satisfaction — a rewritten
+revision with an unrelated objective carries a different obligation and leaves
+the failed revision's window open. The satisfying routes are to retry the
+unresolved revision itself under the CD-0148 exact approval, or to re-record
+the same obligation as a new revision and accept that.
+
+A recorded revision also keeps the parent contract authority it was recorded
+under. After a contract supersession, a revision recorded under the superseded
+contract is no longer ready and the core refuses its dispatch until a new
+revision is recorded under the active contract.
 
 A failure without a job binding keeps CD-0164 D2 unchanged. The three-attempt
 limit, the two comparators of CD-0164 D4, and the approval wall of CD-0148 do
@@ -165,9 +183,16 @@ Scenario: Local acceptance holds the step without delivery
   And no delivery is asserted
 
 Scenario: An unrelated accepted job keeps the failed job's window
-  Given a job-bound attempt that failed
-  When the coordinator accepts a different job
+  Given a job-bound attempt that failed or whose result was rejected
+  When the coordinator accepts a different job, or a rewritten revision of the same job
   Then the correction count and the retry approval do not change
+  And only an acceptance carrying the same recorded obligation closes the window
+
+Scenario: Stale job authority is refused after supersession
+  Given a revision recorded under contract version 1
+  When the operator supersedes the contract and a dispatch selects that revision
+  Then the revision is not ready and the core refuses the dispatch
+  And a new revision under the active contract is required
 
 Scenario: Every reachable state stays live on the new versions
   Given each registered definition version
@@ -178,6 +203,7 @@ Scenario: Every reachable state stays live on the new versions
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.
 - `go test ./internal/store/ -run 'TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery|TestWorkerJobDispatchRequiresRecordedRevision'` proves the second scenario.
-- `go test ./internal/store/ -run 'TestUnrelatedAcceptedJobPreservesCorrectionWindow|TestSatisfyingAcceptedJobResetsCorrectionWindow|TestPartialSatisfactionPreservesOtherUnresolvedJobs'` proves the third scenario.
-- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the fourth scenario.
+- `go test ./internal/store/ -run 'TestUnrelatedAcceptedJobPreservesCorrectionWindow|TestSatisfyingAcceptedJobResetsCorrectionWindow|TestPartialSatisfactionPreservesOtherUnresolvedJobs'` proves the third scenario's identity half.
+- `go test ./internal/store/ -run 'TestReviewRejectedJobWindow|TestReviewRewrittenRevisionResetsFailedJob|TestReviewWorkerJobPredicateShape|TestReviewUnsatisfiedJobPhaseExit|TestReviewJobAuthoritySurvivesSupersession'` proves the third and fourth scenarios' closure, integration, and authority halves. A rejected result joins the unresolved window. A rewritten revision cannot discharge it. `record_delivery` refuses behind unsatisfied jobs and unbound integration evidence. Stale contract authority refuses dispatch. The predicate grammar admits the report schema's short predicate ids.
+- `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario.
 - `bun test adapter/opencode/packet.test.ts adapter/opencode/dispatch_route_end_to_end.test.ts` proves the adapter selects the one ready revision and that the real route holds the step until delivery.

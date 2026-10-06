@@ -775,9 +775,20 @@ func guardDeliveryAdmission(g *workflowActionGuardContext) error {
 	// On a job-capable pin the payload-blind accept admission is local
 	// acceptance and carries no delivery facet (CD-0205), so the
 	// delivery-asserting accept applies the same delivery derivation here,
-	// where the payload names the assertion.
+	// where the payload names the assertion. The accepting attempt's own
+	// dispatched revision counts as satisfied: the accept's completion
+	// records that disposition in the same event that asserts delivery, so
+	// the derivation runs over the post-event state.
 	if g.request.ActionID == "accept_worker_result" && workflowWorkerJobsActive(g.entry.Definition) {
-		if delivery := workflowAdmitDelivery(*state, WorkflowAdmissionDecision{}); delivery.Failure != nil {
+		fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+		if fieldsErr != nil {
+			return fieldsErr
+		}
+		accepting, acceptingErr := workflowDispatchedJobForAttempt(g.ctx, g.tx, g.request.WorkID, workflowFieldStringDefault(fields, "attempt_id", ""))
+		if acceptingErr != nil {
+			return acceptingErr
+		}
+		if delivery := workflowAdmitDeliveryForAccept(*state, WorkflowAdmissionDecision{}, accepting); delivery.Failure != nil {
 			return workflowExecutionAdmissionFailure(delivery, g.request.ProjectTooling)
 		}
 	}

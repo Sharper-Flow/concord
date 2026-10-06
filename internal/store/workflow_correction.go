@@ -2,9 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -552,30 +555,41 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 }
 
 // workflowCorrectionWindowBoundary walks the work item's dispatch, failure,
-// and acceptance history in log order and returns the sequence the
+// rejection, and acceptance history in log order and returns the sequence the
 // correction counting window opens after.
 //
 // CD-0164 D2: an accepted worker result opens a new window. CD-0205 refines
-// that reset for job-bound dispatches: while a failed attempt dispatched
-// under a recorded worker job is unresolved, only an acceptance that carries
-// a recorded worker-job disposition naming that job opens a new window. The
-// disposition is recorded on the acceptance event itself by the accept guard,
-// derived from the accepted attempt's dispatch binding — never asserted by
-// the caller and never inferred here by matching names against dispatches.
-// An unrelated accepted job — a disposition naming a different job_id, or an
-// acceptance with no job binding — leaves the boundary, the counted
-// dispatches, and the retry budget exactly as they were. Every job-bound
-// failed dispatch in the open window adds its own unresolved job, so several
-// unresolved failures each stay open until their own recorded disposition.
+// that reset for job-bound dispatches: while a failed or rejected attempt
+// dispatched under a recorded worker job is unresolved, only an acceptance
+// that carries a recorded worker-job disposition naming that job and the same
+// recorded obligation opens a new window. The disposition is recorded on the
+// acceptance event itself by the accept guard, derived from the accepted
+// attempt's dispatch binding — never asserted by the caller and never inferred
+// here by matching names against dispatches.
+//
+// Actual satisfaction is content equality, not job_id equality: an acceptance
+// discharges an unresolved (job, revision) only when its disposition names a
+// revision of that job whose recorded obligation — objective, stopping
+// condition, scope, predicates, checks, prerequisites, unresolved references,
+// reserved integration — equals the failed revision's. A rewritten revision
+// with an unrelated objective carries a different obligation, so accepting it
+// leaves the original corrective window and budget exactly as they were; the
+// satisfying route is to re-record the same obligation as a new revision or
+// to retry the unresolved revision itself. An unrelated accepted job — a
+// disposition naming a different job_id, or an acceptance with no job
+// binding — leaves the boundary, the counted dispatches, and the retry budget
+// exactly as they were. Every job-bound failed or rejected dispatch in the
+// open window adds its own unresolved job, so several unresolved failures
+// each stay open until their own recorded disposition.
 //
 // Histories with no job binding on any dispatched attempt keep the CD-0164
 // D2 behavior byte-for-byte: every acceptance opens a window. The walk is a
 // pure function of the event log prefix at seq — failure facts come from
-// record_worker_failure events inside the prefix, not from the current
-// worker_attempts lifecycle — so replaying any prefix derives the same
-// boundary (CD-0201 parity).
+// record_worker_failure and reject_worker_result events inside the prefix,
+// not from the current worker_attempts lifecycle — so replaying any prefix
+// derives the same boundary (CD-0201 parity).
 func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID string, seq int64, subject string) (int64, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),'') FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','accept_worker_result'))) ORDER BY e.seq`, string(SubjectWorkItem), workID, seq, WorkerDispatched, WorkflowActionCompleted)
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','accept_worker_result')) OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, seq, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
@@ -583,24 +597,35 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 	boundary := int64(0)
 	unresolved := make(map[string]bool)
 	dispatchJob := make(map[string]string)
+	obligations := make(map[string]string)
 	for rows.Next() {
 		var rowSeq int64
-		var kind, dispatchAttempt, actionAttempt, actionID, jobID string
-		if err := rows.Scan(&rowSeq, &kind, &dispatchAttempt, &actionAttempt, &actionID, &jobID); err != nil {
+		var jobRevision int64
+		var kind, dispatchAttempt, actionAttempt, actionID, jobID, payload string
+		if err := rows.Scan(&rowSeq, &kind, &dispatchAttempt, &actionAttempt, &actionID, &jobID, &jobRevision, &payload); err != nil {
 			return 0, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
 		}
 		switch kind {
 		case string(WorkerDispatched):
 			if jobID != "" {
-				dispatchJob[dispatchAttempt] = jobID
+				dispatchJob[dispatchAttempt] = workerJobKey(jobID, jobRevision)
+			}
+		case WorkerJobRecorded:
+			// Record the obligation content of each recorded revision, so a
+			// later acceptance is compared with the failed revision's
+			// obligation, not with its job_id alone.
+			var recorded WorkerJobRecordedPayload
+			if err := json.Unmarshal([]byte(payload), &recorded); err == nil {
+				obligations[workerJobKey(recorded.JobID, recorded.Revision)] = workerJobObligationKey(recorded)
 			}
 		case string(WorkflowActionCompleted):
-			if actionID == "record_worker_failure" {
-				if job := dispatchJob[actionAttempt]; job != "" {
-					// A job-bound attempt failed inside the walked prefix:
-					// its job joins the unresolved set and stays there
-					// until an acceptance records a disposition naming it.
-					unresolved[job] = true
+			if actionID == "record_worker_failure" || actionID == "reject_worker_result" {
+				if key := dispatchJob[actionAttempt]; key != "" {
+					// A job-bound attempt failed or was rejected inside the
+					// walked prefix: its recorded revision joins the
+					// unresolved set and stays there until an acceptance
+					// records a disposition satisfying that obligation.
+					unresolved[key] = true
 				}
 				continue
 			}
@@ -613,13 +638,24 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 				boundary = rowSeq
 				continue
 			}
-			if jobID != "" && unresolved[jobID] {
-				// The acceptance carries a recorded worker-job disposition
-				// naming one unresolved job. The window opens only when the
-				// last unresolved job is satisfied.
-				delete(unresolved, jobID)
-				if len(unresolved) == 0 {
-					boundary = rowSeq
+			if jobID != "" {
+				// The acceptance carries a recorded worker-job disposition.
+				// It discharges an unresolved obligation only when the named
+				// revision of that job carries the same recorded obligation;
+				// the window opens only when the last unresolved obligation
+				// is discharged.
+				acceptedObligation := obligations[workerJobKey(jobID, jobRevision)]
+				if acceptedObligation != "" {
+					discharged := false
+					for open := range unresolved {
+						if strings.HasPrefix(open, jobID+"|") && obligations[open] == acceptedObligation {
+							delete(unresolved, open)
+							discharged = true
+						}
+					}
+					if discharged && len(unresolved) == 0 {
+						boundary = rowSeq
+					}
 				}
 			}
 			// Any other acceptance leaves the boundary and the unresolved
@@ -630,6 +666,40 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 		return 0, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
 	}
 	return boundary, nil
+}
+
+// workerJobKey names one recorded revision in the correction walk's maps. The
+// separator cannot occur in a job id, so a job-prefixed key matches exactly
+// its own job's revisions.
+func workerJobKey(jobID string, revision int64) string {
+	return jobID + "|" + strconv.FormatInt(revision, 10)
+}
+
+// workerJobObligationKey derives the obligation content of one recorded
+// revision: every content field that defines what the job owes, excluding the
+// identity fields (job id, revision, parent contract version) and the
+// coordinator's readiness assertion. Two revisions of one job carry the same
+// obligation exactly when this key equals, so an acceptance of a re-recorded
+// revision discharges the failed revision's corrective window while an
+// acceptance of a rewritten, unrelated revision cannot.
+func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
+	obligation := struct {
+		Objective           string                  `json:"objective"`
+		StoppingCondition   string                  `json:"stopping_condition"`
+		ProjectScope        string                  `json:"project_scope"`
+		PathScope           []string                `json:"path_scope"`
+		PredicateIDs        []string                `json:"predicate_ids"`
+		Checks              []string                `json:"checks"`
+		Prerequisites       []WorkerJobPrerequisite `json:"prerequisites"`
+		UnresolvedRefs      []string                `json:"unresolved_refs"`
+		ReservedIntegration string                  `json:"reserved_integration"`
+	}{payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration}
+	raw, err := json.Marshal(obligation)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // workflowSameStepFailedAttemptCount counts the failed worker attempts whose

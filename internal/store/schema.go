@@ -5623,6 +5623,12 @@ CREATE TABLE worker_job_revisions (
     work_id              TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
     job_id               TEXT NOT NULL,
     revision             INTEGER NOT NULL CHECK(revision > 0),
+    -- contract_version is the core-derived parent authority the revision was
+    -- recorded under. It stays immutable with the revision, so a later
+    -- supersession leaves the revision recorded under stale authority: the
+    -- readiness derivation and the dispatch boundary then refuse it until a
+    -- new revision is recorded under the active contract.
+    contract_version     INTEGER NOT NULL CHECK(contract_version > 0),
     objective            TEXT NOT NULL CHECK(length(objective) BETWEEN 1 AND 4096),
     stopping_condition   TEXT NOT NULL CHECK(length(stopping_condition) BETWEEN 1 AND 2048),
     project_scope        TEXT NOT NULL DEFAULT '',

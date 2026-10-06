@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -24,9 +25,10 @@ const WorkerJobRecorded = "worker.job_recorded"
 var workerJobIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$`)
 
 // workerJobPredicatePattern is the same closed predicate-id shape the lane
-// report schema admits, so a recorded job can only declare predicates a
-// dispatched report could tie.
-var workerJobPredicatePattern = regexp.MustCompile(`^predicate:[A-Za-z0-9][A-Za-z0-9._:-]{10,127}$`)
+// report schema admits — one or more suffix characters after the prefix, up
+// to the report grammar's 128-byte bound — so a recorded job can only
+// declare predicates a dispatched report could tie.
+var workerJobPredicatePattern = regexp.MustCompile(`^predicate:[A-Za-z0-9][A-Za-z0-9._:-]{0,117}$`)
 
 // WorkerJobPrerequisite is one exact prerequisite reference: a recorded
 // revision of another job, and optionally the result reference that satisfied
@@ -264,9 +266,9 @@ func foldWorkerJobRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worker_job_revisions
-		(work_id,job_id,revision,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', ?)`,
-		event.SubjectID, payload.JobID, payload.Revision, payload.Objective, payload.StoppingCondition, payload.ProjectScope,
+		(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,reserved_integration,readiness,digest,state,recorded_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'recorded', ?)`,
+		event.SubjectID, payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope,
 		workflowJSON(nonNilStrings(payload.PathScope)), workflowJSON(nonNilStrings(payload.PredicateIDs)), workflowJSON(nonNilStrings(payload.Checks)),
 		workflowJSON(nonNilPrerequisites(payload.Prerequisites)), workflowJSON(nonNilStrings(payload.UnresolvedRefs)), payload.ReservedIntegration, readinessColumn, payload.Digest, now); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot record the worker-job revision", true, "retry once the database is writable", err)
@@ -433,12 +435,15 @@ type WorkerJobRevisionView struct {
 // workerJobReadyPredicate is the one admission rule for selecting a revision
 // (CD-0205), evaluated over the worker_job_revisions row aliased j: the
 // revision is the latest recorded revision of its job, it is not yet
-// satisfied, its coordinator readiness is asserted ready with evidence, its
-// unresolved references are empty, and every exact prerequisite revision is
-// recorded and satisfied — pinned, when the prerequisite names a result
-// reference, to the exact recorded acceptance that satisfied it.
+// satisfied, its recorded parent authority is still the work's active
+// approved contract so a supersession strands old-authority revisions, its
+// coordinator readiness is asserted ready with evidence, its unresolved
+// references are empty, and every exact prerequisite revision is recorded and
+// satisfied — pinned, when the prerequisite names a result reference, to the
+// exact recorded acceptance that satisfied it.
 const workerJobReadyPredicate = `j.state='recorded'
   AND j.revision=(SELECT MAX(latest.revision) FROM worker_job_revisions latest WHERE latest.work_id=j.work_id AND latest.job_id=j.job_id)
+  AND j.contract_version=(SELECT MAX(contract.contract_version) FROM workflow_contracts contract WHERE contract.work_id=j.work_id AND contract.superseded_by IS NULL)
   AND j.readiness IS NOT NULL AND json_extract(j.readiness,'$.ready')=1 AND COALESCE(json_array_length(j.readiness,'$.evidence'),0)>0
   AND json_array_length(j.unresolved_refs)=0
   AND NOT EXISTS (SELECT 1 FROM json_each(j.prerequisites) prerequisite
@@ -453,7 +458,7 @@ const workerJobReadyPredicate = `j.state='recorded'
 // readWorkerJobRevisions reads every recorded revision of the work, in job
 // and revision order, with the derived readiness of each.
 func readWorkerJobRevisions(ctx context.Context, q queryer, workID string) ([]WorkerJobRevisionView, error) {
-	rows, err := q.QueryContext(ctx, `SELECT j.job_id,j.revision,j.digest,j.objective,j.stopping_condition,j.project_scope,j.path_scope,j.predicate_ids,j.checks,j.prerequisites,j.unresolved_refs,j.reserved_integration,j.state,COALESCE(j.satisfied_result_ref,''),j.recorded_at,
+	rows, err := q.QueryContext(ctx, `SELECT j.job_id,j.revision,j.digest,j.contract_version,j.objective,j.stopping_condition,j.project_scope,j.path_scope,j.predicate_ids,j.checks,j.prerequisites,j.unresolved_refs,j.reserved_integration,j.state,COALESCE(j.satisfied_result_ref,''),j.recorded_at,
   CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END
 FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, workID)
 	if err != nil {
@@ -464,7 +469,7 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	for rows.Next() {
 		var view WorkerJobRevisionView
 		var pathScope, predicates, checks, prerequisites, unresolved string
-		if err := rows.Scan(&view.Binding.JobID, &view.Binding.Revision, &view.Binding.Digest, &view.Objective, &view.StoppingCondition, &view.ProjectScope, &pathScope, &predicates, &checks, &prerequisites, &unresolved, &view.ReservedIntegration, &view.State, &view.SatisfiedResultRef, &view.RecordedAt, &view.Ready); err != nil {
+		if err := rows.Scan(&view.Binding.JobID, &view.Binding.Revision, &view.Binding.Digest, &view.ContractVersion, &view.Objective, &view.StoppingCondition, &view.ProjectScope, &pathScope, &predicates, &checks, &prerequisites, &unresolved, &view.ReservedIntegration, &view.State, &view.SatisfiedResultRef, &view.RecordedAt, &view.Ready); err != nil {
 			return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan worker-job revisions", true, "retry once the worker-job projection is readable", err)
 		}
 		for _, column := range []struct {
@@ -505,13 +510,18 @@ func (s *Store) ReadyWorkerJobRevisions(ctx context.Context, workID string) ([]W
 }
 
 // requireWorkerJobRevisionReadyTx is the dispatch-time admission of one
-// selected revision: it must be recorded under the named digest and satisfy
-// the one readiness rule. Readiness depends on later dispositions, so the
-// live dispatch boundary owns it; the fold keeps the immutable facts.
+// selected revision: it must be recorded under the named digest, carry the
+// work's active parent contract authority, and satisfy the one readiness
+// rule. Readiness depends on later dispositions, so the live dispatch
+// boundary owns it; the fold keeps the immutable facts. Parent authority is
+// compared explicitly so a stale assignment names the supersession, not a
+// generic unreadiness: a revision recorded under a superseded contract stays
+// undispatchable until a new revision is recorded under the active contract.
 func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) error {
 	var digest string
+	var contractVersion int64
 	var ready bool
-	err := q.QueryRowContext(ctx, `SELECT j.digest, CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END FROM worker_job_revisions j WHERE j.work_id=? AND j.job_id=? AND j.revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &ready)
+	err := q.QueryRowContext(ctx, `SELECT j.digest, j.contract_version, CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END FROM worker_job_revisions j WHERE j.work_id=? AND j.job_id=? AND j.revision=?`, workID, binding.JobID, binding.Revision).Scan(&digest, &contractVersion, &ready)
 	if err == sql.ErrNoRows {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_job does not name a recorded worker-job revision", false, "record the job with record_worker_job before dispatching it")
 	}
@@ -520,6 +530,16 @@ func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID stri
 	}
 	if digest != binding.Digest {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_job digest does not match the recorded revision", false, "dispatch the recorded revision digest")
+	}
+	active, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return newFailure(KindInvalidOperation, "workflow_action", "dispatch_worker worker_job requires an approved parent contract", false, "approve the work contract before dispatching a worker job")
+		}
+		return err
+	}
+	if contractVersion != active {
+		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision carries contract authority of version "+fmt.Sprint(contractVersion)+" while the active parent contract is version "+fmt.Sprint(active), false, "record a new revision of the job under the active contract before dispatching it")
 	}
 	if !ready {
 		return newFailure(KindInvalidOperation, "workflow_action", "the selected worker-job revision is not ready: it is satisfied, superseded by a later revision, lacks coordinator readiness, carries unresolved references, or waits on an unsatisfied prerequisite", false, "select a ready revision from the work's worker jobs, or record a new revision")

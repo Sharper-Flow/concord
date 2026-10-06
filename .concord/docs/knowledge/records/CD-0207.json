@@ -33,7 +33,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8a72e97297bac745c86d17bbb18ab1ca11dea62674faf0eb8fda81e17a8e0ad8",
+  "sha256": "sha256:b9edf92017dbb9037f6f5ba044e6e90289f4483e093ade05f01179a0e227b547",
   "status": "accepted",
   "summary": "A consequential operation commits in a durable write transaction: the store pins the pool's one connection, sets synchronous=FULL before BEGIN, verifies level 2, commits, then restores NORMAL or discards the connection. The commit syncs the WAL, so no post-commit TRUNCATE checkpoint runs and a WAL reader cannot fail the acknowledgement. CD-0050 D3 adds the bootstrap journal and worktree claim, predecessor import, and fold-guard recovery families; the fence entry points commit durably while the conformance harness still measures ordinary commits. D2's guarantee is unchanged; a WAL size backstop stays an open, measured follow-up.",
   "tags": [

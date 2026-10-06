@@ -71,7 +71,7 @@ before pull request 1558, but D3 never named them. The enumeration adds them:
 | Family | Sites | Why it is consequential |
 |---|---|---|
 | Bootstrap journal and worktree claim | `internal/store/bootstrap.go` `claimCrossProjectWorktree`, `prepareBootstrapMode`, `setBootstrapState`, `rollbackBootstrap`, `finalizeBootstrap`; `internal/store/worktrees.go` `ClaimWorktree` | The journal and the claim decide which work item owns a worktree on disk. A claim lost after its acknowledgement permits a second owner of the same worktree. |
-| Predecessor import | `cmd/concord/predecessor_import.go` `executePredecessorImport` and its deletion sites | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
+| Predecessor import | `cmd/concord/predecessor_import.go` `writeProductAndProjects`, `writeSecondaryProjects`, `writeSelectedWork` | The acknowledged import is the record of which Products, Projects, and work items migrated. A loss after the acknowledgement misstates the migration. |
 | Fold-guard recovery | `internal/store/recovery.go` `RecoverFoldGuard` | Recovery clears a stranded fold guard and rebuilds every projection in one transaction. Its acknowledgement admits ordinary writes again. |
 
 The five CD-0050 D3 families remain. The site column of the cross-authority

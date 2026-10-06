@@ -506,17 +506,24 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	if ownerReplay.Outcome != OutcomeOK || !resultBool(t, ownerReplay, "already_consumed") {
 		t.Fatalf("owner replay=%+v result=%s, want the standing bind re-resolved", ownerReplay.Error, ownerReplay.Result)
 	}
-	// A foreign receiver's same-key replay refuses on the recorded bind
-	// instead of receiving the cached success.
+	// A second receiver's same-key replay resolves the standing shared bind
+	// (CD-0182 D5 amendment): the bind names the work-and-Project pair, so
+	// a later session of the receiving Project reads already_consumed
+	// instead of a refusal prescribing a fresh handoff addressed to it. The
+	// replay keeps the verified-placement boundary, so the second receiver
+	// lands first exactly as the first one did.
 	foreign := receiveEnv
 	foreign.SessionRef = "session-foreign-receiver"
+	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{WorkID: "work-1", SessionRef: foreign.SessionRef, LandedDirectory: tree, HostPID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
 	foreignReplay := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", input)
-	if foreignReplay.Outcome == OutcomeOK || foreignReplay.Error == nil || !strings.Contains(foreignReplay.Error.Message, "already consumed by another receiving session") {
-		t.Fatalf("foreign replay=%+v, want the foreign-bind refusal", foreignReplay.Error)
+	if foreignReplay.Outcome != OutcomeOK || !resultBool(t, foreignReplay, "already_consumed") {
+		t.Fatalf("foreign replay=%+v result=%s, want the shared bind resolved for the second receiver", foreignReplay.Error, foreignReplay.Result)
 	}
 	foreignNewKey := handoffInvoke(t, s, receiveService, foreign, "project_handoff_consume", map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume-foreign-new-key"})
-	if foreignNewKey.Outcome == OutcomeOK {
-		t.Fatalf("foreign new-key consume=%+v, want the same refusal", foreignNewKey.Result)
+	if foreignNewKey.Outcome != OutcomeOK || !resultBool(t, foreignNewKey, "already_consumed") {
+		t.Fatalf("foreign new-key consume=%s err=%+v, want the same shared-bind resolution", foreignNewKey.Result, foreignNewKey.Error)
 	}
 	// A contract replacement holds the same-key replay closed on the stale
 	// bind: the cached success would otherwise authorize execution under a

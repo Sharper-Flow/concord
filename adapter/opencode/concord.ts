@@ -1738,9 +1738,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // landed, so a refused record is a warning and the start still succeeds.
     // A worktree another live session occupies is already held by that
     // recorded occupant.
+    let landingRecorded = false
     if (resume) {
       try {
         await recordClaimLanding(target.work_id, context.sessionID, target.worktree.path, context.abort)
+        landingRecorded = true
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (renderedHandoff) {
@@ -1753,6 +1755,26 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
         }
         warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
       }
+    }
+    // CD-0182 D5 amendment: the resume read above ran before this session's
+    // verified landing, and the frontier read renders a consumed bind only
+    // to a session whose verified placement stands, so a cold second
+    // coordinator session of the receiving Project captured no handoff — it
+    // would boot admitted by the shared bind without ever seeing the
+    // bounded job it dispatches under. The landing has now recorded this
+    // session's placement, so the boot re-reads the addressed handoff once:
+    // the shared bind's bounded job renders to this session too, and the
+    // consume below binds it before any dispatch arms. A re-read that still
+    // renders no handoff changes nothing: a handoff-free work stays
+    // handoff-free, and a boot whose landing did not record stays on the
+    // warning path above.
+    if (resume && !renderedHandoff && landingRecorded) {
+      const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      if (refreshed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
+      let refreshedValue: unknown
+      try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }
+      if (!validateWorkStartResume(refreshedValue) || refreshedValue.product_id !== target.product_id || refreshedValue.project_id !== target.project_id || refreshedValue.work_id !== target.work_id) throw new AdapterFailure("malformed_response", "malformed_resume_response", "the post-landing handoff re-read failed the strict resume contract", "none", "retry_same_request")
+      renderedHandoff = refreshedValue.project_handoff
     }
     // The verified placement arms the receiving side of the Project-session
     // handoff (CD-0182 amendment): the addressed handoff binds to this

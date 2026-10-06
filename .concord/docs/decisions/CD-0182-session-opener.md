@@ -10,6 +10,11 @@
   consume
 - **Amends:** CD-0078 D1 and D2 and its rejected pluggable-placement
   alternative, CD-0163, CD-0176 D2
+- **Amended:** D5's consume binding widened from the authenticated
+  receiving session to the work-and-Project pair
+  (work-65af7591013c1b4d4caa16ef, 2026-10-06): every coordinator session
+  with a verified landing in the receiving Project may dispatch under the
+  frontier handoff's bind
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
 - **Preserves:** CD-0078 D1's boundary for every Concord binary, CD-0093 D2's
   one-directory binding and D3's fail-closed canonical path, CD-0176 D1's
@@ -108,10 +113,15 @@ before the record commits: a dirty or untracked worktree refuses, and the
 core never commits, stashes, or hides files.
 
 The receiving session consumes the recorded handoff before it runs any
-managed external effect. The consume binds the record to the authenticated
-receiving session, its target Project, and the current contract. A missing,
-wrong-target, foreign, or stale handoff refuses. Managed-execution
-admission fails closed while an unconsumed or stale handoff stands.
+managed external effect. The consume binds the record to the work item and
+its addressed receiving Project under the current contract. Any coordinator
+session with a verified landing in the receiving Project may dispatch under
+the frontier handoff's bind, and every such session reads the frontier's
+bounded job. A session without a verified landing, or in another Project,
+stays refused. A missing, wrong-target, or stale handoff refuses.
+Managed-execution admission fails closed while an unconsumed or stale
+handoff stands, and a contract replacement refuses the stale bind equally
+for the consuming session and a later session of the Project.
 
 `READY_TO_CLOSE_OR_REPLACE` is a derived read, never a written state. It
 reports ready only when the session recorded an addressed handoff, its
@@ -191,6 +201,27 @@ under this record.
 - `python3 scripts/check-primary-prompts.py` and `go test ./cmd/concord/ -run
   TestLauncherAndCommandCarryNoMultiplexerKnowledge` prove D1's boundary:
   the instructions name the route, and the binaries stay multiplexer-free.
+- `go test ./internal/store/ -run
+  TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject`
+  proves D5's widened bind: a second landed session of the receiving
+  Project dispatches under a frontier the first session consumed, the
+  stale-bind refusal after a contract replacement is equal for both
+  sessions, and an unverified or wrong-Project session stays refused.
+  `go test ./internal/store/ -run
+  TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject`
+  proves the consume resolves the shared bind for a second session and
+  refuses an unplaced session's replay at the placement boundary, and
+  `go test ./internal/store/ -run
+  TestBootResumeRendersTheConsumedFrontierToEveryPlacedSessionOfTheProject`
+  proves the widened frontier read. `go test ./internal/store/ -run
+  TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAdmitted`
+  proves the widened bind never crosses Projects: a session placed in the
+  source Project acquires no bind while that Project's own execution stays
+  admitted. `bun test adapter/opencode/project_handoff_end_to_end.test.ts`
+  proves the cold second-session boot on the real boundary: the boot
+  re-reads the addressed handoff after its verified landing records
+  placement, renders the shared bind's bounded job, and resolves the
+  standing bind with no second consumed event.
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/generate-knowledge-index.py --check`,

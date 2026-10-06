@@ -188,10 +188,11 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		return err
 	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite {
-		// Project-session handoff admission (CD-0182 amendment): a session
-		// whose receiving Project holds an unconsumed, stale, or foreign
-		// handoff executes no managed external effect until it consumes the
-		// handoff addressed to it. A work with no handoffs is unaffected.
+		// Project-session handoff admission (CD-0182 amendment): a
+		// session whose receiving Project holds an unconsumed or stale
+		// frontier executes no managed external effect until a session of
+		// that Project consumes the addressed handoff under the active
+		// contract. A work with no handoffs is unaffected.
 		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.Actor.SessionRef); err != nil {
 			return err
 		}

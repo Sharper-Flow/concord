@@ -520,9 +520,9 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 // TestWorkResumeNamesTheAddressedBoundedJob pins the Project-selected
 // boot/resume visibility for the v1 Project-session handoff (CD-0182
 // amendment): the addressed handoff rides the resume answer, a consumed
-// handoff stops riding for an identity-less or foreign read but re-renders
-// to the session its own bind names, and a handoff-free resume carries no
-// section.
+// handoff stops riding for an identity-less or unplaced read but re-renders
+// to every session with a verified landing in the receiving Project, and a
+// handoff-free resume carries no section.
 func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
@@ -599,13 +599,20 @@ func TestWorkResumeNamesTheAddressedBoundedJob(t *testing.T) {
 	}
 	// Lost-response recovery: the resume carrying the consuming session's
 	// own authenticated reference re-renders the standing bind, so a replay
-	// after a lost consume response recovers the bounded job. A foreign
-	// session's resume renders nothing.
+	// after a lost consume response recovers the bounded job. The render
+	// resolves the session's verified placement (CD-0182 D5 amendment), so
+	// the fixture records the receiving session's claim landing first. An
+	// unplaced session's resume renders nothing.
+	if _, err := s.RecordWorktreeClaimLanding(context.Background(), store.WorktreeClaimLandingRequest{
+		WorkID: origin.WorkID, SessionRef: "session/receive", LandedDirectory: filepath.Clean(origin.Entry.Path), HostPID: os.Getpid(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if code, output, stderr := resumeCLIAsSession(t, s, repo, origin.WorkID, "session/receive"); code != 0 || output.ProjectHandoff == nil || output.ProjectHandoff.BoundedJob != "verify the receiving repository's adapter surface" {
 		t.Fatalf("lost-response resume code=%d handoff=%+v stderr=%q, want the receiver's own bind re-rendered", code, output.ProjectHandoff, stderr)
 	}
 	if code, output, stderr := resumeCLIAsSession(t, s, repo, origin.WorkID, "session/other"); code != 0 || output.ProjectHandoff != nil {
-		t.Fatalf("foreign-session resume code=%d handoff=%+v stderr=%q, want no section", code, output.ProjectHandoff, stderr)
+		t.Fatalf("unplaced-session resume code=%d handoff=%+v stderr=%q, want no section", code, output.ProjectHandoff, stderr)
 	}
 	// The stale-frontier pin: a successor handoff recorded under the
 	// replacement contract, consumed, leaves the superseded contract's

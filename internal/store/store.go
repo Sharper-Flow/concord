@@ -458,7 +458,9 @@ func dataSourceName(path string) string {
 	// BEGIN IMMEDIATE acquires the write lock before migration reads begin. This
 	// avoids SQLite's read-to-write upgrade path, where SQLITE_BUSY can skip the
 	// busy handler and return immediately. This only affects explicit BeginTx
-	// calls; plain autocommit QueryContext reads do not issue BEGIN.
+	// calls; plain autocommit QueryContext reads do not issue BEGIN, and a
+	// read snapshot passes sql.TxOptions{ReadOnly: true} to get a deferred
+	// BEGIN that holds no write lock.
 	query := []string{"_txlock=immediate"}
 	for _, p := range pragmas {
 		query = append(query, "_pragma="+url.QueryEscape(p))

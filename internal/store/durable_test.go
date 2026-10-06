@@ -25,9 +25,9 @@ func readSynchronous(t *testing.T, ctx context.Context, q queryer) int {
 // the next ordinary write does not pay a per-commit sync.
 func TestDurableTxCommitsUnderFull(t *testing.T) {
 	t.Parallel()
+	s := openTemp(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s := openTemp(t)
 
 	ordinary, err := beginWriteTx(ctx, s, false)
 	if err != nil {
@@ -87,9 +87,9 @@ func TestDurableTxCommitsUnderFull(t *testing.T) {
 // reported busy here after the effect had committed.
 func TestDurableCommitIgnoresPinnedReader(t *testing.T) {
 	t.Parallel()
+	s := openTemp(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s := openTemp(t)
 	pinReaderSnapshot(t, s)
 
 	if err := s.RegisterTrustedClient(ctx, TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `[]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`}, TrustedClientKeyRecord{ClientRef: "client-1", KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {

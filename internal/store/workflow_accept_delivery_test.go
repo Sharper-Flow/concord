@@ -63,10 +63,9 @@ func acceptRefineResult(t *testing.T, s *Store, workID, attemptID string, epoch 
 	step := currentStep(t, s, workID)
 	payload := json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `}`)
 	if workflowAcceptDeliveryAdmissionActive(entry.Definition, step) {
+		refineProofSeedGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
 		if workflowWorkerJobsActive(entry.Definition) {
 			workerJobIntegrationGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
-		} else {
-			refineProofSeedGreenRun(t, s, workID, acceptDeliveryRunDigest(workID, attemptID))
 		}
 		payload = json.RawMessage(`{"attempt_id":"` + attemptID + `","attempt_epoch":` + fmt.Sprint(epoch) + `,"delivery_artifact":"artifact:accept-delivery-` + workID + `","delivery_state":"asserted"}`)
 	}

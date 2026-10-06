@@ -9,8 +9,8 @@ func TestUnopenedStoreLauncherMethods(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	assertUnopenedStoreTypedFailure(t, []nilStoreCase{
-		{"SyncDurable", func(s *Store) error {
-			return s.SyncDurable(ctx)
+		{"TransactDurable", func(s *Store) error {
+			return s.TransactDurable(ctx, func(*Transaction) error { return nil })
 		}},
 	})
 }

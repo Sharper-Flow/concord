@@ -114,9 +114,11 @@ func Step(ctx context.Context, s *Store, opID string) (FenceResult, error) {
 }
 
 // ClaimStep starts the next fenced attempt. The connection's _txlock=immediate
-// setting makes this transaction BEGIN IMMEDIATE across all callers.
+// setting makes this transaction BEGIN IMMEDIATE across all callers. The claim
+// commits durably (CD-0050 D3): a claim lost to power failure could permit a
+// duplicate cross-authority dispatch on retry.
 func ClaimStep(ctx context.Context, s *Store, req ClaimRequest) (FenceResult, error) {
-	return claimStepObserved(ctx, s, req, nil)
+	return claimStepObservedAuthorized(ctx, s, req, true, nil, nil)
 }
 
 // ClaimStepAuthorized runs an authorization callback in the same transaction
@@ -124,44 +126,47 @@ func ClaimStep(ctx context.Context, s *Store, req ClaimRequest) (FenceResult, er
 // committed together with the durable operation identity.
 func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, authorize func(*Transaction) error) (FenceResult, error) {
 	if authorize == nil {
-		return claimStepObservedAuthorized(ctx, s, req, nil, nil)
+		return claimStepObservedAuthorized(ctx, s, req, true, nil, nil)
 	}
-	return claimStepObservedAuthorized(ctx, s, req, nil, func(tx *sql.Tx) error {
+	return claimStepObservedAuthorized(ctx, s, req, true, nil, func(tx *sql.Tx) error {
 		return authorize(&Transaction{tx: tx})
 	})
 }
 
+// claimStepObserved is the claim the conformance harness measures: an
+// ordinary commit, because the durable commit belongs to the acknowledging
+// entry points above (CD-0050 D4).
 func claimStepObserved(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver) (FenceResult, error) {
-	return claimStepObservedAuthorized(ctx, s, req, observer, nil)
+	return claimStepObservedAuthorized(ctx, s, req, false, observer, nil)
 }
 
-func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
+func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
 	if s == nil || s.db == nil {
 		return FenceResult{}, newFailure(KindUnavailable, "claim_step", "store is not open", false, "open a store before claiming a step")
 	}
-	tx, err := beginObservedTx(ctx, s.db, observer)
+	tx, err := beginObservedTx(ctx, s, durable, observer)
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
-	if err := preflightWorkflowClaimTx(ctx, tx, req); err != nil {
+	if err := preflightWorkflowClaimTx(ctx, tx.Tx, req); err != nil {
 		return rollback(err)
 	}
 	digest := claimDigest(req)
-	if prior, found, err := findIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey); err != nil {
+	if prior, found, err := findIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey); err != nil {
 		return rollback(err)
 	} else if found {
 		if prior.digest != digest {
 			return rollback(idempotencyConflict("claim", req.IdempotencyKey))
 		}
-		result, err := durableResult(ctx, tx, prior.opID, prior.resultEventIDs)
+		result, err := durableResult(ctx, tx.Tx, prior.opID, prior.resultEventIDs)
 		if err != nil {
 			return rollback(err)
 		}
-		if err := touchIdempotency(ctx, tx, prior, req.ObservedAt); err != nil {
+		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
 			return rollback(err)
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
@@ -171,7 +176,7 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 		return result, nil
 	}
 	if authorize != nil {
-		if err := authorize(tx); err != nil {
+		if err := authorize(tx.Tx); err != nil {
 			return rollback(err)
 		}
 	}
@@ -188,7 +193,7 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractDigest); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err))
 	}
-	if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
+	if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
 		return rollback(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE principal_ref=? AND tool=? AND operation_kind='claim' AND idempotency_key=?`, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey); err != nil {
@@ -200,28 +205,36 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 	return FenceResult{OpID: req.OpID, AttemptEpoch: epoch, ApprovalRef: req.ApprovalRef}, nil
 }
 
-// CompleteStep authoritatively completes only the current attempt epoch.
+// CompleteStep authoritatively completes only the current attempt epoch. The
+// completion commits durably (CD-0050 D3), together with every earlier commit
+// of the step.
 func CompleteStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResult, error) {
-	return completeStepObserved(ctx, s, req, nil)
+	return completeStep(ctx, s, req, true, nil)
 }
 
+// completeStepObserved is the completion the conformance harness measures:
+// an ordinary commit (CD-0050 D4).
 func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, observer *operationObserver) (FenceResult, error) {
+	return completeStep(ctx, s, req, false, observer)
+}
+
+func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (FenceResult, error) {
 	if err := validateComplete(req); err != nil {
 		return FenceResult{}, err
 	}
 	if s == nil || s.db == nil {
 		return FenceResult{}, newFailure(KindUnavailable, "complete_step", "store is not open", false, "open a store before completing a step")
 	}
-	tx, err := beginObservedTx(ctx, s.db, observer)
+	tx, err := beginObservedTx(ctx, s, durable, observer)
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot begin completion", true, "retry once the database is writable", err)
 	}
 	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
-	if err := preflightWorkflowOperationTx(ctx, tx, req.OpID); err != nil {
+	if err := preflightWorkflowOperationTx(ctx, tx.Tx, req.OpID); err != nil {
 		return rollback(err)
 	}
 	digest := completeDigest(req)
-	prior, found, err := findIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey)
+	prior, found, err := findIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey)
 	if err != nil {
 		return rollback(err)
 	}
@@ -233,11 +246,11 @@ func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, ob
 			_ = tx.Rollback()
 			return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
 		}
-		result, err := durableResult(ctx, tx, prior.opID, prior.resultEventIDs)
+		result, err := durableResult(ctx, tx.Tx, prior.opID, prior.resultEventIDs)
 		if err != nil {
 			return rollback(err)
 		}
-		if err := touchIdempotency(ctx, tx, prior, req.ObservedAt); err != nil {
+		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
 			return rollback(err)
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
@@ -246,12 +259,12 @@ func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, ob
 		result.Replayed = true
 		return result, nil
 	}
-	current, err := readCurrentOperation(ctx, tx, req.OpID)
+	current, err := readCurrentOperation(ctx, tx.Tx, req.OpID)
 	if err != nil {
 		return rollback(err)
 	}
 	if current.AttemptEpoch != req.AttemptEpoch {
-		if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, []string{staleMarker}, req.ObservedAt); err != nil {
+		if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, []string{staleMarker}, req.ObservedAt); err != nil {
 			return rollback(err)
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
@@ -272,7 +285,7 @@ func completeStepObserved(ctx context.Context, s *Store, req CompleteRequest, ob
 		marshalStrings(req.ChangedRefs), nullableText(req.ResumeCursor), nullableText(completed), req.OpID, req.AttemptEpoch); err != nil {
 		return rollback(wrapFailure(KindUnavailable, "complete_step", "cannot persist completion", true, "retry once the database is writable", err))
 	}
-	if err := insertIdempotency(ctx, tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, req.ResultEventIDs, req.ObservedAt); err != nil {
+	if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, req.ResultEventIDs, req.ObservedAt); err != nil {
 		return rollback(err)
 	}
 	if err := commitObservedTx(tx, observer); err != nil {

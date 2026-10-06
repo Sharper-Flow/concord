@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -2031,23 +2032,32 @@ func TestPredecessorImportDryRunDoesNotWrite(t *testing.T) {
 	}
 }
 
-func TestPredecessorImportTruncatesWALAfterSyncDurable(t *testing.T) {
+// TestPredecessorImportAcknowledgesUnderPinnedReader pins CD-0050 D1: the
+// import's commits sync the write-ahead log themselves, so another process
+// holding a read snapshot cannot turn a committed import into a failure. The
+// replaced TRUNCATE checkpoint reported busy in exactly this shape.
+func TestPredecessorImportAcknowledgesUnderPinnedReader(t *testing.T) {
+	ctx := context.Background()
 	dbPath := freshMigratedCLIDatabase(t)
 	snapshotPath := writeSyntheticSnapshot(t)
 	payload := predecessorImportRequest(t, snapshotPath)
+	reader, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	readTx, err := reader.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = readTx.Rollback() }()
+	var eventCount int
+	if err := readTx.QueryRowContext(ctx, "SELECT count(*) FROM domain_events").Scan(&eventCount); err != nil {
+		t.Fatal(err)
+	}
 	code, _, diag := runPredecessorImportRequest(t, dbPath, payload)
 	if code != 0 {
-		t.Fatalf("import exit=%d, want 0; stderr=%q", code, diag)
-	}
-	// SQLite deletes the WAL sidecar entirely when the last connection
-	// closes after a TRUNCATE checkpoint left it at zero length. Either
-	// observation proves the durability barrier ran: an absent file means
-	// the barrier reset and the file was unlinked; a present zero-byte
-	// file means the barrier truncated but kept the sidecar.
-	walPath := dbPath + "-wal"
-	info, err := os.Stat(walPath)
-	if err == nil && info.Size() != 0 {
-		t.Fatalf("WAL file %s size = %d after import, want 0 (TRUNCATE did not reset)", walPath, info.Size())
+		t.Fatalf("import under a pinned reader exit=%d, want 0; stderr=%q", code, diag)
 	}
 }
 

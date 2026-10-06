@@ -231,8 +231,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
-  // A retry-safe failure with a possible effect happened after the dispatch
-  // boundary committed — the busy durability barrier is the live case. The
+  // A retry-safe failure with a possible effect means the dispatch boundary
+  // may have committed before the failure reached the adapter. The
   // same request replays the committed authorization through the core's
   // idempotency path, but only byte-identical: a rebuilt packet pins the work
   // version the commit itself advanced and refuses as idempotency_conflict.

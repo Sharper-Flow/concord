@@ -398,7 +398,7 @@ func scanTxScopeClosure(path string, lit *ast.FuncLit, stores []string, fset *to
 
 func txScopeIsTransactCall(call *ast.CallExpr) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && selector.Sel.Name == "Transact"
+	return ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable")
 }
 
 func txScopeParams(recv *ast.FieldList, params *ast.FieldList) []txScopeParam {
@@ -429,7 +429,7 @@ func txScopeTypeKind(expr ast.Expr) string {
 		switch ident.Name {
 		case "Store":
 			return txScopeStore
-		case "Transaction":
+		case "Transaction", "writeTx":
 			return txScopeTx
 		}
 	}

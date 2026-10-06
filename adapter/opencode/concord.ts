@@ -2009,19 +2009,6 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (ownRowAbandonRefusal(message, context.sessionID)) {
     return recoverOwnRowAbandon(args, context, abandonInput, lane, token, requestID, message)
   }
-  // A committed abandonment whose durability checkpoint did not complete
-  // exits the CLI non-zero, so the wrapper names a sync_durable failure and
-  // says the attempt remains open while the worker.failed event may already
-  // be committed. The same worker_abandon replays idempotently on its event
-  // identity and records the receipt once the barrier passes, so the honest
-  // report is a possible effect with a same-request retry.
-  if (result.error?.retry_safe !== false && message.includes("sync_durable")) {
-    // Quote the durable failure, not the wrapper's "remains open" phrasing:
-    // the wrapper is wrong precisely here — the event may be committed.
-    const recorded = "recorded: "
-    const syncDetail = message.includes(recorded) ? message.slice(message.indexOf(recorded) + recorded.length) : message
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_durability_pending", `the abandonment may have committed, but its durability checkpoint did not complete: ${syncDetail}; retry the same worker_abandon to confirm its receipt`, "possible", "retry_same_request")
-  }
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
     if (receipt.outcome === "ok") {

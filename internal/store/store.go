@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/version"
@@ -48,6 +49,9 @@ type Store struct {
 	// so a test can interleave a committed state change into exactly that
 	// window. Production leaves it nil.
 	retireProbeInterleave func()
+
+	// durableCommits counts the durable transactions this handle committed.
+	durableCommits atomic.Uint64
 }
 
 func (s *Store) now() time.Time {

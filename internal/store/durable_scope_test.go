@@ -10,8 +10,9 @@ import (
 )
 
 // pinReaderSnapshot holds a read transaction from a separate connection, the
-// way another Concord process does. While it is open, a CD-0050 barrier
-// reports busy; an ordinary write must still be acknowledged.
+// way another Concord process does, and commits after it so the reader's WAL
+// read mark trails the log. Neither an ordinary nor a durable write may wait
+// on it.
 func pinReaderSnapshot(t *testing.T, s *Store) {
 	t.Helper()
 	reader, err := sql.Open(driverName, "file:"+s.Path())

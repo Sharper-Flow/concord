@@ -3274,37 +3274,6 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
 // abandoned-attempt receipt is the named reconciliation route, so an ok abandon
 // must release the retained record and both an abandon accepted now and a
 // replay answered already terminal must land there.
-// A committed abandonment whose durability checkpoint did not complete exits
-// the CLI non-zero, so the adapter wrapper says the attempt "remains open"
-// while the worker.failed event may already be committed. The honest report
-// is a possible effect with a same-request retry: the replay is idempotent on
-// the abandon event identity and records the receipt once the barrier passes.
-test("an abandonment blocked at the durability barrier reports a possible effect and heals on retry", async () => {
-  let abandonExit = 1
-  const abandonStderr = "store: sync_durable: unavailable: durability checkpoint did not complete: busy=1 log=39 checkpointed=29"
-  adapter.configureConcordAdapter({
-    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
-    runner: { async run(argv) {
-      if (argv[1] === "worker-abandon") return abandonExit === 1 ? { exitCode: 1, stdout: "", stderr: abandonStderr } : { exitCode: 0, stdout: "", stderr: "" }
-      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
-      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
-      return { exitCode: 0, stdout: "", stderr: "" }
-    } },
-  })
-  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-durability-1" }
-  const pending: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
-  expect(pending.outcome).toBe("error")
-  expect(pending.error.effect_state).toBe("possible")
-  expect(pending.error.recovery_action.kind).toBe("retry_same_request")
-  expect(pending.error.message).toContain("sync_durable")
-  expect(pending.error.message).not.toContain("remains open")
-  // The retry reaches a CLI exit 0, so the recorded envelope flows through
-  // the receipt replay and the abandonment settles.
-  abandonExit = 0
-  const settled: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
-  expect(settled.outcome).toBe("ok")
-})
-
 test.each([false, true])("an ok worker_abandon releases its exact authorization (Task consumed=%s)", async (consumed) => {
   bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const windows = dispatchWindows()

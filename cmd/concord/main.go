@@ -1056,7 +1056,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
 	}
 	var eventIDs []string
-	err := s.Transact(ctx, func(tx *store.Transaction) error {
+	err := s.TransactDurable(ctx, func(tx *store.Transaction) error {
 		if command == "worker-abandon" {
 			existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
 			if lookupErr != nil {
@@ -1128,11 +1128,6 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	})
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	// committed; the durability barrier must hold before acknowledging
-	if syncErr := s.SyncDurable(ctx); syncErr != nil {
-		writeOperatorDiagnostic(errOut, command, syncErr.Error())
 		return 1
 	}
 	return writeOperatorResult(command, s, eventIDs, nil, out, errOut)

@@ -241,6 +241,19 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
       refusal.error!.retry_safe = false
       return refusal
     }
+    // A failure after the dispatch boundary committed is not a refusal: the
+    // authorized attempt may exist. When the core marks it retry-safe, the same
+    // request replays the committed authorization and opens the window.
+    if (errorObj?.effect_state === "possible") {
+      const coreKind = typeof errorObj.kind === "string" ? errorObj.kind : "error"
+      const retry = errorObj.retry_safe === true
+      const next = retry
+        ? "Retry the same request with the same idempotency key; the core replays the committed authorization and opens the worker window."
+        : "Reconcile the attempt from work continuity before any other dispatch."
+      const failure = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${coreKind}: ${message}. ${next}`, retry ? "retry_same_request" : "reconcile_operation", { details: { effect_state: "possible", core_kind: coreKind, attempt_id: packet.attempt_id } })
+      failure.error!.retry_safe = retry
+      return failure
+    }
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
   }
 

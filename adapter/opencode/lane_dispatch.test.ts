@@ -547,6 +547,36 @@ test("core refusal on dispatch_worker surfaces as unauthorized_dispatch without 
   expect(workflowCalls).toBe(1)
 })
 
+// A core failure after the dispatch boundary committed (a durability barrier
+// that reported busy) carries effect_state possible. It is not a refusal: the
+// attempt may exist, and relabeling it unauthorized_dispatch sends the
+// coordinator to abandon an attempt the same request would replay.
+test("core failure with a possible effect surfaces as a retry of the same request, not a refusal", async () => {
+  let spawned = 0
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      return envelope({
+        tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "unreachable", freshness: null,
+        error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint did not complete: busy=1 log=45 checkpointed=4" },
+      })
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-possible", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.recovery_action).toBe("retry_same_request")
+  expect(result.error?.retry_safe).toBe(true)
+  expect(result.error?.message).toContain("busy=1 log=45 checkpointed=4")
+  const details = (result.error?.details ?? {}) as Record<string, unknown>
+  expect(details.effect_state).toBe("possible")
+  expect(details.core_kind).toBe("unreachable")
+  expect(spawned).toBe(0)
+})
+
 test("approval challenge and approved resubmission preserve the exact packet identity", async () => {
   const packets: Record<string, unknown>[] = []
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {

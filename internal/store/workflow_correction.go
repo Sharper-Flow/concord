@@ -904,6 +904,31 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 	return seq, raw, nil
 }
 
+// workflowStaleReviewAcceptTx reports whether one accept names a completed
+// review that a newer completed review has superseded. The newest completed
+// review stays acceptable whatever the folded state names; an older one
+// cannot bind, because the newer evidence supersedes its findings
+// (CD-0206 D3).
+func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attemptID, subject string) (bool, error) {
+	var stale int
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM domain_events wc
+		JOIN domain_events wd ON wd.subject_type=wc.subject_type AND wd.subject_id=wc.subject_id AND wd.kind=?
+			AND json_extract(wd.payload,'$.attempt_id')=json_extract(wc.payload,'$.attempt_id')
+			AND json_extract(wd.payload,'$.capability_class')='review'
+		WHERE wc.subject_type=? AND wc.subject_id=? AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=?
+		AND EXISTS(SELECT 1 FROM domain_events wc2
+			JOIN domain_events wd2 ON wd2.subject_type=wc2.subject_type AND wd2.subject_id=wc2.subject_id AND wd2.kind=?
+				AND json_extract(wd2.payload,'$.attempt_id')=json_extract(wc2.payload,'$.attempt_id')
+				AND json_extract(wd2.payload,'$.capability_class')='review'
+			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq))`,
+		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted).Scan(&stale)
+	if err != nil {
+		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the workflow projection is readable", err)
+	}
+	return stale == 1, nil
+}
+
 // workflowPostRejectionReviewOutstanding reports a refinement history where a
 // rejected result or accepted no_ship review has no fresh settling review. A
 // review is an accepted worker attempt dispatched on the review capability

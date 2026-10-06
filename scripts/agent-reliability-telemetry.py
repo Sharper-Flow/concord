@@ -37,6 +37,9 @@ WINDOW_DAYS_DEFAULT = 21
 # argument shape instead of copying a seen signature.
 GUESS_PATTERNS = (
     re.compile(r"unknown tool", re.IGNORECASE),
+    # The Code Mode signature guard refuses a script that calls a tool path the
+    # session never discovered, which is a guessed tool name refused early.
+    re.compile(r"has not seen a signature for", re.IGNORECASE),
     re.compile(r"unknown field", re.IGNORECASE),
     re.compile(r"not a function", re.IGNORECASE),
     re.compile(r"is not defined", re.IGNORECASE),
@@ -44,7 +47,6 @@ GUESS_PATTERNS = (
     re.compile(r"invalid input", re.IGNORECASE),
     re.compile(r"unexpected", re.IGNORECASE),
 )
-INVALID_INPUT_MARKERS = ("invalid_input", "unknown payload field", "missing payload field", "missing required")
 
 
 def open_shard(shard: Path) -> sqlite3.Connection:
@@ -80,6 +82,23 @@ def tool_parts(connection: sqlite3.Connection, window_start: int):
         yield part, message
 
 
+def refusal_kind(state: dict) -> str | None:
+    # A Concord tool answers a refusal as a completed call whose output is the
+    # result envelope, so the refusal kind is the envelope's error.kind. A host
+    # failure carries no envelope and therefore no refusal kind.
+    output = state.get("output")
+    if state.get("status") != "completed" or not isinstance(output, str):
+        return None
+    try:
+        document, _ = json.JSONDecoder().raw_decode(output.lstrip())
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(document, dict) or document.get("outcome") != "error":
+        return None
+    error = document.get("error")
+    return error.get("kind") if isinstance(error, dict) else None
+
+
 def classify(state_output: object) -> str:
     text = state_output if isinstance(state_output, str) else json.dumps(state_output)
     for pattern in GUESS_PATTERNS:
@@ -100,16 +119,16 @@ def measure(shard: Path, window_days: int) -> dict:
             tool = part.get("tool") or ""
             state = part.get("state") or {}
             status = state.get("status")
-            model = ((message.get("model") or {}).get("modelID")) or "unknown"
+            # The assistant message that owns a tool part names its serving
+            # model in a top-level modelID field.
+            model = message.get("modelID") or "unknown"
             if tool.startswith("concord_"):
                 bucket = invalid_input.setdefault(tool, {"calls": 0, "invalid_input": 0, "calls_by_model": {}, "invalid_by_model": {}})
                 bucket["calls"] += 1
                 bucket["calls_by_model"][model] = bucket["calls_by_model"].get(model, 0) + 1
-                if status == "error":
-                    text = f"{state.get('output', '')} {state.get('error', '')}"
-                    if any(marker in text for marker in INVALID_INPUT_MARKERS):
-                        bucket["invalid_input"] += 1
-                        bucket["invalid_by_model"][model] = bucket["invalid_by_model"].get(model, 0) + 1
+                if refusal_kind(state) == "invalid_input":
+                    bucket["invalid_input"] += 1
+                    bucket["invalid_by_model"][model] = bucket["invalid_by_model"].get(model, 0) + 1
             elif tool == "execute":
                 execute["calls"] += 1
                 if status == "error":

@@ -10,10 +10,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 
 const lane = agentLanes[0]
 const READBACK_MODEL = "openai/gpt-5.6-luna"
-// CD-0067 D6: the dispatchWorker options carry packetDigest so the
-// adapter can quote it on the signed assertion. Every test that
-// exercises the dispatch path passes this constant; tests that
-// probe the missing-digest refusal build their own call without it.
+// CD-0067 D6: the completion options carry packetDigest so the adapter
+// can quote it on the signed dispatch assertion. Every completion test
+// passes this constant; the missing-digest refusal test omits it.
 const PACKET_DIGEST = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 const WORKER_DIRECTORY = process.cwd()
 const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
@@ -33,12 +32,6 @@ const laneReport = () => ({
   schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed",
   evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
 })
-
-const runOutput = () => [
-  JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
-  JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify(laneReport()) } }),
-  JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
-].join("\n")
 
 test("worker-abandon observes no sessions and sends a signed typed close request", async () => {
   const calls: { argv: string[]; input: Record<string, unknown> }[] = []
@@ -79,17 +72,8 @@ const exportedSession = (model = READBACK_MODEL) => JSON.stringify({
   ],
 })
 
-const laneRunner: DispatchRunner = {
-  async run(argv) {
-    if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
-    return { exitCode: 0, stdout: "", stderr: "" }
-  },
-}
-
 // The readback reads the worker session in process through the host session
-// API; the fixture answers the same transcript the old export arm carried.
+// API, so the fixture answers the worker transcript there.
 const laneSessionReader: SessionReader = {
   async get() { return { data: { id: "session-1" }, response: new Response("{}", { status: 200 }) } },
   async messages(_sessionID, _limit, before) {
@@ -98,25 +82,10 @@ const laneSessionReader: SessionReader = {
   },
 }
 
+// CD-0102 D5: the host runs the worker, so completion receives the host's task
+// result, and the evidence runner records only the core CLI evidence writes.
 // A worker that reports its own failure is the reachable worker-fail path
 // (CD-0056 D7): the report is admissible, and its status is the failure.
-const failedRunOutput = () => [
-  JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
-  JSON.stringify({ type: "text", timestamp: 2, sessionID: "session-1", part: { type: "text", text: JSON.stringify({ ...laneReport(), status: "failed" }) } }),
-  JSON.stringify({ type: "step_finish", timestamp: 3, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
-].join("\n")
-
-const failingLaneRunner: DispatchRunner = {
-  async run(argv) {
-    if (argv[1] === "run") return { exitCode: 0, stdout: failedRunOutput(), stderr: "" }
-    if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-    if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
-    return { exitCode: 0, stdout: "", stderr: "" }
-  },
-}
-
-// CD-0102 D5: completion admits the host's task result. The runner answers the
-// session export only, because the host ran the worker.
 const SIGNAL = new AbortController().signal
 const taskBody = (doc: unknown) =>
   ['<task id="session-1" state="completed">', "<task_result>", JSON.stringify(doc), "</task_result>", "</task>"].join("\n")
@@ -256,22 +225,17 @@ test("each evidence write carries its own nonce", async () => {
 })
 
 // The worker never sees the proof that authorizes its own evidence. If it did,
-// a lane run could forge evidence for a later attempt.
-test("the signing proof never reaches the worker packet or prompt", async () => {
-  let spawnedArgv: string[] = []
+// a lane run could forge evidence for a later attempt. Completion signs both
+// assertions, so the packet the worker received must stay unchanged and the
+// result returned to the coordinator must carry no signature.
+test("the signing proof never reaches the worker packet or the completion result", async () => {
   const recorded: Record<string, unknown>[] = []
-  const runner: DispatchRunner = {
-    async run(argv) {
-      if (argv[1] === "run") { spawnedArgv = argv; return { exitCode: 0, stdout: runOutput(), stderr: "" } }
-      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
-      if (argv[1] === "session") return { exitCode: 0, stdout: JSON.stringify([{ id: "session-1", directory: "/claimed/worktree" }]), stderr: "" }
-      return { exitCode: 0, stdout: "", stderr: "" }
-    },
-  }
-  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  const workerPacket = packet()
+  const issued = JSON.stringify(workerPacket)
+  const result = await completeWorkerAttempt(lane, workerPacket, completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
   expect(result.outcome).toBe("ok")
-  expect(spawnedArgv.join(" ")).not.toContain("signature")
-  expect(spawnedArgv.join(" ")).not.toContain("assertion")
+  expect(recorded.map((entry) => typeof (entry.request as any).assertion.signature)).toEqual(["string", "string"])
+  expect(JSON.stringify(workerPacket)).toBe(issued)
   expect(JSON.stringify(result)).not.toContain("signature")
 })
 
@@ -304,7 +268,7 @@ const SIGNING_ENVELOPE_FIELDS = ["client_ref", "issued_at", "nonce", "signature"
 
 test("every verb signs exactly the field set its CLI binding populates", async () => {
   const signed = new Map<string, Record<string, unknown>>()
-  for (const [runner, body] of [[laneRunner, completedBody()], [failingLaneRunner, failedBody()]] as const) {
+  for (const body of [completedBody(), failedBody()]) {
     const recorded: Record<string, unknown>[] = []
     await completeWorkerAttempt(lane, packet(), body, { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
     for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
@@ -345,7 +309,7 @@ test("dispatch evidence carries the packet digest the core recorded", async () =
   expect(dispatched.packet_digest).toBe(PACKET_DIGEST)
 })
 
-// CD-0067 D6: dispatchWorker refuses to sign without the digest the
+// CD-0067 D6: completion refuses to sign without the digest the
 // core recorded. The error is invalid_input — the same kind the
 // packet validator returns — so a worker that did not see the digest
 // reports the omission the same way it would report any other

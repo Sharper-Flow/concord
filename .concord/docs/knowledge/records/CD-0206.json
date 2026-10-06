@@ -1,0 +1,47 @@
+{
+  "authority": {
+    "contract_version": 2,
+    "legislated_by": "work-24f181c52c44d61e5b7604af",
+    "tier": "legislated"
+  },
+  "date": "2026-10-05T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_admission.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_initial_no_ship_review_test.go",
+    "internal/store/workflow_accepted_no_ship_recovery_test.go"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0206",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0166"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0206-an-accepted-no-ship-review-opens-the-settling-review-obligation.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:2d8ca1e67c7f31f930c3f8d17468122d2287616d34dbd668ae89905e1cae11bc",
+  "status": "accepted",
+  "summary": "A rejected refinement result and an accepted no_ship review open the same settling review obligation. An initial no_ship acceptance binds its findings, and the obligation then holds the delivery gate: record_delivery refuses while the evidence-bearing corrective return with the verification disposition stays admitted. Only a ship or absent verdict settles the obligation, only the newest completed review can bind, and no definition version changes.",
+  "tags": [
+    "workflow",
+    "workflow-engine",
+    "admission",
+    "liveness"
+  ],
+  "title": "An accepted no-ship review opens the settling review obligation"
+}

@@ -15,14 +15,25 @@ FORMAT = """Return one final JSON object with exactly the following keys, no ext
 keys, no Markdown, and no other text:
 status: completed, needs_operator, refused, or unresolved;
 work_id: the known work ID or null;
-boundary: the failed boundary name or null when the task succeeded;
-cause: the verified reason_code, unknown when undiagnosed, or null on success;
+boundary: the boundary field the stopping result's error names; when the error
+names none, the core diagnostic operation the refusal's complete diagnostic
+carries; when it carries none, the error's kind; when the error names none of
+these, the name of the tool whose result stopped the task; turn_move_boundary
+when an active turn-move boundary stops a requested action; null when the task
+succeeded;
+cause: the verified reason_code the stopping result reports, else its error kind;
+turn_move_boundary when an active turn-move boundary stops a requested action;
+unknown when undiagnosed; null on success;
 effect_state: none, committed, or uncertain;
 recovery_owner: operator, maintainer, agent, or none;
 operator_action: an object with kind (none, supply_credential, choose_scope,
-approve_changed_scope, reload_session) and target (the exact prerequisite name or null);
+approve_changed_scope, reload_session, open_session, send_next_message) and target
+(only the exact command to run, the absolute path to decide on, or the prerequisite
+name, with no other words; null when the action needs none);
 why_agent_cannot: no_credential_authority, intent_belongs_to_operator,
-scope_needs_approval, no_admitted_route, reload_outside_session, or none;
+scope_needs_approval, no_admitted_route, reload_outside_session,
+host_owns_session_placement, operator_owns_worktree_state, context_lands_next_turn,
+or none;
 context_receipts: all entries supplied by your instructions.
 Choose these values from the observations, not from this format instruction.
 Completed means the bounded diagnostic or action task succeeded, not that a
@@ -41,29 +52,48 @@ import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
 const responses = RESPONSES;
+const startConfig = STARTCONFIG;
+const transitionConfig = TRANSITIONCONFIG;
 const trace = TRACE;
 const capture = CAPTURE;
-function result(name, args, value) {
+// notice mirrors the adapter's move-notice line, appended after the envelope
+// line exactly as appendMoveNotice does on a confirmed transition move.
+function result(name, args, value, notice) {
   appendFileSync(trace, JSON.stringify({tool:name, args, result:value}) + "\n");
-  return {title:"Synthetic observation", output:JSON.stringify(value), metadata:{synthetic:true}};
+  const output = JSON.stringify(value) + (notice ? "\n" + notice : "");
+  return {title:"Synthetic observation", output, metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
+const invalidStart = {outcome:"error", error:{kind:"invalid_input", effect_state:"none", recovery_action:{kind:"correct_request"}, message:"Resume takes work_id with an optional project_id only; capture fields and resume fields cannot combine."}};
 export const work_start = recordingTool("concord_work_start", {
   description: productionStart.description,
   args: {
     title:tool.schema.string().optional(), value_statement:tool.schema.string().optional(),
     kind:tool.schema.enum(["task","bug","decision","research","other"]).optional(),
     task:tool.schema.string().optional(), idempotency_key:tool.schema.string().optional(),
-    work_id:tool.schema.string().optional(),
+    work_id:tool.schema.string().optional(), project_id:tool.schema.string().optional(),
   },
   async execute(args) {
     const required = ["title","value_statement","kind","task","idempotency_key"];
     const missing = required.filter(key => typeof args[key] !== "string" || !args[key].trim());
     const unchanged = args.title === "Synthetic parser repair" && args.kind === "bug" && args.task === "Fix the synthetic parser defect with regression coverage";
-    const value = !capture || !unchanged ? refused
-      : missing.length || args.work_id !== undefined
-      ? {outcome:"error",error:{kind:"invalid_input",effect_state:"none",message:"Missing capture fields: " + missing.join(", ")}}
-      : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
+    const resumeFields = ["work_id","project_id"];
+    const captureFields = ["title","value_statement","kind","task","idempotency_key"];
+    const usesResume = args.work_id !== undefined || args.project_id !== undefined;
+    const usesCapture = captureFields.some(key => args[key] !== undefined);
+    let value;
+    if (usesResume) {
+      const shaped = typeof args.work_id === "string" && args.work_id.trim() && !usesCapture
+        && resumeFields.every(key => args[key] === undefined || typeof args[key] === "string");
+      const admitted = shaped && startConfig !== null
+        && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
+        && Object.keys(args).every(key => key in startConfig.admit);
+      value = !admitted ? (shaped ? refused : invalidStart) : startConfig.result;
+    } else {
+      value = !capture || !unchanged ? refused
+        : missing.length ? {outcome:"error",error:{kind:"invalid_input",effect_state:"none",message:"Missing capture fields: " + missing.join(", ")}}
+        : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
+    }
     return result("concord_work_start", args, value);
   },
 });
@@ -79,14 +109,28 @@ export const work_trace = recordingTool("concord_work_trace", {
 });
 export const work_transition = recordingTool("concord_work_transition", {
   description:productionTransition.description,
-  args:{request:tool.schema.strictObject({operation:tool.schema.literal("workflow_action"), input:tool.schema.strictObject({
-    work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string(),
-    idempotency_key:tool.schema.string(), fields:tool.schema.strictObject({lane_id:tool.schema.string()}),
+  args:{request:tool.schema.strictObject({operation:tool.schema.enum(["workflow_action","worktree_claim"]), input:tool.schema.strictObject({
+    work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
+    idempotency_key:tool.schema.string(), fields:tool.schema.strictObject({lane_id:tool.schema.string()}).optional(),
+    project_id:tool.schema.string().optional(), base_sha:tool.schema.string().optional(),
   })})},
   async execute(args) {
     const data = args.request.input;
-    const admitted = data.work_id === "synthetic-work" && data.expected_version === 1 && data.action_id === "dispatch_worker" && data.fields.lane_id === "implement" && data.idempotency_key.trim();
-    return result("concord_work_transition", args, admitted ? responses.concord_work_transition ?? refused : refused);
+    let admitted = false;
+    let value = responses.concord_work_transition ?? refused;
+    if (args.request.operation === "workflow_action") {
+      admitted = data.work_id === "synthetic-work" && data.expected_version === 1
+        && data.action_id === "dispatch_worker" && data.fields !== undefined
+        && data.fields.lane_id === "implement" && data.idempotency_key.trim();
+    } else if (args.request.operation === "worktree_claim" && transitionConfig !== null) {
+      const want = transitionConfig.admit.request.input;
+      admitted = Object.keys(data).length === Object.keys(want).length + 1
+        && ["work_id","project_id","base_sha","expected_version"].every(key => data[key] === want[key])
+        && typeof data.idempotency_key === "string" && data.idempotency_key.trim() !== "";
+      if (admitted) value = transitionConfig.result;
+    }
+    const notice = admitted && args.request.operation === "worktree_claim" ? transitionConfig.notice : undefined;
+    return result("concord_work_transition", args, admitted ? value : refused, notice);
   },
 });
 '''
@@ -125,6 +169,22 @@ def command_to_files(command, root, stem, timeout):
             return None
 
 
+# The conduct corpus the installer ships; each run loads every file but its README.
+CONDUCT_CORPUS = ".concord/instructions"
+
+
+# The recording doubles import their tool descriptions from these production
+# sources, and the scenario notice doubles mirror move-notice.ts. Each run
+# snapshots them outside the repository and verifies their bytes after the
+# run, so a result identifies the exact production guidance it evaluated.
+PRODUCTION_SOURCES = (
+    "adapter/opencode/concord.ts",
+    "adapter/opencode/generated-contracts.ts",
+    "adapter/opencode/move-notice.ts",
+    "contracts/host-tool-surface.v1.json",
+)
+
+
 def run_case(args, name, source, originals):
     case = SCENARIOS[name]
     root = Path(tempfile.mkdtemp(prefix=f"coordinator-{name}-", dir=args.artifacts_dir))
@@ -136,6 +196,12 @@ def run_case(args, name, source, originals):
         content = Path(__file__).with_name(filename).read_bytes()
         (root / "evaluation-sources" / filename).write_bytes(content)
         evaluator_hashes[filename] = digest(content)
+    (root / "production-sources").mkdir()
+    production_hashes = {}
+    for relative in PRODUCTION_SOURCES:
+        content = (args.repo.resolve() / relative).read_bytes()
+        (root / "production-sources" / relative.replace("/", "__")).write_bytes(content)
+        production_hashes[relative] = digest(content)
     write_json(root / "case.json", case)
     receipts, paths, hashes = {}, [], {}
 
@@ -168,6 +234,8 @@ def run_case(args, name, source, originals):
         "SDK": json.dumps(str(args.sdk_tool.resolve())),
         "SOURCE": json.dumps(str(args.repo.resolve() / "adapter/opencode/concord.ts")),
         "RESPONSES": json.dumps(case.get("responses", {})),
+        "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
+        "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
         "CAPTURE": json.dumps(case.get("capture", False)),
     }
@@ -186,6 +254,9 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
 '''
     runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
     (root / ".opencode/tools/runtime_status.ts").write_text(runtime_source)
+    tool_files = [root / ".opencode/tools/concord.ts", root / ".opencode/recording-tool.ts",
+                  root / ".opencode/tools/runtime_status.ts"]
+    tool_hashes = {str(path.relative_to(root)): digest(path.read_bytes()) for path in tool_files}
     (root / "scenario.txt").write_text(case["prompt"])
     # File-backed output preserves CLI output when the subprocess exits quickly.
     exit_code = command_to_files([
@@ -207,6 +278,9 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
         identity_verified = bool(identities) and all(item == {"agent": "coordinator-probe", "model": args.model} for item in identities)
         unchanged = all(digest(Path(path).read_bytes()) == hashes[Path(path).name] for path in paths)
         unchanged = unchanged and digest((root / "opencode.json").read_bytes()) == config_hash
+        unchanged = unchanged and all(digest((root / relative).read_bytes()) == value for relative, value in tool_hashes.items())
+        unchanged = unchanged and all(
+            digest((args.repo.resolve() / relative).read_bytes()) == value for relative, value in production_hashes.items())
         result = evaluate(case, calls, events, exit_code, receipts)
         result.update({"runtime_identities": identities, "identity_verified": identity_verified, "snapshots_unchanged": unchanged})
         result["passed"] = result["passed"] and identity_verified and unchanged
@@ -218,6 +292,8 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
         "instruction_sha256": {name: digest(content) for name, content in originals.items()},
         "snapshot_sha256": hashes, "config_sha256": config_hash,
         "evaluator_sha256": evaluator_hashes,
+        "production_source_sha256": production_hashes,
+        "tool_source_sha256": tool_hashes,
         "limits": "Advisory instrumented coordinator evaluation. No lane attempt, real state mutation, deployment proof, or independent review authority.",
     })
     write_json(root / "result.json", result)
@@ -247,7 +323,7 @@ def main():
     if args.artifacts_dir.resolve().is_relative_to(args.repo.resolve()):
         parser.error("Private evaluation artifacts must remain outside the repository")
     source = args.agent_source.read_text()
-    originals = {path.name: path.read_bytes() for path in sorted((args.repo / "instructions").glob("*.md")) if path.name != "README.md"}
+    originals = {path.name: path.read_bytes() for path in sorted((args.repo / CONDUCT_CORPUS).glob("*.md")) if path.name != "README.md"}
     if not originals:
         parser.error("No candidate instruction files found")
     selected = list(SCENARIOS) if args.all else args.scenario or ["input-correction"]

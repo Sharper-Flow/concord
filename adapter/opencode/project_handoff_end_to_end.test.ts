@@ -366,7 +366,12 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     const unlanded = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION, repoReceive)))
     expect(unlanded.outcome, JSON.stringify(unlanded)).toBe("error")
     expect(unlanded.error.kind).toBe("session_directory_mismatch")
-    expect(unlanded.error.message).toContain("Replay work_start")
+    // The refusal names the next-turn recovery opportunity, keeps the replay
+    // behind an actual target-context confirmation, and asserts neither an
+    // armed turn-move boundary nor successful placement.
+    expect(unlanded.error.message).toContain("this refusal arms no turn-move boundary")
+    expect(unlanded.error.message).toContain("ask the operator to send the next message")
+    expect(unlanded.error.message).toContain("replay this same work_start request")
     const receiveWorktree = unlanded.worktree_path as string
     expect(receiveWorktree).toBeTruthy()
     // The bootstrap recorded the claim's occupancy from creation (CD-0179),

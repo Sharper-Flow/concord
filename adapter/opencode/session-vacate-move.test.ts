@@ -5,6 +5,7 @@ import { moveSessionToRegisteredMainCheckout, work_transition, configureConcordA
 import { armedClaimedWorktree, armClaimedWorktree, clearClaimedWorktree, pendingVacateDestination, recordPendingVacateDestination, resetClaimedWorktrees } from "./claimed-worktree"
 import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { manifestDigest } from "./generated-contracts"
+import { TURN_MOVE_BOUNDARY_NOTICE } from "./move-notice"
 import { HostControlPlane } from "./move-session"
 import { configureCoreBinary } from "./dispatch"
 
@@ -324,6 +325,9 @@ describe("session_vacate moves only to the core-derived checkout", () => {
       expect(pendingVacateDestination("session-1")).toBeNull()
       expect(armedClaimedWorktree("session-1")).toBeNull()
       expect(dispatchRequiresNextTurn("session-1")).toBe(true)
+      // The pre-move armed the boundary, so the notice on this result names it.
+      expect(output.split("\n")[1]).toContain("Concord moved this session to /main")
+      expect(output.split("\n")[1]).toContain(TURN_MOVE_BOUNDARY_NOTICE)
     } finally {
       clearClaimedWorktree("session-1")
     }

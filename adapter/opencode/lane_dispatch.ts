@@ -219,15 +219,37 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
 
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed
-  // envelope; any non-ok response is an authorization boundary refusal,
-  // surfaced to the caller as unauthorized_dispatch. lane_id is never
-  // forwarded — it is tool-level vocabulary the adapter consumed above.
+  // envelope. lane_id is never forwarded — it is tool-level vocabulary the
+  // adapter consumed above.
+  const coreDispatch = async (): Promise<unknown> => {
+    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
+    return deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
+  }
   let coreResponse: unknown
   try {
-    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
-    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
+    coreResponse = await coreDispatch()
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
+  }
+  // A retry-safe failure with a possible effect happened after the dispatch
+  // boundary committed — the busy durability barrier is the live case. The
+  // same request replays the committed authorization through the core's
+  // idempotency path, but only byte-identical: a rebuilt packet pins the work
+  // version the commit itself advanced and refuses as idempotency_conflict.
+  // The adapter therefore performs the bounded replay itself, resending the
+  // identical input, instead of advising a caller retry that would rebuild
+  // the packet.
+  const possibleEffectFailure = (response: unknown): boolean => {
+    if (!isRecord(response)) return false
+    const errorObj = isRecord(response.error) ? response.error : null
+    return response.outcome === "error" && errorObj !== null && errorObj.effect_state === "possible" && errorObj.retry_safe === true
+  }
+  for (let replay = 0; replay < 2 && possibleEffectFailure(coreResponse); replay++) {
+    try {
+      coreResponse = await coreDispatch()
+    } catch (error) {
+      return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
+    }
   }
   if (!isRecord(coreResponse)) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "concord_work_transition.workflow_action returned no envelope", "reconcile_operation")
@@ -242,16 +264,14 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
       return refusal
     }
     // A failure after the dispatch boundary committed is not a refusal: the
-    // authorized attempt may exist. When the core marks it retry-safe, the same
-    // request replays the committed authorization and opens the window.
+    // authorized attempt may exist. The bounded replay above did not settle
+    // it, and a fresh dispatch would rebuild the packet against the advanced
+    // work version, so the only safe route is reconciliation from work
+    // continuity.
     if (errorObj?.effect_state === "possible") {
       const coreKind = typeof errorObj.kind === "string" ? errorObj.kind : "error"
-      const retry = errorObj.retry_safe === true
-      const next = retry
-        ? "Retry the same request with the same idempotency key; the core replays the committed authorization and opens the worker window."
-        : "Reconcile the attempt from work continuity before any other dispatch."
-      const failure = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${coreKind}: ${message}. ${next}`, retry ? "retry_same_request" : "reconcile_operation", { details: { effect_state: "possible", core_kind: coreKind, attempt_id: packet.attempt_id } })
-      failure.error!.retry_safe = retry
+      const failure = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${coreKind}: ${message}. The attempt identity may exist at the core; read work continuity and reconcile the attempt before any other dispatch.`, "reconcile_operation", { details: { effect_state: "possible", core_kind: coreKind, attempt_id: packet.attempt_id } })
+      failure.error!.retry_safe = false
       return failure
     }
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")

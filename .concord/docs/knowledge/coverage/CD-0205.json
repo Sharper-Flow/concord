@@ -35,6 +35,22 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCombinedAcceptanceRequiresIntegration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCombinedAcceptanceAdmitsBehindIntegrationEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIntegrationCoverageRequiresEveryRequiredProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIntegrationToolingRequiresDeclaredQualifyingRuns"
     }
   ],
   "id": "CD-0205",

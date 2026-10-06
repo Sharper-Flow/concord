@@ -353,7 +353,18 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 			t.Fatalf("seed verification accept %d: %+v", cycle, accept.Error)
 		}
 		// The job-bound accept is local acceptance and holds execution; the
-		// step exits through its delivery assertion.
+		// step exits through its delivery assertion. The delivery admission
+		// requires integration evidence whose immutable subject is the
+		// recorded acceptance that satisfied the cycle's job (CD-0205 D3).
+		var acceptanceRef string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id='work-1' AND job_id=?`, "job:verification-"+strconv.FormatInt(cycle, 10)).Scan(&acceptanceRef); err != nil || acceptanceRef == "" {
+			t.Fatalf("seed verification acceptance ref %d: %v", cycle, err)
+		}
+		version = workVersion(t, s, "work-1")
+		integration := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "immutable_subject_ref": acceptanceRef}, "idempotency_key": "verification-integration-" + strconv.FormatInt(cycle, 10)})}, env)
+		if integration.Outcome != OutcomeOK {
+			t.Fatalf("seed verification integration bind %d: %+v", cycle, integration.Error)
+		}
 		version = workVersion(t, s, "work-1")
 		executionDelivery := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "evidence:verification-execution-" + strconv.FormatInt(cycle, 10), "delivery_state": "asserted"}, "idempotency_key": "verification-delivery-execution-" + strconv.FormatInt(cycle, 10)})}, env)
 		if executionDelivery.Outcome != OutcomeOK {

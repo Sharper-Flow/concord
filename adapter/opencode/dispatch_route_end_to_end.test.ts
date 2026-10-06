@@ -495,6 +495,13 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // delivery assertion.
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
     expect(dbValue(dbPath, `SELECT state FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).state).toBe("satisfied")
+    // The delivery admission requires integration evidence whose immutable
+    // subject is the recorded acceptance that satisfied the job (CD-0205 D3).
+    const acceptanceRef = dbValue(dbPath, `SELECT satisfied_result_ref FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).satisfied_result_ref as string
+    expect(acceptanceRef).toBeTruthy()
+    const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(integrationVersion, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", immutable_subject_ref: acceptanceRef })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const repairDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(repairDeliveryVersion, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: ".concord/docs/dispatch-marker.txt", delivery_state: "asserted" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")

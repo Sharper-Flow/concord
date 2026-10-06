@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:47854be2a72b03206254e58e32a347a096d2db6a7e2b8d21e820e1e3763c6706"
+const ManifestDigest = "sha256:6d32c05db7d74465326b74f70df59b0ce9463395930332c2d366bf914ec12d79"
 
 type OperationKind string
 
@@ -278,7 +278,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relation_graph":                            {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_removal_handoff":                           {Required: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}, Properties: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}},
 	"work_scope":                                     {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
-	"work_summary":                                   {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin", "liveness"}},
+	"work_summary":                                   {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "work_pin", "liveness"}},
 	"work_trace_continuity_input":                    {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_history_input":                       {Required: []string{"work_id"}, Properties: []string{"work_id", "direction", "event_kinds", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_project_retirement_input":            {Required: []string{"work_id"}, Properties: []string{"work_id", "requested_budget_seconds"}},

@@ -9,6 +9,11 @@ import (
 
 // AppendWorkflowStalenessObservation records a typed observation before its
 // consequential workflow action. The event does not advance work version.
+//
+// The append is an ordinary write and carries no durability barrier: the
+// consequential action that follows it runs the CD-0050 barrier, which makes
+// this earlier commit durable with it (CD-0050 D2). An observation whose action
+// is refused stays an ordinary, re-issuable write (CD-0050 D3).
 func AppendWorkflowStalenessObservation(ctx context.Context, s *Store, eventID, workID, actor, acceptedInputsDigest string, payload json.RawMessage, observedAt time.Time) error {
 	event, present, err := workflowStalenessObservationEvent(eventID, workID, actor, acceptedInputsDigest, payload, observedAt)
 	if err != nil || !present {
@@ -17,12 +22,9 @@ func AppendWorkflowStalenessObservation(ctx context.Context, s *Store, eventID, 
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_staleness", "store is not open", false, "open the authority database")
 	}
-	if err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.Transact(ctx, func(transaction *Transaction) error {
 		return appendWorkflowStalenessObservationTx(ctx, transaction, event)
-	}); err != nil {
-		return err
-	}
-	return s.SyncDurable(ctx)
+	})
 }
 
 func appendWorkflowStalenessObservationTx(ctx context.Context, transaction *Transaction, event Event) error {

@@ -78,7 +78,7 @@ func TestSessionPrepareCallbackFailureClassification(t *testing.T) {
 	}
 }
 
-func TestSessionPrepareBusyIdentityCheckpointAndRecovery(t *testing.T) {
+func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T) {
 	ctx := context.Background()
 	repo := initLocatorRepo(t)
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
@@ -129,26 +129,18 @@ func TestSessionPrepareBusyIdentityCheckpointAndRecovery(t *testing.T) {
 			})
 		return code, out.String(), errOut.String()
 	}
+	// The identity assertion is an ordinary write outside the CD-0050 D3
+	// enumeration, so it carries no durability barrier: a reader that another
+	// process holds open cannot turn the committed assertion into a failure.
 	code, out, diagnostic := run()
-	var failure *store.Failure
-	if !errors.As(identityErr, &failure) || !failure.RetrySafe || !failure.EffectPossible || failure.Op != "sync_durable" {
-		t.Fatalf("identity error=%v; want a retry-safe post-commit checkpoint failure", identityErr)
-	}
-	if code != 1 || out != "" || bootCalls != 0 || !strings.Contains(diagnostic, "busy=1") {
-		t.Fatalf("busy checkpoint exit=%d boot calls=%d stdout=%q stderr=%q", code, bootCalls, out, diagnostic)
+	if code != 0 || identityErr != nil || bootCalls != 1 || out == "" || diagnostic != "" {
+		t.Fatalf("pinned reader exit=%d boot calls=%d identity error=%v stdout=%q stderr=%q", code, bootCalls, identityErr, out, diagnostic)
 	}
 	var committedEvents int
 	if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM domain_events").Scan(&committedEvents); err != nil {
 		t.Fatal(err)
 	}
 	if committedEvents != eventCount+1 {
-		t.Fatalf("events=%d want %d; the failure must not erase the committed assertion", committedEvents, eventCount+1)
-	}
-	if err := readTx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	code, out, diagnostic = run()
-	if code != 0 || identityErr != nil || bootCalls != 1 || out == "" || diagnostic != "" {
-		t.Fatalf("released reader exit=%d boot calls=%d identity error=%v stdout=%q stderr=%q", code, bootCalls, identityErr, out, diagnostic)
+		t.Fatalf("events=%d want %d; the assertion must commit once", committedEvents, eventCount+1)
 	}
 }

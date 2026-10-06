@@ -594,4 +594,20 @@ func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	if !contains(stored.Capabilities, "cross_scope") || !contains(stored.Products, "product-2") {
 		t.Fatalf("the acknowledged grant was not applied: %+v", stored)
 	}
+
+	replay := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+	requireReplayDurabilityFailure(t, replay)
+	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
+		t.Fatal("failed-barrier replay changed the committed policy")
+	}
+	if err := readTx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	replay = dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+	if replay.Outcome != OutcomeOK || !replay.Replayed {
+		t.Fatalf("grant replay after reader release: %+v", replay)
+	}
+	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
+		t.Fatal("successful replay changed the committed policy")
+	}
 }

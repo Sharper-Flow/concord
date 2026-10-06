@@ -585,7 +585,8 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if r.Tool == "concord_work_compact" {
 		operationKind = "claim"
 	}
-	record, found, err := r.Store.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key})
+	idempotency := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}
+	record, found, err := r.Store.LookupMutationIdempotency(ctx, idempotency)
 	if err != nil {
 		return Envelope{}, false, err
 	}
@@ -624,10 +625,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
-			return Envelope{}, false, err
-		}
-		return replay, true, nil
+		return r.finishMutationReplay(ctx, replay, idempotency, op)
 	}
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(authorizedScope)
@@ -645,10 +643,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
-			return Envelope{}, false, err
-		}
-		return response, true, nil
+		return r.finishMutationReplay(ctx, response, idempotency, op)
 	}
 	step, err := store.Step(ctx, r.Store, opID)
 	if err != nil {
@@ -664,16 +659,26 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
-			return Envelope{}, false, err
-		}
-		return response, true, nil
-	}
-	if err := r.Store.TouchMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now()); err != nil {
-		return Envelope{}, false, err
+		return r.finishMutationReplay(ctx, response, idempotency, op)
 	}
 	ref := operationRefFromFence(step, "pending", "git_proof")
-	return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), true, nil
+	return r.finishMutationReplay(ctx, NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), idempotency, op)
+}
+
+func (r runtime) finishMutationReplay(ctx context.Context, response Envelope, key store.MutationIdempotencyKey, op ContractOperation) (Envelope, bool, error) {
+	if err := r.Store.TouchMutationIdempotency(ctx, key, r.Authority.now()); err != nil {
+		return Envelope{}, false, err
+	}
+	// CD-0050 D3: a cached consequential result proves a commit, not that
+	// its post-commit durability barrier succeeded. Acknowledge only after
+	// syncing, outside the replay metadata transaction.
+	switch op.ID {
+	case "concord_work_transition.workflow_action", "concord_work_relate.client_policy_grant_request", "concord_work_compact.publish", "concord_work_compact.reconcile":
+		if err := r.Store.SyncDurable(ctx); err != nil {
+			return Envelope{}, false, err
+		}
+	}
+	return response, true, nil
 }
 
 func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {

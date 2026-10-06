@@ -136,7 +136,7 @@ func ClaimStepAuthorized(ctx context.Context, s *Store, req ClaimRequest, author
 // claimStepObservedAuthorized is the claim core. The public entry points
 // commit durably; the conformance harness passes durable=false because it
 // measures the ordinary commit path (CD-0050 D4).
-func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (FenceResult, error) {
+func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest, durable bool, observer *operationObserver, authorize func(*sql.Tx) error) (_ FenceResult, retErr error) {
 	if err := validateClaim(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -147,23 +147,23 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot begin claim", true, "retry once the database is writable", err)
 	}
-	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
+	defer tx.finish(&retErr)
 	if err := preflightWorkflowClaimTx(ctx, tx.Tx, req); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	digest := claimDigest(req)
 	if prior, found, err := findIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	} else if found {
 		if prior.digest != digest {
-			return rollback(idempotencyConflict("claim", req.IdempotencyKey))
+			return FenceResult{}, idempotencyConflict("claim", req.IdempotencyKey)
 		}
 		result, err := durableResult(ctx, tx.Tx, prior.opID, prior.resultEventIDs)
 		if err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot commit idempotent replay", true, "retry once the database is writable", err)
@@ -173,12 +173,12 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 	}
 	if authorize != nil {
 		if err := authorize(tx.Tx); err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 	}
 	var epoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch), 0) + 1 FROM durable_operations WHERE op_id = ?`, req.OpID).Scan(&epoch); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot allocate attempt epoch", true, "retry once the database is readable", err))
+		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot allocate attempt epoch", true, "retry once the database is readable", err)
 	}
 	observed := req.ObservedAt.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
@@ -187,13 +187,13 @@ func claimStepObservedAuthorized(ctx context.Context, s *Store, req ClaimRequest
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, req.OpID, epoch, req.WorkID, req.WorkflowTypeRef,
 		req.WorkflowTypeVersion, req.StepID, req.StepKind, req.AcceptedInputsDigest,
 		req.AcceptedScopeSnapshot, req.PrincipalRef, req.RequestID, observed, req.ContractDigest); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err))
+		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot persist claim", true, "retry once the database is writable", err)
 	}
 	if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "claim", req.IdempotencyKey, digest, req.OpID, nil, req.ObservedAt); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE principal_ref=? AND tool=? AND operation_kind='claim' AND idempotency_key=?`, req.AcceptedScopeSnapshot, req.PrincipalRef, req.Tool, req.IdempotencyKey); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	if err := commitObservedTx(tx, observer); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "claim_step", "cannot commit claim", true, "retry once the database is writable", err)
@@ -209,7 +209,7 @@ func CompleteStep(ctx context.Context, s *Store, req CompleteRequest) (FenceResu
 }
 
 // completeStep is the completion core; durable follows the claim core's rule.
-func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (FenceResult, error) {
+func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bool, observer *operationObserver) (_ FenceResult, retErr error) {
 	if err := validateComplete(req); err != nil {
 		return FenceResult{}, err
 	}
@@ -220,29 +220,28 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 	if err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot begin completion", true, "retry once the database is writable", err)
 	}
-	rollback := func(cause error) (FenceResult, error) { _ = tx.Rollback(); return FenceResult{}, cause }
+	defer tx.finish(&retErr)
 	if err := preflightWorkflowOperationTx(ctx, tx.Tx, req.OpID); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	digest := completeDigest(req)
 	prior, found, err := findIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey)
 	if err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	if found {
 		if prior.digest != digest {
-			return rollback(idempotencyConflict("complete", req.IdempotencyKey))
+			return FenceResult{}, idempotencyConflict("complete", req.IdempotencyKey)
 		}
 		if hasStaleMarker(prior.resultEventIDs) {
-			_ = tx.Rollback()
 			return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
 		}
 		result, err := durableResult(ctx, tx.Tx, prior.opID, prior.resultEventIDs)
 		if err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 		if err := touchIdempotency(ctx, tx.Tx, prior, req.ObservedAt); err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot commit idempotent replay", true, "retry once the database is writable", err)
@@ -252,11 +251,11 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 	}
 	current, err := readCurrentOperation(ctx, tx.Tx, req.OpID)
 	if err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	if current.AttemptEpoch != req.AttemptEpoch {
 		if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, []string{staleMarker}, req.ObservedAt); err != nil {
-			return rollback(err)
+			return FenceResult{}, err
 		}
 		if err := commitObservedTx(tx, observer); err != nil {
 			return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot persist stale completion", true, "retry once the database is writable", err)
@@ -264,7 +263,7 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
 		return FenceResult{}, staleAttempt(req.OpID, req.AttemptEpoch)
 	}
 	if current.ResultKind != "" {
-		return rollback(newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or explicitly take over a new attempt"))
+		return FenceResult{}, newFailure(KindTakeoverRequired, "complete_step", "the current attempt already has a result", false, "reconcile the durable result or explicitly take over a new attempt")
 	}
 	completed := ""
 	if req.CompletedAt != nil {
@@ -274,10 +273,10 @@ func completeStep(ctx context.Context, s *Store, req CompleteRequest, durable bo
         SET result_kind=?,result_payload=?,evidence_refs=?,changed_refs=?,resume_cursor=?,completed_at=?
         WHERE op_id=? AND attempt_epoch=?`, req.ResultKind, nullableText(req.ResultPayload), marshalStrings(req.EvidenceRefs),
 		marshalStrings(req.ChangedRefs), nullableText(req.ResumeCursor), nullableText(completed), req.OpID, req.AttemptEpoch); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "complete_step", "cannot persist completion", true, "retry once the database is writable", err))
+		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot persist completion", true, "retry once the database is writable", err)
 	}
 	if err := insertIdempotency(ctx, tx.Tx, req.PrincipalRef, req.Tool, "complete", req.IdempotencyKey, digest, req.OpID, req.ResultEventIDs, req.ObservedAt); err != nil {
-		return rollback(err)
+		return FenceResult{}, err
 	}
 	if err := commitObservedTx(tx, observer); err != nil {
 		return FenceResult{}, wrapFailure(KindUnavailable, "complete_step", "cannot commit completion", true, "retry once the database is writable", err)

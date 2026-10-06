@@ -145,7 +145,7 @@ func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *St
 	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, resolver, now, beforePreflight, authorize, mutate)
 }
 
-func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, resolver ConditionResolver, now time.Time, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_boundary", "store is not open", false, "open the authority database")
 	}
@@ -160,22 +160,22 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot begin owning action", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx}
-	rollback := func(cause error) error { _ = tx.Rollback(); transaction.tx = nil; return cause }
+	defer tx.finish(&retErr)
 	defer func() { transaction.tx = nil }()
 	scope, err := beginFold(ctx, tx.Tx)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	transaction.fold = scope
 	defer func() { _ = scope.close(ctx) }()
 	if beforePreflight != nil {
 		handled, err := beforePreflight(transaction)
 		if err != nil {
-			return rollback(err)
+			return err
 		}
 		if handled {
 			if err := scope.close(ctx); err != nil {
-				return rollback(err)
+				return err
 			}
 			if err := tx.Commit(); err != nil {
 				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
@@ -185,7 +185,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	}
 	entry, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, false)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite {
 		// Project-session handoff admission (CD-0182 amendment): a session
@@ -193,37 +193,37 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 		// handoff executes no managed external effect until it consumes the
 		// handoff addressed to it. A work with no handoffs is unaffected.
 		if err := RefuseUnconsumedProjectHandoffTx(ctx, tx.Tx, request.WorkID, request.Actor.SessionRef); err != nil {
-			return rollback(err)
+			return err
 		}
 		var open int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, request.WorkID).Scan(&open); err != nil {
-			return rollback(wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot inspect consequential conditions", true, "retry once the database is readable", err))
+			return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot inspect consequential conditions", true, "retry once the database is readable", err)
 		}
 		if open != 0 {
 			if resolver == nil || now.IsZero() {
-				return rollback(newFailure(KindNotTerminal, "workflow_action_boundary", "consequential action requires an explicit condition resolver", false, "reread_entities"))
+				return newFailure(KindNotTerminal, "workflow_action_boundary", "consequential action requires an explicit condition resolver", false, "reread_entities")
 			}
 			if _, err := resolveWorkflowConditionsAtBoundaryTx(ctx, tx.Tx, request.WorkID, resolver, now); err != nil {
-				return rollback(err)
+				return err
 			}
 			if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, request.WorkID).Scan(&request.ExpectedVersion); err != nil {
-				return rollback(wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot reread workflow version after condition resolution", true, "retry once the database is readable", err))
+				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot reread workflow version after condition resolution", true, "retry once the database is readable", err)
 			}
 		}
 	}
 	if _, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request, true); err != nil {
-		return rollback(err)
+		return err
 	}
 	if authorize != nil {
 		if err := authorize(transaction); err != nil {
-			return rollback(err)
+			return err
 		}
 	}
 	if err := mutate(transaction); err != nil {
-		return rollback(err)
+		return err
 	}
 	if err := scope.close(ctx); err != nil {
-		return rollback(err)
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)

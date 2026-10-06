@@ -32,7 +32,7 @@ type RecoverFoldGuardReport struct {
 // that transaction back, which restores the stranded row and keeps ordinary
 // writes refused; only a committed recovery leaves the database admittable.
 // A sidecar lock refuses a second recovery while one is running.
-func RecoverFoldGuard(ctx context.Context, path string) (RecoverFoldGuardReport, error) {
+func RecoverFoldGuard(ctx context.Context, path string) (_ RecoverFoldGuardReport, retErr error) {
 	var report RecoverFoldGuardReport
 	if path == "" {
 		var err error
@@ -62,36 +62,33 @@ func RecoverFoldGuard(ctx context.Context, path string) (RecoverFoldGuardReport,
 		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot begin the recovery transaction", true,
 			"retry once the database is writable", err)
 	}
-	rollback := func(cause error) (RecoverFoldGuardReport, error) {
-		_ = tx.Rollback()
-		return report, cause
-	}
+	defer tx.finish(&retErr)
 	var stranded int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM fold_guard`).Scan(&stranded); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "recover_fold_guard", "cannot inspect the fold guard", true,
-			"confirm the database is readable", err))
+		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot inspect the fold guard", true,
+			"confirm the database is readable", err)
 	}
 	if stranded == 0 {
-		return rollback(newFailure(KindInvalidOperation, "recover_fold_guard",
+		return report, newFailure(KindInvalidOperation, "recover_fold_guard",
 			"the database carries no stranded fold_guard row, so there is nothing to recover", false,
-			"open the store normally"))
+			"open the store normally")
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "recover_fold_guard", "cannot clear the stranded fold guard", true,
-			"retry once the database is writable", err))
+		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot clear the stranded fold guard", true,
+			"retry once the database is writable", err)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events`).Scan(&report.Events); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "recover_fold_guard", "cannot count the event log", true,
-			"retry once the database is readable", err))
+		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot count the event log", true,
+			"retry once the database is readable", err)
 	}
 	if err := rebuildFromLogTx(ctx, tx.Tx); err != nil {
 		// The rollback restores the stranded row, so a failed recovery leaves
 		// ordinary writes exactly as refused as before it ran.
-		return rollback(err)
+		return report, err
 	}
 	if err := tx.Commit(); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "recover_fold_guard", "cannot commit the recovery", true,
-			"retry once the database is writable", err))
+		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot commit the recovery", true,
+			"retry once the database is writable", err)
 	}
 	report.Rebuilt = true
 	return report, nil

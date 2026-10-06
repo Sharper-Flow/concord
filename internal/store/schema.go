@@ -5605,6 +5605,20 @@ CREATE TRIGGER project_handoffs_guard_update BEFORE UPDATE ON project_handoffs F
 CREATE TRIGGER project_handoffs_guard_delete BEFORE DELETE ON project_handoffs FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'project_handoffs is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  116,
+		Name:     "durability_commit_marker",
+		Breaking: false,
+		SQL: `
+-- CD-0050: the commit owner changes this bit even for a no-write replay.
+-- It is storage metadata, not a projection or a SQLite schema-version field.
+CREATE TABLE durability_commits (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    bit INTEGER NOT NULL CHECK(bit IN (0,1))
+);
+INSERT INTO durability_commits(id,bit) VALUES(1,0);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

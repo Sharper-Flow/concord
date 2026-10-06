@@ -47,7 +47,7 @@ func (s *Store) TransactDurable(ctx context.Context, fn func(*Transaction) error
 	return s.transact(ctx, true, fn)
 }
 
-func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction) error) error {
+func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction) error) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "transaction", "store is not open", false, "open the authority database")
 	}
@@ -59,19 +59,13 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx, clock: s.Clock, path: s.Path()}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-		transaction.tx = nil
-	}()
+	defer tx.finish(&retErr)
+	defer func() { transaction.tx = nil }()
 	if err := fn(transaction); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot commit transaction", true, "retry once the database is writable", err)
 	}
-	committed = true
 	return nil
 }

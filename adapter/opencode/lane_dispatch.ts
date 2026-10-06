@@ -231,9 +231,6 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
-  if (!isRecord(coreResponse)) {
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "concord_work_transition.workflow_action returned no envelope", "reconcile_operation")
-  }
   // A retry-safe failure with a possible effect happened after the dispatch
   // boundary committed — the busy durability barrier is the live case. The
   // same request replays the committed authorization through the core's
@@ -242,7 +239,8 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // The adapter therefore performs the bounded replay itself, resending the
   // identical input, instead of advising a caller retry that would rebuild
   // the packet.
-  const possibleEffectFailure = (response: Record<string, unknown>): boolean => {
+  const possibleEffectFailure = (response: unknown): boolean => {
+    if (!isRecord(response)) return false
     const errorObj = isRecord(response.error) ? response.error : null
     return response.outcome === "error" && errorObj !== null && errorObj.effect_state === "possible" && errorObj.retry_safe === true
   }
@@ -252,7 +250,9 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     } catch (error) {
       return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
     }
-    if (!isRecord(coreResponse)) break
+  }
+  if (!isRecord(coreResponse)) {
+    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "concord_work_transition.workflow_action returned no envelope", "reconcile_operation")
   }
   if (coreResponse.outcome === "error") {
     const errorObj = isRecord(coreResponse.error) ? coreResponse.error : null

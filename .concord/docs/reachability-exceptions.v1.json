@@ -99,10 +99,9 @@
       "state": "out_of_scope",
       "functions": [
         "internal/store.InspectWorkflowActionAdmission",
-        "internal/store.InspectWorkflowDomainOverlap",
-        "internal/store.inspectWorkflowActionAdmissionTx"
+        "internal/store.InspectWorkflowDomainOverlap"
       ],
-      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction and defer to the same implementation, so admission keeps a single set of rules instead of the untransacted second copy this change removed. inspectWorkflowActionAdmissionTx carries the admission call for them, because TestTxScope requires a Transact closure to be one delegating return."
+      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction of their own — admission through the registry preflight's read snapshot, Domain overlap through Transact — and defer to the same implementation, so admission keeps a single set of rules instead of an untransacted second copy."
     },
     {
       "id": "knowledge-manifest-current-tier-bindings",

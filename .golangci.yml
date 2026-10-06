@@ -26,6 +26,7 @@ linters:
       exclude-functions:
         - "(*database/sql.Rows).Close"
         - "(*database/sql.Tx).Rollback"
+        - "(*github.com/sharper-flow/concord/internal/store.writeTx).Rollback"
     gosec:
       # errcheck owns unchecked operation errors; gosec still runs every other rule.
       excludes:

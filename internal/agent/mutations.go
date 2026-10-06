@@ -585,7 +585,8 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	if r.Tool == "concord_work_compact" {
 		operationKind = "claim"
 	}
-	record, found, err := r.Store.LookupMutationIdempotency(ctx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key})
+	idempotency := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}
+	record, found, err := r.Store.LookupMutationIdempotency(ctx, idempotency)
 	if err != nil {
 		return Envelope{}, false, err
 	}
@@ -613,7 +614,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 	// The replay acknowledges the original authority, not only its observation
 	// count. Required approvals and persisted durability bindings select FULL;
 	// workflow actions and native claims carry their own durable boundaries.
-	durable := op.Approval == ApprovalClass("required") || op.ID == "concord_work_transition.workflow_action" || op.ID == "concord_work_transition.worktree_claim" || r.Tool == "concord_work_compact"
+	durable := op.Approval == ApprovalClass("required") || op.ID == "concord_work_transition.workflow_action" || op.ID == "concord_work_transition.worktree_claim" || op.ID == "concord_work_relate.client_policy_grant_request" || r.Tool == "concord_work_compact"
 	if rawDurability, present := authorizedScope["durable_commit"]; present {
 		committedDurably, valid := rawDurability.(bool)
 		if !valid {
@@ -638,15 +639,6 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 			}
 		}
 	}
-	transact := r.Store.Transact
-	if durable {
-		transact = r.Store.TransactDurable
-	}
-	touchReplay := func() error {
-		return transact(ctx, func(tx *store.Transaction) error {
-			return store.TouchMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: operationKind, IdempotencyKey: key}, r.Authority.now())
-		})
-	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		step, stepErr := store.Step(ctx, r.Store, opID)
 		if stepErr != nil {
@@ -661,10 +653,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if replay.Outcome == OutcomeError {
 			return replay, true, nil
 		}
-		if err := touchReplay(); err != nil {
-			return Envelope{}, false, err
-		}
-		return replay, true, nil
+		return r.finishMutationReplay(ctx, replay, idempotency, durable)
 	}
 	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(authorizedScope)
@@ -682,10 +671,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := touchReplay(); err != nil {
-			return Envelope{}, false, err
-		}
-		return response, true, nil
+		return r.finishMutationReplay(ctx, response, idempotency, durable)
 	}
 	step, err := store.Step(ctx, r.Store, opID)
 	if err != nil {
@@ -701,16 +687,28 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, r
 		if response.Outcome == OutcomeError {
 			return response, true, nil
 		}
-		if err := touchReplay(); err != nil {
-			return Envelope{}, false, err
-		}
-		return response, true, nil
-	}
-	if err := touchReplay(); err != nil {
-		return Envelope{}, false, err
+		return r.finishMutationReplay(ctx, response, idempotency, durable)
 	}
 	ref := operationRefFromFence(step, "pending", "git_proof")
-	return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), true, nil
+	return r.finishMutationReplay(ctx, NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), idempotency, durable)
+}
+
+func (r runtime) finishMutationReplay(ctx context.Context, response Envelope, key store.MutationIdempotencyKey, durable bool) (Envelope, bool, error) {
+	observed := r.Authority.now()
+	// Consequential replay acknowledges the cached effect and every earlier
+	// commit. The metadata update supplies a durable write without repeating
+	// the business operation; ordinary replay retains its existing tier.
+	transact := r.Store.Transact
+	if durable {
+		transact = r.Store.TransactDurable
+	}
+	err := transact(ctx, func(tx *store.Transaction) error {
+		return store.TouchMutationIdempotencyTx(ctx, tx, key, observed)
+	})
+	if err != nil {
+		return Envelope{}, false, err
+	}
+	return response, true, nil
 }
 
 func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {

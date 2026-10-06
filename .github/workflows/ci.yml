@@ -89,6 +89,26 @@ jobs:
       - name: Validate public content
         run: python3 scripts/check-public-content.py
       - name: Test the adapter suite
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: bun test adapter/opencode/
       - name: Coordinator observation evaluator tests (no model calls)
         run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
@@ -223,6 +243,26 @@ jobs:
         # and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
       - name: Test all packages
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: go test -timeout=15m ./...
 
   # Race detector on store tests that coordinate concurrent Go callers.
@@ -244,6 +284,26 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: Test concurrent store access under the race detector
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: >-
           go test -race -timeout=15m -run
           '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'

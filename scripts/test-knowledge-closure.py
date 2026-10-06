@@ -213,7 +213,7 @@ def test_go_read_matches_validator_population() -> None:
     )
 
     env = os.environ.copy()
-    env["CONCORD_KNOWLEDGE_FIXTURE_ROOT"] = str(root)
+    env["TEST_CONCORD_KNOWLEDGE_FIXTURE_ROOT"] = str(root)
     completed = subprocess.run(
         ["go", "test", "./internal/store", "-run", "^TestUnprocessedKnowledgeDocsFixture$", "-count=1", "-v"],
         cwd=REPO_ROOT,

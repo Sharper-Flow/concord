@@ -130,8 +130,8 @@ func TestSessionPrepareIdentityAssertionSucceedsUnderAPinnedReader(t *testing.T)
 		return code, out.String(), errOut.String()
 	}
 	// The identity assertion is an ordinary write outside the CD-0050 D3
-	// enumeration, so it carries no durability barrier: a reader that another
-	// process holds open cannot turn the committed assertion into a failure.
+	// enumeration: a reader that another process holds open cannot turn the
+	// committed assertion into a failure.
 	code, out, diagnostic := run()
 	if code != 0 || identityErr != nil || bootCalls != 1 || out == "" || diagnostic != "" {
 		t.Fatalf("pinned reader exit=%d boot calls=%d identity error=%v stdout=%q stderr=%q", code, bootCalls, identityErr, out, diagnostic)

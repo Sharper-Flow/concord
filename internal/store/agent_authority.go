@@ -65,14 +65,9 @@ type ApprovalAuthorityRecord struct {
 }
 
 func (s *Store) RegisterTrustedClient(ctx context.Context, client TrustedClientRecord, key TrustedClientKeyRecord, now string) error {
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return registerTrustedClientTx(ctx, transaction, client, key, now)
 	})
-	if err != nil {
-		return err
-	}
-	// committed; the durability barrier must hold before acknowledging
-	return s.SyncDurable(ctx)
 }
 
 func registerTrustedClientTx(ctx context.Context, transaction *Transaction, client TrustedClientRecord, key TrustedClientKeyRecord, now string) error {
@@ -90,14 +85,9 @@ func registerTrustedClientTx(ctx context.Context, transaction *Transaction, clie
 }
 
 func (s *Store) UpdateTrustedClientPolicy(ctx context.Context, clientRef string, policy TrustedClientRecord, now string) error {
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return updateTrustedClientPolicyTx(ctx, transaction, clientRef, policy)
 	})
-	if err != nil {
-		return err
-	}
-	// committed; the durability barrier must hold before acknowledging
-	return s.SyncDurable(ctx)
 }
 
 func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, policy TrustedClientRecord) error {
@@ -122,14 +112,9 @@ func updateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, 
 // mutate interprets it. An error from mutate aborts the transaction with no
 // write, and the caller owns that error's typing.
 func (s *Store) MutateTrustedClientPolicy(ctx context.Context, clientRef string, mutate func(current TrustedClientRecord) (TrustedClientRecord, error)) error {
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return mutateTrustedClientPolicyTx(ctx, transaction, clientRef, mutate)
 	})
-	if err != nil {
-		return err
-	}
-	// committed; the durability barrier must hold before acknowledging
-	return s.SyncDurable(ctx)
 }
 
 func mutateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, clientRef string, mutate func(TrustedClientRecord) (TrustedClientRecord, error)) error {
@@ -166,14 +151,9 @@ func MutateTrustedClientPolicyTx(ctx context.Context, transaction *Transaction, 
 }
 
 func (s *Store) RotateTrustedClientKey(ctx context.Context, clientRef string, key TrustedClientKeyRecord, now string) error {
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return rotateTrustedClientKeyTx(ctx, transaction, clientRef, key, now)
 	})
-	if err != nil {
-		return err
-	}
-	// committed; the durability barrier must hold before acknowledging
-	return s.SyncDurable(ctx)
 }
 
 func rotateTrustedClientKeyTx(ctx context.Context, transaction *Transaction, clientRef string, key TrustedClientKeyRecord, now string) error {
@@ -201,14 +181,9 @@ func rotateTrustedClientKeyTx(ctx context.Context, transaction *Transaction, cli
 }
 
 func (s *Store) RevokeTrustedClient(ctx context.Context, clientRef, now string) error {
-	err := s.Transact(ctx, func(transaction *Transaction) error {
+	return s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return revokeTrustedClientTx(ctx, transaction, clientRef, now)
 	})
-	if err != nil {
-		return err
-	}
-	// committed; the durability barrier must hold before acknowledging
-	return s.SyncDurable(ctx)
 }
 
 func revokeTrustedClientTx(ctx context.Context, transaction *Transaction, clientRef, now string) error {

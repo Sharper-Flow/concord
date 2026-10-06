@@ -547,11 +547,10 @@ test("core refusal on dispatch_worker surfaces as unauthorized_dispatch without 
   expect(workflowCalls).toBe(1)
 })
 
-// A core failure after the dispatch boundary committed (a durability barrier
-// that reported busy) carries effect_state possible and retry_safe true. The
-// adapter must replay the byte-identical request itself: a caller-level retry
-// rebuilds the packet against the work version the commit advanced and
-// refuses as idempotency_conflict. When the replay keeps failing, the answer
+// A core failure after the dispatch boundary committed carries effect_state
+// possible and retry_safe true. The adapter must replay the byte-identical
+// request itself: a caller-level retry rebuilds the packet against the work
+// version the commit advanced and refuses as idempotency_conflict. When the replay keeps failing, the answer
 // reconciles rather than advising that unsafe retry.
 test("a retry-safe possible effect replays the identical request, then reconciles", async () => {
   let spawned = 0

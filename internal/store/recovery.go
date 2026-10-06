@@ -57,7 +57,7 @@ func RecoverFoldGuard(ctx context.Context, path string) (RecoverFoldGuardReport,
 	if err := s.migrateOpen(ctx); err != nil {
 		return report, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return report, wrapFailure(KindUnavailable, "recover_fold_guard", "cannot begin the recovery transaction", true,
 			"retry once the database is writable", err)
@@ -84,7 +84,7 @@ func RecoverFoldGuard(ctx context.Context, path string) (RecoverFoldGuardReport,
 		return rollback(wrapFailure(KindUnavailable, "recover_fold_guard", "cannot count the event log", true,
 			"retry once the database is readable", err))
 	}
-	if err := rebuildFromLogTx(ctx, tx); err != nil {
+	if err := rebuildFromLogTx(ctx, tx.Tx); err != nil {
 		// The rollback restores the stranded row, so a failed recovery leaves
 		// ordinary writes exactly as refused as before it ran.
 		return rollback(err)
@@ -94,10 +94,6 @@ func RecoverFoldGuard(ctx context.Context, path string) (RecoverFoldGuardReport,
 			"retry once the database is writable", err))
 	}
 	report.Rebuilt = true
-	// committed; the durability barrier must hold before acknowledging
-	if err := s.SyncDurable(ctx); err != nil {
-		return report, err
-	}
 	return report, nil
 }
 

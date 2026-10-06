@@ -10,9 +10,9 @@ import (
 // AppendWorkflowStalenessObservation records a typed observation before its
 // consequential workflow action. The event does not advance work version.
 //
-// The append is an ordinary write and carries no durability barrier: the
-// consequential action that follows it runs the CD-0050 barrier, which makes
-// this earlier commit durable with it (CD-0050 D2). An observation whose action
+// The append is an ordinary, non-durable commit: the consequential action
+// that follows it commits durably, which makes this earlier commit durable
+// with it (CD-0050 D2). An observation whose action
 // is refused stays an ordinary, re-issuable write (CD-0050 D3).
 func AppendWorkflowStalenessObservation(ctx context.Context, s *Store, eventID, workID, actor, acceptedInputsDigest string, payload json.RawMessage, observedAt time.Time) error {
 	event, present, err := workflowStalenessObservationEvent(eventID, workID, actor, acceptedInputsDigest, payload, observedAt)

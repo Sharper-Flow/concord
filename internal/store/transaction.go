@@ -37,17 +37,28 @@ func transactionSQL(tx *Transaction, op string) (*sql.Tx, error) {
 // pass the transaction to store-owned Tx methods, but never need to manage its
 // commit or rollback boundary.
 func (s *Store) Transact(ctx context.Context, fn func(*Transaction) error) error {
+	return s.transact(ctx, false, fn)
+}
+
+// TransactDurable is Transact for a consequential operation (CD-0050 D3): its
+// commit syncs the write-ahead log before it returns, so a nil result means
+// the transaction and every earlier commit on the store are durable.
+func (s *Store) TransactDurable(ctx context.Context, fn func(*Transaction) error) error {
+	return s.transact(ctx, true, fn)
+}
+
+func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction) error) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "transaction", "store is not open", false, "open the authority database")
 	}
 	if fn == nil {
 		return newFailure(KindInvalidOperation, "transaction", "transaction callback is required", false, "supply a transaction callback")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginWriteTx(ctx, s, durable)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
-	transaction := &Transaction{tx: tx, clock: s.Clock, path: s.Path()}
+	transaction := &Transaction{tx: tx.Tx, clock: s.Clock, path: s.Path()}
 	committed := false
 	defer func() {
 		if !committed {

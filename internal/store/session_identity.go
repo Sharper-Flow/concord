@@ -116,8 +116,8 @@ func foldSessionOrchestratorIdentityAsserted(ctx context.Context, tx *sql.Tx, ev
 // wall-clock instant Concord asserts the identity.
 //
 // The write owns its transaction; the only state in scope is the assertion
-// and the caller-supplied event id and timestamp. It is an ordinary write and
-// carries no durability barrier: the assertion binds no authority, nothing
+// and the caller-supplied event id and timestamp. It is an ordinary,
+// non-durable commit: the assertion binds no authority, nothing
 // reads it back to decide what a session may do, and each session start
 // records a fresh event, so it is outside the CD-0050 D3 enumeration.
 func (s *Store) RecordOrchestratorIdentityAssertion(ctx context.Context, eventID string, occurredAt time.Time, assertion OrchestratorIdentityAssertion) (Sequence, error) {

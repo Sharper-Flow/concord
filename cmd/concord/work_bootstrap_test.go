@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,6 +474,47 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 		})
 	if code == 0 || identityCalls != 0 || !strings.Contains(errOut.String(), "claimed worktree") {
 		t.Fatalf("wrong-directory code=%d identity_calls=%d stderr=%q", code, identityCalls, errOut.String())
+	}
+}
+
+func TestSessionPrepareIdentityFailureClassification(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Chdir(result.Entry.Path)
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"retry-safe store failure", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}, 1},
+		{"wrapped retry-safe store failure", fmt.Errorf("assert identity: %w", &store.Failure{Kind: store.KindUnavailable, RetrySafe: true}), 1},
+		{"unsafe store failure", &store.Failure{Kind: store.KindUnavailable, RetrySafe: false}, sessionPrepareRefusalExit},
+		{"identity refusal", errors.New("host does not register the requested agent"), sessionPrepareRefusalExit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			identityCalls, bootCalls := 0, 0
+			code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, ""), s, &out, &errOut,
+				func(string) error { return nil }, hostCommandAt(defaultHostResolution()),
+				func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+					identityCalls++
+					return "", tc.err
+				},
+				func(context.Context, string, string, string) ([]byte, error) {
+					bootCalls++
+					return []byte(`{}`), nil
+				})
+			if code != tc.want || identityCalls != 1 || bootCalls != 0 || out.Len() != 0 || !strings.Contains(errOut.String(), tc.err.Error()) {
+				t.Fatalf("code=%d want=%d identity=%d boot=%d stdout=%q stderr=%q", code, tc.want, identityCalls, bootCalls, out.String(), errOut.String())
+			}
+		})
 	}
 }
 

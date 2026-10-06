@@ -180,9 +180,10 @@ func sessionPrepareReadFailureExit(err error) int {
 // worktree of the work item — a multi-Project item holds one active worktree
 // per Project, so the claimed entry is the active one whose path is this
 // directory — then verifies the active host agent and the lane identity that
-// directory defines, and derives the session boot packet. It records
-// nothing: the session's worktree is the directory it runs in, and the host
-// owns that fact. The registry probe runs through the resolved host command
+// directory defines, records the required identity assertion, and derives
+// the session boot packet. It records no worktree move: the session's
+// worktree is the directory it runs in, and the host owns that fact. The
+// registry probe runs through the resolved host command
 // in this directory, the same probe `concord session` launches with
 // (CD-0189), so the registry the caller is told the session verified is the
 // one the configured host resolves.
@@ -280,6 +281,12 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 	handle, err := identity(context.Background(), cwd, host, input.ProductID, input.WorkID, input.Agent)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		// The identity callback records its assertion in the store. Preserve
+		// the store's retry classification without relaxing identity refusals.
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.RetrySafe {
+			return 1
+		}
 		return sessionPrepareRefusalExit
 	}
 	database, err := databasePath()

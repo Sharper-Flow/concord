@@ -4,9 +4,9 @@
 - **Date:** 2026-09-28
 - **Scope:** the `review` capability-class binding in
   `contracts/lane-step-dispatch.v1.json` and the confirmation-step worker
-  route
+  route, with hold-mode review evidence recovery at refinement
 - **Approval:** The operator approved this bounded join change through the
-  work record that carries it.
+  work record that carries it. The operator approved D4 on 2026-10-06.
 - **Related:** CD-0059, CD-0133, CD-0140, CD-0166
 - **Amends:** CD-0140, which preserved the human-checkpoint exclusion
 - **Amended by:** [CD-0193](CD-0193-cd-0187-d2-and-d3-release-the-checkpoint-gate-at-the-recorded-failure.md) at D2's composed action set and D3's hold release: the engine admits the failure record at a confirmation step as a hold-mode recovery, and the hold keys on attempts a worker actually dispatched.
@@ -57,6 +57,32 @@ attempt keeps holding, so the effect-step recovery routes stay as CD-0133
 recorded them. The work pin reads the same rule, so the pin never offers an
 advance the fold refuses.
 
+### D4. Refinement can accept review evidence without delivery
+
+At refinement, `accept_worker_evidence` admits a completed review-class report
+on `workflow.implementation` v21+ and `workflow.break_fix` v19+. This is an
+engine recovery, not a new action in a frozen definition. It binds the exact
+current report and holds the step without asserting delivery.
+
+Actual dispatch, work identity, actor independence, readback, epoch, and newest
+review checks remain required. Missing, foreign, unfinished, stale, and already
+dispositioned reports refuse. Implementation and verification reports do not
+gain this route. Delivery fields refuse on this hold-mode acceptance.
+
+Both acceptance actions retain CD-0201 D3's verdict rule. A no_ship review binds
+findings and leaves review debt outstanding. A ship or legacy absent verdict
+settles the debt, but evidence acceptance still does not advance refinement.
+The delivery exits retain their verification and assertion requirements.
+
+CD-0133 D1 permits operator-approved correction after this disposition only
+when every current authorization has a recorded terminal disposition. A new
+authorization closes correction before native dispatch evidence exists. The
+operator approves the exact successor contract; evidence acceptance supplies
+no approval and does not reinterpret an old report as a successor result.
+
+The work pin, preflight, mutation, and replay share the recovery predicate.
+Released definition content and digests stay unchanged.
+
 ## Alternatives considered
 
 - Relax `confirm_premise` to skip an unbound review kind. Rejected: it removes
@@ -76,8 +102,8 @@ advance the fold refuses.
 A confirmation step that enforces review evidence hosts the review lane. The
 review report binds at the step and the operator gate passes on it, so the
 CON-517 shape cannot recur on the promoted definitions. Every frozendefinition version keeps its digest. The new versions carry new digests, and
-the version pins record them. The hold rule changes only for attempts an
-accept resolves, so no effect-step recovery route moves. The join stays the
+the version pins record them. Refinement review evidence has a hold-mode
+recovery without a definition change. The join stays the
 one authority: composition and dispatch validation both read the amended
 binding.
 
@@ -108,6 +134,21 @@ Scenario: A pinned instance reaches the amended steps by repin
   Given an item pinned to break_fix version 14 at the verify step
   When the coordinator repins the item to the current definition
   Then the review lane dispatches at the verify step
+
+Scenario: Refinement accepts review evidence without delivery
+  Given a completed current review at refinement
+  When the coordinator accepts worker evidence without delivery fields
+  Then the report binds and refinement remains current without a delivery assertion
+
+Scenario: Refinement recovery refuses a different worker class
+  Given a completed implementation report at refinement
+  When the coordinator accepts worker evidence
+  Then the recovery refuses without changing the work
+
+Scenario: Evidence acceptance preserves review debt semantics
+  Given an initial no_ship review at refinement
+  When the coordinator accepts its evidence and later accepts a fresh ship review
+  Then the debt stays outstanding until the ship review while refinement remains current
 ```
 
 - `go test ./internal/store/ -run TestAcceptanceReviewRoundTrip` proves the

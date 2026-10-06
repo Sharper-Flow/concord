@@ -2,6 +2,14 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestAcceptanceReviewRoundTrip"
     },
     {
@@ -23,6 +31,18 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkflowDefinitionVersionPinsHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceDispositionRefusesInvalidAttempts"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceAcceptancePreservesVerdictDebt"
     }
   ],
   "id": "CD-0187",

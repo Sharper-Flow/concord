@@ -71,6 +71,7 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
+	"accept_worker_evidence": {guardPhaseClaim, guardAcceptWorkerEvidenceRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
@@ -307,6 +308,9 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 	}
 	if dispatched == 0 {
 		return true, nil
+	}
+	if decision, err := workflowRefineReviewCorrectionDecision(ctx, q, workID, definition, currentStep, subject, boundary); err != nil || decision != workflowRefineReviewCorrectionNotApplicable {
+		return decision == workflowRefineReviewCorrectionOpen, err
 	}
 	// The failure check reads the same pass boundary as the dispatch check,
 	// so both answers describe one pass: a failure recorded before the
@@ -803,6 +807,20 @@ func workflowAcceptDeliveryAdmissionActive(definition WorkflowDefinition, curren
 	default:
 		return false
 	}
+}
+
+func guardAcceptWorkerEvidenceRoute(g *workflowActionGuardContext) error {
+	fields, err := workflowActionObject(g.defaultedPayload())
+	if err != nil {
+		return err
+	}
+	if workflowAcceptCarriesDeliveryAssertion(fields) {
+		return newFailure(KindInvalidPayload, "workflow_action", "review evidence acceptance cannot carry delivery fields", false, "assert delivery through the declared delivery route")
+	}
+	if definitionStepAllows(g.entry.Definition, g.currentStep, "accept_worker_evidence") {
+		return nil
+	}
+	return validateRefineReviewEvidenceDisposition(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, fields, "workflow_action", 0)
 }
 
 // guardAcceptWorkerResultDeliveryRoute composes the accept_worker_result

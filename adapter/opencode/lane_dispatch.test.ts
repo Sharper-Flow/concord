@@ -553,7 +553,7 @@ for (const refusal of [
   { kind: "timeout", recovery: "retry_same_request", retry: true },
   { kind: "budget_refused", recovery: "adjust_budget", retry: false },
   { kind: "version_conflict", recovery: "reread_entities", retry: false },
-]) {
+] as const) {
   test(`core ${refusal.kind} retains its cause and recovery without an authorization denial`, async () => {
     const coreError = {
       kind: refusal.kind, recovery_action: { kind: refusal.recovery }, retry_safe: refusal.retry,

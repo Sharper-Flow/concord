@@ -220,6 +220,13 @@ type WorkflowDefinition struct {
 	StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 	CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 	EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
+	// RecoveryRoutes owns cross-step correction for this definition. The
+	// field is optional and omitempty so released canonical manifests and
+	// digests stay byte-identical (CD-0115 D1). A released version with no
+	// table resolves its routes through workflowReleasedRecoveryRoutes; a
+	// table-less unreleased definition resolves nothing, and registration
+	// refuses it while its graph declares evaluator steps.
+	RecoveryRoutes []WorkflowRecoveryRoute `json:"recovery_routes,omitempty"`
 }
 
 type RegisteredDefinition struct {
@@ -428,6 +435,9 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
 		}
 	}
+	if err := validateWorkflowRecoveryRoutes(definition); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -484,12 +494,14 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
 		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
 		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
+		RecoveryRoutes        []WorkflowRecoveryRoute       `json:"recovery_routes,omitempty"`
 	}{
 		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, Version: definition.Version, WorkKind: definition.WorkKind,
 		ChangesProductTruth: definition.ChangesProductTruth,
 		StepGraph:           definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
 		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
 		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
+		RecoveryRoutes: definition.RecoveryRoutes,
 	}
 	return json.Marshal(manifest)
 }

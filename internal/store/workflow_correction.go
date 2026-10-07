@@ -18,11 +18,14 @@ const workflowCorrectionAttemptLimit int64 = 3
 // carried hold no authority, however identical the predicate payloads remain.
 const workflowCompleteStepCorrectionRoute = "complete_step_correction"
 
-// workflowCompleteStepCorrectionStep reports whether the pinned step is the
-// completion step of a break-fix or implementation workflow, the only shape
-// the complete-step correction route and its reserved convention apply to.
+// workflowCompleteStepCorrectionStep reports whether the pinned step declares
+// the CD-0172 complete-step correction route: a disproved_premise_at_complete
+// recovery route whose target is the producer the corrected contract returns
+// to. Only the implementation and break-fix tables declare the trigger, and
+// registration seats it on a step that declares the complete action, so the
+// resolved route is both the shape test and the return's one owner.
 func workflowCompleteStepCorrectionStep(definition WorkflowDefinition, currentStep string) bool {
-	return workflowCorrectionWorkflow(definition) && stepDeclaresAction(definition, currentStep, "complete")
+	return workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) != ""
 }
 
 // workflowCompletedInstanceSupersedeOffShape reports a completed workflow
@@ -350,35 +353,14 @@ func workflowCorrectionRequestActionDefinition() WorkflowActionDefinition {
 	return action
 }
 
-// workflowCorrectionTargetStep returns the nearest external-effect step before
-// the current verification or completion step. The lookup uses the pinned
-// definition, so historical workflow versions keep their own route.
-func workflowCorrectionTargetStep(definition WorkflowDefinition, currentStep string) string {
-	preferred := ""
-	fallback := ""
-	preferredAction := "start_execution"
-	if definition.WorkKind == WorkKindBreakFix {
-		preferredAction = "start_repair"
-	}
-	for _, candidate := range definition.StepGraph.Steps {
-		if candidate.Kind != WorkflowStepExternalEffect || !workflowStepFollows(definition, candidate.ID, currentStep) {
-			continue
-		}
-		if fallback == "" {
-			fallback = candidate.ID
-		}
-		if containsString(candidate.Actions, preferredAction) {
-			preferred = candidate.ID
-		}
-	}
-	if preferred != "" {
-		return preferred
-	}
-	return fallback
-}
-
-func workflowCorrectionWorkflow(definition WorkflowDefinition) bool {
-	return definition.WorkKind == WorkKindImplementation || definition.WorkKind == WorkKindBreakFix
+// workflowCorrectionRouteStrategy renders the strategy line the correction
+// contexts carry: the declared route's producer step is where the artifact is
+// re-produced. The target comes from the one return-target reader — the
+// step's own route, the served verdict step's route at a gate or a
+// late-verdict step — so the pin, the fold, and the dispatched packet name
+// the same step.
+func workflowCorrectionRouteStrategy(definition WorkflowDefinition, currentStep string) string {
+	return fmt.Sprintf("return to the producer step %q and re-produce the artifact", workflowCorrectionReturnTarget(definition, currentStep))
 }
 
 // workflowAcceptedWorkerDelivery requires both a completed worker attempt and
@@ -651,7 +633,13 @@ func workflowSameStepWallFailure(currentStep string, count int64) *Failure {
 }
 
 func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*workflowCorrectionVerdictPrerequisites, error) {
-	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
+	if workflowCorrectionReturnTarget(definition, currentStep) == "" {
+		// The step evaluates nothing and serves no verdict step: no
+		// verdict correction route opens from it. Every evaluator step of
+		// every registered family resolves a route, and every late-verdict
+		// step serves one that does (D4), so this read is the one shape
+		// gate — including the terminal implementation shape whose
+		// request_correction the work-kind era carried (CD-0201 D1).
 		return nil, nil
 	}
 	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, subject)
@@ -681,6 +669,17 @@ func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID strin
 	acceptedDispatchSeq, accepted, acceptedErr := workflowAcceptedWorkerDelivery(ctx, q, workID, verdictSeq, subject)
 	if acceptedErr != nil {
 		return nil, acceptedErr
+	}
+	if !accepted {
+		// Direct artifact actions carry production without a worker attempt.
+		// The same frontier that establishes freshness supplies this ground;
+		// an older artifact cannot bypass a later unaccepted review, and
+		// production after the verdict cannot justify its correction.
+		acceptedDispatchSeq, acceptedErr = workflowArtifactProductionFrontier(ctx, q, workID, definition, workflowCorrectionReturnTarget(definition, currentStep), acceptedDispatchSeq, verdictSeq, subject)
+		if acceptedErr != nil {
+			return nil, acceptedErr
+		}
+		accepted = acceptedDispatchSeq > 0
 	}
 	return &workflowCorrectionVerdictPrerequisites{
 		nonOK: nonOK, contractVersion: contractVersion, verdictSeq: verdictSeq,
@@ -755,7 +754,7 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 	return &WorkflowCorrectionContext{
 		Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
-		Diagnosis: "latest verification verdict is not healthy", Strategy: fmt.Sprintf("repeat the external-effect step %q", workflowCorrectionTargetStep(definition, currentStep)),
+		Diagnosis: "latest verification verdict is not healthy", Strategy: workflowCorrectionRouteStrategy(definition, currentStep),
 	}, nil
 }
 
@@ -890,9 +889,10 @@ func workflowPostRejectionRepairFrontier(ctx context.Context, q queryer, workID,
 // not permission to ship; it carries the same review obligation as a rejected
 // result without changing the recorded worker disposition.
 func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, []byte, error) {
-	if !workflowCorrectionWorkflow(definition) {
-		return 0, nil, nil
-	}
+	// Review debt is same-step attempt recovery: it keeps its existing owner
+	// (the refinement shape), so this read makes no cross-step choice. The
+	// refinement-step lookup below is the shape gate; a definition without a
+	// refinement step holds no review debt whatever its work kind.
 	refineStep := workflowRefinementStepID(definition)
 	if refineStep == "" {
 		return 0, nil, nil
@@ -996,7 +996,10 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 // correction: record_delivery stays the only route off an ordinary parked
 // gate.
 func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	if !workflowCorrectionWorkflow(definition) || !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+		// The gate shape owns this route (CD-0166), not a work kind: the
+		// correction it admits is the post-rejection review return, and
+		// its target is read from the route table below.
 		return nil, nil
 	}
 	// The gate's correction prerequisite is the shared derivation: the
@@ -1074,8 +1077,11 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, rejectSeq).Scan(&priorCorrections); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 	}
-	target := workflowCorrectionTargetStep(definition, currentStep)
+	target := workflowCorrectionReturnTarget(definition, currentStep)
 	if target == "" {
+		// The gate serves a verdict step with no unhealthy_verdict route;
+		// registration refuses that shape (D4), so this is a projection
+		// repair case, not a runtime choice.
 		return nil, nil
 	}
 	attempts := priorCorrections + 1
@@ -1196,7 +1202,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, state.verdictSeq).Scan(&priorCorrections); err != nil {
 		return nil, workflowCorrectionMissingNone, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 	}
-	target := workflowCorrectionTargetStep(definition, currentStep)
+	target := workflowUnhealthyVerdictRouteTarget(definition, currentStep)
 	if target == "" {
 		return nil, workflowCorrectionMissingAcceptedDelivery, nil
 	}
@@ -1214,7 +1220,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	return &WorkflowCorrectionContext{
 		Disposition: "failed", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
-		Diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy", Strategy: fmt.Sprintf("return to step %q and dispatch a fresh attempt", target),
+		Diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy", Strategy: workflowCorrectionRouteStrategy(definition, currentStep),
 		FailedAttemptID: attemptID,
 	}, workflowCorrectionMissingNone, nil
 }
@@ -1230,7 +1236,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // failed-review return; every other step corrects through the verification
 // verdict.
 func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (*WorkflowCorrectionContext, string, error) {
-	if workflowCorrectionWorkflow(definition) && workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		context, err := workflowDeliveryGateCorrectionContext(ctx, q, workID, definition, currentStep, subject)
 		if err != nil || context != nil {
 			return context, workflowCorrectionMissingNone, err
@@ -1251,10 +1257,11 @@ func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID s
 		}
 		return workflowCheckpointFailedReviewCorrection(ctx, q, workID, definition, currentStep, subject, state, excludeSeq)
 	}
-	// No non-ok verdict stands under the active contract. A step without a
-	// correction route keeps the shape-neutral default refusal; a correction
-	// route names the absent verdict.
-	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
+	// No non-ok verdict stands under the active contract. A step that
+	// resolves no unhealthy_verdict route and serves no verdict step keeps
+	// the shape-neutral default refusal; an evaluator or late-verdict step
+	// names the absent verdict.
+	if workflowCorrectionReturnTarget(definition, currentStep) == "" {
 		return nil, workflowCorrectionMissingNone, nil
 	}
 	return nil, workflowCorrectionMissingVerdict, nil

@@ -2223,9 +2223,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		nextStep = workflowCorrectionTargetStep(entry.Definition, currentStep)
+		// The declared unhealthy_verdict route owns the return: the fold
+		// moves the instance to the route's producer step (or, at a
+		// delivery gate, the route of the verdict step it serves), the
+		// same target the admission fold, the work pin, and the dispatched
+		// packet read from the one table.
+		nextStep = workflowCorrectionReturnTarget(entry.Definition, currentStep)
 		if nextStep == "" {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared external-effect return step", false, "repair the pinned workflow definition")
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2505,8 +2510,9 @@ func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, ste
 // A fenced action opens an attempt and records its start, so a checkpoint on
 // such a step must name a started attempt: a checkpoint with no start is a
 // checkpoint of an attempt that never ran. A step that declares no fenced
-// action opens no attempt at all, and CD-0112 D3 lets an action there append a
-// typed checkpoint and still advance, so the epoch is the first attempt.
+// action opens no fenced attempt. Its checkpoint epoch follows the prior
+// checkpoint on that step, so a return can produce another typed artifact
+// without reusing the checkpoint's durable identity (CD-0112 D3).
 //
 // beforeSeq bounds the start search at the caller's own sequence position: the
 // fold passes its event's seq, so a replay reads only the starts that preceded
@@ -2516,13 +2522,22 @@ func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition W
 	if err != nil {
 		return 0, err
 	}
-	if found {
-		return latestEpoch, nil
-	}
 	if step != nil && workflowStepFences(definition, *step) {
+		if found {
+			return latestEpoch, nil
+		}
 		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
-	return 1, nil
+	var epoch int64
+	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(json_extract(payload,'$.attempt_epoch')),0)+1
+		FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND (?=0 OR seq<?)
+		AND json_extract(payload,'$.step_id')=?`, string(SubjectWorkItem), workID, WorkflowActionCheckpointed, beforeSeq, beforeSeq, stepID).Scan(&epoch)
+	if err != nil {
+		return 0, workflowProjectionError(err, "cannot inspect prior workflow checkpoint epochs")
+	}
+	// Review dispatches can start on an unfenced confirmation step. Preserve
+	// their historical epochs without reusing a prior checkpoint identity.
+	return max(epoch, latestEpoch), nil
 }
 
 // workflowCheckpointWriterAdmitted reports whether the workflow actor may

@@ -70,6 +70,7 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"reject_worker_result":   {guardPhaseRecovery, guardRejectWorkerResultRecovery},
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
 	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
+	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
 	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
 	"accept_worker_evidence": {guardPhaseClaim, guardAcceptWorkerEvidenceRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
@@ -453,6 +454,9 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 	if containsString(definition.StepGraph.TerminalSteps, currentStep) {
 		return false
 	}
+	if workflowUnhealthyVerdictRouteTarget(definition, currentStep) != "" {
+		return true
+	}
 	if step.Kind == WorkflowStepHumanCheckpoint {
 		return containsString(step.Actions, "confirm_premise")
 	}
@@ -467,7 +471,10 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 // unsettled, and a same-work observation was recorded after the latest
 // recorded verdict. Any other work kind or pinned shape refuses.
 func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
-	if !workflowCorrectionWorkflow(definition) || !stepDeclaresAction(definition, currentStep, "complete") {
+	if workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) == "" {
+		// The declared complete-step correction route is the shape: only a
+		// disproved_premise_at_complete route seats the CD-0172 return, and
+		// registration pins it on a step that declares the complete action.
 		return false, nil
 	}
 	var lifecycle string
@@ -993,9 +1000,10 @@ func workflowActionOccurredAt(ctx context.Context, q queryer, workID string, seq
 // the evidence-bearing corrective return as the only route off a parked,
 // unreviewed gate.
 func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
-	if !workflowCorrectionWorkflow(g.entry.Definition) {
-		return nil
-	}
+	// Review debt is same-step attempt recovery and keeps its existing
+	// owner: the refinement shape the step-shape switch below names. No
+	// cross-step recovery choice is made here; the correction the gate
+	// admits reads its target from the route table.
 	switch g.request.ActionID {
 	case "accept_worker_result":
 		if !stepDeclaresAction(g.entry.Definition, g.currentStep, "start_refine") {

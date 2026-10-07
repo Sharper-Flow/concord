@@ -1992,7 +1992,7 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     evidenceRunner: runner,
     abandonEventID: `worker-abandon-${token}`,
     abandonNonce: token,
-  }, context.abort)
+  }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
   const message = result.error?.message ?? "worker abandonment returned no diagnostic"
   if (workerAbandonFoundNothingDurable(message)) {
     // nothing-durable-release: the durable state refused because the attempt
@@ -2013,32 +2013,29 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
     if (receipt.outcome === "ok") {
-      // The attempt is closed at the core, so a retained in-flight record this
-      // session still holds for it has no settlement left to wait for.
-      // Releasing it here makes the reconciliation route the failure
-      // envelopes name real: an abandon accepted now and an idempotent replay
-      // answered already terminal both reach this receipt, and the session
-      // dispatches again without a host restart. A record naming a different
-      // attempt stays retained.
-      dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
       return receipt
     }
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation")
+    return workerAbandonReceiptFailure(requestID, receipt)
   }
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", message, "none", "reconcile_operation")
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "worker abandonment could not be recorded", "none", "reconcile_operation", { abandon_error_message: message })
 }
 
-// recoverOwnRowAbandon runs the release route the live-occupancy refusal
-// names, for the one holder the adapter owns: the calling session. The worker
-// attempt close refuses while the calling session itself still occupies the
-// worker attempt worktree, and the vacate-abandon-re-land sequence was left
-// to the operator. The adapter now runs it in order, reporting each step on
-// the answer: session_vacate releases the calling session's own row and moves
-// the session to the registered main checkout, one abandon retry with the
-// same derived event identity closes the attempt, the durable receipt records
-// it, and work_start re-lands the session in the claimed worktree it vacated.
-// A step that fails stops the sequence with the steps already taken named; a
-// refused re-land leaves the closed attempt standing and names the replay.
+function workerAbandonReceiptFailure(requestID: string, receipt: CoreConcordEnvelope, steps: string[] = []): HostConcordEnvelope {
+  const error = record(receipt.error) ? receipt.error : {}
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", "the worker attempt was closed, but the durable replay receipt was not confirmed", "possible", "reconcile_operation", {
+    recovery_stopped_at: "worker_abandon_receipt",
+    ...(typeof receipt.outcome === "string" ? { receipt_outcome: receipt.outcome } : {}),
+    ...(typeof error.kind === "string" ? { receipt_error_kind: error.kind } : {}),
+    ...(typeof error.message === "string" ? { receipt_error_message: error.message } : {}),
+    ...(steps.length ? { recovery_steps: steps } : {}),
+  })
+}
+
+// recoverOwnRowAbandon releases the calling session's occupancy and closes the
+// attempt with the same derived event identity. The session re-lands before
+// the durable receipt, whose authority requires a linked worktree. A confirmed
+// close retires the exact dispatch authorization independently of the receipt;
+// later failures report the completed steps and do not retain a closed worker.
 async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, abandonInput: { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }, lane: AgentLane, token: string, requestID: string, refusedMessage: string): Promise<HostConcordEnvelope> {
   const steps: string[] = []
   const recoveryNotices = (): Array<Record<string, unknown>> => steps.map((taken) => ({ kind: "worker_abandon_recovery", source_id: "adapter", details: { step: taken } }))
@@ -2048,11 +2045,13 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
   // at the registered main checkout, so stopping there strands the
   // coordinator — the re-land runs before that stop too, and its outcome
   // rides the answer as a step either way.
-  const reland = async (): Promise<void> => {
+  const reland = async (): Promise<boolean> => {
     const relandWarnings: string[] = []
+    let landed = false
     try {
       const relanded = await executeWorkStart({ work_id: abandonInput.work_id }, context, relandWarnings)
       if (record(relanded) && relanded.outcome === "ok") {
+        landed = true
         const relandPath = typeof relanded.worktree_path === "string" ? relanded.worktree_path : null
         // The confirmed re-land supersedes the vacate's intermediate move
         // notice: the composed answer must point the agent at the destination
@@ -2072,6 +2071,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
       steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
     }
     for (const warning of relandWarnings) steps.push(`work_start warning: ${warning}`)
+    return landed
   }
   // 1. session_vacate: the named release route. The composed route records
   // the release at the core and moves the session to the registered main
@@ -2105,7 +2105,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // step (TS7 durable-outcome honesty); a refusal before the write keeps
     // none.
     if (vacateCommitted) steps.push("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery stopped at session_vacate: ${detail}`, vacateCommitted ? "possible" : vacateEffectState ?? "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "the own-row recovery stopped at session_vacate", vacateCommitted ? "possible" : vacateEffectState ?? "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", abandon_error_message: refusedMessage, recovery_error_message: detail, ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows")
   // 2. one abandon retry. The identity derives from the same idempotency key,
@@ -2116,7 +2116,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     evidenceRunner: runner,
     abandonEventID: `worker-abandon-${token}`,
     abandonNonce: token,
-  }, context.abort)
+  }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
   // A recorded abandonment is itself an error envelope — the attempt is
   // closed, so its result is terminal — and marks that outcome with
   // retry_safe false. Any other error envelope is a genuine refusal of the
@@ -2127,21 +2127,19 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // re-land runs before the stop: a refusal that ended at the main checkout
     // would strand the coordinator away from its claimed worktree.
     await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", `${refusedMessage}; the own-row recovery released the occupancy row, but the abandon retry still refused: ${retryMessage}`, "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "the own-row recovery released the occupancy row, but the abandon retry still refused", "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("worker_abandon: the retry closed the dispatched attempt")
-  // 3. the durable receipt, the same route the direct-accept path records.
+  // 3. Return to the linked worktree before the receipt's authority check.
+  if (!await reland()) {
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", "the worker attempt was closed, but the session did not re-land in the claimed worktree; the durable replay receipt was not recorded", "possible", "reconcile_operation", { recovery_stopped_at: "work_start", recovery_steps: steps })
+  }
+  // 4. Record the durable receipt from the confirmed linked worktree.
   const receipt = await invokeConcordOperation("concord_work_transition", args, context)
   if (receipt.outcome !== "ok") {
-    await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", `the worker attempt was closed, but the durable replay receipt was not recorded: ${JSON.stringify(receipt.error ?? receipt)}`, "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_receipt", ...(steps.length ? { recovery_steps: steps } : {}) })
+    return workerAbandonReceiptFailure(requestID, receipt, steps)
   }
-  dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id)
   steps.push("worker_abandon: the durable replay receipt is recorded")
-  // 4. work_start re-land: the session returns to the claimed worktree it
-  // vacated, so the recovery leaves it where it started. A refusal here
-  // leaves the closed attempt standing and rides the answer as a step.
-  await reland()
   return { ...receipt, warnings: [...(Array.isArray(receipt.warnings) ? receipt.warnings : []), ...recoveryNotices()] } as HostConcordEnvelope
 }
 

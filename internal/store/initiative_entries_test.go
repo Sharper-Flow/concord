@@ -23,7 +23,7 @@ func TestEmptyInitiativeEntryReadsReturnArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	entries, err = readInitiativeEntriesTx(ctx, tx, "initiative")
+	entries, err = readInitiativeEntriesDB(ctx, tx, "initiative")
 	if err != nil {
 		t.Fatal(err)
 	}

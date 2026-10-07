@@ -714,8 +714,14 @@ test("deterministic fault probes hold every post-allocation failure inside the o
   // probe root is confined to a probe-owned temporary parent. The assertions
   // here are the permanent form of the boundary findings: a marker failure
   // must not leak an unregistered root, a post-spawn journal failure must
-  // still drain and remove, and a captured signal keeps 130/143 over every
-  // startup, drain, and removal failure.
+  // still drain and remove, a captured signal keeps 130/143 over every
+  // startup, drain, and removal failure, persistent journal ENOSPC stays
+  // finite (reporting may never grow what it iterates) and still allows the
+  // authorized rmtree, a nonce failure after allocation still cleans the
+  // owned root, a termination failure never assumes the child dead, and
+  // journal failures inside cleanup itself never skip the deletion.
+  // Every failure case runs three consecutive times.
+  const attempt = async (): Promise<void> => {
   const probe = Bun.spawn([PYTHON, FAULT_PROBE], {
     cwd: import.meta.dir,
     stdin: "ignore",
@@ -734,7 +740,7 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     .filter(Boolean)
     .map((line) => JSON.parse(line) as FaultProbeResult & { probes?: number; real_processes_spawned?: number })
   const summary = lines[lines.length - 1]
-  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(10)
+  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(22)
   expect(summary.real_processes_spawned).toBe(0)
   const byLabel = new Map(lines.slice(0, -1).map((line) => [String(line.probe), line]))
   const row = (label: string): FaultProbeResult => {
@@ -835,4 +841,108 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     expect(found.events).toContain("completion")
     expect(found.root_removed).toBe(true)
   }
-}, 60_000)
+  {
+    // Nonce generation fails after the root exists: the root was owned state
+    // before any fallible operation, so it still drains and is removed.
+    const found = row("nonce-fault")
+    expectNoEscape("nonce-fault", found)
+    expect(found.exit).toBe(91)
+    expect(found.events).toContain("owner_fault")
+    expect(found.details?.owner_fault).toContain("entropy exhaustion")
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed, "nonce failure leaked its root").toBe(true)
+  }
+  for (const [label, code] of [["persistent-journal-fault", 91], ["persistent-journal-fault-sigterm", 143]] as const) {
+    // Persistent journal ENOSPC: the probe returned at all (reporting never
+    // grows the fault list it iterates), the authorized rmtree still ran —
+    // a failed report never skips the deletion — and the run fails (or keeps
+    // the captured signal) with nothing after allocated_root journalled.
+    const found = row(label)
+    expectNoEscape(label, found)
+    expect(found.exit).toBe(code)
+    expect(found.events).toEqual(["allocated_root"])
+    expect(found.root_removed, `${label}: persistent journal failure leaked its root`).toBe(true)
+    expect((found.drain_reasons ?? []).length, `${label}: no drainage ran`).toBeGreaterThan(0)
+  }
+  // Journal failures inside cleanup itself: each entry is attempted
+  // independently of the deletion, the rmtree the drainage proof authorized
+  // still runs, no removal_error is claimed, and the unreportable step fails
+  // the run instead of pretending it was journalled — the failed kind is
+  // exactly the one absent from the journalled events.
+  const CLEANUP_JOURNAL_FAULTS: Record<string, string> = {
+    "cleanup-entry-journal-fault": "cleanup_entry",
+    "removal-entry-journal-fault": "removal_entry",
+    "completion-journal-fault": "completion",
+  }
+  for (const [label, absent] of Object.entries(CLEANUP_JOURNAL_FAULTS)) {
+    const found = row(label)
+    expectNoEscape(label, found)
+    expect(found.exit).toBe(91)
+    expect(found.root_removed, `${label}: journal failure skipped the authorized rmtree`).toBe(true)
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).not.toContain("removal_error")
+    expect(found.events, `${label}: the failed step was journalled anyway`).not.toContain(absent)
+    const events = found.events ?? []
+    const present = absent === "cleanup_entry" ? "removal_entry" : "cleanup_entry"
+    expect(events.indexOf(present), `${label}: no removal entry was attempted`).toBeGreaterThan(events.indexOf("drain_complete"))
+  }
+  {
+    // A stop failure under EOF cancellation: the termination error never
+    // assumes the child dead — the kernel-only drain still runs — and the
+    // EOF status 125 survives the fault.
+    const found = row("stop-failure-eof")
+    expectNoEscape("stop-failure-eof", found)
+    expect(found.exit).toBe(125)
+    expect(found.details?.owner_fault).toContain("inner termination failed")
+    expect(found.drain_reasons).toEqual(["cancel_eof"])
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed).toBe(true)
+  }
+  {
+    // A SIGTERM captured inside the failing stop keeps 143 with the drain
+    // and removal still completed.
+    const found = row("stop-failure-sigterm")
+    expectNoEscape("stop-failure-sigterm", found)
+    expect(found.exit).toBe(143)
+    expect(found.details?.cancelled).toBe("SIGTERM")
+    expect(found.events).toContain("drain_complete")
+    expect(found.root_removed).toBe(true)
+  }
+  for (const [label, code] of [["poll-failure", 91], ["poll-failure-sigint", 130]] as const) {
+    // Poll failures reach the lifecycle — no escape, drain, removal — and a
+    // captured SIGINT keeps 130 over the fault.
+    const found = row(label)
+    expectNoEscape(label, found)
+    expect(found.exit).toBe(code)
+    expect(found.events).toContain("owner_fault")
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed, `${label}: poll failure leaked its root`).toBe(true)
+  }
+  {
+    // Combination: a failing stop, a failing removal, and a captured SIGTERM
+    // together — 143 wins, the drain still ran, the root is retained with a
+    // visible removal error.
+    const found = row("stop-removal-failure-sigterm")
+    expectNoEscape("stop-removal-failure-sigterm", found)
+    expect(found.exit).toBe(143)
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("removal_error")
+    expect(found.root_removed).toBe(false)
+  }
+  {
+    // Combination: persistent journal ENOSPC beside a failed drainage proof
+    // — the root is kept (no removal without kernel proof) and the run fails
+    // visibly despite the dead journal.
+    const found = row("persistent-journal-and-drain-fault")
+    expectNoEscape("persistent-journal-and-drain-fault", found)
+    expect(found.exit).toBe(91)
+    expect(found.events).not.toContain("drain_complete")
+    expect(found.events).not.toContain("completion")
+    expect(found.root_removed, "removed without the kernel's drainage proof").toBe(false)
+  }
+  }
+  for (let run = 1; run <= 3; run++) await attempt()
+}, 120_000)

@@ -23,19 +23,22 @@ never signalled, and no process group is ever signalled: a child's PID says
 nothing about who else joined its group.
 
 One lifecycle owns the whole run. Signal handling is installed before the
-first allocation or spawn, the exact root is registered the moment it exists
-— before marker persistence or any other fallible I/O — and every
-post-allocation failure (marker persistence, executable resolution, the
-spawn, a journal write) records itself on the same lifecycle state and
-reaches the same termination/drain/removal path: there is no separate
-startup cleanup branch, and no failure path skips the drain. A started child
-is stopped and its entire kernel-owned tree adopted/reaped before removal. A
-marker or journal error stays journalled and fails the run without bypassing
-cleanup or masking the primary error. If kernel drainage proof itself fails,
-the root is kept, the error is reported, and the run fails; removal never
-happens on a timeout or round count. A closed stdout/stderr pipe (the
-launcher side dying) never aborts cleanup: pipe-write failures are dropped,
-while every removal or drain failure stays visible and fails the run.
+first allocation or spawn, the root becomes owned state the moment mkdtemp
+returns — before nonce generation, registration, marker persistence, or any
+other fallible operation — and every post-allocation failure (nonce
+generation, registration, marker persistence, executable resolution, the
+spawn, a journal write, a poll, a wait, a termination) records itself on the
+same lifecycle state and reaches the same termination/drain/removal path:
+there is no separate startup cleanup branch, and no failure path skips the
+drain. A started child is stopped and its entire kernel-owned tree
+adopted/reaped before removal. Journal failures are captured separately and
+never interrupt stop, drain, or removal: reporting is an observer of cleanup,
+never control flow for it, and no reporter extends or re-reports itself. If
+kernel drainage proof itself fails, the root is kept, the error is reported,
+and the run fails; removal never happens on a timeout or round count. A
+closed stdout/stderr pipe (the launcher side dying) never aborts cleanup:
+pipe-write failures are dropped, while every removal or drain failure stays
+visible and fails the run.
 
 Cancellation: the launcher keeps this owner's stdin open; EOF on it (the
 launcher finishing abnormally or dying, including SIGKILL) requests
@@ -234,20 +237,27 @@ def conventional_status(inner: subprocess.Popen) -> int:
     return 128 + (-code)
 
 
-def remove_root(root: str) -> str | None:
-    """Remove the exact run root; None on success, an error message else."""
-    emit({"kind": "cleanup_entry", "root": root})
-    emit({"kind": "removal_entry", "root": root})
+def remove_root(run: OwnedRun) -> str | None:
+    """Remove the exact run root; None on success, an error message else.
+
+    The cleanup and removal entries are journalled as observers, each
+    independently of the deletion itself: a journal failure is retained and
+    fails the run, but it can never skip the removal the kernel's drainage
+    proof already authorized."""
+    root = run.root
+    journal(run, {"kind": "cleanup_entry", "root": root})
+    journal(run, {"kind": "removal_entry", "root": root})
     try:
         shutil.rmtree(root)
         if os.path.exists(root):
             raise OSError(f"root still present after removal: {root}")
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
-        emit({"kind": "removal_error", "root": root, "detail": message})
-        write_stderr(f"removal_error {root}: {message}\n")
+        run.cleanup_failed = True
+        journal(run, {"kind": "removal_error", "root": root, "detail": message})
+        report_line(run, f"removal_error {root}: {message}\n")
         return message
-    emit({"kind": "completion", "root": root})
+    journal(run, {"kind": "completion", "root": root})
     return None
 
 
@@ -271,6 +281,10 @@ class OwnedRun:
         self.cancelled_by: str | None = None  # what ended the inner wait
         self.startup_detail: str | None = None  # the run never started
         self.owner_faults: list[str] = []  # visible, run-failing owner faults
+        # Journal-channel failures, kept OUT of owner_faults: the reporter
+        # must never be able to extend the fault list finish() iterates, and a
+        # reporting failure is not the same fact as the fault it was reporting.
+        self.journal_faults: list[str] = []
         self.cleanup_failed = False
 
     def request_cancel(self, name: str) -> None:
@@ -278,13 +292,26 @@ class OwnedRun:
 
 
 def journal(run: OwnedRun, event: dict) -> None:
-    """Journal one lifecycle event. A closed pipe is silenced inside
-    write_stderr; any other journal failure is recorded on the lifecycle as
-    a visible, run-failing fault instead of aborting the cleanup path."""
+    """Journal one lifecycle event. Reporting is an observer of cleanup,
+    never control flow for it: a journal failure — a closed pipe is silenced
+    inside write_stderr; anything else is captured here — is retained
+    separately on the lifecycle and fails the run, but it never interrupts
+    stop, drain, or removal, and it is never appended to owner_faults, whose
+    iteration must stay finite."""
     try:
         emit(event)
     except OSError as error:
-        run.owner_faults.append(f"journal {event.get('kind')} failed: {type(error).__name__}: {error}")
+        run.journal_faults.append(f"journal {event.get('kind')} failed: {type(error).__name__}: {error}")
+
+
+def report_line(run: OwnedRun, text: str) -> None:
+    """Write one visible stderr line. Reporting is an observer here too: the
+    line's failure is retained beside the journal faults and never aborts the
+    cleanup step that is reporting itself."""
+    try:
+        write_stderr(text)
+    except OSError as error:
+        run.journal_faults.append(f"report line failed: {type(error).__name__}: {error}")
 
 
 def start(run: OwnedRun, stdin_fd: int) -> None:
@@ -306,9 +333,9 @@ def start(run: OwnedRun, stdin_fd: int) -> None:
     except OSError as error:
         run.startup_detail = f"marker persistence failed: {type(error).__name__}: {error}"
         return
-    if run.owner_faults:
-        # The allocated_root journal itself failed: fail the run here rather
-        # than start an unobservable inner run.
+    if run.journal_faults:
+        # A journal already failed (the allocated_root emit itself): fail the
+        # run here rather than start an unobservable inner run.
         return
     bun = os.environ.get("CONCORD_OWNER_BUN") or shutil.which("bun")
     if not bun:
@@ -324,7 +351,7 @@ def start(run: OwnedRun, stdin_fd: int) -> None:
         run.startup_detail = f"inner spawn failed: {type(error).__name__}: {error}"
         return
     journal(run, {"kind": "inner_started", "root": run.root, "inner_pid": run.inner.pid})
-    if run.owner_faults:
+    if run.journal_faults:
         # The journal broke after the spawn: stop and clean now, visibly,
         # instead of running an unobservable inner run.
         return
@@ -358,12 +385,23 @@ def await_inner(run: OwnedRun, stdin_fd: int) -> None:
 
 def finish(run: OwnedRun) -> int:
     """The one termination/drain/removal path every run ends in, followed by
-    the one exit-status decision."""
+    the one exit-status decision.
+
+    No step in here may raise past the lifecycle: an inner termination
+    failure, a poll or wait failure, a journal failure, a failed drainage
+    proof, and a failed removal each record themselves on the lifecycle and
+    let the remaining steps still run — a termination error never assumes the
+    child dead, so the kernel-only drainage still establishes ECHILD before
+    any removal — and decide() is always reached."""
     # Stop a still-live inner child first — a fault path may have left it
     # running — so nothing owned outlives the drain boundary.
-    if run.inner is not None and run.inner.poll() is None:
-        stop = signal.SIGINT if run.captured_signal == "SIGINT" else signal.SIGTERM
-        run.inner_status = stop_inner(run.inner, stop)
+    if run.inner is not None:
+        try:
+            if run.inner.poll() is None:
+                stop = signal.SIGINT if run.captured_signal == "SIGINT" else signal.SIGTERM
+                run.inner_status = stop_inner(run.inner, stop)
+        except Exception as error:
+            run.owner_faults.append(f"inner termination failed: {type(error).__name__}: {error}")
     if run.captured_signal or run.cancelled_by == "eof":
         journal(run, {"kind": "cancelled", "via": run.captured_signal or run.cancelled_by,
                       "inner_status": run.inner_status})
@@ -371,36 +409,39 @@ def finish(run: OwnedRun) -> int:
         journal(run, {"kind": "child_exit", "root": run.root, "status": run.inner_status})
     if run.startup_detail is not None:
         journal(run, {"kind": "startup_error", "root": run.root, "detail": run.startup_detail})
-    for fault in run.owner_faults:
+    # A snapshot, never the live list: the reporter underneath must not be
+    # able to extend the collection being iterated. Journal faults are
+    # reported once, through a channel whose further failure is dropped
+    # rather than re-reported — no reporter may recursively report its own
+    # failure — because the fault itself is already retained in state and
+    # already decides the exit status.
+    for fault in list(run.owner_faults):
         journal(run, {"kind": "owner_fault", "root": run.root, "detail": fault})
-
+    for fault in list(run.journal_faults):
+        try:
+            emit({"kind": "owner_fault", "root": run.root, "detail": fault})
+        except OSError:
+            pass
     if run.cancelled_by:
         reason = f"cancel_{run.cancelled_by}"
     elif run.startup_detail is not None:
         reason = "startup_failure"
-    elif run.owner_faults:
+    elif run.owner_faults or run.journal_faults:
         reason = "owner_fault"
     else:
         reason = "run_end"
     try:
         report = drain_owned(reason)
-        journal(run, {"kind": "drain_complete", "root": run.root, **report})
     except OSError as error:
         message = f"{type(error).__name__}: {error}"
         run.cleanup_failed = True
         journal(run, {"kind": "removal_error", "root": run.root,
                       "detail": f"drain failed closed: {message}"})
-        try:
-            write_stderr(f"removal_error {run.root}: drain failed closed: {message}\n")
-        except OSError:
-            run.owner_faults.append("drain failure line unwritable")
+        report_line(run, f"removal_error {run.root}: drain failed closed: {message}\n")
         # The root is kept: no removal without the kernel's drainage proof.
         return decide(run)
-    try:
-        if remove_root(run.root) is not None:
-            run.cleanup_failed = True
-    except OSError as error:
-        run.owner_faults.append(f"removal journal failed: {type(error).__name__}: {error}")
+    journal(run, {"kind": "drain_complete", "root": run.root, **report})
+    remove_root(run)
     return decide(run)
 
 
@@ -412,8 +453,9 @@ def decide(run: OwnedRun) -> int:
     neither a startup fault nor a drain or removal failure overrides it, and
     the diagnostics stay journalled beside it. An EOF cancellation keeps its
     own cancellation status. Below cancellation: a startup fault exits 92,
-    another owner fault 91, the inner run's own status is preserved, and a
-    cleanup failure after a passing inner run exits nonzero (91).
+    any other owner fault — a broken journal included — 91, the inner run's
+    own status is preserved, and a cleanup failure after a passing inner run
+    exits nonzero (91).
     """
     if run.captured_signal in SIGNAL_EXIT:
         return SIGNAL_EXIT[run.captured_signal]
@@ -421,7 +463,7 @@ def decide(run: OwnedRun) -> int:
         return CANCEL_EOF_EXIT
     if run.startup_detail is not None:
         return STARTUP_ERROR_EXIT
-    if run.owner_faults:
+    if run.owner_faults or run.journal_faults:
         return REMOVAL_ERROR_EXIT
     if run.cleanup_failed:
         return run.inner_status if run.inner_status not in (None, 0) else REMOVAL_ERROR_EXIT
@@ -447,20 +489,31 @@ def run_owned(case: str) -> int:
     except OSError:
         pass
 
+    # The root is owned state from the moment mkdtemp returns. Everything
+    # fallible after that — nonce generation, registration, marker
+    # persistence, the spawn, the wait — happens inside this guarded region,
+    # records itself on the lifecycle, and still reaches the one finish()
+    # path; nothing between allocation and removal may escape it.
     run.root = tempfile.mkdtemp(prefix=ROOT_PREFIX)
-    run.nonce = secrets.token_hex(8)
-    # The exact root is registered the moment it exists — before the marker
-    # or any other fallible I/O — so from here on, cleanup owns one exact
-    # path and every later failure still cleans it.
-    journal(run, {"kind": "allocated_root", "root": run.root, "nonce": run.nonce})
     try:
+        run.nonce = secrets.token_hex(8)
+        # The exact root is registered before the marker or any other
+        # fallible I/O, so cleanup owns one exact path from here on.
+        journal(run, {"kind": "allocated_root", "root": run.root, "nonce": run.nonce})
         start(run, stdin_fd)
     except Exception as error:
         # No post-allocation failure bypasses the lifecycle: an unexpected
         # fault is recorded — visibly, failing the run — and finish() still
         # drains and removes.
         run.owner_faults.append(f"owner fault: {type(error).__name__}: {error}")
-    return finish(run)
+    try:
+        return finish(run)
+    except Exception as error:
+        # Unreachable by design — every finish step records instead of
+        # raising — but a lifecycle bug still fails closed through the same
+        # one decision instead of a script-level fallback status.
+        run.owner_faults.append(f"finish fault: {type(error).__name__}: {error}")
+        return decide(run)
 
 
 def main(argv: list[str]) -> int:

@@ -125,10 +125,14 @@ def main(argv: list[str]) -> int:
                 "owner_journalled_removal_error": saw_removal_error})
 
     # Drain only what the kernel adopted, to the kernel's own ECHILD
-    # boundary, then remove exactly the registered root.
+    # boundary, then remove exactly the registered root through the owner's
+    # own removal path, so the containment journals and deletes exactly as a
+    # live owner run would.
     report = owner.drain_owned("probe_sigkill_adoption")
     owner.emit({"kind": "probe_drain_complete", "root": root, **report})
-    if owner.remove_root(root) is not None:
+    confined = owner.OwnedRun("probe_sigkill_adoption")
+    confined.root = root
+    if owner.remove_root(confined) is not None:
         return 1
     if os.path.exists(root):
         owner.emit({"kind": "probe_error", "root": root, "detail": "root survived removal"})

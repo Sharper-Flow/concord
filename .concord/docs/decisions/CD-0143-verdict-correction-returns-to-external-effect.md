@@ -6,6 +6,8 @@
 - **Approval:** The operator approved this bounded workflow change.
 - **Related:** CD-0013, CD-0059, CD-0067, CD-0115, CD-0116, CD-0124, CD-0133, CD-0137, CD-0138
 - **Amends:** CD-0013, CD-0059, CD-0067, and CD-0124 at their workflow correction and dispatch boundaries
+- **Amended by:** CD-0209 D1, the declared return target; CD-0209 D2, the
+  registration gate; CD-0209 D6, the work-pin sequence
 - **Preserves:** Contract authority, immutable history, evidence provenance, operator approval, fail-closed completion, and historical definition pins
 
 ## Context

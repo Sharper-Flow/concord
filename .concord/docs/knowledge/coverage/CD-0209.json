@@ -1,0 +1,58 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReleasedDigestsIgnoreRecoveryRouteField"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowRecoveryRoutesGoldenPerReleasedVersion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecoveryRouteRegistrationRefusals"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProductionBindsToDispatchOriginAndCapability"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResearchAndSpikeProducersClearStaleness"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUnfencedCheckpointEpochUsesCausalPrefix"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWellFormedAdmissionStateHasNonContinuityExit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute"
+    }
+  ],
+  "id": "CD-0209",
+  "state": "satisfied"
+}

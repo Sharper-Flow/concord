@@ -25,6 +25,7 @@ var guardedActions = map[string]workflowActionGuardPhase{
 	"reject_worker_result":   guardPhaseRecovery,
 	"request_correction":     guardPhaseRecovery,
 	"complete":               guardPhaseBoundary,
+	"record_verdict":         guardPhaseBoundary,
 	"accept_worker_result":   guardPhaseClaim,
 	"accept_worker_evidence": guardPhaseClaim,
 	"link_successor":         guardPhasePostValidation,

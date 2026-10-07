@@ -12,20 +12,20 @@ import (
 // completion depends on are absent. A workflow that confirms its premise
 // without a recorded verdict or without every contract-required evidence
 // kind reaches the release step with no declared action able to produce
-// them, so completion becomes unreachable. The corpus scenario WF04's setup
-// history is replayed with the verdict and premise events removed.
+// them, so completion becomes unreachable. The healthy WF05 setup history
+// isolates missing deliverables without an unhealthy verdict or stale artifact.
 func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 	t.Parallel()
 	corpus := readWorkflowScenarioCorpus(t)
 	var scenario workflowScenario
 	for _, candidate := range corpus.Scenarios {
-		if candidate.ID == "WF04-weaker-delivery" {
+		if candidate.ID == "WF05-stronger-delivery" {
 			scenario = candidate
 			break
 		}
 	}
 	if scenario.ID == "" {
-		t.Fatal("WF04 is missing from the corpus")
+		t.Fatal("WF05 is missing from the corpus")
 	}
 
 	ctx := context.Background()
@@ -110,7 +110,7 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 		t.Fatalf("premise confirmation without a verdict returned %v, want KindMissingEvidence naming the verdict", actionErr)
 	}
 
-	// With the verdict and every required evidence kind present, the
+	// With the healthy verdict and every required evidence kind present, the
 	// confirmation proceeds: the gate refuses only the missing deliverables.
 	s2, workID2 := replay("workflow.premise_confirmed")
 	version2 := atAcceptance(s2, workID2)
@@ -164,7 +164,7 @@ func premiseDeliverablesConfirmation(t *testing.T, s *Store, workID string, oper
 	}
 }
 
-// replayPremiseQuestionAtAcceptance replays the WF04 corpus setup without the
+// replayPremiseQuestionAtAcceptance replays the healthy WF05 setup without the
 // named event kinds, places the instance at its acceptance step, and records
 // the investigation artifact, so the confirm_premise question stands open and
 // the deliverables gate is the confirmation's only refusal.
@@ -174,13 +174,13 @@ func replayPremiseQuestionAtAcceptance(t *testing.T, drop ...string) (*Store, st
 	corpus := readWorkflowScenarioCorpus(t)
 	var scenario workflowScenario
 	for _, candidate := range corpus.Scenarios {
-		if candidate.ID == "WF04-weaker-delivery" {
+		if candidate.ID == "WF05-stronger-delivery" {
 			scenario = candidate
 			break
 		}
 	}
 	if scenario.ID == "" {
-		t.Fatal("WF04 is missing from the corpus")
+		t.Fatal("WF05 is missing from the corpus")
 	}
 	registered, err := BuiltinWorkflowDefinitionForRef(scenario.Request.DefinitionPin.Ref)
 	if err != nil {
@@ -235,7 +235,7 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 		t.Fatalf("preflight confirm_premise without the verdict = %v, want KindMissingEvidence naming the verdict", preflightErr)
 	}
 
-	// With the verdict and every required evidence kind bound, the preflight
+	// With the healthy verdict and every required evidence kind bound, the preflight
 	// admits the confirmation: the gate refuses only the missing deliverables.
 	s2, workID2, operator2 := replayPremiseQuestionAtAcceptance(t, "workflow.premise_confirmed")
 	if err := InspectWorkflowActionAdmission(ctx, s2, premiseDeliverablesConfirmation(t, s2, workID2, operator2)); err != nil {

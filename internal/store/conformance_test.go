@@ -441,10 +441,10 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	results = run("payload_compatibility")
 	addPayloadProfiles(&report, results)
 	if countOutcome(results, outcomeAccepted) != 7 || countOutcome(results, outcomeUnsupportedPayload) != 3 {
-		t.Fatalf("payload compatibility = %+v, want seven accepted v1/v2 and three rejected v3; results=%+v", report.Scenarios["payload_compatibility"], results)
+		t.Fatalf("payload compatibility = %+v, want seven accepted v1/v2/v3 and three rejected v4; results=%+v", report.Scenarios["payload_compatibility"], results)
 	}
 	for _, result := range results {
-		if result.Profile == "newer_v3" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
+		if result.Profile == "newer_v4" && countDomainEvents(s, fmt.Sprintf("compat-%d-work", result.Worker)) != 0 {
 			t.Fatalf("newer payload worker %d mutated the event log", result.Worker)
 		}
 	}
@@ -766,14 +766,18 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 		retry.ExpectedVersions = nil
 		_, err = applyOperationObserved(ctx, s, retry, nil, observer)
 	case "payload_compatibility":
-		version := 2
-		result.Profile = "current_v2"
-		if worker < 3 {
+		version := 3
+		result.Profile = "current_v3"
+		switch {
+		case worker < 3:
 			version = 1
 			result.Profile = "legacy_v1"
-		} else if worker >= 7 {
-			version = 3
-			result.Profile = "newer_v3"
+		case worker >= 3 && worker < 5:
+			version = 2
+			result.Profile = "legacy_v2"
+		case worker >= 7:
+			version = 4
+			result.Profile = "newer_v4"
 		}
 		op := compatibilityOperation(worker, version)
 		var applied ApplyOperationResult

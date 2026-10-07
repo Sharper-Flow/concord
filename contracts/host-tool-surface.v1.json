@@ -23,7 +23,20 @@
               "external_ref": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxBytes": 256},
               "raised_from_work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
               "governing_requirements": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
-              "ref": {"type": "string", "minLength": 1, "maxLength": 128}
+              "ref": {"type": "string", "minLength": 1, "maxLength": 128},
+              "defect_intake": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["failure_shape", "reproduction", "searched", "related_defect_ids"],
+                "description": "Capture admission record for defects: required for kind bug, optional for kind research, refused for every other kind (the core enforces the kind rules and the admission decision). failure_shape is a canonical bounded slug identifier repeated on every capture of the defect class; reproduction and searched are bounded nonempty text; related_defect_ids declares distinct earlier work IDs of the same shape and may be empty; root_cause_work_id names the completed workflow.research cluster RCA a recurrent bug capture needs.",
+                "properties": {
+                  "failure_shape": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+                  "reproduction": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
+                  "searched": {"type": "string", "minLength": 1, "maxLength": 8192, "x-maxBytes": 8192},
+                  "related_defect_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}},
+                  "root_cause_work_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}
+                }
+              }
             }
           },
           {

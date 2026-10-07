@@ -11,20 +11,34 @@ import (
 )
 
 type workCreatedPayload struct {
-	WorkID           string   `json:"work_id,omitempty"`
-	WorkKind         string   `json:"work_kind"`
-	Title            string   `json:"title"`
-	Task             string   `json:"task,omitempty"`
-	From             string   `json:"from,omitempty"`
-	To               string   `json:"to,omitempty"`
-	ValueStatement   string   `json:"value_statement,omitempty"`
-	Priority         *int64   `json:"priority"`
-	Urgency          string   `json:"urgency,omitempty"`
-	Tags             []string `json:"tags,omitempty"`
-	ComponentID      string   `json:"component_id,omitempty"`
-	WorkflowTypeRef  string   `json:"workflow_type_ref,omitempty"`
-	ExternalRef      string   `json:"external_ref,omitempty"`
-	RaisedFromWorkID string   `json:"raised_from_work_id,omitempty"`
+	WorkID           string        `json:"work_id,omitempty"`
+	WorkKind         string        `json:"work_kind"`
+	Title            string        `json:"title"`
+	Task             string        `json:"task,omitempty"`
+	From             string        `json:"from,omitempty"`
+	To               string        `json:"to,omitempty"`
+	ValueStatement   string        `json:"value_statement,omitempty"`
+	Priority         *int64        `json:"priority"`
+	Urgency          string        `json:"urgency,omitempty"`
+	Tags             []string      `json:"tags,omitempty"`
+	ComponentID      string        `json:"component_id,omitempty"`
+	WorkflowTypeRef  string        `json:"workflow_type_ref,omitempty"`
+	ExternalRef      string        `json:"external_ref,omitempty"`
+	RaisedFromWorkID string        `json:"raised_from_work_id,omitempty"`
+	DefectIntake     *DefectIntake `json:"defect_intake,omitempty"`
+}
+
+// validateWorkCreatedPayload holds the payload-version-local semantics of
+// work.created. A payload recorded at the current version must satisfy the
+// defect intake kind rules: a bug classifies, a research capture may carry the
+// record as its cluster identity, every other kind refuses it. Payloads
+// upcast from v1 or v2 are historical captures that predate the record and
+// stay unclassified by design.
+func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
+	if event.replaySourcePayloadVersion != 0 {
+		return nil
+	}
+	return ValidateDefectIntake(payload.WorkKind, payload.DefectIntake)
 }
 
 type workCreatedV1Payload struct {
@@ -58,6 +72,13 @@ func upcastWorkCreatedV1(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkCreatedV2 carries a v2 payload forward unchanged: v3 adds only the
+// optional defect_intake member, and a historical capture holds none.
+func upcastWorkCreatedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
+	return event, nil
+}
+
 type workTransitionPayload struct {
 	From             string   `json:"from"`
 	To               string   `json:"to"`
@@ -85,19 +106,21 @@ type workIntentPayload struct {
 
 // workIntentProjection is the stored intent_json shape. Creation and revision
 // both encode exactly this block: the closed mutable intent plus the
-// capture-owned external reference. Event bookkeeping (reason, versions) never
-// enters the projection, and revision carries external_ref forward unchanged.
+// capture-owned external reference and defect classification. Event
+// bookkeeping (reason, versions) never enters the projection, and revision
+// carries external_ref and the defect classification forward unchanged.
 type workIntentProjection struct {
-	Title           string   `json:"title"`
-	Task            string   `json:"task,omitempty"`
-	ValueStatement  string   `json:"value_statement"`
-	Kind            string   `json:"kind"`
-	Priority        int64    `json:"priority"`
-	Urgency         string   `json:"urgency"`
-	Tags            []string `json:"tags"`
-	ComponentID     string   `json:"component_id"`
-	WorkflowTypeRef string   `json:"workflow_type_ref"`
-	ExternalRef     string   `json:"external_ref"`
+	Title           string                `json:"title"`
+	Task            string                `json:"task,omitempty"`
+	ValueStatement  string                `json:"value_statement"`
+	Kind            string                `json:"kind"`
+	Priority        int64                 `json:"priority"`
+	Urgency         string                `json:"urgency"`
+	Tags            []string              `json:"tags"`
+	ComponentID     string                `json:"component_id"`
+	WorkflowTypeRef string                `json:"workflow_type_ref"`
+	ExternalRef     string                `json:"external_ref"`
+	Defect          *DefectClassification `json:"defect,omitempty"`
 }
 
 type workMembershipsPayload struct {
@@ -268,6 +291,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
 		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
+		Defect: defectIntakeFromProjection(payload.DefectIntake),
 	})
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
@@ -338,7 +362,27 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindInvariantViolation, "fold_event", "stored work intent is not readable", false,
 			"rebuild the work item projection from its event log", err)
 	}
+	// A live revision cannot change the kind of an item that carries a
+	// captured defect classification: a research item converting to bug
+	// would bypass recurrence admission, and a bug converting away would
+	// hide a prior defect from the sibling matching query, which reads the
+	// stored kind. An unclassified item still cannot convert INTO the bug
+	// kind, because revise_intent carries no intake and the conversion would
+	// bypass capture admission entirely. Replay keeps accepting historical
+	// kind changes: the guard is a live admission rule, and the log stays
+	// the replay's authority.
+	if !isWorkflowReplay(ctx) && payload.Kind != current.kind {
+		if intent.Defect != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "work intent kind is immutable while the item carries a captured defect classification", false,
+				"capture a new work item of the target kind instead of converting this one")
+		}
+		if payload.Kind == "bug" {
+			return newFailure(KindInvalidPayload, "fold_event", "work intent cannot be revised into the bug kind without a captured defect classification", false,
+				"capture a new bug with a defect_intake record instead of converting this work item")
+		}
+	}
 	// external_ref is capture-owned; revision carries it forward unchanged.
+	// The defect classification is capture-owned the same way.
 	intent.Title = payload.Title
 	if payload.Task != nil {
 		intent.Task = *payload.Task
@@ -409,6 +453,15 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	for _, membership := range payload.Memberships {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id,project_id,role) VALUES(?,?,?)`, event.SubjectID, membership.ProjectID, membership.Role); err != nil {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot replace work memberships", true, "retry once the database is writable", err)
+		}
+	}
+	// The capture membership (expected version 1) is the point both public
+	// capture paths share where Product scope is known, so the defect intake
+	// admission owner runs here, inside the capture's own transaction: a
+	// refusal rolls the capture back before any durable or native effect.
+	if payload.ExpectedVersion == 1 {
+		if err := admitDefectIntakeTx(ctx, tx, event.SubjectID); err != nil {
+			return err
 		}
 	}
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
@@ -945,6 +998,7 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 type workProjection struct {
+	kind       string
 	lifecycle  string
 	version    int64
 	intentJSON string
@@ -952,7 +1006,7 @@ type workProjection struct {
 
 func readWork(ctx context.Context, tx *sql.Tx, id string) (workProjection, error) {
 	var work workProjection
-	err := tx.QueryRowContext(ctx, `SELECT lifecycle, version, intent_json FROM work_items WHERE id = ?`, id).Scan(&work.lifecycle, &work.version, &work.intentJSON)
+	err := tx.QueryRowContext(ctx, `SELECT kind, lifecycle, version, intent_json FROM work_items WHERE id = ?`, id).Scan(&work.kind, &work.lifecycle, &work.version, &work.intentJSON)
 	if err == sql.ErrNoRows {
 		return work, newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false,
 			"create the work item before changing it")

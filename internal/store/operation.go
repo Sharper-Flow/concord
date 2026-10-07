@@ -185,7 +185,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"project.locator_removed":                 registerEventKind[projectLocatorPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
 	"project.governing_requirement_declared":  registerEventKind[GoverningRequirement](1, 1, nil, EventAppendAuthorityGeneric, foldProjectGoverningRequirementDeclared, nil),
 	"project.governing_requirement_withdrawn": registerEventKind[GoverningRequirement](1, 1, nil, EventAppendAuthorityGeneric, foldProjectGoverningRequirementWithdrawn, nil),
-	"work.created":                            registerEventKind[workCreatedPayload](2, 1, map[int]Upcaster{1: upcastWorkCreatedV1}, EventAppendAuthorityGeneric, foldWorkCreated, nil),
+	"work.created":                            registerEventKind[workCreatedPayload](3, 1, map[int]Upcaster{1: upcastWorkCreatedV1, 2: upcastWorkCreatedV2}, EventAppendAuthorityGeneric, foldWorkCreated, validateWorkCreatedPayload),
 	"work.intent_revised":                     registerEventKind[workIntentPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
 	WorkRemoved:                               registerEventKind[workRemovedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkRemoved, nil),
 	"work.memberships_replaced":               registerEventKind[workMembershipsPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkMembershipsReplaced, nil),

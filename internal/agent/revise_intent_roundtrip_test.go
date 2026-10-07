@@ -64,6 +64,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) 
 		"task": "Original list instruction", "kind": "bug", "priority": 42, "urgency": "expedite",
 		"tags": []string{"agent-surface"}, "workflow_type_ref": "workflow.break_fix",
 		"external_ref": "linear:CON-835-2", "idempotency_key": "roundtrip-capture-2",
+		"defect_intake": map[string]any{"failure_shape": "roundtrip-list-read", "reproduction": "capture, list, and revise a bug", "searched": "the fixture store", "related_defect_ids": []string{}},
 	})
 
 	before := roundtripFullListItem(t, ctx, s, service, env, workID)
@@ -102,6 +103,7 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Default states survive", "value_statement": "Zero and empty intent states are lawful",
 		"kind": "bug", "tags": []string{}, "external_ref": "linear:CON-835-3", "idempotency_key": "roundtrip-capture-3",
+		"defect_intake": map[string]any{"failure_shape": "roundtrip-zero-states", "reproduction": "capture a bug with lawful empty states", "searched": "the fixture store", "related_defect_ids": []string{}},
 	})
 
 	before := roundtripScopeWork(t, ctx, s, service, env, workID)

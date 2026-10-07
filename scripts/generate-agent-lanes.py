@@ -685,8 +685,9 @@ UTILITY_TOOL_KEYS = (
 
 
 UTILITY_BODY_TEMPLATES = {
-    "explore": """This is a read-only repository exploration utility. Return plain text findings
-for the parent. Do not edit files, write files, patch files, mutate Concord
+    "explore": """This is a read-only repository exploration utility. Return a facts packet as
+plain text for the parent. The packet is not lane evidence and carries no
+report schema. Do not edit files, write files, patch files, mutate Concord
 state, mutate GitHub, or start another agent.
 
 ## Input
@@ -710,12 +711,21 @@ question from the working directory.
 5. Use the declared read-only Git commands when the parent asks about history,
    status, or the current diff.
 6. Stop when the question has a source-backed answer, or after {duration} of
-   total wall time, whichever comes first. Report the findings you hold when
-   the cap stops you.
+   total wall time, whichever comes first. Report the facts you hold when the
+   cap stops you.
 
-State the paths, line ranges, and commands that support each finding. Separate
-observed facts from inferences. State the missing evidence when the question
-cannot be answered from the repository.
+## Facts packet
+
+Return plain text. The packet holds:
+
+- Observed facts only. Support each fact with its source `path:line`.
+- Relevant counts, each with the population the count covers.
+- The commit SHA for each fact that is historical.
+- Unknowns, named as unknowns.
+
+Do not infer a root cause, state a diagnosis, or recommend a repair. The parent
+coordinator owns the diagnosis and the root-cause assessment. State the missing
+evidence when the question cannot be answered from the repository.
 """,
     "lookup": """This is a read-only external lookup utility. Return source-backed findings for
 the parent. Do not inspect or edit the repository, mutate Concord state, mutate

@@ -1102,6 +1102,98 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 2,
       "type": "string"
     },
+    "defect_classification": {
+      "additionalProperties": false,
+      "description": "Read-only projection of the persisted defect classification: the immutable intake fields a capture admitted plus the core's computed sibling snapshot. Rides the authoritative intent reads (the scope read and the full-detail list) beside the task and value statement; bounded summary reads omit it.",
+      "properties": {
+        "failure_shape": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "related_defect_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "type": "array"
+        },
+        "reproduction": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "root_cause_work_id": {
+          "maxLength": 128,
+          "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "type": "string"
+        },
+        "searched": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sibling_ids": {
+          "description": "The core's complete same-shape sibling snapshot at admission. Never capped or sliced: a recurrent retry's coverage is checked against every member.",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids",
+        "sibling_ids"
+      ],
+      "type": "object"
+    },
+    "defect_intake": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_shape": {
+          "description": "Canonical bounded slug identifier for the defect class. Pick it once per class and repeat it on every capture of that class. It is an identifier, not a text heuristic derived from the title or task.",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "related_defect_ids": {
+          "description": "Distinct earlier work IDs of the same failure shape. Historical unclassified bugs join the cluster only through this declaration; it may be empty.",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 20,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reproduction": {
+          "description": "The bounded steps that reproduce the failure.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "root_cause_work_id": {
+          "$ref": "#/$defs/id",
+          "description": "The completed workflow.research cluster RCA that admits a recurrent bug capture. Required once the core computes an earlier same-shape sibling; checked whenever a bug supplies it. Research captures must omit it."
+        },
+        "searched": {
+          "description": "The bounded declaration of where earlier defects of this shape were searched before this capture.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids"
+      ],
+      "type": "object"
+    },
     "detail": {
       "enum": [
         "summary",
@@ -5437,6 +5529,10 @@ const GeneratedPayloadSchemaDocument = `{
         "approval": {
           "$ref": "#/$defs/approval"
         },
+        "defect_intake": {
+          "$ref": "#/$defs/defect_intake",
+          "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
+        },
         "external_ref": {
           "$ref": "#/$defs/short"
         },
@@ -7551,6 +7647,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_summary": {
       "additionalProperties": false,
       "properties": {
+        "defect_intake": {
+          "$ref": "#/$defs/defect_classification"
+        },
         "id": {
           "$ref": "#/$defs/id"
         },

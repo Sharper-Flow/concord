@@ -281,6 +281,50 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("MCP access depends on host connections", projection)
         self.assertIn("Use read-only tools only", projection)
 
+    def test_exploration_body_returns_a_facts_packet_with_bounded_unknowns(self):
+        # CD-0210 draft amends CD-0149 D2 for the intake root-cause route:
+        # the explore body returns a facts packet as plain text, distinct
+        # from lane evidence and free of any report schema, holding
+        # observed facts at path:line, counts with their population,
+        # commit SHAs for historical facts, and unknowns as unknowns.
+        utility = {
+            "id": "explore",
+            "purpose": "Inspect a repository.",
+            "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+            "allowed_commands": ["git status *"],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        normalized = " ".join(projection.split())
+        self.assertIn("facts packet", normalized)
+        self.assertIn("plain text", normalized)
+        self.assertIn("not lane evidence", normalized)
+        self.assertIn("no report schema", normalized)
+        self.assertIn("`path:line`", projection)
+        self.assertIn("population", normalized)
+        self.assertIn("commit SHA", normalized)
+        self.assertIn("State the missing evidence when the question cannot be answered from the repository", normalized)
+        self.assertNotIn("Separate observed facts from inferences", normalized)
+
+    def test_exploration_body_prohibits_diagnosis_and_places_root_cause_with_the_coordinator(self):
+        # CD-0210 draft: explore holds no diagnostic authority. The body
+        # states the prohibition explicitly — the packet is prose, so the
+        # limits are return limits, not runtime enforcement — and names the
+        # parent coordinator as the owner of diagnosis and root cause.
+        utility = {
+            "id": "explore",
+            "purpose": "Inspect a repository.",
+            "allowed_tools": ["bash", "read", "glob", "grep", "execute"],
+            "allowed_commands": ["git status *"],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        normalized = " ".join(projection.split())
+        self.assertIn("Do not infer a root cause", normalized)
+        self.assertIn("recommend a repair", normalized)
+        self.assertIn("The parent coordinator owns the diagnosis and the root-cause assessment", normalized)
+        self.assertNotIn("inferences", projection)
+
     def test_execute_enabled_utilities_carry_the_source_lookup_block(self):
         for utility_id, tools in (
             ("explore", ["bash", "read", "glob", "grep", "execute"]),

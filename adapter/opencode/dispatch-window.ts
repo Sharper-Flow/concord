@@ -240,17 +240,20 @@ export class DispatchWindows {
   // bind is the `tool.execute.before` body. It mutates the caller's arguments in
   // place, which is the only channel the host hook contract offers.
   //
-  // resolveSessionDirectory reads where the host runs this session now, per call
-  // from the host session route rather than from storage (CD-0104 D1). The
-  // window recorded that same value when the core authorized the dispatch, so a
-  // difference means the session moved in between and the worker would no longer
-  // start in the worktree the core authorized.
+  // executionDirectory is where the host instance runs the Task worker — the
+  // plugin factory directory. It is required with no fallback: the session
+  // record and the process directory do not prove execution placement.
   //
-  // It is a resolver rather than a value because an unauthorized call must be
-  // refused on the window alone. Resolving first would spend a host round-trip
-  // on a call that is already refused, and would report the host's answer in
-  // place of the authorization failure that actually stopped it.
-  async bind(tool: string, sessionID: string, args: MutableToolArgs, callID: string | undefined, resolveSessionDirectory: () => Promise<string>): Promise<void> {
+  // resolveSessionDirectory reads where the host reports this session now, per
+  // call from the host session route rather than from storage (CD-0104 D1). It
+  // is a resolver rather than a value because an unauthorized call must be
+  // refused on the window alone, without spending a host round-trip on it.
+  //
+  // Both directory answers are checked after the await: the await admits
+  // retargets and revocations, so only the still-open record plus the
+  // post-await answers authorize the call, and the execution-directory check
+  // is the final gate before the caller's arguments are touched.
+  async bind(tool: string, sessionID: string, args: MutableToolArgs, callID: string | undefined, resolveSessionDirectory: () => Promise<string>, executionDirectory: unknown): Promise<void> {
     if (tool !== TASK_TOOL_ID) return
     if (dispatchRequiresNextTurn(sessionID)) {
       this.#open.delete(sessionID)
@@ -280,6 +283,18 @@ export class DispatchWindows {
     if (mismatch) {
       this.#open.delete(sessionID)
       throw new DispatchWindowError(mismatch)
+    }
+    const executionInstanceDirectory = canonicalDirectory(executionDirectory)
+    if (executionInstanceDirectory === null) {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError("worker dispatch requires the execution directory of the host instance that would run the Task worker; it was not supplied or does not resolve to a directory")
+    }
+    const executionIdentity = canonicalDirectoryIdentity(executionInstanceDirectory)
+    if (executionIdentity !== record.workerDirectoryIdentity) {
+      this.#open.delete(sessionID)
+      throw new DispatchWindowError(
+        `worker dispatch directory does not match the active claimed worktree (expected identity ${record.workerDirectoryIdentity}, execution identity ${executionIdentity ?? "unresolved"}); the host instance would run the Task worker outside the claimed worktree the dispatch authorized; replay work_start or worktree_claim so the execution instance runs in the claimed worktree, then dispatch again after the next operator turn`,
+      )
     }
     this.#open.delete(sessionID)
     record.callID = callID

@@ -5,7 +5,11 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+// The published scenario contract pins the provenance source bound the
+// adapter refuses past; the test imports the contract so a drift on either
+// side fails a test instead of the evidence fold.
+import scenarioSchema from "../../contracts/workflow-engine-scenarios.schema.json"
 import type { RouteResult, SessionReader } from "./move-session"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path
@@ -1683,6 +1687,344 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = previous
+  }
+})
+
+// CON-821 / CD-0034: one host-provenance manifest holds at most 32 sources
+// (internal/store/worker_lanes.go ValidateWorkerHostProvenance;
+// contracts/workflow-engine-scenarios.schema.json host_provenance.sources).
+// The producer is all-or-refuse: complete up to the bound, typed refusal past
+// it, never a shortened manifest.
+
+// Snapshot the host-config environment the producer reads and point it at
+// synthetic fixtures, so source counts depend on the fixtures alone.
+function isolateProvenanceEnv(configDir: string): () => void {
+  const previous = {
+    OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    OPENCODE_CONFIG: process.env.OPENCODE_CONFIG,
+    CONCORD_HOST_INSTRUCTIONS: process.env.CONCORD_HOST_INSTRUCTIONS,
+  }
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  delete process.env.OPENCODE_CONFIG
+  delete process.env.CONCORD_HOST_INSTRUCTIONS
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+// A synthetic claimed worktree. The .git marker stops the config and AGENTS.md
+// walks at the worktree root.
+async function provenanceWorktree(): Promise<string> {
+  const worktree = await mkdtemp(path.join(os.tmpdir(), "provenance-worktree-"))
+  await fs.promises.mkdir(`${worktree}/.git`, { recursive: true })
+  return worktree
+}
+
+// A conduct-corpus fixture under CD-0063 D5: `count` rule files reached
+// through one absolute glob the host config declares.
+async function corpusGlobFixture(configDir: string, count: number): Promise<string> {
+  const corpus = path.join(configDir, "corpus")
+  await fs.promises.mkdir(corpus, { recursive: true })
+  for (let index = 0; index < count; index++) {
+    await Bun.write(path.join(corpus, `rule-${String(index).padStart(2, "0")}.md`), `# corpus rule ${index}\n`)
+  }
+  await Bun.write(`${configDir}/opencode.jsonc`, `{"instructions": [${JSON.stringify(`${corpus}/*.md`)}]}\n`)
+  return corpus
+}
+
+async function expectProvenanceRefusal(worktree: string): Promise<void> {
+  let refused: unknown
+  await computeHostPromptProvenance("research", worktree).catch(error => { refused = error })
+  expect(refused).toBeInstanceOf(HostProvenanceError)
+  expect(String(refused)).toMatch(/provenance/i)
+  expect(String(refused)).toMatch(/\b32\b/)
+}
+
+test("the adapter provenance bound is the published scenario contract bound", () => {
+  expect(MAX_HOST_PROVENANCE_SOURCES).toBe(scenarioSchema.$defs.eventPayload.properties.host_provenance.properties.sources.maxItems)
+})
+
+test("host prompt provenance admits the complete 32-source manifest at the store bound, exact and recomputable", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    const corpus = await corpusGlobFixture(configDir, 29)
+    const first = await computeHostPromptProvenance("research", worktree)
+
+    // 29 glob-bound corpus files plus the 3 named unenumerated surfaces: the
+    // exact complete manifest, admitted at the bound the store enforces.
+    expect(first.sources).toHaveLength(32)
+    const bound = first.sources.filter(s => s.kind === "instruction_file")
+    const paths = bound.map(s => s.path!)
+    expect([...paths].sort()).toEqual(
+      Array.from({ length: 29 }, (_, index) => path.join(corpus, `rule-${String(index).padStart(2, "0")}.md`)).sort(),
+    )
+    // Glob matches are ordered in the manifest, so the digest does not depend
+    // on enumeration order.
+    expect(paths).toEqual([...paths].sort())
+    expect(bound.every(s => typeof s.sha256 === "string" && s.sha256.startsWith("sha256:"))).toBe(true)
+    expect(first.sources.filter(s => s.kind === "unenumerated").map(s => s.path).sort()).toEqual([
+      "mcp_tool_definition_prompt", "output_voice_overlays", "provider_behavioral_hints",
+    ])
+    // The digest is recomputable from the returned manifest and stable.
+    const manifest = first.sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
+    expect(first.digest).toBe("sha256:" + Bun.SHA256.hash(manifest, "hex"))
+    expect((await computeHostPromptProvenance("research", worktree)).digest).toBe(first.digest)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("host prompt provenance refuses a complete manifest past the 32-source store bound", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    // 30 corpus files plus the 3 unenumerated surfaces = 33 sources.
+    await corpusGlobFixture(configDir, 30)
+    await expectProvenanceRefusal(worktree)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("host prompt provenance refuses when 70 declared instruction files exceed the source bound", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    // 70 distinct absolute entries: a shortened manifest would claim
+    // completeness while dropping sources.
+    const rules = path.join(configDir, "rules")
+    await fs.promises.mkdir(rules, { recursive: true })
+    const entries = Array.from({ length: 70 }, (_, index) => {
+      const file = path.join(rules, `host-rule-${String(index).padStart(2, "0")}.md`)
+      return Bun.write(file, `# host rule ${index}\n`).then(() => file)
+    })
+    const files = await Promise.all(entries)
+    await Bun.write(`${configDir}/opencode.jsonc`, JSON.stringify({ instructions: files }))
+    await expectProvenanceRefusal(worktree)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("host prompt provenance refuses a glob past 32 matches rather than admitting a truncated expansion", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    // Every glob match is a surface the host injects; admitting only the
+    // first 32 would bind an incomplete manifest.
+    await corpusGlobFixture(configDir, 40)
+    await expectProvenanceRefusal(worktree)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("host prompt provenance refuses a source path past the 512-byte identity bound", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    // The path is identity, never payload to cut: the manifest refuses
+    // instead of emitting a truncated path the store would refuse.
+    const oversize = `/${"p".repeat(600)}`
+    await Bun.write(`${configDir}/opencode.jsonc`, JSON.stringify({ instructions: [oversize] }))
+    let refused: unknown
+    await computeHostPromptProvenance("research", worktree).catch(error => { refused = error })
+    expect(refused).toBeInstanceOf(HostProvenanceError)
+    expect(String(refused)).toMatch(/512/)
+    expect(String(refused)).toContain(oversize)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("overlapping glob and literal instruction entries bind one source per file", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    const corpus = await corpusGlobFixture(configDir, 29)
+    await Bun.write(`${configDir}/opencode.jsonc`, `{"instructions": [${JSON.stringify(`${corpus}/*.md`)}, ${JSON.stringify(`${corpus}/rule-00.md`)}, ${JSON.stringify(`${corpus}/rule-01.md`)}]}\n`)
+    const result = await computeHostPromptProvenance("research", worktree)
+    // The store refuses a source named twice; the producer binds each file
+    // once regardless of how many entries reach it.
+    expect(result.sources).toHaveLength(32)
+    const identities = result.sources.map(source => `${source.kind}:${source.path}`)
+    expect(new Set(identities).size).toBe(32)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("one config file reached through two candidate routes is named once", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  process.env.OPENCODE_CONFIG = `${configDir}/opencode.json`
+  try {
+    // OPENCODE_CONFIG names the file the config directory already holds, and
+    // neither copy parses: the unparseable surface is named once.
+    await Bun.write(`${configDir}/opencode.json`, "{ this is not json")
+    const result = await computeHostPromptProvenance("research", worktree)
+    const named = result.sources.filter(s => s.kind === "unenumerated").map(s => s.path)
+    expect(named.filter(candidate => candidate === `${configDir}/opencode.json`)).toHaveLength(1)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+// The dispatch preflight: a manifest past the bound refuses at the dispatch
+// boundary, before the core dispatch_worker authorization persists an attempt
+// and before any window opens. The producer is the real one.
+test("a provenance manifest over the store bound refuses dispatch before authorization or any window opens", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    await corpusGlobFixture(configDir, 30)
+    let authorizeCalls = 0
+    let evidenceCalls = 0
+    const windows = new DispatchWindows()
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: async () => { authorizeCalls++; return coreOk() },
+      evidenceRunner: { async run() { evidenceCalls++; return { exitCode: 0, stdout: "", stderr: "" } } },
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: worktree,
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.dispatch_state).toBeUndefined()
+    expect(result.error?.message).toMatch(/provenance/i)
+    expect(result.error?.message).toMatch(/\b32\b/)
+    expect(result.error?.recovery_action).toBe("contact_operator")
+    expect(result.error?.retry_safe).toBe(false)
+    expect(authorizeCalls).toBe(0)
+    expect(evidenceCalls).toBe(0)
+    expect(windows.has(SESSION)).toBe(false)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("completion records the manifest the dispatch captured, not a recomputation", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    const corpus = await corpusGlobFixture(configDir, 29)
+    const windows = new DispatchWindows()
+    const result = await dispatchWorker(packet(), {
+      credentials: testCredentials,
+      authorize: permissiveAuthorizer(),
+      packetDigest: PACKET_DIGEST,
+      sessionID: SESSION,
+      windows,
+      workerDirectory: worktree,
+    })
+    expect(result.outcome).toBe("ok")
+    await windows.bind(TASK_TOOL_ID, SESSION, { subagent_type: "general", prompt: "x" }, undefined, async () => worktree, worktree)
+    const record = windows.takeInFlight(SESSION)
+    expect(record?.provenance?.sources).toHaveLength(32)
+    // The host config grows past the bound while the worker runs; the
+    // recorded evidence still carries the manifest captured at
+    // authorization, not a recomputation.
+    await Bun.write(path.join(corpus, "rule-29.md"), "# corpus rule 29\n")
+    const events: { verb: string; payload: Record<string, unknown> }[] = []
+    const completion = await completeWorkerAttempt(lane, packet(), workerBody(), {
+      credentials: testCredentials,
+      sessionReader: readbackSessionReader(),
+      evidenceRunner: { async run(argv, input) { events.push({ verb: argv[1], payload: JSON.parse(input) as Record<string, unknown> }); return { exitCode: 0, stdout: "", stderr: "" } } },
+      packetDigest: PACKET_DIGEST,
+      workerDirectory: worktree,
+      capturedProvenance: record!.provenance,
+    }, SIGNAL)
+    expect(completion.outcome).toBe("ok")
+    const dispatchEvent = events.find(event => event.verb === "worker-dispatch")
+    expect((dispatchEvent?.payload.host_provenance as { digest?: string } | undefined)?.digest).toBe(record!.provenance!.digest)
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("a completion with no captured manifest computes it and records no evidence past the bound", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    await corpusGlobFixture(configDir, 30)
+    const verbs: string[] = []
+    const result = await complete(workerBody(), {
+      workerDirectory: worktree,
+      evidenceRunner: { async run(argv) { verbs.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.message).toMatch(/provenance/i)
+    expect(result.error?.message).toMatch(/\b32\b/)
+    expect(result.error?.message).toContain("worker evidence was not recorded")
+    expect(result.error?.message).toContain("the authorized attempt requires reconciliation")
+    expect(result.error?.recovery_action).toBe("reconcile_operation")
+    expect(result.error?.retry_safe).toBe(false)
+    expect(verbs).toEqual([])
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
+  }
+})
+
+test("a refused readback that cannot bind provenance records no born-failed evidence", async () => {
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "provenance-config-"))
+  const worktree = await provenanceWorktree()
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    await corpusGlobFixture(configDir, 30)
+    const verbs: string[] = []
+    const refusing: SessionReader = {
+      async get() { return { data: {}, response: new Response(null, { status: 500 }) } },
+      async messages() { return { data: {}, response: new Response(null, { status: 500 }) } },
+    }
+    const result = await complete(workerBody(), {
+      workerDirectory: worktree,
+      sessionReader: refusing,
+      evidenceRunner: { async run(argv) { verbs.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+    })
+    expect(result.outcome).toBe("error")
+    expect(result.error?.kind).toBe("readback_refusal")
+    expect(result.error?.message).toMatch(/provenance/i)
+    expect(result.error?.message).toMatch(/\b32\b/)
+    expect(verbs).toEqual([])
+  } finally {
+    restoreEnv()
+    await fs.promises.rm(configDir, { recursive: true, force: true })
+    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 

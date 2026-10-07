@@ -835,15 +835,15 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 }
 
 type workerDispatchRequest struct {
-	AuthorizedPacket    json.RawMessage               `json:"authorized_packet,omitempty"`
-	EventID             string                        `json:"event_id"`
-	WorkID              string                        `json:"work_id"`
-	AttemptID           string                        `json:"attempt_id"`
-	LaneID              string                        `json:"lane_id"`
-	LaneVersion         int64                         `json:"lane_version"`
-	LaneDigest          string                        `json:"lane_digest"`
-	PacketSchemaVersion string                        `json:"packet_schema_version"`
-	ReportSchemaVersion string                        `json:"report_schema_version"`
+	AuthorizedPacket    json.RawMessage `json:"authorized_packet,omitempty"`
+	EventID             string          `json:"event_id"`
+	WorkID              string          `json:"work_id"`
+	AttemptID           string          `json:"attempt_id"`
+	LaneID              string          `json:"lane_id"`
+	LaneVersion         int64           `json:"lane_version"`
+	LaneDigest          string          `json:"lane_digest"`
+	PacketSchemaVersion string          `json:"packet_schema_version"`
+	ReportSchemaVersion string          `json:"report_schema_version"`
 	// PacketDigest is the canonical lane-packet digest the dispatch_worker
 	// authorization recorded on its completion. CD-0067 D6 makes the
 	// adapter quote this value on its signed assertion; the store gate

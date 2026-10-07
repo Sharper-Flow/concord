@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/gittest"
 )
 
 // testDatabaseTemplate owns one migrated, empty database image for the package
@@ -21,23 +19,6 @@ var testDatabaseTemplate struct {
 	dir  string
 	path string
 	err  error
-}
-
-func TestMain(m *testing.M) {
-	gittest.DisableBackgroundMaintenance()
-	dir, err := os.MkdirTemp("", "concord-store-test-template-")
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "create store test template directory: %v\n", err)
-		os.Exit(1)
-	}
-	testDatabaseTemplate.dir = dir
-
-	code := m.Run()
-	if err := os.RemoveAll(dir); err != nil && code == 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "remove store test template directory: %v\n", err)
-		code = 1
-	}
-	os.Exit(code)
 }
 
 func copyTestDatabase(t *testing.T) string {

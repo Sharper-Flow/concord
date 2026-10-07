@@ -322,7 +322,7 @@ func admissionLockPath(dataRoot string) string {
 // a boundary cannot open between a lease's fence check and its write. The
 // lock is advisory and Linux-only, matching the release platform.
 func withAdmissionLock[T any](dataRoot string, fn func() (T, error)) (T, error) {
-	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
+	if err := os.MkdirAll(dataRoot, 0o700); err != nil { //nolint:gosec // dataRoot is the operator's data root; the admission path creates its missing levels.
 		var zero T
 		return zero, fmt.Errorf("hostlease: cannot create %s: %w", dataRoot, err)
 	}
@@ -344,6 +344,18 @@ func withAdmissionLock[T any](dataRoot string, fn func() (T, error)) (T, error) 
 // maintenance command holds the data root.
 var ErrMaintenanceBusy = errors.New("hostlease: another maintenance command is in progress")
 
+// ErrMaintenanceRootReplaced marks a maintenance acquisition that ended
+// without admission because the data root kept being removed or replaced
+// while the lock was being taken.
+var ErrMaintenanceRootReplaced = errors.New("hostlease: the data root kept changing while the maintenance lock was taken")
+
+// maintenanceAcquireAttempts bounds the local acquisition sequence after a
+// stale descriptor: the root was replaced between the open and the flock, so
+// the next attempt re-opens what the path now names. The bound keeps a
+// churning root from turning the acquisition into a wait; the operator
+// re-runs the command instead.
+const maintenanceAcquireAttempts = 3
+
 // AcquireMaintenance takes the exclusive maintenance lock for the data root
 // and returns its release. One maintenance command runs at a time: a run
 // decides whether to close the boundary it opened from what it alone could
@@ -354,26 +366,130 @@ var ErrMaintenanceBusy = errors.New("hostlease: another maintenance command is i
 // maintenance_lock): no installer recovery or boundary close overlaps a
 // migration. The lock does not wait: a second command refuses with
 // ErrMaintenanceBusy and the operator re-runs it after the first finishes.
+//
+// A first-install bootstrap locks the same way an established root does:
+// the root is created before it is opened, so an absent root is never an
+// unlocked window another command could recover a live transaction through.
+// The lock identity is the directory the path names at admission: the root
+// is opened without following symlinks, and after the flock the open
+// descriptor's device and inode are compared with what the path names now,
+// read with lstat so a replaced symlink is never followed. A root that was
+// removed or replaced in between releases the stale descriptor and the
+// next attempt re-opens the current path; the bounded sequence never
+// sleeps.
+//
+// The release removes nothing (CON-807, obs:1ca149d633e69626): a held
+// directory flock cannot make a later path-based removal conditional on
+// the inode the holder once observed, so no cleanup removes the data root
+// at all. The empty root an acquisition created, its ancestors, a root
+// another participant created or recreated, and any state in them all
+// survive the release. Retained disk space is the accepted cost; exclusion
+// against an arbitrary external replacement of the root is explicitly not
+// promised.
 func AcquireMaintenance(dataRoot string) (func(), error) {
-	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
-		return nil, fmt.Errorf("hostlease: cannot create %s: %w", dataRoot, err)
-	}
-	path := dataRoot
-	file, err := os.Open(path) //nolint:gosec // path is the operator's data root; the lock opens the directory itself.
+	file, err := acquireMaintenanceLock(dataRoot, openMaintenanceDirectory, syscall.Flock)
 	if err != nil {
-		return nil, fmt.Errorf("hostlease: cannot open %s: %w", path, err)
-	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("%w: %s is held; re-run when it finishes", ErrMaintenanceBusy, path)
-		}
-		return nil, fmt.Errorf("hostlease: cannot lock %s: %w", path, err)
+		return nil, err
 	}
 	return func() {
 		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 		_ = file.Close()
 	}, nil
+}
+
+// openMaintenanceDirectory opens the data root for flocking: read-only, a
+// directory, and never through a symlink. The refusal on a symlink is the
+// open itself, so no window exists where a replaced path is followed.
+func openMaintenanceDirectory(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0) //nolint:gosec // path is the operator's data root; the lock opens the directory itself.
+}
+
+// dirIdentity reads a directory's device and inode, failing closed when the
+// platform stat data is unavailable: an identity that cannot be proven can
+// neither admit a lock nor authorize a removal.
+func dirIdentity(info os.FileInfo) (uint64, uint64, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0, false
+	}
+	return stat.Dev, stat.Ino, true
+}
+
+// acquireMaintenanceLock is AcquireMaintenance over its two primitives, so
+// the acquisition sequence is testable between the open and the flock. Both
+// primitives match the standard-library signatures the production call uses.
+func acquireMaintenanceLock(
+	dataRoot string,
+	open func(string) (*os.File, error),
+	flock func(int, int) error,
+) (*os.File, error) {
+	for attempt := 1; attempt <= maintenanceAcquireAttempts; attempt++ {
+		// The root is created before it is opened: the bootstrap of a
+		// first install holds the same lock an established root holds.
+		// The creation is a plain mkdir, and what it created is retained
+		// at release (CON-807): no attribution machinery may follow it,
+		// because attribution existed only to authorize deletion, and no
+		// deletion is safe against a replacement holder.
+		if err := os.MkdirAll(dataRoot, 0o700); err != nil { //nolint:gosec // dataRoot is the operator's data root; the acquisition creates its missing levels.
+			return nil, fmt.Errorf("hostlease: cannot create %s: %w", dataRoot, err)
+		}
+		file, err := open(dataRoot)
+		if err != nil {
+			if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
+				// The open itself refused, without following the path;
+				// the lstat only names the reason for the operator.
+				if info, statErr := os.Lstat(dataRoot); statErr == nil && info.Mode()&os.ModeSymlink != 0 { //nolint:gosec // dataRoot is the operator's data root; the lstat only names the reason for the operator.
+					return nil, fmt.Errorf("hostlease: refusing symlinked data root %s", dataRoot)
+				}
+				return nil, fmt.Errorf("hostlease: refusing data root %s: it is not a directory", dataRoot)
+			}
+			if errors.Is(err, os.ErrNotExist) && attempt < maintenanceAcquireAttempts {
+				continue
+			}
+			return nil, fmt.Errorf("hostlease: cannot open %s: %w", dataRoot, err)
+		}
+		if err := flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			_ = file.Close()
+			if errors.Is(err, syscall.EWOULDBLOCK) {
+				return nil, fmt.Errorf("%w: %s is held; re-run when it finishes", ErrMaintenanceBusy, dataRoot)
+			}
+			return nil, fmt.Errorf("hostlease: cannot lock %s: %w", dataRoot, err)
+		}
+		// The flock is real only when the descriptor still names the
+		// directory the path names: a root removed or replaced before
+		// admission leaves the lock on an orphaned inode, and the next
+		// command would lock a different directory altogether. The
+		// confirmation is an lstat, so a root replaced by a symlink is
+		// never followed into admission.
+		current, err := os.Lstat(dataRoot) //nolint:gosec // dataRoot is the operator's data root; the confirmation is read without following symlinks.
+		if err != nil {
+			_ = file.Close()
+			if errors.Is(err, os.ErrNotExist) && attempt < maintenanceAcquireAttempts {
+				continue
+			}
+			return nil, fmt.Errorf("hostlease: cannot confirm %s: %w", dataRoot, err)
+		}
+		held, statErr := file.Stat()
+		if statErr != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("hostlease: cannot confirm %s: %w", dataRoot, statErr)
+		}
+		if !current.IsDir() || !sameFile(held, current) {
+			_ = file.Close()
+			continue
+		}
+		return file, nil
+	}
+	return nil, fmt.Errorf("%w: %s", ErrMaintenanceRootReplaced, dataRoot)
+}
+
+// sameFile compares two file identities by device and inode, the pair that
+// names one directory on one filesystem. Stat data that is not the kernel's
+// own never compares equal: an identity that cannot be proven is not one.
+func sameFile(a, b os.FileInfo) bool {
+	leftDev, leftIno, lok := dirIdentity(a)
+	rightDev, rightIno, rok := dirIdentity(b)
+	return lok && rok && leftDev == rightDev && leftIno == rightIno
 }
 
 // writeSynced writes bytes and fsyncs the file, so a later rename makes the

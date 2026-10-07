@@ -86,15 +86,16 @@ var _ FreshnessRunner = ExecGitRunner{}
 // refused, so a remote that wants credentials fails instead of blocking.
 // The command runs under the runner's one bounded execution policy: its own
 // process group, a SIGKILL of that group when the caller's context ends, and
-// file-backed output capture that does not wait for inherited descriptors.
+// bounded remaining pipe drainage after cancellation, even
+// when a descendant of git holds the output pipes open.
 func (ExecGitRunner) RunNoninteractive(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
 		return nil, errors.New("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	cmd := exec.Command("git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
 	cmd.Env = append(os.Environ(), noninteractiveFetchEnv()...)
-	stdout, stderr, err := runBoundedGitOutput(cmd)
+	stdout, stderr, err := runBoundedGitOutput(ctx, cmd)
 	if err != nil {
 		if trimmed := strings.TrimSpace(string(stderr)); trimmed != "" {
 			return stdout, fmt.Errorf("%w: %s", err, trimmed)

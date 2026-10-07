@@ -27,6 +27,8 @@ func relationEndpoints(ctx context.Context, q queryer, relationID string) ([]str
 	return []string{from, to}, nil
 }
 
+// ProductsForWorkIDs returns distinct Product identities across every Project
+// membership, including secondary memberships that widen work visibility.
 func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[string][]string, error) {
 	return productsForWorkIDs(ctx, s.db, ids)
 }
@@ -42,7 +44,7 @@ func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[strin
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := q.QueryContext(ctx, `SELECT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+") ORDER BY wp.work_id,pp.product_id", args...)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`+strings.Join(placeholders, ",")+") ORDER BY wp.work_id,pp.product_id", args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "scope", "cannot resolve work Product scope", true, "retry once the database is readable", err)
 	}

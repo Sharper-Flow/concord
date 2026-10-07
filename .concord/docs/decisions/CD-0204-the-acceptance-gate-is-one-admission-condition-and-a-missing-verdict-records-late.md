@@ -9,6 +9,11 @@
 - **Amends:** CD-0203 D2 at its consequence: a frozen ops runbook that
   reaches cleanup without a verdict records the verdict there before the
   premise question can be confirmed
+- **Amended by:** CD-0209 D1, the closed two-trigger set the late
+  `record_verdict` route serves through the unhealthy_verdict trigger;
+  CD-0209 D2, the registration gate that refuses a late-verdict step
+  that declares no declared return; CD-0209 D6, the work-pin sequence
+  the late-verdict step reaches the producer through
 - **Preserves:** CD-0201 D2, the liveness law; CD-0115 D1, released
   definition content and digests; every other route refusal keeps its scope
   (CD-0186)

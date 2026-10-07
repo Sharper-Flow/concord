@@ -529,7 +529,6 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
   activeWatches.set(watch.id, watch)
   try {
     let sliceFailures = 0
-    let verbErrors = 0
     for (;;) {
       if (Date.now() - watch.startedAt >= watchCeilingMs(watch)) {
         await settle(watch, {
@@ -557,22 +556,21 @@ async function runWatch(watch: ActiveWatch): Promise<void> {
       // pending means re-invoke: the verb already paced this slice, so the
       // next slice starts immediately.
       if (report.status === "pending") continue
-      if (report.status === "error") {
-        // One error report re-invokes with the same state file, the same
-        // rule the generated utility body carried.
-        verbErrors++
-        if (verbErrors >= 2) {
-          await settle(watch, report)
-          return
-        }
-        continue
-      }
       await settle(watch, report)
       return
     }
   } finally {
     stopWatchHeartbeats(watch)
     activeWatches.delete(watch.id)
+    // The loop owns abandonment as well as normal terminal reports. A child
+    // that dies without a report cannot remove its own resumable state.
+    try {
+      fs.unlinkSync(watch.stateFile)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        log("error", `ci-watch ${watch.id}: cannot remove wait state: ${errorDetail(error)}`)
+      }
+    }
   }
 }
 

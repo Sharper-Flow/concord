@@ -738,7 +738,7 @@ func TestSweepStaleDependencyInventoryCaches(t *testing.T) {
 }
 
 func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
-	if os.Getenv("CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT") == "1" {
+	if os.Getenv("TEST_CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT") == "1" {
 		t.Skip("clean-checkout child process")
 	}
 	sweepStaleDependencyInventoryCaches(time.Now())
@@ -780,7 +780,7 @@ func TestDependencyEvidenceWorksWithoutGitCheckoutState(t *testing.T) {
 	command := exec.Command("go", "test", "./internal/launcher", "-run", "^TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures$", "-count=1")
 	command.Dir = clean
 	command.Env = append(os.Environ(),
-		"CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT=1",
+		"TEST_CONCORD_DEPENDENCY_INVENTORY_CLEAN_CHECKOUT=1",
 		"GOTOOLCHAIN=local",
 		"GOMODCACHE="+freshModuleCache,
 		"GOPROXY=off",

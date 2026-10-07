@@ -443,7 +443,7 @@ func (r runtime) readInitiativeEntries(ctx context.Context, base Envelope, input
 		return failureEnvelope(base, err), nil
 	}
 	if len(products[in.InitiativeWorkID]) != 1 {
-		return coreError(base, "invariant_violation", "Initiative does not derive exactly one Product", "resolve_ambiguity", false), nil
+		return coreError(base, "invariant_violation", "Initiative does not derive exactly one Product", "reread_entities", false), nil
 	}
 	entries, err := r.Store.ReadInitiativeEntries(ctx, in.InitiativeWorkID)
 	if err != nil {

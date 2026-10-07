@@ -24,19 +24,21 @@ func representativeP99WithinTarget(t *testing.T, name string, p99 time.Duration,
 	return authority != populationAuthorityAccepted || p99 <= 100*time.Millisecond
 }
 
-// Serial: t.Setenv mutates the process environment, which t.Parallel forbids.
+// Serial: the conformance harness configuration is process-wide.
 func TestRepresentativeP99PopulationGate(t *testing.T) {
 	const (
 		p99        = 101 * time.Millisecond
 		population = "synthetic representative read"
 	)
 
-	t.Setenv(conformanceAcceptanceRunnerEnv, "")
+	previous := conformanceConfiguration.acceptanceRunner
+	t.Cleanup(func() { conformanceConfiguration.acceptanceRunner = previous })
+	conformanceConfiguration.acceptanceRunner = ""
 	if !representativeP99WithinTarget(t, "read-path diagnostic", p99, population, 100) {
 		t.Fatal("diagnostic read-path measurement must not fail the build")
 	}
 
-	t.Setenv(conformanceAcceptanceRunnerEnv, acceptanceRunnerSignalExpected)
+	conformanceConfiguration.acceptanceRunner = acceptanceRunnerSignalExpected
 	if representativeP99WithinTarget(t, "read-path accepted", p99, population, 100) {
 		t.Fatal("accepted read-path measurement above target must fail the build")
 	}

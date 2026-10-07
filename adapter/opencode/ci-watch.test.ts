@@ -279,6 +279,7 @@ test("the watch returns at once, carries one state file across slices, and promp
   const calls: string[] = []
   const spawner: VerbSpawner = async (_argv, stdin) => {
     calls.push(stdin)
+    fs.writeFileSync(JSON.parse(stdin).state_file, "slice state")
     return slices.shift()!
   }
 
@@ -294,11 +295,13 @@ test("the watch returns at once, carries one state file across slices, and promp
 
   first.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "pending", state_file: started.state_file }), stderr: "" })
   await until(() => calls.length === 2, "the second slice")
+  expect(fs.existsSync(String(started.state_file))).toBe(true)
   expect(JSON.parse(calls[1])).toEqual({ repo: "owner/name", selector: { kind: "pr", value: "12" }, state_file: started.state_file })
   expect(fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")).toEqual([])
 
   second.resolve({ exitCode: 0, stdout: JSON.stringify({ status: "success", iterations: 2 }), stderr: "" })
   await ciWatchSettled(String(started.watch_id))
+  expect(fs.existsSync(String(started.state_file))).toBe(false)
   const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
   expect(prompts).toHaveLength(1)
   const body = prompts[0].body as { parts: Array<{ type: string; synthetic?: boolean; text: string }>; agent?: string; model?: { providerID: string; modelID: string } }
@@ -425,7 +428,7 @@ test("consecutive verb slice failures deliver an explicit error report and are l
   expect(calls).toHaveLength(2)
 })
 
-test("a verb error report re-invokes once with the same state file, then delivers the second error", async () => {
+test("a verb error report is terminal and cannot reset the deadline through a retry", async () => {
   const fixture = hostFixture()
   hostControlPlane().bind(fixture.client)
   bindCiWatchClient(fixture.client)
@@ -438,12 +441,48 @@ test("a verb error report re-invokes once with the same state file, then deliver
   configureCiWatch({ spawner })
   const started = await startWatch(fixture)
   await ciWatchSettled(String(started.watch_id))
-  expect(calls).toHaveLength(2)
-  expect(JSON.parse(calls[0]).state_file).toBe(JSON.parse(calls[1]).state_file)
+  expect(calls).toHaveLength(1)
   const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
   expect(prompts).toHaveLength(1)
-  expect((prompts[0].body as { parts: Array<{ text: string }> }).parts[0].text).toContain("gh: transport refused")
+  expect((prompts[0].body as { parts: Array<{ text: string }> }).parts[0].text).toContain("gh: auth failure")
 })
+
+for (const status of ["success", "failure", "cancelled", "superseded", "timeout", "error", "refused", "no-report", "killed", "pending-ceiling"]) {
+  test(`the watcher removes state when it ends ${status}`, async () => {
+    const fixture = hostFixture({ reply: "parented" })
+    hostControlPlane().bind(fixture.client)
+    bindCiWatchClient(fixture.client)
+    configureCoreBinary("/synthetic/concord")
+    let file = ""
+    const now = Date.now()
+    let clock = now
+    const clockSpy = status === "pending-ceiling" ? spyOn(Date, "now").mockImplementation(() => clock) : null
+    configureCiWatch({
+      stateDir: STATE_DIR, maxSliceFailures: 1, confirmPollMs: 2, confirmWindowMs: 20, idlePollMs: 2,
+      spawner: async (_argv, stdin) => {
+        file = JSON.parse(stdin).state_file
+        fs.writeFileSync(file, JSON.stringify({ schema_version: 1, deadline_at: new Date(now + 60_000), owner_pid: process.pid }))
+        if (status === "killed") throw new Error("child killed")
+        if (status === "no-report") return { exitCode: 1, stdout: "", stderr: "child died" }
+        if (status === "pending-ceiling") {
+          clock += 2_000_000
+          return { exitCode: 0, stdout: JSON.stringify({ status: "pending", state_file: file }), stderr: "" }
+        }
+        return { exitCode: status === "error" ? 1 : 0, stdout: JSON.stringify({ status }), stderr: "" }
+      },
+    })
+    try {
+      const started = await startWatch(fixture)
+      await ciWatchSettled(String(started.watch_id))
+      expect(file).not.toBe("")
+      expect(fs.existsSync(file)).toBe(false)
+      const prompts = fixture.posts.filter((post) => post.url === "/session/{id}/prompt_async")
+      expect(prompts).toHaveLength(1)
+    } finally {
+      clockSpy?.mockRestore()
+    }
+  })
+}
 
 test("a duplicate watch for the same session and selector returns the active identity", async () => {
   const fixture = hostFixture()

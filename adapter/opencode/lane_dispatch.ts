@@ -19,7 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
-import { dispatchWorker, errorEnvelopeForLane, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
@@ -255,26 +255,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "concord_work_transition.workflow_action returned no envelope", "reconcile_operation")
   }
   if (coreResponse.outcome === "error") {
-    const errorObj = isRecord(coreResponse.error) ? coreResponse.error : null
-    const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
-    const details = errorObj && isRecord(errorObj.details) ? errorObj.details : undefined
-    if (errorObj?.kind === "approval_required") {
-      const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "approval_required", message, "request_approval", details)
-      refusal.error!.retry_safe = false
-      return refusal
-    }
-    // A failure after the dispatch boundary committed is not a refusal: the
-    // authorized attempt may exist. The bounded replay above did not settle
-    // it, and a fresh dispatch would rebuild the packet against the advanced
-    // work version, so the only safe route is reconciliation from work
-    // continuity.
-    if (errorObj?.effect_state === "possible") {
-      const coreKind = typeof errorObj.kind === "string" ? errorObj.kind : "error"
-      const failure = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${coreKind}: ${message}. The attempt identity may exist at the core; read work continuity and reconcile the attempt before any other dispatch.`, "reconcile_operation", { details: { effect_state: "possible", core_kind: coreKind, attempt_id: packet.attempt_id } })
-      failure.error!.retry_safe = false
-      return failure
-    }
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
+    return coreDispatchFailure(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, coreResponse)
   }
 
   // CD-0067 D6: the dispatch_worker response carries worker_packet_digest

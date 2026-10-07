@@ -1,22 +1,19 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/url"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -71,83 +68,13 @@ type ExecGitRunner struct{}
 
 var _ StdinGitRunner = ExecGitRunner{}
 
-// boundedGitWaitDelay preserves the subprocess shutdown bound after cancellation.
-// All standard streams use file descriptors, so successful exit has no Go pipe
-// copy goroutines whose schedule could turn it into ErrWaitDelay.
-const boundedGitWaitDelay = 100 * time.Millisecond
-
-// runBoundedGitOutput runs every ExecGitRunner command in its own process group
-// and SIGKILLs that group when the caller's context ends. Private, unlinked files
-// capture output without asynchronous pipe drainage. A finite snapshot after
-// child exit avoids waiting for descendants that retain an output descriptor.
-// A non-zero exit retains stdout and an *exec.ExitError carrying stderr.
-func runBoundedGitOutput(cmd *exec.Cmd) ([]byte, []byte, error) {
-	stdoutFile, err := newGitCaptureFile()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer stdoutFile.Close()
-	stderrFile, err := newGitCaptureFile()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer stderrFile.Close()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	cmd.WaitDelay = boundedGitWaitDelay
-	cmd.Stdout = stdoutFile
-	cmd.Stderr = stderrFile
-	runErr := cmd.Run()
-	stdout, stdoutErr := readGitCaptureFile(stdoutFile)
-	stderr, stderrErr := readGitCaptureFile(stderrFile)
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
-		exitErr.Stderr = stderr
-	}
-	if stdoutErr != nil || stderrErr != nil {
-		return stdout, stderr, errors.Join(runErr, stdoutErr, stderrErr)
-	}
-	return stdout, stderr, runErr
-}
-
-// Unlink before launch so captured repository data has no persistent pathname.
-// CreateTemp opens the file with mode 0600; the last descriptor closes its lifetime.
-func newGitCaptureFile() (*os.File, error) {
-	file, err := os.CreateTemp("", "concord-git-*")
-	if err != nil {
-		return nil, fmt.Errorf("create git capture: %w", err)
-	}
-	if err := os.Remove(file.Name()); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("unlink git capture: %w", err)
-	}
-	return file, nil
-}
-
-func readGitCaptureFile(file *os.File) ([]byte, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat git capture: %w", err)
-	}
-	output, err := io.ReadAll(io.NewSectionReader(file, 0, info.Size()))
-	if err != nil {
-		return output, fmt.Errorf("read git capture: %w", err)
-	}
-	return output, nil
-}
-
 func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
-	stdout, _, err := runBoundedGitOutput(cmd)
+	cmd := exec.Command("git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	stdout, _, err := runBoundedGitOutput(ctx, cmd)
 	return stdout, err
 }
 
@@ -155,21 +82,10 @@ func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, arg
 	if dir == "" {
 		return nil, fmt.Errorf("empty git directory")
 	}
-	input, err := newGitCaptureFile()
-	if err != nil {
-		return nil, err
-	}
-	defer input.Close()
-	if _, err := input.Write(stdin); err != nil {
-		return nil, fmt.Errorf("write git stdin: %w", err)
-	}
-	if _, err := input.Seek(0, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("rewind git stdin: %w", err)
-	}
 	command := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
-	cmd.Stdin = input
-	stdout, _, err := runBoundedGitOutput(cmd)
+	cmd := exec.Command("git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	cmd.Stdin = bytes.NewReader(stdin)
+	stdout, _, err := runBoundedGitOutput(ctx, cmd)
 	return stdout, err
 }
 

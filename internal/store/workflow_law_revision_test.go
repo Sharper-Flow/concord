@@ -378,7 +378,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 	version := readWorkVersion(t, s, workID)
 
 	cutover := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
-	cutover.Env = append(os.Environ(), "CONCORD_LAW_RACE_ROLE=cutover", "CONCORD_LAW_RACE_DB="+s.Path(), "CONCORD_LAW_RACE_WORK="+workID)
+	cutover.Env = append(os.Environ(), "TEST_CONCORD_LAW_RACE_ROLE=cutover", "TEST_CONCORD_LAW_RACE_DB="+s.Path(), "TEST_CONCORD_LAW_RACE_WORK="+workID)
 	cutoverOut, err := cutover.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +398,7 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 	}
 
 	acceptance := exec.Command(os.Args[0], "-test.run=^TestWorkflowLawRevisionCrossProcessWorker$", "-test.v=false")
-	acceptance.Env = append(os.Environ(), "CONCORD_LAW_RACE_ROLE=acceptance", "CONCORD_LAW_RACE_DB="+s.Path(), "CONCORD_LAW_RACE_WORK="+workID, fmt.Sprintf("CONCORD_LAW_RACE_VERSION=%d", version))
+	acceptance.Env = append(os.Environ(), "TEST_CONCORD_LAW_RACE_ROLE=acceptance", "TEST_CONCORD_LAW_RACE_DB="+s.Path(), "TEST_CONCORD_LAW_RACE_WORK="+workID, fmt.Sprintf("TEST_CONCORD_LAW_RACE_VERSION=%d", version))
 	acceptanceOut, err := acceptance.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -432,19 +432,19 @@ func TestWorkflowLawRevisionCutoverCommitsBeforeCrossProcessAcceptance(t *testin
 
 func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 	t.Parallel()
-	role := os.Getenv("CONCORD_LAW_RACE_ROLE")
+	role := os.Getenv("TEST_CONCORD_LAW_RACE_ROLE")
 	if role == "" {
 		return
 	}
 	if role == "acceptance" {
 		fmt.Println("acceptance=ready")
 	}
-	s, err := Open(context.Background(), os.Getenv("CONCORD_LAW_RACE_DB"))
+	s, err := Open(context.Background(), os.Getenv("TEST_CONCORD_LAW_RACE_DB"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	workID := os.Getenv("CONCORD_LAW_RACE_WORK")
+	workID := os.Getenv("TEST_CONCORD_LAW_RACE_WORK")
 
 	switch role {
 	case "cutover":
@@ -487,7 +487,7 @@ func TestWorkflowLawRevisionCrossProcessWorker(t *testing.T) {
 			t.Fatal(err)
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID, ActorClass: ActorOperator}
-		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
+		_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: mustEnvInt64(t, "TEST_CONCORD_LAW_RACE_VERSION"), ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:cross-process", "attempt_epoch": 1}), Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "cross-process-accept", OperationID: "cross-process-accept", PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "cross-process-accept", RequestID: "request:cross-process-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 17, 0, 0, 4, 0, time.UTC)})
 		tx.Rollback()
 		var failure *Failure
 		if !failureAs(actionErr, &failure) || failure.Kind != KindStaleLawRevision {

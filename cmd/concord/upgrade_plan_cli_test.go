@@ -235,6 +235,7 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 			`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
 			`DROP TABLE project_handoffs`,
 			`DROP TABLE durability_commits`,
+			`DROP TABLE runtime_state_writers`,
 		} {
 			if _, err := db.Exec(statement); err != nil {
 				t.Fatalf("cannot unpoison %q: %v", statement, err)

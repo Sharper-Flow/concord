@@ -781,7 +781,7 @@ func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptanc
 	s, _, attemptID, version := seedCompletedWorkerOverlap(t, workID, otherID)
 
 	resolver := exec.Command(os.Args[0], "-test.run=^TestWorkflowDomainOverlapCrossProcessWorker$", "-test.v=false")
-	resolver.Env = append(os.Environ(), "CONCORD_OVERLAP_RACE_ROLE=resolve", "CONCORD_OVERLAP_RACE_DB="+s.Path(), "CONCORD_OVERLAP_RACE_WORK="+workID, "CONCORD_OVERLAP_RACE_OTHER="+otherID, fmt.Sprintf("CONCORD_OVERLAP_RACE_VERSION=%d", version))
+	resolver.Env = append(os.Environ(), "TEST_CONCORD_OVERLAP_RACE_ROLE=resolve", "TEST_CONCORD_OVERLAP_RACE_DB="+s.Path(), "TEST_CONCORD_OVERLAP_RACE_WORK="+workID, "TEST_CONCORD_OVERLAP_RACE_OTHER="+otherID, fmt.Sprintf("TEST_CONCORD_OVERLAP_RACE_VERSION=%d", version))
 	resolverOut, err := resolver.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -801,7 +801,7 @@ func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptanc
 	}
 
 	acceptance := exec.Command(os.Args[0], "-test.run=^TestWorkflowDomainOverlapCrossProcessWorker$", "-test.v=false")
-	acceptance.Env = append(os.Environ(), "CONCORD_OVERLAP_RACE_ROLE=accept", "CONCORD_OVERLAP_RACE_DB="+s.Path(), "CONCORD_OVERLAP_RACE_WORK="+workID, "CONCORD_OVERLAP_RACE_ATTEMPT="+attemptID, fmt.Sprintf("CONCORD_OVERLAP_RACE_VERSION=%d", version+1))
+	acceptance.Env = append(os.Environ(), "TEST_CONCORD_OVERLAP_RACE_ROLE=accept", "TEST_CONCORD_OVERLAP_RACE_DB="+s.Path(), "TEST_CONCORD_OVERLAP_RACE_WORK="+workID, "TEST_CONCORD_OVERLAP_RACE_ATTEMPT="+attemptID, fmt.Sprintf("TEST_CONCORD_OVERLAP_RACE_VERSION=%d", version+1))
 	acceptanceOut, err := acceptance.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -837,20 +837,20 @@ func TestWorkflowDomainOverlapResolutionCommitsBeforeCrossProcessResultAcceptanc
 
 func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 	t.Parallel()
-	role := os.Getenv("CONCORD_OVERLAP_RACE_ROLE")
+	role := os.Getenv("TEST_CONCORD_OVERLAP_RACE_ROLE")
 	if role == "" {
 		return
 	}
 	if role == "accept" {
 		fmt.Println("accept=ready")
 	}
-	s, err := Open(context.Background(), os.Getenv("CONCORD_OVERLAP_RACE_DB"))
+	s, err := Open(context.Background(), os.Getenv("TEST_CONCORD_OVERLAP_RACE_DB"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	workID := os.Getenv("CONCORD_OVERLAP_RACE_WORK")
-	version := mustEnvInt64(t, "CONCORD_OVERLAP_RACE_VERSION")
+	workID := os.Getenv("TEST_CONCORD_OVERLAP_RACE_WORK")
+	version := mustEnvInt64(t, "TEST_CONCORD_OVERLAP_RACE_VERSION")
 	switch role {
 	case "resolve":
 		raw, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -859,7 +859,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		}
 		transaction := &Transaction{tx: raw}
 		_, err = ResolveWorkflowDomainOverlapTx(context.Background(), transaction, WorkflowDomainOverlapResolutionRequest{
-			EventID: "overlap-race-resolution", FromWorkID: workID, ToWorkID: os.Getenv("CONCORD_OVERLAP_RACE_OTHER"),
+			EventID: "overlap-race-resolution", FromWorkID: workID, ToWorkID: os.Getenv("TEST_CONCORD_OVERLAP_RACE_OTHER"),
 			FromExpectedVersion: version, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
 			ResolutionKind: ResolutionCompatibleWith, Reason: "operator race resolution", ApprovalRef: "approval:overlap-race", Actor: "operator",
 		})
@@ -884,7 +884,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		_, actionErr := applyWorkflowActionRawTx(context.Background(), raw, newFoldScope(raw), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "accept_worker_result",
-			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 1}), Actor: owner,
+			Payload: mustJSONValue(map[string]any{"attempt_id": os.Getenv("TEST_CONCORD_OVERLAP_RACE_ATTEMPT"), "attempt_epoch": 1}), Actor: owner,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "overlap-race-accept", OperationID: "overlap-race-accept",
 			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "overlap-race-accept", RequestID: "request:overlap-race-accept", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC),
 		})

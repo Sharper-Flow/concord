@@ -296,11 +296,9 @@ export interface AgentResultEnvelope {
   // Task call. A completed attempt never carries this field.
   dispatch_state?: "awaiting_worker"
   error?: {
-    // `unauthorized_dispatch` is the core refusing the dispatch_worker action.
-    // `transport_failure` is the adapter being unable to ask. The two are
-    // separate members because a refusal is the authorization boundary working
-    // and a transport fault is the adapter being misconfigured; collapsing
-    // them tells an operator to seek permission for a wiring defect.
+    // Only an authorization denial is unauthorized_dispatch. Other core
+    // failures retain their typed error in details.core_error; a transport
+    // failure means the adapter could not obtain a core response.
     kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route"
@@ -1113,6 +1111,39 @@ export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<Age
   return errorEnvelope(lane, packet, outcome, kind, message, recovery_action, details)
 }
 
+// Both dispatch authorization surfaces project the same core failure. The
+// lane vocabulary is smaller than TS7, so preserve the complete typed cause
+// even when its recovery action has no lane-level representation.
+export function coreDispatchFailure(lane: AgentLane | null, packet: Partial<AgentLanePacket>, response: Record<string, unknown>): AgentResultEnvelope {
+  const coreError = isRecord(response.error) ? response.error : null
+  if (!coreError) {
+    const failure = errorEnvelope(lane, packet, "error", "transport_failure", "dispatch_worker returned an error without a typed cause", "contact_operator")
+    failure.error!.retry_safe = false
+    return failure
+  }
+  const message = typeof coreError.message === "string" ? coreError.message : "dispatch_worker authorization refused"
+  if (coreError.effect_state === "possible") {
+    const failure = errorEnvelope(lane, packet, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${String(coreError.kind)}: ${message}. Read work continuity and reconcile the attempt before any other dispatch.`, "reconcile_operation", { details: { effect_state: "possible", core_kind: coreError.kind, attempt_id: packet.attempt_id, core_error: coreError } })
+    failure.error!.retry_safe = false
+    return failure
+  }
+  if (coreError.kind === "approval_required") {
+    const failure = errorEnvelope(lane, packet, "error", "approval_required", message, "request_approval", isRecord(coreError.details) ? coreError.details : undefined)
+    failure.error!.retry_safe = false
+    return failure
+  }
+  const action = isRecord(coreError.recovery_action) ? coreError.recovery_action.kind : undefined
+  let recovery: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"
+  switch (action) {
+    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "request_approval": case "use_declared_route":
+      recovery = action
+  }
+  const kind = coreError.kind === "unauthorized" || coreError.kind === "unauthorized_dispatch" ? "unauthorized_dispatch" : coreError.kind === "invalid_input" ? "invalid_input" : "error"
+  const failure = errorEnvelope(lane, packet, "error", kind, message, recovery, { details: { core_error: coreError } })
+  failure.error!.retry_safe = coreError.effect_state === "none" && coreError.retry_safe === true
+  return failure
+}
+
 // resolveCoreBinary is the pure resolution the transport runs: an explicit
 // per-call override wins, then the bound test binary, then the stamped
 // release constant. A `null` bound override means no override is bound; an
@@ -1594,9 +1625,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorization returned no core response envelope", "contact_operator")
   }
   if (response.outcome === "error") {
-    const errorObj = isRecord(response.error) ? response.error : null
-    const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
+    return coreDispatchFailure(lane, packet as Partial<AgentLanePacket>, response)
   }
 
   // CD-0102 D1/D2: the authorized dispatch opens one single-use window on the

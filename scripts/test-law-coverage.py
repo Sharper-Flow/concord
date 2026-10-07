@@ -6,8 +6,12 @@ asserted, so these tests are mostly negative: each anchor kind must be shown to
 reject a value that looks right and resolves to nothing. A validator that only
 accepts its own seeded manifest would be the defect it exists to close.
 """
+import contextlib
+import errno
 import importlib.util
 import json
+import os
+import pathlib
 import subprocess
 import sys
 from pathlib import Path
@@ -61,6 +65,260 @@ def test_go_test_anchor_rejects_an_assertion_free_test() -> None:
         assert anchor_findings("go_test", "internal/store.TestAssertionFreeAnchor")
     finally:
         fixture.unlink()
+
+
+# The freshness controls below run the real projector subprocess against the
+# repository population: each mutation must change the source signature, and
+# every resolution must re-decide from current sources rather than a stale
+# process-local fact cache. Timestamps are forced with distinct nanosecond
+# stamps because same-jiffy rewrites can leave mtime_ns unchanged.
+
+_PROBE_PATH = ROOT / "internal" / "store" / "zz_freshness_probe_test.go"
+_PROBE_ANCHOR = "internal/store.TestFreshnessProbe"
+_PROBE_ASSERTING = (
+    "package store\n\nimport \"testing\"\n\n"
+    "func TestFreshnessProbe(t *testing.T) {\n\tt.Fatal(\"freshness probe\")\n}\n"
+)
+_PROBE_ASSERTION_FREE = (
+    "package store\n\nimport \"testing\"\n\n"
+    "func TestFreshnessProbe(t *testing.T) {\n\t_ = t\n}\n"
+)
+_PROBE_STAMP = [10**9]
+
+
+def _projector_cache():
+    """The module owning the process-local signature and fact caches."""
+    return sys.modules["evidence_anchors"]
+
+
+def _write_probe(body: str) -> None:
+    _PROBE_STAMP[0] += 1_000_000_000
+    _PROBE_PATH.write_text(body, encoding="utf-8")
+    os.utime(_PROBE_PATH, ns=(_PROBE_STAMP[0], _PROBE_STAMP[0]))
+
+
+@contextlib.contextmanager
+def _freshness_probe(initial_body: str):
+    """Own the probe file and the projector's process-local state.
+
+    Ownership is refused while the probe path already holds anything: a
+    silent overwrite would destroy another fixture's evidence. Setup runs
+    inside the protected region, so a probe half-written by a failing setup
+    is still cleaned up rather than leaked with an advanced stamp. On every
+    exit — success, assertion failure, setup failure, or exception — the
+    probe is removed and the signature, the fact cache, and the stamp
+    counter return to their entering values even when the removal itself
+    fails; the removal error is re-raised after that restoration so a leak
+    stays loud instead of swallowing the state with it.
+    """
+    if _PROBE_PATH.exists() or _PROBE_PATH.is_symlink():
+        raise AssertionError(f"freshness probe path is not owned: {_PROBE_PATH}")
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    try:
+        _write_probe(initial_body)
+        yield _write_probe
+    finally:
+        removal: OSError | None = None
+        try:
+            _PROBE_PATH.unlink(missing_ok=True)
+        except OSError as err:
+            removal = err
+        module._GO_TEST_SIGNATURE = signature
+        module._GO_TEST_FACTS = facts
+        _PROBE_STAMP[0] = stamp
+        if removal is not None:
+            raise removal
+
+
+def test_added_asserting_test_resolves_through_the_real_projector() -> None:
+    with _freshness_probe(_PROBE_ASSERTING):
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "added asserting test did not resolve"
+
+
+def test_assertion_free_mutation_rejects_through_the_real_projector() -> None:
+    with _freshness_probe(_PROBE_ASSERTING) as mutate_probe:
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        mutate_probe(_PROBE_ASSERTION_FREE)
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "assertion-free mutation still resolved"
+
+
+def test_restored_assertion_resolves_through_the_real_projector() -> None:
+    with _freshness_probe(_PROBE_ASSERTION_FREE) as mutate_probe:
+        assert anchor_findings("go_test", _PROBE_ANCHOR)
+        mutate_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "restored assertion did not resolve"
+
+
+def test_deletion_rejects_through_the_real_projector() -> None:
+    with _freshness_probe(_PROBE_ASSERTING):
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        _PROBE_PATH.unlink()
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "deleted test still resolved"
+
+
+def test_repeated_resolution_tracks_in_process_mutation() -> None:
+    """Resolution stays source-sensitive across a warm process-local cache."""
+    with _freshness_probe(_PROBE_ASSERTING) as mutate_probe:
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "repeat resolution lost the answer"
+        mutate_probe(_PROBE_ASSERTION_FREE)
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "mutation kept a stale resolution"
+        assert anchor_findings("go_test", _PROBE_ANCHOR)
+        mutate_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "restoration kept a stale rejection"
+
+
+def test_freshness_fixture_restores_state_after_success() -> None:
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    with _freshness_probe(_PROBE_ASSERTING):
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+    assert module._GO_TEST_SIGNATURE is signature, "signature cache was not restored"
+    assert module._GO_TEST_FACTS is facts, "fact cache was not restored"
+    assert not _PROBE_PATH.exists(), "the probe file leaked"
+    assert _PROBE_STAMP[0] == stamp, "the stamp counter was not restored"
+
+
+def test_freshness_fixture_restores_state_after_a_failure() -> None:
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    try:
+        with _freshness_probe(_PROBE_ASSERTING) as mutate_probe:
+            assert not anchor_findings("go_test", _PROBE_ANCHOR)
+            mutate_probe(_PROBE_ASSERTION_FREE)
+            raise AssertionError("simulated control failure")
+    except AssertionError as err:
+        assert "simulated control failure" in str(err), "the wrong failure escaped the fixture"
+    assert module._GO_TEST_SIGNATURE is signature, "signature cache was not restored after a failure"
+    assert module._GO_TEST_FACTS is facts, "fact cache was not restored after a failure"
+    assert not _PROBE_PATH.exists(), "the probe file leaked after a failure"
+    assert _PROBE_STAMP[0] == stamp, "the stamp counter was not restored after a failure"
+
+
+def test_freshness_fixture_restores_state_when_setup_write_fails() -> None:
+    """A setup failure after the stamp advance cannot leak fixture state.
+
+    ``Path.write_text`` fails deterministically with EIO for the probe path
+    alone: the stamp counter has already advanced, so the fixture must still
+    return every piece of process-local state even though setup never
+    finished.
+    """
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    original_write = pathlib.Path.write_text
+
+    def failing_write(path, *args, **kwargs):
+        if os.fspath(path) == str(_PROBE_PATH):
+            raise OSError(errno.EIO, "synthetic probe write failure", os.fspath(path))
+        return original_write(path, *args, **kwargs)
+
+    pathlib.Path.write_text = failing_write
+    try:
+        try:
+            with _freshness_probe(_PROBE_ASSERTING):
+                raise AssertionError("a failed setup write must not yield the fixture")
+        except OSError as err:
+            assert err.errno == errno.EIO, f"the wrong setup failure escaped: {err}"
+    finally:
+        pathlib.Path.write_text = original_write
+    assert module._GO_TEST_SIGNATURE is signature, "signature cache was not restored after a failed setup write"
+    assert module._GO_TEST_FACTS is facts, "fact cache was not restored after a failed setup write"
+    assert not _PROBE_PATH.exists(), "a failed setup write leaked the probe file"
+    assert _PROBE_STAMP[0] == stamp, "the stamp counter was not restored after a failed setup write"
+    assert pathlib.Path.write_text is original_write, "the write seam was not restored"
+
+
+def test_freshness_fixture_restores_state_when_setup_timestamp_fails() -> None:
+    """A utime failure after the probe exists cannot strand it.
+
+    ``os.utime`` fails deterministically with EIO: the probe file is already
+    on disk, so the cleanup must remove it and restore the caches and the
+    stamp counter.
+    """
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    original_utime = os.utime
+
+    def failing_utime(*args, **kwargs):
+        raise OSError(errno.EIO, "synthetic probe timestamp failure")
+
+    os.utime = failing_utime
+    try:
+        try:
+            with _freshness_probe(_PROBE_ASSERTING):
+                raise AssertionError("a failed setup timestamp must not yield the fixture")
+        except OSError as err:
+            assert err.errno == errno.EIO, f"the wrong setup failure escaped: {err}"
+    finally:
+        os.utime = original_utime
+    assert module._GO_TEST_SIGNATURE is signature, "signature cache was not restored after a failed setup timestamp"
+    assert module._GO_TEST_FACTS is facts, "fact cache was not restored after a failed setup timestamp"
+    assert not _PROBE_PATH.exists(), "a failed setup timestamp leaked the probe file"
+    assert _PROBE_STAMP[0] == stamp, "the stamp counter was not restored after a failed setup timestamp"
+    assert os.utime is original_utime, "the timestamp seam was not restored"
+
+
+def test_freshness_fixture_restores_state_when_cleanup_unlink_fails() -> None:
+    """A failing unlink cannot take the caches and stamp with it.
+
+    ``Path.unlink`` fails deterministically with EIO for the probe path, so
+    the blocked cleanup must still restore the caches and stamp before the
+    error escapes. The control then removes the stranded probe with the
+    restored seam, because the fixture could not.
+    """
+    module = _projector_cache()
+    signature = module._GO_TEST_SIGNATURE
+    facts = module._GO_TEST_FACTS
+    stamp = _PROBE_STAMP[0]
+    original_unlink = pathlib.Path.unlink
+
+    def failing_unlink(path, *args, **kwargs):
+        if os.fspath(path) == str(_PROBE_PATH):
+            raise OSError(errno.EIO, "synthetic probe cleanup failure", os.fspath(path))
+        return original_unlink(path, *args, **kwargs)
+
+    pathlib.Path.unlink = failing_unlink
+    try:
+        try:
+            with _freshness_probe(_PROBE_ASSERTING):
+                module._GO_TEST_SIGNATURE = None
+                module._GO_TEST_FACTS = {"poisoned": {}}
+        except OSError as err:
+            assert err.errno == errno.EIO, f"the wrong cleanup failure escaped: {err}"
+    finally:
+        pathlib.Path.unlink = original_unlink
+    assert module._GO_TEST_SIGNATURE is signature, "a failed unlink skipped signature restoration"
+    assert module._GO_TEST_FACTS is facts, "a failed unlink skipped fact-cache restoration"
+    assert _PROBE_STAMP[0] == stamp, "a failed unlink skipped stamp restoration"
+    assert _PROBE_PATH.exists(), "the blocked cleanup should have stranded the probe file"
+    _PROBE_PATH.unlink(missing_ok=True)
+    assert not _PROBE_PATH.exists(), "the stranded probe file was not removed"
+    assert pathlib.Path.unlink is original_unlink, "the unlink seam was not restored"
+
+
+def test_freshness_fixture_refuses_a_preexisting_probe_file() -> None:
+    sentinel = "package store // a preexisting fixture owns this path\n"
+    _PROBE_PATH.write_text(sentinel, encoding="utf-8")
+    try:
+        try:
+            with _freshness_probe(_PROBE_ASSERTING):
+                raise AssertionError("ownership was granted over an existing file")
+        except AssertionError as err:
+            assert "not owned" in str(err), f"refusal did not identify the collision: {err}"
+        assert _PROBE_PATH.read_text(encoding="utf-8") == sentinel, "the collision destroyed the preexisting file"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
 
 
 def test_go_test_anchor_rejects_a_test_in_a_different_package() -> None:

@@ -152,11 +152,11 @@ func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T
 }
 
 func TestIssue1062PersistentMismatchReturnsImplementationAcceptanceToRefine(t *testing.T) {
-	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance")
+	testWorkflowReturnRoute(t, "return-route-implementation", "workflow.implementation", "acceptance", "execution", "release")
 }
 
 func TestIssue1062PersistentMismatchReturnsBreakFixVerificationToRefine(t *testing.T) {
-	testWorkflowReturnRoute(t, "return-route-break-fix", "workflow.break_fix", "verify")
+	testWorkflowReturnRoute(t, "return-route-break-fix", "workflow.break_fix", "verify", "repair", "complete")
 }
 
 func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
@@ -361,9 +361,20 @@ func runCorrectionActionWithoutOperator(s *Store, workID string, owner WorkflowA
 
 func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) {
 	const workID = "return-route-conjunctive-sequence"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
 	s := fixture.store
 	db := s.DatabaseForTesting()
+	ownerRef, err := WorkflowActorRef(fixture.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Establish a completed and accepted worker delivery at execution so the
+	// correction route can carry the mid-sequence re-production that the
+	// new artifact-staleness admission demands (CD-0143 D1, CD-0201 D5).
+	// Without it, request_correction at acceptance has no accepted delivery
+	// to bind (CD-0133 D1) and the conjunction journey cannot reach a fresh
+	// production at the declared route target.
+	_ = acceptReturnRouteWorker(t, fixture, workID, ownerRef)
 	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -377,6 +388,16 @@ func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) 
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, firstReviewer); err != nil {
 		t.Fatalf("record first non-ok verdict: %v", err)
 	}
+	// The first non-ok verdict makes the artifact any second verdict judges
+	// stale (CD-0201 D5). Drive a request_correction to the declared
+	// recovery-route target (execution) and run a fresh dispatch + complete
+	// + accept cycle that postdates the stale cause so the conjunction
+	// journey reaches a healthy verdict on a fresh artifact.
+	correction := json.RawMessage(`{"diagnosis":"the first non-ok verdict needs re-production","strategy":"repeat the implementation external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("request correction between verdicts: %v", err)
+	}
+	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "mid-sequence")
 	secondReviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/second-reviewer", SessionRef: "session/" + workID + "-second", ActorClass: ActorAgent}
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:second","verdict_kind":"ok"}`), 0, secondReviewer); err != nil {
 		t.Fatalf("record second healthy verdict: %v", err)
@@ -424,11 +445,23 @@ func TestNonOKVerdictCorrectionReturnsTerminalImplementationToExecution(t *testi
 }
 
 func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, workID, ownerRef string) WorkflowActor {
+	return acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "")
+}
+
+// acceptReturnRouteWorkerLabeled runs the same lawful producing attempt as
+// acceptReturnRouteWorker, but lets callers that invoke the helper twice on
+// the same work item disambiguate the start, dispatch, complete, and dispatch
+// action event IDs (and the worker attempt id) so a second cycle does not
+// collide with the first on the durable identifier uniqueness check.
+func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFixture, workID, ownerRef, label string) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
 	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
+	if label != "" {
+		attemptID = attemptID + ":" + label
+	}
 	var definitionRef string
 	var definitionVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
@@ -438,36 +471,84 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	if definitionRef == "workflow.break_fix" {
 		effectStep, startAction = "repair", "start_repair"
 	}
+	startID := "start-" + workID
+	dispatchID := "dispatch-" + workID
+	completedID := "completed-" + workID
+	dispatchActionID := "dispatch-action-" + workID
+	startIdentity := "start:" + workID
+	if label != "" {
+		startID = startID + "-" + label
+		dispatchID = dispatchID + "-" + label
+		completedID = completedID + "-" + label
+		dispatchActionID = dispatchActionID + "-" + label
+		startIdentity = startIdentity + ":" + label
+	}
 	version := verdictItemVersion(t, s, workID)
-	start := workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": effectStep, "action_id": startAction, "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
+	attemptEpoch := latestStepStartEpoch(t, s, workID, effectStep) + 1
+	start := workflowEventWithActor(startID, WorkflowActionStarted, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": effectStep, "action_id": startAction, "attempt_epoch": attemptEpoch,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": startIdentity, "actor_ref": ownerRef,
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		EventID: dispatchID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
 		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
 		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
 	}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "completed-"+workID, attemptID, lane, time.Unix(31, 0).UTC()),
+		workerCompleteEventForLane(workID, completedID, attemptID, lane, time.Unix(31, 0).UTC()),
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	// The dispatch's action completion at the producing step: the real
+	// engine records dispatch_worker when it dispatches the attempt, and
+	// the artifact-staleness production frontier binds accepted deliveries
+	// to it (CD-0201 D5) — the dispatch origin at the declared target.
+	dispatchVersion := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
+		EventID: dispatchActionID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
+			"step_id": effectStep, "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"actor_ref": ownerRef,
+		}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
+		t.Fatal(err)
+	}
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":1}`), 0, acceptor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
 		t.Fatalf("accept worker result: %v", err)
+	}
+	return refineReturnRouteWorkerLabeled(t, fixture, workID, acceptor, label)
+}
+
+// refineReturnRouteWorkerLabeled traverses refine and the delivery gate without
+// producing at the recovery target or changing the evaluator's verdict.
+func refineReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFixture, workID string, acceptor WorkflowActor, label string) WorkflowActor {
+	t.Helper()
+	s := fixture.store
+	var definitionRef string
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refinement: %v", err)
 	}
 	// The current definitions gate the refine exit on a green verify run
-	// bound in the epoch (CD-0192); the witness supplies one.
-	refineProofSeedGreenRun(t, s, workID, strings.Repeat("e", 64))
+	// bound in the epoch (CD-0192); the witness supplies one. The lease id
+	// the green-run seed derives from the digest must differ across cycles
+	// on the same work item, so the labeled cycle gets its own digest.
+	greenRunDigest := strings.Repeat("e", 64)
+	if label != "" {
+		greenRunDigest = strings.Repeat("e", 63) + label[0:1]
+	}
+	refineProofSeedGreenRun(t, s, workID, greenRunDigest)
 	deliveryPayload := json.RawMessage(`{}`)
 	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
 	if !ok {
@@ -487,71 +568,232 @@ func acceptReturnRouteWorker(t *testing.T, fixture workflowReturnRouteFixture, w
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 }
 
-func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep string) {
+// The graph's failure edge remains evaluator -> refine (#1062), but CD-0209
+// D5 refuses confirmation after every bad verdict. The admitted return is
+// request_correction -> producer, followed by production and re-evaluation;
+// the failure edge cannot bypass artifact staleness.
+func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, producerStep, healthyStep string) {
 	t.Helper()
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, verdictStep)
-	verdictPayload := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", verdictPayload, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("record non-ok verdict: %v", err)
-	}
-	operator := fixture.operator
-	if err := runIssue933OperatorAction(t, fixture.store, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, operator); err != nil {
-		t.Fatalf("confirm premise: %v", err)
-	}
-
-	var currentStep string
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
-		t.Fatal(err)
-	}
-	if currentStep != "refine" {
-		t.Fatalf("step after non-ok premise confirmation = %q, want refine", currentStep)
-	}
-
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
+	fixture := seedWorkflowReturnRouteFixture(t, workID, definitionRef, producerStep)
+	s := fixture.store
+	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, 1)
-	_ = tx.Rollback()
+	definition := registered.Definition
+	failureEdges, forwardEdges := 0, 0
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From != verdictStep {
+			continue
+		}
+		switch edge.Kind {
+		case WorkflowEdgeFailure:
+			failureEdges++
+			if edge.To != "refine" {
+				t.Fatalf("failure edge from %s targets %q, want refine", verdictStep, edge.To)
+			}
+		case WorkflowEdgeForward:
+			forwardEdges++
+			if edge.To != healthyStep {
+				t.Fatalf("forward edge from %s targets %q, want %s", verdictStep, edge.To, healthyStep)
+			}
+		}
+	}
+	if failureEdges != 1 || forwardEdges != 1 {
+		t.Fatalf("evaluator edges: failure=%d forward=%d, want one of each", failureEdges, forwardEdges)
+	}
+	routes := 0
+	for _, route := range workflowRecoveryRoutes(definition) {
+		if route.Step == verdictStep && route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict {
+			routes++
+			if route.Action != "request_correction" || route.Target != producerStep {
+				t.Fatalf("unhealthy recovery route = %+v, want request_correction to %s", route, producerStep)
+			}
+		}
+	}
+	if routes != 1 {
+		t.Fatalf("unhealthy evaluator routes = %d, want one", routes)
+	}
+	ownerRef, err := WorkflowActorRef(fixture.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:return-route" || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved {
-		t.Fatalf("verdict after return = %+v, want the recorded non-ok verdict", verdicts)
-	}
-
-	lane := BuiltinLaneDefinitions()[0]
-	packet := joinPacketFor(t, fixture.store, workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
-	payload, err := json.Marshal(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet})
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := verdictItemVersion(t, fixture.store, workID)
-	if err := InspectWorkflowActionAdmission(ctx, fixture.store, WorkflowActionPreflightRequest{
-		WorkID: workID, ExpectedVersion: version, StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
-		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, fixture.store, workID),
-	}); err != nil {
-		t.Fatalf("dispatch_worker preflight at returned refine: %v", err)
-	}
-
 	operatorRef, err := WorkflowActorRef(fixture.operator)
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertStale := func(want bool) {
+		t.Helper()
+		stale, err := workflowArtifactStale(ctx, s.DatabaseForTesting(), workID, definition, currentStep(t, s, workID), "workflow_action")
+		if err != nil || stale != want {
+			t.Fatalf("artifact stale = %t, error=%v, want %t", stale, err, want)
+		}
+	}
+	countEvents := func(kind, action string) int {
+		t.Helper()
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND (?='' OR json_extract(payload,'$.action_id')=?)`, workID, kind, action, action).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	_ = acceptReturnRouteWorker(t, fixture, workID, ownerRef)
+	verdictPayload := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	correctionPayload := json.RawMessage(`{"diagnosis":"the delivered subject still mismatches the approved predicate","strategy":"repeat production at the declared external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	// The second verdict judges a fresh producer result but makes it stale
+	// again: persistent mismatch cannot escape through either graph edge.
+	for i, label := range []string{"a-correction", "b-correction"} {
+		if got := currentStep(t, s, workID); got != verdictStep {
+			t.Fatalf("step after production = %q, want %s", got, verdictStep)
+		}
+		assertStale(false)
+		if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdictPayload, fixture.owner, fixture.operator); err != nil {
+			t.Fatalf("record non-ok verdict: %v", err)
+		}
+		assertStale(true)
+		version := verdictItemVersion(t, s, workID)
+		before := contractCorrectionEffectSnapshot(t, s, workID)
+		err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || !strings.Contains(failure.Detail, "artifact") || !strings.Contains(failure.RecoveryAction, "request_correction") {
+			t.Fatalf("confirm stale premise = %v, want typed refusal naming producer correction", err)
+		}
+		if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+			t.Fatalf("stale confirmation changed durable state: before=%s after=%s", before, after)
+		}
+		if got := currentStep(t, s, workID); got != verdictStep {
+			t.Fatalf("stale confirmation escaped to %q, want %s", got, verdictStep)
+		}
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, 1)
+		_ = tx.Rollback()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:return-route" || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || verdicts[0].VerdictActorRef != operatorRef {
+			t.Fatalf("verdict after refused confirmation = %+v, want the exact operator's non-ok verdict", verdicts)
+		}
+		completion := workflowEventWithActor("return-completion-"+workID+"-"+label, WorkflowCompleted, workID, operatorRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
+			"final_verdict_kind": "outcome_mismatch", "verdict_actor_ref": verdicts[0].VerdictActorRef, "premise_confirmed": true,
+			"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
+		})
+		completion.PayloadVersion = 2
+		err = CompleteWorkflow(ctx, s, completion)
+		// Refused confirmation leaves no operator approval. Completion's
+		// premise clause must refuse before it reaches the outcome clause.
+		if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired || !strings.Contains(failure.Detail, "workflow premise is not confirmed") {
+			t.Fatalf("completion after refused confirmation = %v, want missing premise approval", err)
+		}
+		if got := countWorkflowCompletionEvents(t, s, workID); got != 0 {
+			t.Fatalf("completion guard appended %d workflow.completed events", got)
+		}
+		err = runCorrectionActionWithoutOperator(s, workID, fixture.owner, correctionPayload)
+		if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired || !strings.Contains(failure.Detail, "verified operator approval identity") {
+			t.Fatalf("correction without exact approval = %v, want approval_required", err)
+		}
+		if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+			t.Fatalf("refused completion or correction changed durable state: before=%s after=%s", before, after)
+		}
+		if err := runIssue933OperatorAction(t, s, workID, "request_correction", correctionPayload, fixture.owner, fixture.operator); err != nil {
+			t.Fatalf("request approved producer correction: %v", err)
+		}
+		if got := currentStep(t, s, workID); got != producerStep {
+			t.Fatalf("correction step = %q, want producer %s, not refine", got, producerStep)
+		}
+		assertStale(true)
+		correction, err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, producerStep, "attempt:"+workID+":"+label)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if correction == nil || correction.AttemptCount != int64(i+1) || correction.AttemptLimit != 3 || correction.Escalated || len(correction.PredicateIDs) != 1 || correction.PredicateIDs[0] != "predicate:return-route" || len(correction.EvidenceRefs) != 1 || correction.EvidenceRefs[0] != "evidence:return-route-verification" || correction.Diagnosis != "the delivered subject still mismatches the approved predicate" || correction.Strategy != "repeat production at the declared external effect" {
+			t.Fatalf("producer correction context = %+v, want bound disposition and count %d", correction, i+1)
+		}
+		var correctionActor, correctionSource string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT actor,json_extract(payload,'$.step_id') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&correctionActor, &correctionSource); err != nil {
+			t.Fatal(err)
+		}
+		if correctionActor != operatorRef || correctionSource != verdictStep {
+			t.Fatalf("correction actor=%q source=%q, want exact operator %q at %s", correctionActor, correctionSource, operatorRef, verdictStep)
+		}
+		if requests, dispatches, confirmations := countEvents(WorkflowActionCompleted, "request_correction"), countEvents(WorkerDispatched, ""), countEvents(WorkflowPremiseConfirmed, ""); requests != i+1 || dispatches != i+1 || confirmations != 0 {
+			t.Fatalf("after correction: requests=%d dispatches=%d confirmations=%d, want %d %d 0", requests, dispatches, confirmations, i+1, i+1)
+		}
+		_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, label)
+	}
+	assertStale(false)
+	// No new bad verdict follows this production. The retained non-ok verdict
+	// may take the declared failure edge, but never the healthy forward edge.
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm freshly produced artifact with retained mismatch: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "refine" {
+		t.Fatalf("fresh artifact's non-ok confirmation step = %q, want failure target refine", got)
+	}
+	verdicts, err := latestWorkflowVerdicts(ctx, s.DatabaseForTesting(), workID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verdicts) != 1 || verdicts[0].PredicateID != "predicate:return-route" || verdicts[0].VerdictKind != "outcome_mismatch" || !verdicts[0].IncomparableWithApproved || verdicts[0].VerdictActorRef != operatorRef {
+		t.Fatalf("verdict after return = %+v, want the exact operator's recorded non-ok verdict", verdicts)
+	}
+	lane := BuiltinLaneDefinitions()[0]
+	packet := joinPacketFor(t, s, workID, "refine", "attempt:return-route-"+workID, lane.ID, lane.Version, lane.Digest)
+	payload, err := json.Marshal(map[string]any{"attempt_id": packet["attempt_id"], "worker_packet": packet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: verdictItemVersion(t, s, workID), StepID: "refine", ActionID: "dispatch_worker", Payload: payload,
+		Actor: fixture.owner, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+	}); err != nil {
+		t.Fatalf("dispatch_worker preflight at returned refine: %v", err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	before := contractCorrectionEffectSnapshot(t, s, workID)
 	completion := workflowEventWithActor("return-completion-"+workID, WorkflowCompleted, workID, operatorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
 		"final_verdict_kind": "outcome_mismatch", "verdict_actor_ref": verdicts[0].VerdictActorRef, "premise_confirmed": true,
 		"evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
 	})
 	completion.PayloadVersion = 2
-	err = CompleteWorkflow(ctx, fixture.store, completion)
+	err = CompleteWorkflow(ctx, s, completion)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindOutcomeMismatch {
 		t.Fatalf("completion with non-ok verdict = %v, want outcome mismatch", err)
 	}
-	if got := countWorkflowCompletionEvents(t, fixture.store, workID); got != 0 {
+	if after := contractCorrectionEffectSnapshot(t, s, workID); after != before {
+		t.Fatalf("outcome mismatch completion changed durable state: before=%s after=%s", before, after)
+	}
+	if got := countWorkflowCompletionEvents(t, s, workID); got != 0 {
 		t.Fatalf("completion guard appended %d workflow.completed events", got)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	_ = refineReturnRouteWorkerLabeled(t, fixture, workID, acceptor, "c-failure-edge")
+	assertStale(false)
+	healthy := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", healthy, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("record healthy verdict after production: %v", err)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("confirm fresh healthy premise: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != healthyStep {
+		t.Fatalf("healthy confirmation step = %q, want forward target %s", got, healthyStep)
+	}
+	if verdicts, confirmations, dispatches, accepts := countEvents(WorkflowVerdictRecorded, ""), countEvents(WorkflowPremiseConfirmed, ""), countEvents(WorkerDispatched, ""), countEvents(WorkflowActionCompleted, "accept_worker_result"); verdicts != 3 || confirmations != 2 || dispatches != 3 || accepts != 3 {
+		t.Fatalf("journey counts: verdicts=%d confirmations=%d dispatches=%d accepts=%d, want 3 2 3 3", verdicts, confirmations, dispatches, accepts)
+	}
+	var confirmingActor string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&confirmingActor); err != nil {
+		t.Fatal(err)
+	}
+	if confirmingActor != operatorRef {
+		t.Fatalf("confirming actor = %q, want exact operator %q", confirmingActor, operatorRef)
 	}
 }
 

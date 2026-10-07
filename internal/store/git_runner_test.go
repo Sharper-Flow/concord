@@ -3,8 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,53 +33,154 @@ func gitOutputRunnerModes() []struct {
 	}
 }
 
-// The child exits successfully after writing its complete output, while a
-// descendant retains the output descriptors. Command success must not depend
-// on that descendant closing a pipe or on a Go copy goroutine's schedule.
-func TestExecGitRunnerSuccessfulExitWithInheritedOutput(t *testing.T) {
+// The descendant waits until the direct child is reaped before delaying its
+// final output. This makes normal drainage exceed the cancellation delay.
+func delayedGitOutputShim(output string) string {
+	return "#!/bin/sh\nparent=$$\nif [ \"$3\" = stdin ]; then cat; fi\n(while kill -0 \"$parent\" 2>/dev/null; do sleep 0.01; done\nsleep 0.3\nprintf '" + output + "\\n'\nprintf 'late stderr\\n' >&2) &\n"
+}
+
+func TestExecGitRunnerNormalOutputDrainage(t *testing.T) {
 	bin := t.TempDir()
-	shim := "#!/bin/sh\nif [ \"$3\" = stdin ]; then cat; else printf 'stdout\\n'; fi\nprintf 'stderr\\n' >&2\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$GIT_RUNNER_TEST_PID\"\n"
+	shim := delayedGitOutputShim("late stdout")
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, mode := range gitOutputRunnerModes() {
 		t.Run(mode.name, func(t *testing.T) {
-			pidPath := filepath.Join(t.TempDir(), "descendant.pid")
-			t.Setenv("GIT_RUNNER_TEST_PID", pidPath)
-			t.Cleanup(func() {
-				data, err := os.ReadFile(pidPath)
-				if err != nil {
-					t.Error(err)
-					return
-				}
-				pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-				if err != nil || pid <= 0 {
-					t.Errorf("invalid descendant pid %q: %v", data, err)
-					return
-				}
-				if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-					t.Error(err)
-				}
-			})
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			start := time.Now()
 			output, err := mode.run(ctx, t.TempDir())
 			if err != nil {
 				t.Fatalf("successful Git child returned %v", err)
 			}
-			if elapsed := time.Since(start); elapsed >= 2*time.Second {
-				t.Fatalf("successful child waited %s for descendant output", elapsed)
+			if elapsed := time.Since(start); elapsed < 2*boundedGitWaitDelay {
+				t.Fatalf("normal drainage took only %s", elapsed)
 			}
-			want := "stdout\n"
+			want := "late stdout\n"
 			if mode.name == "stdin" {
-				want = strings.Repeat("patch line\n", 65536)
+				want = strings.Repeat("patch line\n", 65536) + want
 			}
 			if string(output) != want {
 				t.Fatalf("stdout length=%d, want complete %d-byte output", len(output), len(want))
 			}
 		})
+	}
+}
+
+func TestResolveCommitSHANormalDrainageDoesNotRefuseUnreachable(t *testing.T) {
+	bin := t.TempDir()
+	want := strings.Repeat("a", 40)
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(delayedGitOutputShim(want)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sha, err := resolveCommitSHARunner(ctx, ExecGitRunner{}, t.TempDir(), "HEAD")
+	if err != nil || sha != want {
+		t.Fatalf("reachable commit refused: sha=%q error=%v", sha, err)
+	}
+}
+
+func TestGitOutputNormalDrainagePreservesStderr(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.Command("/bin/sh", "-c", strings.TrimPrefix(delayedGitOutputShim("late stdout"), "#!/bin/sh\n"))
+	stdout, stderr, err := runBoundedGitOutput(ctx, cmd)
+	if err != nil || string(stdout) != "late stdout\n" || string(stderr) != "late stderr\n" {
+		t.Fatalf("stdout=%q stderr=%q error=%v", stdout, stderr, err)
+	}
+}
+
+func TestExecGitRunnerCancellationOwnsEntireDrainage(t *testing.T) {
+	for _, state := range []string{"running_group", "exited_escaped"} {
+		t.Run(state, func(t *testing.T) {
+			bin := t.TempDir()
+			child, finish := "sleep 30", "wait"
+			if state == "exited_escaped" {
+				child, finish = "setsid sleep 30", "exit 0"
+			}
+			shim := "#!/bin/sh\n" + child + " &\nprintf 'before cancellation\\n'\nprintf '%s %s\\n' \"$$\" \"$!\" > \"$GIT_RUNNER_TEST_PIDS\"\n" + finish + "\n"
+			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			for _, mode := range gitOutputRunnerModes() {
+				t.Run(mode.name, func(t *testing.T) {
+					pidPath := filepath.Join(t.TempDir(), "pids")
+					t.Setenv("GIT_RUNNER_TEST_PIDS", pidPath)
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					type result struct {
+						output []byte
+						err    error
+					}
+					results := make(chan result, 1)
+					dir := t.TempDir()
+					go func() {
+						out, err := mode.run(ctx, dir)
+						results <- result{out, err}
+					}()
+					var parent, descendant int
+					awaitGitTestCondition(t, func() bool {
+						data, err := os.ReadFile(pidPath)
+						fields := strings.Fields(string(data))
+						if err != nil || len(fields) != 2 {
+							return false
+						}
+						parent, _ = strconv.Atoi(fields[0])
+						descendant, _ = strconv.Atoi(fields[1])
+						return parent > 0 && descendant > 0
+					})
+					t.Cleanup(func() { _ = syscall.Kill(descendant, syscall.SIGKILL) })
+					if state == "exited_escaped" {
+						awaitGitTestCondition(t, func() bool {
+							group, err := syscall.Getpgid(descendant)
+							return err == nil && group == descendant && errors.Is(syscall.Kill(parent, 0), syscall.ESRCH)
+						})
+					}
+					start := time.Now()
+					cancel()
+					select {
+					case got := <-results:
+						if got.err == nil || string(got.output) != "before cancellation\n" {
+							t.Fatalf("stdout=%q error=%v", got.output, got.err)
+						}
+						if state == "exited_escaped" && !errors.Is(got.err, context.Canceled) {
+							t.Fatalf("post-exit cancellation error=%v", got.err)
+						}
+					case <-time.After(time.Second):
+						t.Fatal("cancellation did not bound pipe cleanup")
+					}
+					if state == "exited_escaped" && time.Since(start) < boundedGitWaitDelay {
+						t.Fatal("escaped output descriptors did not exercise bounded cleanup")
+					}
+					if state == "running_group" {
+						awaitGitTestCondition(t, func() bool {
+							data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(descendant), "stat"))
+							return errors.Is(err, os.ErrNotExist) || strings.Contains(string(data), ") Z ")
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func awaitGitTestCondition(t *testing.T, ready func() bool) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for !ready() {
+		select {
+		case <-deadline.C:
+			t.Fatal("Git fixture did not reach the expected process state")
+		case <-tick.C:
+		}
 	}
 }
 
@@ -105,158 +204,35 @@ func TestExecGitRunnerExitErrorPreservesOutput(t *testing.T) {
 	}
 }
 
-func TestExecGitRunnerCancellationKillsDescendants(t *testing.T) {
+func TestExecGitRunnerSuccessfulExitWithoutReadingStdin(t *testing.T) {
 	bin := t.TempDir()
-	shim := "#!/bin/sh\nsleep 30 &\nprintf '%s\\n' \"$!\" > \"$GIT_RUNNER_TEST_PID\"\nwait\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nprintf 'complete\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	for _, mode := range gitOutputRunnerModes() {
-		t.Run(mode.name, func(t *testing.T) {
-			pidPath := filepath.Join(t.TempDir(), "descendant.pid")
-			t.Setenv("GIT_RUNNER_TEST_PID", pidPath)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			dir := t.TempDir()
-			done := make(chan error, 1)
-			go func() {
-				_, err := mode.run(ctx, dir)
-				done <- err
-			}()
-			var pid int
-			deadline := time.Now().Add(2 * time.Second)
-			for pid == 0 {
-				data, err := os.ReadFile(pidPath)
-				if err == nil && len(data) > 0 {
-					pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
-					if err != nil || pid <= 0 {
-						t.Fatalf("invalid descendant pid %q: %v", data, err)
-					}
-				} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-					t.Fatal(err)
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("Git descendant did not become ready")
-				}
-				time.Sleep(time.Millisecond)
-			}
-			t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-			cancel()
-			select {
-			case err := <-done:
-				if err == nil {
-					t.Fatal("cancelled Git command reported success")
-				}
-			case <-time.After(150 * time.Millisecond):
-				t.Fatal("Git cancellation exceeded the existing shutdown bound")
-			}
-			deadline = time.Now().Add(2 * time.Second)
-			for {
-				stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-				if errors.Is(err, os.ErrNotExist) {
-					break
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				end := strings.LastIndex(string(stat), ") ")
-				if end < 0 || len(stat) <= end+2 {
-					t.Fatalf("invalid descendant stat %q", stat)
-				}
-				if stat[end+2] == 'Z' || stat[end+2] == 'X' {
-					break
-				}
-				if time.Now().After(deadline) {
-					t.Fatalf("descendant %d survived group cancellation", pid)
-				}
-				time.Sleep(time.Millisecond)
-			}
-		})
+	out, err := (ExecGitRunner{}).RunStdin(context.Background(), t.TempDir(), []byte(strings.Repeat("patch line\n", 65536)), "stdin")
+	if err != nil || string(out) != "complete\n" {
+		t.Fatalf("stdout=%q error=%v", out, err)
 	}
 }
 
-func TestGitCaptureFilePrivateUnlinkedAndOffsetIndependent(t *testing.T) {
-	file, err := newGitCaptureFile()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("capture permissions: info=%v err=%v", info, err)
-	}
-	if _, err := os.Stat(file.Name()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("capture pathname remains visible: %v", err)
-	}
-	if _, err := file.WriteString("first\n"); err != nil {
-		t.Fatal(err)
-	}
-	output, err := readGitCaptureFile(file)
-	if err != nil || string(output) != "first\n" {
-		t.Fatalf("first snapshot=%q err=%v", output, err)
-	}
-	if _, err := file.WriteString("second\n"); err != nil {
-		t.Fatal(err)
-	}
-	output, err = readGitCaptureFile(file)
-	if err != nil || string(output) != "first\nsecond\n" {
-		t.Fatalf("snapshot changed the inherited write offset: output=%q err=%v", output, err)
-	}
-}
-
-func TestExecGitRunnerCaptureSetupFailureDoesNotLaunch(t *testing.T) {
+func TestExecGitRunnerAlreadyCanceledDoesNotStart(t *testing.T) {
 	bin := t.TempDir()
 	marker := filepath.Join(bin, "started")
-	shim := "#!/bin/sh\nprintf started > \"$GIT_RUNNER_TEST_MARKER\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(shim), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\ntouch \"$GIT_RUNNER_TEST_MARKER\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GIT_RUNNER_TEST_MARKER", marker)
-	t.Setenv("TMPDIR", filepath.Join(bin, "absent"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	for _, mode := range gitOutputRunnerModes() {
-		t.Run(mode.name, func(t *testing.T) {
-			_, err := mode.run(context.Background(), bin)
-			if !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("capture setup error=%v", err)
-			}
-			if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("Git launched before capture setup completed: %v", err)
-			}
-		})
+		out, err := mode.run(ctx, t.TempDir())
+		if !errors.Is(err, context.Canceled) || len(out) != 0 {
+			t.Fatalf("%s: stdout=%q error=%v", mode.name, out, err)
+		}
 	}
-}
-
-func TestRunBoundedGitOutputClosesCaptureFiles(t *testing.T) {
-	for _, outcome := range []string{"success", "exit_error", "start_error", "cancelled"} {
-		t.Run(outcome, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			cmd := exec.CommandContext(ctx, "/bin/sh", "-c", "printf output; printf error >&2")
-			if outcome == "exit_error" {
-				cmd = exec.CommandContext(ctx, "/bin/sh", "-c", "printf error >&2; exit 7")
-			} else if outcome == "start_error" {
-				cmd = exec.CommandContext(ctx, filepath.Join(t.TempDir(), "missing"))
-			} else if outcome == "cancelled" {
-				cancel()
-			}
-			_, _, err := runBoundedGitOutput(cmd)
-			if (err == nil) != (outcome == "success") {
-				t.Fatalf("outcome=%s err=%v", outcome, err)
-			}
-			for _, stream := range []io.Writer{cmd.Stdout, cmd.Stderr} {
-				file, ok := stream.(*os.File)
-				if !ok {
-					t.Fatalf("capture stream type %T", stream)
-				}
-				if _, err := file.Stat(); !errors.Is(err, os.ErrClosed) {
-					t.Fatalf("capture descriptor remains open: %v", err)
-				}
-				if _, err := os.Stat(file.Name()); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("capture pathname remains after %s: %v", outcome, err)
-				}
-			}
-		})
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("already-canceled command started: %v", err)
 	}
 }

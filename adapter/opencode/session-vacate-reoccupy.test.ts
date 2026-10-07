@@ -10,9 +10,9 @@
 import { afterAll, afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
 import { configureConcordAdapter, invokeConcordOperation, work_start, work_transition } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, MOVE_SESSION_ROUTE, SESSION_ROUTE } from "./move-session"
@@ -42,11 +42,7 @@ function publicKeyBase64(): string {
 }
 
 async function runProcess(argv: string[], input = "", cwd?: string, env: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn(argv, { cwd, env: { ...process.env, ...env }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-  await child.stdin.write(input)
-  await child.stdin.end()
-  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-  return { exitCode, stdout, stderr }
+  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, ...env } })
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -132,7 +128,7 @@ const connected =
     : test.skip
 
 connected("vacate, work-resume, vacate in one session keeps one event per request", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-vacate-reoccupy-"))
+  const root = await allocateFixtureRoot("concord-vacate-reoccupy-", { timeoutMs: 300_000 })
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -244,12 +240,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     })
     const runner = {
       async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
-        const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-        if (signal?.aborted) child.kill()
-        await child.stdin.write(input)
-        await child.stdin.end()
-        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-        return { exitCode, stdout, stderr }
+        return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, signal })
       },
     }
     configureConcordAdapter({ runner })
@@ -406,7 +397,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 300_000)
 
@@ -419,7 +410,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
 // registered main checkout and resolves the core call from it, and the
 // readback-verified landing releases the rows.
 connected("a readback outside every Project recovers through the remembered destination", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-vacate-outside-"))
+  const root = await allocateFixtureRoot("concord-vacate-outside-", { timeoutMs: 300_000 })
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -495,12 +486,7 @@ connected("a readback outside every Project recovers through the remembered dest
     })
     const runner = {
       async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
-        const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-        if (signal?.aborted) child.kill()
-        await child.stdin.write(input)
-        await child.stdin.end()
-        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-        return { exitCode, stdout, stderr }
+        return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, signal })
       },
     }
     configureConcordAdapter({ runner })
@@ -592,7 +578,7 @@ connected("a readback outside every Project recovers through the remembered dest
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 300_000)
 
@@ -604,7 +590,7 @@ connected("a readback outside every Project recovers through the remembered dest
 // same-key retry then resolves the pending request from the source worktree
 // the session still runs in, and the verified landing records and releases.
 connected("an unreadable ok answer recovers through the same-key replay from the source", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-vacate-unreadable-"))
+  const root = await allocateFixtureRoot("concord-vacate-unreadable-", { timeoutMs: 300_000 })
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -677,12 +663,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     // commits, and answers ok, and the runner returns an unparsable success.
     let dropNextVacateAnswer = false
     const spawnCore = async (argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) => {
-      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-      if (signal?.aborted) child.kill()
-      await child.stdin.write(input)
-      await child.stdin.end()
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-      return { exitCode, stdout, stderr }
+      return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, signal })
     }
     const runner = {
       async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
@@ -776,7 +757,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 300_000)
 
@@ -787,7 +768,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
 // complete, the later claim's occupancy row stands, and the refusal's
 // recovery — the later claim's own verified landing or vacate — works.
 connected("a same-key replay after a later claim refuses without moving the host", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-vacate-later-claim-"))
+  const root = await allocateFixtureRoot("concord-vacate-later-claim-", { timeoutMs: 300_000 })
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -862,12 +843,7 @@ connected("a same-key replay after a later claim refuses without moving the host
     // claim grows out of.
     let failNextLandingAnswer = false
     const spawnCore = async (argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) => {
-      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-      if (signal?.aborted) child.kill()
-      await child.stdin.write(input)
-      await child.stdin.end()
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-      return { exitCode, stdout, stderr }
+      return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd ?? repoCheckout, env: { ...process.env, ...childEnv }, signal })
     }
     const runner = {
       async run(argv: string[], input: string, signal: AbortSignal, options?: { cwd?: string }) {
@@ -988,6 +964,6 @@ connected("a same-key replay after a later claim refuses without moving the host
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 300_000)

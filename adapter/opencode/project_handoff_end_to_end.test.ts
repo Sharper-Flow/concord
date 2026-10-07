@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
+import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
@@ -63,11 +63,7 @@ function publicKeyBase64(): string {
 }
 
 async function runProcess(argv: string[], input = "", cwd?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn(argv, { cwd, env: { ...process.env, CONCORD_DB_PATH: process.env.CONCORD_DB_PATH }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-  await child.stdin.write(input)
-  await child.stdin.end()
-  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-  return { exitCode, stdout, stderr }
+  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, CONCORD_DB_PATH: process.env.CONCORD_DB_PATH } })
 }
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
@@ -95,12 +91,7 @@ function realCoreRunner(binary: string, dbPath: string, childEnv: Record<string,
   return {
     async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) {
       if (argv[1] === "invoke") captured.invoke = JSON.parse(input) as JSONRecord
-      const child = Bun.spawn([binary, ...argv.slice(1)], { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath, ...childEnv }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-      if (signal?.aborted) child.kill()
-      await child.stdin.write(input)
-      await child.stdin.end()
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-      return { exitCode, stdout, stderr }
+      return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath, ...childEnv }, signal })
     },
   } as never
 }
@@ -336,7 +327,7 @@ afterEach(async () => {
 })
 
 routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-handoff-e2e-"))
+  const root = await allocateFixtureRoot("concord-handoff-e2e-", { timeoutMs: 300_000 })
   try {
     const fixture = await bootHandoffFixture(root)
     const { dbPath, workID, sourceWorktree, repoReceive, handoffID, captured } = fixture
@@ -470,6 +461,6 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(dbValue(dbPath, `SELECT lifecycle FROM work_items WHERE id='${workID}'`).lifecycle).toBe("in_progress")
     expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("consumed")
   } finally {
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 })

@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
+import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
 import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 
@@ -55,11 +55,7 @@ function publicKeyBase64(): string {
 }
 
 async function runProcess(argv: string[], input = "", cwd?: string, env: Record<string, string> = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const child = Bun.spawn(argv, { cwd, env: { ...process.env, ...env }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-  await child.stdin.write(input)
-  await child.stdin.end()
-  const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-  return { exitCode, stdout, stderr }
+  return runFixtureProcess(argv, input, { cwd, env: { ...process.env, ...env } })
 }
 
 async function runJSON(binary: string, dbPath: string, command: string, value: JSONRecord, cwd?: string): Promise<JSONRecord> {
@@ -277,12 +273,7 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
       if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
         realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
       }
-      const child = Bun.spawn([binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-      if (signal.aborted) child.kill()
-      await child.stdin.write(input)
-      await child.stdin.end()
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-      return { exitCode, stdout, stderr }
+      return runFixtureProcess([binary, ...argv.slice(1)], input, { env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal })
     },
   }
 }
@@ -333,7 +324,7 @@ async function driveWorkflowToContract(
 }
 
 routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-e2e-"))
+  const root = await allocateFixtureRoot("concord-dispatch-e2e-", { timeoutMs: 120_000 })
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, repo, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -372,12 +363,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
         if (argv[1] === "worker-dispatch" || argv[1] === "worker-complete" || argv[1] === "worker-fail" || argv[1] === "invoke") {
           realCalls.push({ argv, input: JSON.parse(input) as JSONRecord })
         }
-        const child = Bun.spawn([binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
-        if (signal.aborted) child.kill()
-        await child.stdin.write(input)
-        await child.stdin.end()
-        const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
-        return { exitCode, stdout, stderr }
+        return runFixtureProcess([binary, ...argv.slice(1)], input, { env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal })
       },
     }
     configureConcordAdapter({ runner: realRunner })
@@ -535,7 +521,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 120_000)
 
@@ -559,7 +545,7 @@ const EIGHT_ROUTE_PREDICATES: JSONRecord[] = Array.from({ length: 8 }, (_, ordin
 }))
 
 routeDeclaration("dispatches an admitted maximum premise with eight synthetic predicates through the real route", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-maxpremise-"))
+  const root = await allocateFixtureRoot("concord-dispatch-maxpremise-", { timeoutMs: 120_000 })
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -655,7 +641,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 120_000)
 
@@ -664,7 +650,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
 // crossed must complete through the bounded message pages, and the evidence
 // verbs must land on the real CLI and its worker_attempts row.
 routeDeclaration("records an oversized worker session through the real CLI and store", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-oversized-"))
+  const root = await allocateFixtureRoot("concord-dispatch-oversized-", { timeoutMs: 120_000 })
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -738,7 +724,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 120_000)
 
@@ -748,7 +734,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
 // surface that once answered 'worker evidence assertion timestamp invalid'
 // and left no attempt row.
 routeDeclaration("records a refused readback as a durable failed attempt through the real CLI and store", async () => {
-  const root = await mkdtemp(join(tmpdir(), "concord-dispatch-refused-"))
+  const root = await allocateFixtureRoot("concord-dispatch-refused-", { timeoutMs: 120_000 })
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -830,6 +816,6 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await rm(root, { recursive: true, force: true })
+    await releaseFixtureRoot(root)
   }
 }, 120_000)

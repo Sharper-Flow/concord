@@ -7,9 +7,11 @@ import path from "node:path"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
-// adapter refuses past; the test imports the contract so a drift on either
-// side fails a test instead of the evidence fold.
-import scenarioSchema from "../../contracts/workflow-engine-scenarios.schema.json"
+// adapter refuses past. The schema is read at runtime, so the staged host
+// typecheck needs no repository files beside the adapter sources.
+const scenarioSchema = JSON.parse(fs.readFileSync(new URL("../../contracts/workflow-engine-scenarios.schema.json", import.meta.url), "utf8")) as {
+  $defs: { eventPayload: { properties: { host_provenance: { properties: { sources: { maxItems: number } } } } } }
+}
 import type { RouteResult, SessionReader } from "./move-session"
 
 // Fake-runner suite: bind worker-evidence CLI calls to a nominal core path

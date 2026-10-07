@@ -113,7 +113,7 @@ describe("completeDispatchedWorker", () => {
   test("records dispatch and completion for the in-flight attempt", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
@@ -129,7 +129,7 @@ describe("completeDispatchedWorker", () => {
     const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
       const windows = new DispatchWindows()
       windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
       const verbs: string[] = []
       const output = { title: "verify lane", output: taskWrap(JSON.stringify({ ...report(), ...extra })), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-attempt", args: {} }, output, deps(verbs, windows))
@@ -150,7 +150,7 @@ describe("completeDispatchedWorker", () => {
     const attemptSummary = async (extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
       const windows = new DispatchWindows()
       windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
       const verbs: string[] = []
       const output = { title: "verify lane", output: taskWrap(JSON.stringify({ ...report(), ...extra })), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-review", args: {} }, output, deps(verbs, windows))
@@ -165,7 +165,7 @@ describe("completeDispatchedWorker", () => {
   test("computes prompt provenance from the dispatch-window directory", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     let dispatchInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
       async run(argv, input) {
@@ -192,7 +192,7 @@ describe("completeDispatchedWorker", () => {
   const completionInputFor = async (directory: string, callID: string): Promise<Record<string, unknown> | undefined> => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     let completionInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
       async run(argv, input) {
@@ -223,7 +223,7 @@ describe("completeDispatchedWorker", () => {
   test("uses the dispatch-window directory despite parent observation", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     let completionInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
       async run(argv, input) {
@@ -248,7 +248,7 @@ describe("completeDispatchedWorker", () => {
   test("uses the dispatch-window directory when neither session nor parent is listed", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     let completionInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
       async run(argv, input) {
@@ -282,7 +282,7 @@ describe("completeDispatchedWorker", () => {
   test("a refused completion is closed with worker-fail", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     let failureInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
@@ -319,7 +319,7 @@ describe("completeDispatchedWorker", () => {
   test("a refused completion is closed with worker-fail without reading host liveness", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const runner: DispatchRunner = {
       async run(argv) {
@@ -344,7 +344,7 @@ describe("completeDispatchedWorker", () => {
   test("does not add a WorkPin state line to the lane report", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
@@ -354,7 +354,7 @@ describe("completeDispatchedWorker", () => {
   test("a failed report records worker-fail and surfaces the refusal on the tool output", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report("failed"))), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
@@ -366,7 +366,7 @@ describe("completeDispatchedWorker", () => {
   test("a substituted executor is refused and nothing is recorded as that lane's evidence", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows, "general"))
@@ -380,7 +380,7 @@ describe("completeDispatchedWorker", () => {
   test("a worker session that opened without the packet is refused", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const runner: DispatchRunner = {
       async run(argv) {
@@ -411,7 +411,7 @@ describe("completeDispatchedWorker", () => {
     const windows = new DispatchWindows()
     const drifted = { ...packet(), lane_version: lane.version + 1 }
     windows.open(SESSION, drifted, PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
@@ -424,7 +424,7 @@ describe("completeDispatchedWorker", () => {
     const windows = new DispatchWindows()
     const drifted = { ...packet(), lane_digest: "sha256:" + "e".repeat(64) }
     windows.open(SESSION, drifted, PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-1", args: {} }, output, deps(verbs, windows))
@@ -437,7 +437,7 @@ describe("completeDispatchedWorker", () => {
   test("one authorization admits one result", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const first = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
     const second = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
@@ -471,7 +471,7 @@ describe("host task failure", () => {
     test(`a persisted born-failed ${fault} releases settlement`, async () => {
       const windows = new DispatchWindows()
       windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-      await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+      await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
       const verbs: string[] = []
       const options = deps(verbs, windows)
       options.sessionReader = fault === "export-command" ? failingReader(503) : malformedReader()
@@ -492,7 +492,7 @@ describe("host task failure", () => {
   test("a cancelled task records failure once using exported identity", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const result = await failDispatchedWorker(failedEvent(), deps(verbs, windows))
     expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
@@ -508,7 +508,7 @@ describe("host task failure", () => {
   test("a multi-byte failure detail records through worker-fail instead of stranding the attempt", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     let failureInput: Record<string, unknown> | undefined
     const runner: DispatchRunner = {
@@ -562,7 +562,7 @@ describe("host task failure", () => {
   test("retry-event-recorded: a session.status retry cause is appended to the cancelled Task's failure detail", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const failureInput: { value?: Record<string, unknown> } = {}
     const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
     // The host observed the provider fault on the child session and published
@@ -582,7 +582,7 @@ describe("host task failure", () => {
   test("info-error-fallback-recorded: the child message info.error is appended when no retry status was observed", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const failureInput: { value?: Record<string, unknown> } = {}
     const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
     // A provider fault that never entered the retry policy still lands on the
@@ -601,7 +601,7 @@ describe("host task failure", () => {
   test("cancel-without-cause-unchanged: a cancelled Task with no provider cause records the bare host string", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const failureInput: { value?: Record<string, unknown> } = {}
     const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
     // An abort marker names the operator's interrupt, not a provider fault,
@@ -621,7 +621,7 @@ describe("host task failure", () => {
   test("a refused born-failed write retains settlement without retry", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const options = deps(verbs, windows)
     options.sessionReader = failingReader(503)
@@ -644,7 +644,7 @@ describe("host task failure", () => {
   test("foreign calls and unbound sessions cannot consume an attempt", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     await failDispatchedWorker(failedEvent("foreign"), deps(verbs, windows))
     await failDispatchedWorker(failedEvent("call-cancel", "other-session"), deps(verbs, windows))
@@ -656,7 +656,7 @@ describe("host task failure", () => {
   test("missing child identity refuses without inventing model evidence", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const result = await failDispatchedWorker(failedEvent("call-cancel", SESSION, {}), deps(verbs, windows))
     expect(verbs).toEqual([])
@@ -672,7 +672,7 @@ describe("host task failure", () => {
   test("a substituted executor still fails identity verification", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const result = await failDispatchedWorker(failedEvent(), deps(verbs, windows, "general"))
     expect(verbs).toEqual([])
@@ -683,7 +683,7 @@ describe("host task failure", () => {
   test("failed persistence retains the authorization and does not automatically retry", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
     const verbs: string[] = []
     const options = deps(verbs, windows)
     options.evidenceRunner = { async run(argv) {
@@ -726,7 +726,7 @@ describe("spawn failure without a part event", () => {
 
   const withInFlightAttempt = async (windows: DispatchWindows, callID: string) => {
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
-    await windows.bind(TASK_TOOL_ID, SESSION, {}, callID, async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, callID, async () => process.cwd(), process.cwd())
   }
 
   test("settles the attempt by abandonment and releases the session", async () => {

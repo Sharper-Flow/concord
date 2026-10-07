@@ -344,7 +344,7 @@ describe("same-turn session move boundary", () => {
       expect(windows.has(sessionID)).toBe(false)
 
       windows.open(sessionID, packet, "", claimed)
-      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "general", prompt: "untrusted" }, "call-same-turn", async () => claimed))
+      await expect(windows.bind(TASK_TOOL_ID, sessionID, { subagent_type: "general", prompt: "untrusted" }, "call-same-turn", async () => claimed, claimed))
         .rejects.toThrow(TURN_MOVE_DISPATCH_REFUSAL)
       expect(windows.has(sessionID)).toBe(false)
 
@@ -363,7 +363,7 @@ describe("same-turn session move boundary", () => {
       expect(authorizeCalls).toBe(1)
       expect(windows.has(sessionID)).toBe(true)
       const args = { subagent_type: "general", prompt: "untrusted", description: "untrusted" }
-      await windows.bind(TASK_TOOL_ID, sessionID, args, "call-turn-move", async () => claimed)
+      await windows.bind(TASK_TOOL_ID, sessionID, args, "call-turn-move", async () => claimed, claimed)
       expect(JSON.parse(args.prompt).attempt_id).toBe(packet.attempt_id)
       expect(process.cwd()).toBe(previousDirectory)
     } finally {

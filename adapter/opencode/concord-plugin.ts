@@ -87,6 +87,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   // than run unprotected. The lease names the session's directory and
   // worktree so a breaking-migration refusal points at the exact terminal.
   await claimHostLease(process.pid, { directory: input?.directory, worktree: input?.worktree })
+  // The directory the host executes this instance's Task children in. The
+  // dispatch bind compares it against the claimed worktree because it is where
+  // a dispatched worker runs, and it follows the instance after a move lands.
+  const instanceDirectory = input?.directory
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {
@@ -160,7 +164,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
         throw new DispatchWindowError(`a Concord lane runs only through dispatch_worker: ${String(output.args.subagent_type)} was called with no open dispatch window; issue the dispatch_worker action first, then repeat this Task call inside the window it opens`)
       }
       if (windows.has(input.sessionID)) {
-        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID))
+        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
         return
       }
       const concordUtility = agentUtilities.some((utility) => output.args.subagent_type === `concord-${utility.id}`)
@@ -173,7 +177,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       const scope = await hostControlPlane().taskScope(input.sessionID)
       if (scope === null) throw new SessionScopeUnavailable("cannot resolve managed Task scope: the calling host session does not exist")
       if (scope === "managed") {
-        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID))
+        await windows.bind(input.tool, input.sessionID, output.args, input.callID, () => hostControlPlane().sessionDirectory(input.sessionID), instanceDirectory)
         return
       }
       // A native Task may resume a session that belongs to another parent.

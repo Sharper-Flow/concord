@@ -401,7 +401,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(await hostControlPlane().taskScope("worker-session")).toBe("managed")
     expect(windows.has(SESSION_ID)).toBe(true)
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     boundPacket = packet
     expect(taskArgs.subagent_type).toBe("concord-implement")
@@ -595,7 +595,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     expect(windows.has(SESSION_ID)).toBe(true)
 
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     boundPacket = packet
     // The objective reaches the worker byte-for-byte: 4096 UTF-8 bytes of
@@ -694,7 +694,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     })
     expect(dispatchResult.outcome).toBe("ok")
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     boundPacket = packet
     // The transcript the readback walks crosses the fixed 8 MiB export bound
@@ -778,7 +778,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     })
     expect(dispatchResult.outcome).toBe("ok")
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
-    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree)
+    await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     refuseWorkerSessionRead = true
     const report = {

@@ -21,11 +21,14 @@ const workflowCorrectionAttemptLimit int64 = 3
 // carried hold no authority, however identical the predicate payloads remain.
 const workflowCompleteStepCorrectionRoute = "complete_step_correction"
 
-// workflowCompleteStepCorrectionStep reports whether the pinned step is the
-// completion step of a break-fix or implementation workflow, the only shape
-// the complete-step correction route and its reserved convention apply to.
+// workflowCompleteStepCorrectionStep reports whether the pinned step declares
+// the CD-0172 complete-step correction route: a disproved_premise_at_complete
+// recovery route whose target is the producer the corrected contract returns
+// to. Only the implementation and break-fix tables declare the trigger, and
+// registration seats it on a step that declares the complete action, so the
+// resolved route is both the shape test and the return's one owner.
 func workflowCompleteStepCorrectionStep(definition WorkflowDefinition, currentStep string) bool {
-	return workflowCorrectionWorkflow(definition) && stepDeclaresAction(definition, currentStep, "complete")
+	return workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) != ""
 }
 
 // workflowCompletedInstanceSupersedeOffShape reports a completed workflow
@@ -353,35 +356,14 @@ func workflowCorrectionRequestActionDefinition() WorkflowActionDefinition {
 	return action
 }
 
-// workflowCorrectionTargetStep returns the nearest external-effect step before
-// the current verification or completion step. The lookup uses the pinned
-// definition, so historical workflow versions keep their own route.
-func workflowCorrectionTargetStep(definition WorkflowDefinition, currentStep string) string {
-	preferred := ""
-	fallback := ""
-	preferredAction := "start_execution"
-	if definition.WorkKind == WorkKindBreakFix {
-		preferredAction = "start_repair"
-	}
-	for _, candidate := range definition.StepGraph.Steps {
-		if candidate.Kind != WorkflowStepExternalEffect || !workflowStepFollows(definition, candidate.ID, currentStep) {
-			continue
-		}
-		if fallback == "" {
-			fallback = candidate.ID
-		}
-		if containsString(candidate.Actions, preferredAction) {
-			preferred = candidate.ID
-		}
-	}
-	if preferred != "" {
-		return preferred
-	}
-	return fallback
-}
-
-func workflowCorrectionWorkflow(definition WorkflowDefinition) bool {
-	return definition.WorkKind == WorkKindImplementation || definition.WorkKind == WorkKindBreakFix
+// workflowCorrectionRouteStrategy renders the strategy line the correction
+// contexts carry: the declared route's producer step is where the artifact is
+// re-produced. The target comes from the one return-target reader — the
+// step's own route, the served verdict step's route at a gate or a
+// late-verdict step — so the pin, the fold, and the dispatched packet name
+// the same step.
+func workflowCorrectionRouteStrategy(definition WorkflowDefinition, currentStep string) string {
+	return fmt.Sprintf("return to the producer step %q and re-produce the artifact", workflowCorrectionReturnTarget(definition, currentStep))
 }
 
 // workflowAcceptedWorkerDelivery requires both a completed worker attempt and
@@ -548,7 +530,16 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 	var count int64
 	// Authorization already creates an attempt. Dispatch evidence corroborates
 	// that same identity, so count it once rather than requiring or doubling it.
-	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>?`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, boundary).Scan(&count); err != nil {
+	// Both event populations belong to the requested work. Bind the acceptance
+	// window directly so SQLite computes it once, not once per joined opening.
+	if err := q.QueryRowContext(ctx, `
+SELECT count(DISTINCT a.attempt_id)
+FROM worker_attempts a
+JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=?
+    AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id)
+      OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker'
+          AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id))
+WHERE a.work_id=? AND opening.seq<=? AND opening.seq>?`, string(SubjectWorkItem), workID, WorkerDispatched, WorkflowActionCompleted, workID, seq, boundary).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil
@@ -819,7 +810,13 @@ func workflowSameStepWallFailure(currentStep string, count int64) *Failure {
 }
 
 func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*workflowCorrectionVerdictPrerequisites, error) {
-	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
+	if workflowCorrectionReturnTarget(definition, currentStep) == "" {
+		// The step evaluates nothing and serves no verdict step: no
+		// verdict correction route opens from it. Every evaluator step of
+		// every registered family resolves a route, and every late-verdict
+		// step serves one that does (D4), so this read is the one shape
+		// gate — including the terminal implementation shape whose
+		// request_correction the work-kind era carried (CD-0201 D1).
 		return nil, nil
 	}
 	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, subject)
@@ -849,6 +846,17 @@ func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID strin
 	acceptedDispatchSeq, accepted, acceptedErr := workflowAcceptedWorkerDelivery(ctx, q, workID, verdictSeq, subject)
 	if acceptedErr != nil {
 		return nil, acceptedErr
+	}
+	if !accepted {
+		// Direct artifact actions carry production without a worker attempt.
+		// The same frontier that establishes freshness supplies this ground;
+		// an older artifact cannot bypass a later unaccepted review, and
+		// production after the verdict cannot justify its correction.
+		acceptedDispatchSeq, acceptedErr = workflowArtifactProductionFrontier(ctx, q, workID, definition, workflowCorrectionReturnTarget(definition, currentStep), acceptedDispatchSeq, verdictSeq, subject)
+		if acceptedErr != nil {
+			return nil, acceptedErr
+		}
+		accepted = acceptedDispatchSeq > 0
 	}
 	return &workflowCorrectionVerdictPrerequisites{
 		nonOK: nonOK, contractVersion: contractVersion, verdictSeq: verdictSeq,
@@ -923,7 +931,7 @@ func workflowVerdictCorrectionFromState(ctx context.Context, q queryer, workID s
 	return &WorkflowCorrectionContext{
 		Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
-		Diagnosis: "latest verification verdict is not healthy", Strategy: fmt.Sprintf("repeat the external-effect step %q", workflowCorrectionTargetStep(definition, currentStep)),
+		Diagnosis: "latest verification verdict is not healthy", Strategy: workflowCorrectionRouteStrategy(definition, currentStep),
 	}, nil
 }
 
@@ -1058,9 +1066,10 @@ func workflowPostRejectionRepairFrontier(ctx context.Context, q queryer, workID,
 // not permission to ship; it carries the same review obligation as a rejected
 // result without changing the recorded worker disposition.
 func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, subject string) (int64, []byte, error) {
-	if !workflowCorrectionWorkflow(definition) {
-		return 0, nil, nil
-	}
+	// Review debt is same-step attempt recovery: it keeps its existing owner
+	// (the refinement shape), so this read makes no cross-step choice. The
+	// refinement-step lookup below is the shape gate; a definition without a
+	// refinement step holds no review debt whatever its work kind.
 	refineStep := workflowRefinementStepID(definition)
 	if refineStep == "" {
 		return 0, nil, nil
@@ -1070,7 +1079,7 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 	if err := q.QueryRowContext(ctx, `SELECT acc.seq,acc.payload FROM domain_events acc
 		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.step_id')=?
 		AND (json_extract(acc.payload,'$.action_id')='reject_worker_result'
-		OR (json_extract(acc.payload,'$.action_id')='accept_worker_result' AND EXISTS(
+		OR (json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND EXISTS(
 			SELECT 1 FROM domain_events wd JOIN domain_events wc
 			ON wc.subject_type=wd.subject_type AND wc.subject_id=wd.subject_id AND wc.kind=?
 			AND json_extract(wc.payload,'$.attempt_id')=json_extract(wd.payload,'$.attempt_id')
@@ -1093,6 +1102,10 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 // cannot bind, because the newer evidence supersedes its findings
 // (CD-0206 D3).
 func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attemptID, subject string) (bool, error) {
+	return workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attemptID, subject, 0)
+}
+
+func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, attemptID, subject string, beforeSeq int64) (bool, error) {
 	var stale int
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM domain_events wc
@@ -1104,8 +1117,8 @@ func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attempt
 			JOIN domain_events wd2 ON wd2.subject_type=wc2.subject_type AND wd2.subject_id=wc2.subject_id AND wd2.kind=?
 				AND json_extract(wd2.payload,'$.attempt_id')=json_extract(wc2.payload,'$.attempt_id')
 				AND json_extract(wd2.payload,'$.capability_class')='review'
-			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq))`,
-		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted).Scan(&stale)
+			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq AND (?=0 OR wc2.seq<?)))`,
+		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted, beforeSeq, beforeSeq).Scan(&stale)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the workflow projection is readable", err)
 	}
@@ -1145,7 +1158,7 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc
 		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>?
 		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
-		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id')='accept_worker_result' AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the post-rejection review history", true, "retry once the worker delivery projection is readable", err)
 	}
 	return reviewed == 0, nil
@@ -1160,7 +1173,10 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 // correction: record_delivery stays the only route off an ordinary parked
 // gate.
 func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*WorkflowCorrectionContext, error) {
-	if !workflowCorrectionWorkflow(definition) || !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+	if !workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+		// The gate shape owns this route (CD-0166), not a work kind: the
+		// correction it admits is the post-rejection review return, and
+		// its target is read from the route table below.
 		return nil, nil
 	}
 	// The gate's correction prerequisite is the shared derivation: the
@@ -1238,8 +1254,11 @@ func workflowDeliveryGateCorrectionContextFolded(ctx context.Context, q queryer,
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, rejectSeq).Scan(&priorCorrections); err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 	}
-	target := workflowCorrectionTargetStep(definition, currentStep)
+	target := workflowCorrectionReturnTarget(definition, currentStep)
 	if target == "" {
+		// The gate serves a verdict step with no unhealthy_verdict route;
+		// registration refuses that shape (D4), so this is a projection
+		// repair case, not a runtime choice.
 		return nil, nil
 	}
 	attempts := priorCorrections + 1
@@ -1360,7 +1379,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, state.verdictSeq).Scan(&priorCorrections); err != nil {
 		return nil, workflowCorrectionMissingNone, wrapFailure(KindUnavailable, subject, "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 	}
-	target := workflowCorrectionTargetStep(definition, currentStep)
+	target := workflowUnhealthyVerdictRouteTarget(definition, currentStep)
 	if target == "" {
 		return nil, workflowCorrectionMissingAcceptedDelivery, nil
 	}
@@ -1378,7 +1397,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	return &WorkflowCorrectionContext{
 		Disposition: "failed", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 		PredicateIDs: nonNilStrings(predicates), EvidenceRefs: nonNilStrings(evidence),
-		Diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy", Strategy: fmt.Sprintf("return to step %q and dispatch a fresh attempt", target),
+		Diagnosis: "the checkpoint review attempt failed and the latest verification verdict is not healthy", Strategy: workflowCorrectionRouteStrategy(definition, currentStep),
 		FailedAttemptID: attemptID,
 	}, workflowCorrectionMissingNone, nil
 }
@@ -1394,7 +1413,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 // failed-review return; every other step corrects through the verification
 // verdict.
 func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, excludeSeq int64) (*WorkflowCorrectionContext, string, error) {
-	if workflowCorrectionWorkflow(definition) && workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		context, err := workflowDeliveryGateCorrectionContext(ctx, q, workID, definition, currentStep, subject)
 		if err != nil || context != nil {
 			return context, workflowCorrectionMissingNone, err
@@ -1415,10 +1434,11 @@ func workflowCorrectionRequestAdmission(ctx context.Context, q queryer, workID s
 		}
 		return workflowCheckpointFailedReviewCorrection(ctx, q, workID, definition, currentStep, subject, state, excludeSeq)
 	}
-	// No non-ok verdict stands under the active contract. A step without a
-	// correction route keeps the shape-neutral default refusal; a correction
-	// route names the absent verdict.
-	if !workflowCorrectionWorkflow(definition) || workflowCorrectionTargetStep(definition, currentStep) == "" {
+	// No non-ok verdict stands under the active contract. A step that
+	// resolves no unhealthy_verdict route and serves no verdict step keeps
+	// the shape-neutral default refusal; an evaluator or late-verdict step
+	// names the absent verdict.
+	if workflowCorrectionReturnTarget(definition, currentStep) == "" {
 		return nil, workflowCorrectionMissingNone, nil
 	}
 	return nil, workflowCorrectionMissingVerdict, nil

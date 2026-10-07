@@ -11,6 +11,7 @@ import os
 import select
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -268,7 +269,7 @@ esac''',
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum mismatch", result.stderr)
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
         self.assertNotIn("skills", self.config.read_text(encoding="utf-8"))
 
     def test_missing_binary_checksum_refuses_without_installing(self) -> None:
@@ -276,7 +277,7 @@ esac''',
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not contain the binary entry", result.stderr)
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
 
     def test_missing_prerequisite_refuses_without_installing(self) -> None:
         self.make_release("v1.0.0")
@@ -289,7 +290,7 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing command secret-tool", result.stderr)
         self.assertIn("worker evidence signing fails closed", result.stderr)
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
 
     def test_headless_install_creates_noninteractive_persistent_credential_collection(self) -> None:
         self.make_release("v1.0.0")
@@ -535,7 +536,7 @@ esac''',
         self.assertFalse(
             (self.root / "config" / "systemd" / "user" / "gnome-keyring-daemon.service.d" / installer.CREDENTIAL_DROPIN_NAME).exists()
         )
-        self.assertFalse((self.root / "data" / "concord").exists())
+        self.assert_retained_empty_lock_root()
 
     def test_install_is_idempotent(self) -> None:
         self.make_release("v1.0.0")
@@ -705,6 +706,14 @@ esac''',
     def data_root(self) -> Path:
         return self.root / "data" / "concord"
 
+    def assert_retained_empty_lock_root(self) -> None:
+        """The approved retained-directory result (CON-807,
+        obs:1ca149d633e69626): the lock root and its ancestor survive the
+        command, and no installed or command state hides behind retention."""
+        self.assertTrue(self.data_root.is_dir(), "the retained lock root must survive the command")
+        self.assertTrue((self.root / "data").is_dir(), "the lock root's ancestor must survive the command")
+        self.assertFalse(any(self.data_root.iterdir()), "retention must not keep installed or command state")
+
     @property
     def prepared_path(self) -> Path:
         return self.data_root / installer.PREPARED_RELEASE_NAME
@@ -847,6 +856,262 @@ esac''',
 
     def test_a_blocked_install_refuses_while_a_maintenance_boundary_is_open(self) -> None:
         self.assert_superseding_install_refused_under_open_boundary(self.plan_env(blocked=True))
+
+    def test_a_first_install_holds_the_maintenance_lock_on_an_absent_root(self) -> None:
+        """A first-install bootstrap creates the data root to lock it, so
+        even the first command runs inside the shared maintenance exclusion
+        (CON-807): a second command must not recover a live transaction or
+        stage beside it while the first one bootstraps."""
+        self.assertFalse(self.data_root.exists(), "the fixture must start without a data root")
+        with installer.maintenance_lock(installer.paths_for(self.root)):
+            self.assertTrue(self.data_root.is_dir(), "the acquisition must create and hold the data root")
+            for arguments in (("status",), ("uninstall",)):
+                with self.subTest(command=arguments[0]):
+                    result = self.run_installer(*arguments)
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("another maintenance command is in progress", result.stderr)
+        # Retention is the approved outcome (obs:1ca149d633e69626): the
+        # empty bootstrapped root and its ancestors stay, because no cleanup
+        # may remove a directory a replacement holder could own.
+        self.assertTrue(self.data_root.is_dir(), "a failed first command must retain the empty bootstrapped root")
+        self.assertTrue((self.root / "data").is_dir(), "a failed first command must retain the bootstrapped ancestors")
+        self.assertFalse(any(self.data_root.iterdir()), "retention must not keep command state")
+
+    def test_the_maintenance_lock_reacquires_a_replaced_data_root(self) -> None:
+        """The lock identity is the directory the path names at admission:
+        when the root is removed and recreated between the open and the
+        flock, the stale descriptor is released and the lock is taken on the
+        root that is current now (CON-807)."""
+        paths = installer.paths_for(self.root)
+        paths.data_root.mkdir(parents=True)
+        real_flock = fcntl.flock
+        calls = 0
+
+        def replace_between_open_and_flock(fd: int, operation: int) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                shutil.rmtree(paths.data_root)
+                paths.data_root.mkdir(mode=0o700)
+            real_flock(fd, operation)
+
+        with mock.patch.object(installer.fcntl, "flock", side_effect=replace_between_open_and_flock):
+            with installer.maintenance_lock(paths):
+                probe = os.open(paths.data_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                finally:
+                    os.close(probe)
+        self.assertGreaterEqual(calls, 2, "the acquisition retried without a bounded local sequence")
+        probe = os.open(paths.data_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe, fcntl.LOCK_UN)
+        finally:
+            os.close(probe)
+
+    def test_the_maintenance_lock_refuses_a_symlinked_data_root(self) -> None:
+        """The data root is opened without following symlinks, so a replaced
+        or planted link can never move the lock onto another directory
+        (CON-807)."""
+        target = self.root / "elsewhere"
+        target.mkdir()
+        (self.root / "data").mkdir()
+        self.data_root.symlink_to(target, target_is_directory=True)
+        with self.assertRaises(installer.InstallerError) as raised:
+            with installer.maintenance_lock(installer.paths_for(self.root)):
+                self.fail("a symlinked data root was locked")
+        self.assertIn("symlink", str(raised.exception))
+
+    def test_the_maintenance_lock_is_released_when_the_holder_dies(self) -> None:
+        """The lock dies with its holder: the kernel releases a flock when
+        the open file description closes, so a killed command leaves the
+        root immediately acquirable (CON-807)."""
+        paths = installer.paths_for(self.root)
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            try:
+                with installer.maintenance_lock(paths):
+                    os.write(write_fd, b"held")
+                    time.sleep(10)
+            finally:
+                os._exit(0)
+        os.close(write_fd)
+        held = os.read(read_fd, 4)
+        self.assertEqual(held, b"held")
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        os.close(read_fd)
+        with installer.maintenance_lock(paths):
+            pass
+
+    def test_a_failed_command_retains_the_bootstrapped_root_and_ancestors(self) -> None:
+        """A command that fails mid-hold keeps the empty root it created
+        (CON-807): retention (obs:1ca149d633e69626) is the approved outcome
+        for failed installation, because no cleanup can prove a replacement
+        holder has not taken the directory over."""
+        paths = installer.paths_for(self.root)
+        with self.assertRaises(RuntimeError):
+            with installer.maintenance_lock(paths):
+                raise RuntimeError("command failed mid-hold")
+        self.assertTrue(self.data_root.is_dir(), "a failed command must retain the empty bootstrapped root")
+        self.assertTrue((self.root / "data").is_dir(), "a failed command must retain the bootstrapped ancestors")
+        self.assertFalse(any(self.data_root.iterdir()), "retention must not keep command state")
+
+    def test_a_normal_release_retains_the_bootstrapped_root_and_ancestors(self) -> None:
+        """A normal maintenance release keeps the empty root it created
+        (CON-807): retained disk space is the accepted cost of never letting
+        a cleanup delete a directory another participant may hold."""
+        paths = installer.paths_for(self.root)
+        with installer.maintenance_lock(paths):
+            pass
+        self.assertTrue(self.data_root.is_dir(), "a normal release must retain the empty bootstrapped root")
+        self.assertTrue((self.root / "data").is_dir(), "a normal release must retain the bootstrapped ancestors")
+        self.assertFalse(any(self.data_root.iterdir()), "retention must not keep command state")
+
+    def test_final_cleanup_never_removes_a_replacement_published_under_the_lock(self) -> None:
+        """The reproduced final-cleanup interleaving, promoted to
+        deterministic coverage (CON-807): while the holder's cleanup removes
+        the root path, another participant replaces the root and a second
+        real acquisition holds the replacement. Against the deleting cleanup
+        this test fails exactly there — the removal deleted the second
+        holder's root. Under retention (obs:1ca149d633e69626) the release
+        removes no data root at all, so the interleaving never fires."""
+        paths = installer.paths_for(self.root)
+        real_rmdir = os.rmdir
+        interleaved: list[bool] = []
+
+        def rmdir_with_replacement(path):
+            if os.fspath(path) == str(paths.data_root) and not interleaved:
+                interleaved.append(True)
+                os.rename(paths.data_root, self.root / "aside")  # the replacement owner moves the root away
+                paths.data_root.mkdir(mode=0o700)  # and publishes its own empty root at the path
+                with installer.maintenance_lock(paths):  # a second real acquisition holds the replacement
+                    interleaved.append(True)
+            return real_rmdir(path)
+
+        with mock.patch.object(installer.os, "rmdir", side_effect=rmdir_with_replacement):
+            with installer.maintenance_lock(paths):
+                pass
+        self.assertFalse(interleaved, "the release still removes the data root; the promoted interleaving fired")
+        self.assertTrue(self.data_root.is_dir(), "the release must retain the bootstrapped root")
+        self.assertTrue((self.root / "data").is_dir(), "the release must retain the bootstrapped ancestors")
+
+    def test_an_uninstall_of_a_fresh_root_retains_the_lock_root(self) -> None:
+        """Uninstall over a machine that never installed keeps the lock root
+        it bootstrapped (CON-807): retention (obs:1ca149d633e69626) replaces
+        the earlier no-residue rule, and only intended installed content is
+        removed."""
+        result = self.run_installer("uninstall")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("nothing was changed", result.stdout)
+        self.assertTrue((self.root / "data" / "concord").is_dir(), "uninstall of a fresh root left no lock root")
+        self.assertTrue((self.root / "data").is_dir(), "uninstall of a fresh root left no lock-root ancestor")
+
+    def test_an_unchanged_active_release_survives_a_validation_failure(self) -> None:
+        """A release-tree validation failure must refuse before any swap:
+        the active launcher, current root, and manifest keep the release the
+        running sessions hold (CON-807)."""
+        self.install_release("v1.0.0")
+        marker = self.data_root / "v1.0.0" / "bin" / "concord"
+        marker.write_bytes(marker.read_bytes() + b"tampered")
+        self.make_release("v1.1.0")
+        result = self.run_installer(
+            "install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts), env=self.plan_env(blocked=False)
+        )
+        self.assertNotEqual(result.returncode, 0, "a tampered installed tree let an install proceed")
+        self.assert_active_release("v1.0.0", "v1.0.0")
+
+    def test_a_symlinked_replacement_never_admits_the_lock(self) -> None:
+        """A root moved aside and replaced by a symlink to itself must not
+        be admitted: the post-flock confirmation reads the path with lstat,
+        never following the link back to the inode the descriptor holds
+        (CON-807)."""
+        paths = installer.paths_for(self.root)
+        paths.data_root.mkdir(parents=True)
+        moved = self.root / "moved-aside"
+        real_flock = fcntl.flock
+        calls = 0
+
+        def move_aside_and_link(fd: int, operation: int) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                os.rename(paths.data_root, moved)
+                paths.data_root.symlink_to(moved, target_is_directory=True)
+            real_flock(fd, operation)
+
+        with mock.patch.object(installer.fcntl, "flock", side_effect=move_aside_and_link):
+            with self.assertRaises(installer.InstallerError) as raised:
+                with installer.maintenance_lock(paths):
+                    self.fail("a replaced symlink admitted the maintenance lock")
+        self.assertIn("symlink", str(raised.exception))
+        self.assertTrue(paths.data_root.is_symlink(), "the probe must leave the planted symlink in place")
+        # The moved-aside directory is unlocked again: the stale descriptor
+        # was released with the refused acquisition.
+        probe = os.open(moved, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe, fcntl.LOCK_UN)
+        finally:
+            os.close(probe)
+
+    def test_a_foreign_created_data_root_survives_a_crashed_install_recovery(self) -> None:
+        """Transaction cleanup never removes the data root: it is the
+        maintenance lock's root, and no cleanup removes it. A root another
+        participant created survives a crashed install and the recovery that
+        rolls it back (CON-807)."""
+        self.data_root.mkdir(parents=True)  # foreign: no installer command created it
+        self.make_release("v1.0.0")
+        crash = self.run_after_phase("staged", "install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(crash.returncode, 97, crash.stderr)
+        self.assertTrue(self.data_root.is_dir(), "the crash itself removed the foreign data root")
+        recovery = self.run_installer("status")
+        self.assertEqual(recovery.returncode, 0, recovery.stderr)
+        self.assertTrue(self.data_root.is_dir(), "recovery deleted a foreign-created data root")
+        self.assertFalse(any(self.data_root.iterdir()), "recovery left transaction state behind")
+
+    def test_a_failed_first_install_retains_the_empty_root_and_ancestors(self) -> None:
+        """A first install that fails keeps the empty root it bootstrapped
+        (CON-807): retention (obs:1ca149d633e69626) replaces the earlier
+        no-residue rule, and only the root's emptiness is checked — no
+        command state may hide behind retention."""
+        result = self.run_installer("install", "--version", "v9.9.9", "--artifact-dir", str(self.artifacts))
+        self.assertNotEqual(result.returncode, 0, "an install of a missing artifact succeeded")
+        self.assertTrue(self.data_root.is_dir(), "a failed first install must retain the empty bootstrapped root")
+        self.assertTrue((self.root / "data").is_dir(), "a failed first install must retain the bootstrapped ancestors")
+        self.assertFalse(any(self.data_root.iterdir()), "retention must not keep command state")
+
+    def test_an_uninstall_removes_installed_content_and_retains_the_lock_root(self) -> None:
+        """Uninstall removes the intended installed content — the release
+        tree, the current root, and the manifest — and retains the lock root
+        it ends with (CON-807, obs:1ca149d633e69626): the retained empty
+        directory is the accepted cost of never letting a cleanup delete a
+        directory a replacement holder may own."""
+        self.install_release("v1.0.0")
+        self.assertTrue(self.data_root.is_dir(), "the fixture must start with an established root")
+        result = self.run_installer("uninstall")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.data_root / "v1.0.0").exists(), "uninstall left the release tree behind")
+        self.assertFalse((self.data_root / "current").exists(), "uninstall left the current root behind")
+        self.assertFalse((self.data_root / installer.MANIFEST_NAME).exists(), "uninstall left the manifest behind")
+        self.assertTrue(self.data_root.is_dir(), "uninstall must retain the lock root")
+
+    def test_an_uninstall_retains_a_foreign_root_and_its_state(self) -> None:
+        """Uninstall removes intended installed content only: a foreign root
+        and the state another participant wrote into it survive the command
+        (CON-807)."""
+        paths = installer.paths_for(self.root)
+        paths.data_root.mkdir(parents=True)
+        (paths.data_root / "foreign-state").write_text("keep", encoding="utf-8")
+        result = self.run_installer("uninstall")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("nothing was changed", result.stdout)
+        self.assertEqual((paths.data_root / "foreign-state").read_text(encoding="utf-8"), "keep")
+        self.assertTrue(paths.data_root.is_dir(), "uninstall deleted a foreign data root")
 
     def test_an_unknown_install_refuses_while_a_maintenance_boundary_is_open(self) -> None:
         self.assert_superseding_install_refused_under_open_boundary(self.plan_env(fail=True))
@@ -1507,7 +1772,7 @@ esac''',
         self.assertEqual(installed.returncode, 0, installed.stderr)
         removed = self.run_installer("uninstall")
         self.assertEqual(removed.returncode, 0, removed.stderr)
-        self.assertFalse((self.root / "data" / "concord").exists())
+        self.assert_retained_empty_lock_root()
         self.assertFalse((self.root / "config" / "opencode" / "tools" / "concord.ts").exists())
         self.assertFalse((self.root / "bin" / "concord").is_symlink())
         config = self.config.read_text(encoding="utf-8")
@@ -1524,7 +1789,7 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("user-authored adapter file", result.stderr)
         self.assertEqual(adapter.read_text(encoding="utf-8"), "operator-authored\n")
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
 
     def plugin_entry_path(self) -> str:
         return str((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).resolve())
@@ -1571,7 +1836,7 @@ esac''',
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("plugin value is not an array", result.stderr)
         self.assertIn("manually", result.stderr)
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
 
     def test_uninstall_removes_plugin_entry(self) -> None:
         self.make_release("v1.0.0")
@@ -1690,7 +1955,7 @@ esac''',
             self.config.read_text(encoding="utf-8"),
             '{\n  "keep": true,\n  "skills": {"paths": ["/operator-authored/skill"]}\n}\n',
         )
-        self.assertFalse((self.root / "data").exists())
+        self.assert_retained_empty_lock_root()
 
     def install_for_manifest_attack(self) -> Path:
         self.make_release("v1.0.0")
@@ -1773,7 +2038,7 @@ esac''',
                 removed = self.run_installer("uninstall")
                 self.assertEqual(removed.returncode, 0, removed.stderr)
                 self.reset_config()
-                self.assertFalse((self.root / "data" / "concord").exists())
+                self.assert_retained_empty_lock_root()
 
     def test_uninstall_process_death_at_every_phase_recovers(self) -> None:
         phases = ("staged", "version_activated", "agents_swapped", "adapter_swapped", "launcher_swapped", "config_swapped", "manifest_committed", "cleanup")
@@ -1790,7 +2055,7 @@ esac''',
                 removed = self.run_installer("uninstall")
                 self.assertEqual(removed.returncode, 0, removed.stderr)
                 self.reset_config()
-                self.assertFalse((self.root / "data" / "concord").exists())
+                self.assert_retained_empty_lock_root()
 
     def test_upgrade_process_death_at_every_phase_recovers_old_or_new_coherently(self) -> None:
         old_version = "v4.9.0"

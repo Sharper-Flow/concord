@@ -1,0 +1,3 @@
+# Adapter-directory test invocation; shares the repository-root preload.
+[test]
+preload = ["./test_preload.ts"]

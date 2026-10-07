@@ -5607,6 +5607,20 @@ CREATE TRIGGER project_handoffs_guard_delete BEFORE DELETE ON project_handoffs F
 	},
 	{
 		Version:  116,
+		Name:     "durability_commit_marker",
+		Breaking: false,
+		SQL: `
+-- CD-0050: the commit owner changes this bit even for a no-write replay.
+-- It is storage metadata, not a projection or a SQLite schema-version field.
+CREATE TABLE durability_commits (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    bit INTEGER NOT NULL CHECK(bit IN (0,1))
+);
+INSERT INTO durability_commits(id,bit) VALUES(1,0);
+`,
+	},
+	{
+		Version:  117,
 		Name:     "worker_job_revisions",
 		Breaking: false,
 		SQL: `
@@ -5657,7 +5671,7 @@ CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_rev
 `,
 	},
 	{
-		Version:  117,
+		Version:  118,
 		Name:     "worker_attempt_job_capable_schema_versions",
 		Breaking: true,
 		SQL: `
@@ -5672,7 +5686,7 @@ CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_rev
 DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
 DROP TRIGGER IF EXISTS worker_attempts_guard_update;
 DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
-ALTER TABLE worker_attempts RENAME TO worker_attempts_v117;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v118;
 CREATE TABLE worker_attempts (
     work_id TEXT NOT NULL,
     attempt_id TEXT PRIMARY KEY,
@@ -5707,8 +5721,8 @@ CREATE TABLE worker_attempts (
 INSERT INTO worker_attempts
     (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
     SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
-    FROM worker_attempts_v117;
-DROP TABLE worker_attempts_v117;
+    FROM worker_attempts_v118;
+DROP TABLE worker_attempts_v118;
 CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
 CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;

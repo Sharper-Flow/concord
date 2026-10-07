@@ -1,5 +1,30 @@
 {
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRefineReviewEvidenceDispositionOpensContractCorrection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowActionPreflightResolvesContractCorrectionAtCheckpoint"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPredispatchContractCorrectionSurvivesRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestSupersedeContractDispatchChallengesThenBindsApprovalOperator"
+    }
+  ],
   "id": "CD-0133",
-  "reason": "The action resolver, preflight, event fold, work-pin projection, and regression test provide the decision's reachability evidence.",
-  "state": "out_of_scope"
+  "state": "satisfied"
 }

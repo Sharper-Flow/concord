@@ -45,19 +45,87 @@ func issue1013Preflight(t *testing.T, s *Store, workID, action string, payload j
 	})
 }
 
+// issue1013LateVerdictProduction does one fresh producing attempt at the
+// declared recovery-route target (execution). The start + dispatch + complete
+// + accept cycle is the only event sequence the artifact-staleness
+// production frontier recognizes (CD-0201 D5): the dispatch_worker action
+// completion at the target binds the accepted delivery to a producing
+// dispatch origin at the same step, and the acceptance is what the frontier
+// reads. The cycle advances the workflow one step. The v2 fixture has no
+// refine step, so this lands the workflow at acceptance directly; callers on
+// the v23 implementation must continue the journey from refine to delivery
+// before the next verdict or premise confirmation.
+func issue1013LateVerdictProduction(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	ctx := context.Background()
+	lane := BuiltinLaneDefinitions()[0]
+	attemptID := "attempt:" + workID + ":late-verdict-fresh"
+	attemptEpoch := int64(2)
+	ownerRef, err := WorkflowActorRef(WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := verdictItemVersion(t, s, workID)
+	start := workflowEventWithActor("start-late-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": attemptEpoch,
+		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start-late:" + workID, "actor_ref": ownerRef,
+		"execution_model": preferredModelForLane(lane),
+	})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("fresh start_execution: %v", err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "dispatch-late-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatalf("fresh dispatch: %v", err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "completed-late-"+workID, attemptID, lane, time.Unix(61, 0).UTC())}}); err != nil {
+		t.Fatalf("fresh complete: %v", err)
+	}
+	dispatchVersion := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{{
+		EventID: "dispatch-action-late-" + workID, Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: ownerRef, OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(map[string]any{
+			"work_id": workID, "expected_version": dispatchVersion, "resulting_version": dispatchVersion + 1,
+			"step_id": "execution", "action_id": "dispatch_worker", "attempt_epoch": attemptEpoch, "worker_attempt_id": attemptID,
+			"actor_ref": ownerRef,
+		}),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatchVersion}}); err != nil {
+		t.Fatalf("fresh dispatch action completion: %v", err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-acceptor", SessionRef: "session/" + workID + "-late-verdict-acceptor", ActorClass: ActorAgent}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
+		t.Fatalf("fresh accept: %v", err)
+	}
+}
+
 // The late verdict recovery admitted by the owning transaction must also pass
 // the read-only preflight, and the admission closes again once the predicate
 // holds a healthy verdict (#1013). The same journey shows the supersede
 // refusal outside a recovery state names the stale-contract recovery route.
+// The recorded non-ok verdict makes the artifact the premise confirms stale
+// (CD-0201 D5); the journey drives a request_correction to the declared
+// recovery-route target, runs a fresh dispatch + complete + accept, and only
+// then confirms the premise against the fresh artifact.
 func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 	t.Parallel()
 	const workID = "issue1013-late-verdict-preflight"
 	s, owner, _ := seedItemAtAcceptance(t, workID, false)
 	reviewer := verdictReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	verdictVersion := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), verdictVersion, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict: %v", err)
 	}
 	operator := operatorVerdictActor(t, workID)
+	verdictEvidence := "evidence:record_verdict-" + workID + "-" + fmt.Sprint(verdictVersion)
+	correction := json.RawMessage(`{"diagnosis":"the late verdict needs re-production","strategy":"repeat the external effect with a fresh worker","predicate_ids":["predicate:primary"],"evidence_refs":["` + verdictEvidence + `"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+		t.Fatalf("request correction after the mismatch verdict: %v", err)
+	}
+	issue1013LateVerdictProduction(t, s, workID)
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); err != nil {
 		t.Fatalf("confirm premise: %v", err)
 	}
@@ -1164,14 +1232,21 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 	t.Run("unsupported workflow shape", func(t *testing.T) {
 		t.Parallel()
 		const workID = "complete-correction-shape"
-		s, owner, _ := seedItemAtAcceptance(t, workID, false)
-		reviewer := verdictReviewer(t, s, workID)
-		if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
-			t.Fatalf("record the verdict: %v", err)
+		// The unsupported shape is a definition whose recovery-route table
+		// declares no disproved_premise_at_complete route: the real
+		// static-analysis family, whose completion the route table leaves
+		// without a complete-step return. The refusal reads the table, not
+		// a work kind: the work-kind whitelist that once carried this
+		// refusal is deleted (CD-0201 D1).
+		s := openTemp(t)
+		defer s.Close()
+		definition := mustBuiltinDefinition(t, "workflow.static_analysis").Definition
+		if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, "complete"); target != "" {
+			t.Fatalf("static analysis complete-step target = %q, want the unsupported shape", target)
 		}
-		if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operatorVerdictActor(t, workID)); err != nil {
-			t.Fatalf("confirm the premise: %v", err)
-		}
+		stalenessFixture(t, s, workID, "workflow.static_analysis", definition.Version, "complete")
+		stalenessSeedContract(t, s, workID)
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 		recordCompleteStepContradictionObservation(t, s, workID, owner)
 		err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), owner)
 		var failure *Failure

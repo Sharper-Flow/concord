@@ -1,0 +1,3 @@
+# Repository-root test invocation. Bun loads the working directory's bunfig.
+[test]
+preload = ["./adapter/opencode/test_preload.ts"]

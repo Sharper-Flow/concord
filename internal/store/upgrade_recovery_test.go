@@ -87,7 +87,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 // again; no intermediate state survives the failed transaction.
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	stampAsRelease(t)
-	path := migratedStoreWithTailRemoved(t, 116)
+	path := migratedStoreWithTailRemoved(t, 117)
 	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")
 	}
@@ -105,8 +105,8 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}
-	if len(report.Applied) != 1 || report.Applied[0] != 116 || report.SchemaVersion != CurrentSchemaVersion() {
-		t.Fatalf("the repaired tail must reapply exactly the removed step: %+v", report)
+	if len(report.Applied) != 2 || report.Applied[0] != 117 || report.Applied[1] != 118 || report.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("the repaired tail must reapply exactly the removed steps: %+v", report)
 	}
 	plan, err := PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {

@@ -30,6 +30,93 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	return tx.Commit()
 }
 
+// produceContractCorrectionWorker drives the fixture's execution producer
+// through the real dispatch and acceptance actions. Only the lane's dispatch
+// and completed report are simulated; the engine owns the production event.
+func produceContractCorrectionWorker(t *testing.T, s *Store, workID, label string, owner WorkflowActor) {
+	t.Helper()
+	ctx := context.Background()
+	if got := currentStep(t, s, workID); got != "execution" {
+		t.Fatalf("producer step = %q, want execution", got)
+	}
+	var definitionRef string
+	var definitionVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
+		t.Fatal(err)
+	}
+	if definitionRef != workflowFixtureRef || definitionVersion != 2 {
+		t.Fatalf("production journey pin = %s@%d, want %s@2", definitionRef, definitionVersion, workflowFixtureRef)
+	}
+	definition := workflowFixtureDefinition(t, definitionVersion).Definition
+	assertStale := func(stage, step string, want bool) {
+		t.Helper()
+		got, err := workflowArtifactStale(ctx, s.DatabaseForTesting(), workID, definition, step, "workflow_action")
+		if err != nil {
+			t.Fatalf("%s: read artifact freshness: %v", stage, err)
+		}
+		if got != want {
+			t.Fatalf("%s: artifact stale = %t, want %t", stage, got, want)
+		}
+	}
+	lane := reviewGateLane(t, "implementation")
+	attemptID := "attempt:" + workID + ":" + label
+	// The claim can change the work version, so build the packet afterward.
+	dispatchSessionWorktree(t, s, workID)
+	packet := joinPacketFor(t, s, workID, "execution", attemptID, lane.ID, lane.Version, lane.Digest)
+	correction, err := workflowCorrectionContextForDispatch(ctx, s.DatabaseForTesting(), workID, "execution", attemptID)
+	if err != nil {
+		t.Fatalf("read producing worker correction: %v", err)
+	}
+	if correction != nil {
+		packet["inputs"].(map[string]any)["correction"] = correction
+	}
+	if _, err := dispatchJoinAttempt(ctx, t, s, workID, verdictItemVersion(t, s, workID), owner, packet); err != nil {
+		t.Fatalf("dispatch producing worker: %v", err)
+	}
+	assertStale("dispatch alone", "execution", correction != nil)
+	var packetDigest string
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest'),json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest, &epoch); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := Event{
+		EventID: "correction-dispatch-" + workID + "-" + label, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: "worker:test", OccurredAt: time.Now().UTC(), PayloadVersion: 2,
+		Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest}),
+	}
+	if err := s.Transact(ctx, func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(ctx, transaction, dispatch, owner.PrincipalRef, owner.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(ctx, transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("producing lane dispatch: %v", err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerCompleteEventForLane(workID, "correction-completed-"+workID+"-"+label, attemptID, lane, time.Now().UTC())}}); err != nil {
+		t.Fatalf("complete producing worker: %v", err)
+	}
+	assertStale("completed but unaccepted worker", "execution", correction != nil)
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(fmt.Sprintf(`{"attempt_id":%q,"attempt_epoch":%d}`, attemptID, epoch)), 0, owner); err != nil {
+		t.Fatalf("accept producing worker: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("step after production = %q, want acceptance on the pinned fixture", got)
+	}
+	assertStale("accepted production", "acceptance", false)
+}
+
+func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var version, events, operations int64
+	var step string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM domain_events WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("version=%d step=%s events=%d operations=%d", version, step, events, operations)
+}
+
 func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *testing.T) {
 	t.Parallel()
 	const workID = "issue933-late-verdict"
@@ -39,6 +126,26 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 		t.Fatalf("record mismatch verdict: %v", err)
 	}
 	operator := operatorVerdictActor(t, workID)
+	var verdictEvidence string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evaluation_evidence[0]') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&verdictEvidence); err != nil {
+		t.Fatal(err)
+	}
+	beforeCorrection := contractCorrectionEffectSnapshot(t, s, workID)
+	healthy := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("healthy verdict before production = %v, want stale_requires_review", err)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("premise confirmation before production = %v, want stale_requires_review", err)
+	}
+	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeCorrection {
+		t.Fatalf("stale refusals changed effects: before %s, after %s", beforeCorrection, got)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the verdict found a stale artifact","strategy":"repeat execution with a fresh worker","predicate_ids":["predicate:primary"],"evidence_refs":["` + verdictEvidence + `"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+		t.Fatalf("request verdict correction: %v", err)
+	}
+	produceContractCorrectionWorker(t, s, workID, "fresh", owner)
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), owner, operator); err != nil {
 		t.Fatalf("confirm premise: %v", err)
 	}
@@ -50,7 +157,7 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 		t.Fatalf("step after premise confirmation = %q, want release", step)
 	}
 
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); err != nil {
 		t.Fatalf("late healthy verdict recovery: %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
@@ -59,19 +166,13 @@ func TestIssue933LateVerdictRecoveryHoldsStepAndRefusesHealthyReplacement(t *tes
 	if step != "release" {
 		t.Fatalf("step after late verdict = %q, want release", step)
 	}
-	var before int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:primary","verdict_kind":"ok"}`), 0, reviewer); err == nil {
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", healthy, 0, reviewer); err == nil {
 		t.Fatal("healthy comparable verdict replacement succeeded")
 	}
-	var after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
+	after := contractCorrectionEffectSnapshot(t, s, workID)
 	if after != before {
-		t.Fatalf("refused healthy replacement changed verdict count from %d to %d", before, after)
+		t.Fatalf("refused healthy replacement changed effects: before %s, after %s", before, after)
 	}
 }
 
@@ -240,6 +341,25 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operator); err != nil {
 		t.Fatalf("supersede contract: %v", err)
 	}
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:added","verdict_kind":"ok"}`), 0, reviewer); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("successor healthy verdict before production = %v, want stale_requires_review", err)
+	}
+	if got := contractCorrectionEffectSnapshot(t, s, workID); got != before {
+		t.Fatalf("stale successor refusal changed effects: before %s, after %s", before, got)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:added","verdict_kind":"outcome_mismatch"}`), 0, reviewer); err != nil {
+		t.Fatalf("record unhealthy successor verdict without contract_version: %v", err)
+	}
+	var verdictEvidence string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.evaluation_evidence[0]') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowVerdictRecorded).Scan(&verdictEvidence); err != nil {
+		t.Fatal(err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the successor requires a fresh artifact","strategy":"repeat execution under contract 2","predicate_ids":["predicate:added"],"evidence_refs":["` + verdictEvidence + `"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+		t.Fatalf("request successor correction: %v", err)
+	}
+	produceContractCorrectionWorker(t, s, workID, "successor", owner)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:added","verdict_kind":"ok"}`), 0, reviewer); err != nil {
 		t.Fatalf("verdict without contract_version must resolve the active contract: %v", err)
 	}

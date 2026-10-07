@@ -358,6 +358,9 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
 	}
+	if state.RefineReviewEvidenceAttemptID != "" && !workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") && admits("accept_worker_evidence") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_evidence"), pin.Version, "refinement_review_evidence"))
+	}
 	// The contract recovery advertises exactly the pure decision's answer:
 	// the stale-law and duplicate recoveries the fold admits at a running
 	// step, and the ordinary correction admission, but never a terminal,

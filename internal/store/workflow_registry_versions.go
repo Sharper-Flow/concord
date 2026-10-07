@@ -1097,33 +1097,23 @@ func withWorkerJobs(definition WorkflowDefinition) WorkflowDefinition {
 	definition.AvailableActions = append(definition.AvailableActions, record.ID)
 	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
 	for i := range definition.StepGraph.Steps {
-		if containsString(definition.StepGraph.Steps[i].Actions, "dispatch_worker") && workerJobStepKind(definition.StepGraph.Steps[i].Kind) {
+		actions := definition.StepGraph.Steps[i].Actions
+		if containsString(actions, "dispatch_worker") && containsString(actions, "accept_worker_result") && containsString(actions, "record_delivery") {
 			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, record.ID)
 		}
 	}
 	return definition
 }
 
-// workerJobStepKind reports whether some job-executing lane class may
-// dispatch at a step of this kind.
-func workerJobStepKind(kind WorkflowStepKind) bool {
-	for _, class := range LaneStepDispatchClasses(kind) {
-		if workerJobCapabilityClass(class) {
-			return true
-		}
-	}
-	return false
-}
-
-func implementationWorkerJobsV23() WorkflowDefinition {
-	d := implementationProposalOutOfScopeV22()
-	d.Version = 23
+func implementationWorkerJobsV24() WorkflowDefinition {
+	d := implementationRecoveryRoutesV23()
+	d.Version = 24
 	return withWorkerJobs(d)
 }
 
-func breakFixWorkerJobsV20() WorkflowDefinition {
-	d := breakFixAcceptDeliveryV19()
-	d.Version = 20
+func breakFixWorkerJobsV21() WorkflowDefinition {
+	d := breakFixRecoveryRoutesV20()
+	d.Version = 21
 	return withWorkerJobs(d)
 }
 
@@ -1133,9 +1123,9 @@ func breakFixWorkerJobsV20() WorkflowDefinition {
 func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
 	switch definition.Ref {
 	case "workflow.implementation":
-		return definition.Version >= 23
+		return definition.Version >= 24
 	case "workflow.break_fix":
-		return definition.Version >= 20
+		return definition.Version >= 21
 	default:
 		return false
 	}
@@ -1204,4 +1194,59 @@ func genericOneOffVerdictBatchV12() WorkflowDefinition {
 	d := genericOneOffConfirmPremiseV11()
 	d.Version = 12
 	return withCurrentVerdictBatch(d)
+}
+
+// Each builder below ships its family's recovery-route table (CD-0201 D1/D3)
+// at the next version. The definition content stays the predecessor's; the
+// only content change is the declared recovery_routes field, so every
+// released version above keeps its digest and resolves the same routes
+// through workflowReleasedRecoveryRoutes until instances pin these versions.
+
+func implementationRecoveryRoutesV23() WorkflowDefinition {
+	d := implementationProposalOutOfScopeV22()
+	d.Version = 23
+	d.RecoveryRoutes = implementationRecoveryRoutes()
+	return d
+}
+
+func breakFixRecoveryRoutesV20() WorkflowDefinition {
+	d := breakFixAcceptDeliveryV19()
+	d.Version = 20
+	d.RecoveryRoutes = breakFixRecoveryRoutes()
+	return d
+}
+
+func researchRecoveryRoutesV14() WorkflowDefinition {
+	d := researchAcceptDeliveryV13()
+	d.Version = 14
+	d.RecoveryRoutes = researchRecoveryRoutes()
+	return d
+}
+
+func architectureRecoveryRoutesV15() WorkflowDefinition {
+	d := architectureAcceptDeliveryV14()
+	d.Version = 15
+	d.RecoveryRoutes = architectureSpikeRecoveryRoutes()
+	return d
+}
+
+func opsRunbookRecoveryRoutesV16() WorkflowDefinition {
+	d := opsRunbookAcceptDeliveryV15()
+	d.Version = 16
+	d.RecoveryRoutes = opsRunbookRecoveryRoutes()
+	return d
+}
+
+func staticAnalysisRecoveryRoutesV13() WorkflowDefinition {
+	d := staticAnalysisAcceptDeliveryV12()
+	d.Version = 13
+	d.RecoveryRoutes = staticAnalysisRecoveryRoutes()
+	return d
+}
+
+func genericOneOffRecoveryRoutesV14() WorkflowDefinition {
+	d := genericOneOffAcceptDeliveryV13()
+	d.Version = 14
+	d.RecoveryRoutes = genericOneOffRecoveryRoutes()
+	return d
 }

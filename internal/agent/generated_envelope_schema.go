@@ -2646,6 +2646,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "unknown_effect",
             "session_occupancy_unreadable",
             "session_directory_unreadable",
+            "worker_abandon_refused",
+            "worker_abandon_receipt_failed",
             "lane_tool_refusal"
           ],
           "type": "string"

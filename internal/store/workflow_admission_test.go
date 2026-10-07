@@ -46,61 +46,61 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 	}{
 		{
 			name:  "no debt at the refine step admits every action",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
+			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
 			want:  map[string]bool{"record_delivery": true, "accept_worker_result": true, "dispatch_worker": true, "checkpoint_context": true},
 		},
 		{
 			name:     "debt at the refine step hides both advances",
-			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
+			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding},
 			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true, "checkpoint_context": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 		{
 			name:     "debt at the gate hides only the delivery exit",
-			state:    WorkflowAdmissionState{Step: gateStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
+			state:    WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
 			want:     map[string]bool{"record_delivery": false, "request_correction": true, "checkpoint_context": true},
 			refusals: map[string]bool{"record_delivery": true},
 		},
 		{
 			name:  "debt outside the review shape admits everything",
-			state: WorkflowAdmissionState{Step: gateStep, CorrectionWorkflow: false, ReviewStep: false, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
+			state: WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: false, ReviewStep: false, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: true},
 			want:  map[string]bool{"record_delivery": true, "request_correction": true},
 		},
 		{
 			name:     "a ready settling review stands behind the accept",
-			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-ship", ReadyReviewVerdict: "ship", ReadyReviewSettles: true},
+			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-ship", ReadyReviewVerdict: "ship", ReadyReviewSettles: true},
 			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 		{
 			name:     "a ready no_ship review folds and the answer stays defined",
-			state:    WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-no-ship", ReadyReviewVerdict: "no_ship", ReadyReviewSettles: false},
+			state:    WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, ReadyReviewAttemptID: "attempt:ready-no-ship", ReadyReviewVerdict: "no_ship", ReadyReviewSettles: false},
 			want:     map[string]bool{"record_delivery": false, "accept_worker_result": false, "dispatch_worker": true},
 			refusals: map[string]bool{"record_delivery": true, "accept_worker_result": true},
 		},
 		{
 			name:  "the gate's corrective return refuses without its folded route",
-			state: WorkflowAdmissionState{Step: gateStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: false, CorrectionRequestMissing: workflowCorrectionMissingGateReview},
+			state: WorkflowAdmissionState{Step: gateStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtOutstanding, CorrectionRequestRecovery: false, CorrectionRequestMissing: workflowCorrectionMissingGateReview},
 			want:  map[string]bool{"record_delivery": false, "request_correction": false},
 		},
 		{
 			name:  "the dispatch hold refuses only the advancing exits",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, DispatchHold: true},
+			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, DispatchHold: true},
 			want:  map[string]bool{"dispatch_worker": true, "checkpoint_context": true, "record_delivery": false, "accept_worker_result": true},
 		},
 		{
 			name:  "an undeclared action refuses on step legality",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
+			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
 			want:  map[string]bool{"record_verdict": false},
 		},
 		{
 			name:  "confirm_premise refuses without an open operator question",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
+			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone},
 			want:  map[string]bool{"confirm_premise": false, "dispatch_worker": true},
 		},
 		{
 			name:  "an open operator question admits the confirmation",
-			state: WorkflowAdmissionState{Step: refineStep, CorrectionWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, PendingOperatorDecision: true},
+			state: WorkflowAdmissionState{Step: refineStep, RefinementWorkflow: true, ReviewStep: true, ReviewDebt: ReviewDebtNone, PendingOperatorDecision: true},
 			want:  map[string]bool{"confirm_premise": true, "dispatch_worker": true},
 		},
 	}

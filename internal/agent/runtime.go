@@ -719,6 +719,7 @@ type runtimeFailure struct {
 	// Every other stale_context describes scope the caller must actually change,
 	// so refreshing the version alone would carry an invalid selection forward.
 	Refreshable bool
+	Details     map[string]any
 }
 
 func (f *runtimeFailure) Error() string { return f.message }
@@ -752,7 +753,9 @@ func failureEnvelope(base Envelope, err error) Envelope {
 	var f *runtimeFailure
 	if errors.As(err, &f) {
 		action := RecoveryAction{Kind: f.recovery, RequiredRefs: f.recoveryRefs}
-		return coreErrorAction(base, f.kind, f.message, action, f.retry, f.Candidates)
+		out := coreErrorAction(base, f.kind, f.message, action, f.retry, f.Candidates)
+		out.Error.Details = f.Details
+		return out
 	}
 	var sf *store.Failure
 	if errors.As(err, &sf) {

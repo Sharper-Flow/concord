@@ -11,7 +11,9 @@
     "internal/store/generated_lane_step_dispatch.go",
     "internal/store/workflow_registry.go",
     "internal/store/lane_step_dispatch_test.go",
-    "scripts/generate-lane-step-dispatch.py"
+    "scripts/generate-lane-step-dispatch.py",
+    "internal/store/workflow_review_disposition.go",
+    "internal/store/workflow_review_disposition_test.go"
   ],
   "home_domain_id": "workflow-engine",
   "id": "CD-0187",
@@ -30,9 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:169530758753a2fd88f49e9ef355116ceb769fd3509479fa4af03b4ed25fa691",
+  "sha256": "sha256:6bf00a13ec731d136f55f0e042fb3f3abaabbc9cd581a0881575a449acd2caea",
   "status": "accepted",
-  "summary": "The review capability-class binding gains human_checkpoint, so a confirmation step that enforces review evidence can dispatch the review lane and bind its report; the promoted definitions carry the checkpoint pair (dispatch_worker and the hold-mode accept_worker_evidence), the dispatch hold releases when an accept resolves the attempt, older versions reach the amended steps by repin, and no other class gains the step kind. The engine admits the failure record at a confirmation step as a hold-mode recovery of a failed, unrecorded attempt, and the checkpoint hold keys on attempts a worker actually dispatched, so an unused dispatch window dispositions nothing (CD-0193). Amends CD-0140's preserved human-checkpoint exclusion and refines CD-0133 D3/D4 on the confirmation-step surface.",
+  "summary": "The review class binds human checkpoints, where hold-mode acceptance preserves the operator gate. At combined-delivery refinement steps, the same evidence acceptance is an engine recovery for the exact completed current review, with no delivery or advance. Review verdicts keep their debt semantics. Operator contract correction reopens only after every current authorization has a terminal disposition. Identity, approval, delivery, and frozen-definition checks remain intact.",
   "tags": [
     "workflow",
     "lanes",

@@ -183,8 +183,8 @@ func TestCarryForwardKeepsAnApprovedContractAuthoritative(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("carry forward with an approved contract refused: %v", err)
 	}
-	if _, version, _ := workflowInstancePin(t, s, workID); version != 13 {
-		t.Fatalf("pin after carry forward = v%d, want v13", version)
+	if _, version, _ := workflowInstancePin(t, s, workID); version != 14 {
+		t.Fatalf("pin after carry forward = v%d, want v14", version)
 	}
 	var active int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {

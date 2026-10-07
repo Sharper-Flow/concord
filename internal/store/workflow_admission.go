@@ -34,9 +34,11 @@ type WorkflowAdmissionState struct {
 	Lifecycle string
 	// InstanceState is the workflow instance state.
 	InstanceState string
-	// CorrectionWorkflow reports whether the pinned definition carries the
-	// correction review shape at all.
-	CorrectionWorkflow bool
+	// RefinementWorkflow reports whether the pinned definition declares the
+	// refinement review shape: a step that declares start_refine. The
+	// post-rejection review debt and its settling review belong to that
+	// shape (CD-0197), not to a work kind.
+	RefinementWorkflow bool
 	// ReviewStep reports whether the current step's advance carries an
 	// unreviewed repaired result toward delivery: the refinement step that
 	// enters the delivery gate, and the gate itself.
@@ -63,6 +65,13 @@ type WorkflowAdmissionState struct {
 	// DesignStale reports a recorded design a contract correction
 	// invalidated.
 	DesignStale bool
+	// ArtifactStale reports the artifact the current step's evaluation
+	// judges has gone stale: a bad verdict or a successor contract landed
+	// after the artifact was last produced at the route target
+	// (CD-0201 D5). While set, record_verdict admits only a non-ok verdict
+	// and confirm_premise refuses; only fresh production at the declared
+	// route target clears it.
+	ArtifactStale bool
 	// AttemptState is the latest worker attempt's lifecycle state.
 	AttemptState string
 	// AttemptCapabilityClass is that attempt's dispatch capability class.
@@ -96,6 +105,8 @@ type WorkflowAdmissionState struct {
 	// CorrectionRecovery reports a completed result the reject_worker_result
 	// recovery can reject.
 	CorrectionRecovery bool
+	// RefineReviewEvidenceAttemptID names the review available for hold-mode acceptance at refine.
+	RefineReviewEvidenceAttemptID string
 	// CorrectionRequestRecovery reports the delivery-gate corrective return
 	// stands open, with CorrectionRequestMissing naming the one missing
 	// prerequisite when it does not.
@@ -220,7 +231,7 @@ func workflowFailureOf(err error) *Failure {
 func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (WorkflowAdmissionState, []workflowVerificationRun, []workflowVerificationRun, error) {
 	state := WorkflowAdmissionState{
 		Step:               currentStep,
-		CorrectionWorkflow: workflowCorrectionWorkflow(definition),
+		RefinementWorkflow: workflowRefinementStepID(definition) != "",
 		ReviewStep:         workflowPostRejectionReviewStep(definition, currentStep),
 		ReviewDebt:         ReviewDebtNone,
 	}
@@ -269,13 +280,18 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, designErr
 	}
 	state.DesignStale = designStale
+	artifactStale, staleFoldErr := workflowArtifactStale(ctx, q, workID, definition, currentStep, subject)
+	if staleFoldErr != nil {
+		return WorkflowAdmissionState{}, nil, nil, staleFoldErr
+	}
+	state.ArtifactStale = artifactStale
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(a.lifecycle_state,''),COALESCE((SELECT json_extract(d.payload,'$.capability_class') FROM domain_events d WHERE d.subject_type='work_item' AND d.subject_id=a.work_id AND d.kind=? AND json_extract(d.payload,'$.attempt_id')=a.attempt_id ORDER BY d.seq DESC LIMIT 1),'') FROM worker_attempts a WHERE a.work_id=? ORDER BY a.dispatched_at DESC,a.attempt_id DESC LIMIT 1`, WorkerDispatched, workID).Scan(&state.AttemptState, &state.AttemptCapabilityClass); err != nil && err != sql.ErrNoRows {
 		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest worker attempt", true, "retry once the worker attempt projection is readable", err)
 	}
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(f.payload,'$.action_id'),'') FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=? AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result','record_worker_failure') ORDER BY f.seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&state.LatestResultDisposition); err != nil && err != sql.ErrNoRows {
 		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read the latest result disposition", true, "retry once the workflow projection is readable", err)
 	}
-	if state.CorrectionWorkflow && state.ReviewStep {
+	if state.RefinementWorkflow && state.ReviewStep {
 		outstanding, err := workflowPostRejectionReviewOutstanding(ctx, q, workID, definition, subject)
 		if err != nil {
 			return WorkflowAdmissionState{}, nil, nil, err
@@ -308,13 +324,18 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// declares dispatch_worker the state carries no recovery, so a caller
 	// cannot admit the rejection onto an unrelated step.
 	state.CorrectionRecovery = correctionRoute && stepDeclaresAction(definition, currentStep, "dispatch_worker")
+	reviewEvidenceAttempt, reviewEvidenceErr := workflowRefineReviewEvidenceAttempt(ctx, q, workID, definition, currentStep, subject, 0)
+	if reviewEvidenceErr != nil {
+		return WorkflowAdmissionState{}, nil, nil, reviewEvidenceErr
+	}
+	state.RefineReviewEvidenceAttemptID = reviewEvidenceAttempt
 	// The delivery gate's corrective return reads the review debt this fold
 	// already carries, so the gate branch derives from the folded state and
 	// never re-enters the loader; every other step folds the shared
 	// correction-request admission directly. Under a duplicated projection
 	// the singular active-contract reader refuses, and the duplicate
 	// recovery owns the route out, so the conditional folds degrade.
-	if workflowCorrectionWorkflow(definition) && workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
+	if workflowStepIsDeliveryGate(workflowStep(definition, currentStep)) {
 		gateContext, gateErr := workflowDeliveryGateCorrectionContextFolded(ctx, q, workID, definition, currentStep, subject, state)
 		if gateErr != nil && !(duplicatedProjection && workflowDuplicateContractProjection(gateErr)) {
 			return WorkflowAdmissionState{}, nil, nil, gateErr
@@ -487,7 +508,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = failure
 		return decision
 	}
-	if state.CorrectionWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
+	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
 		refineStep := stepDeclaresAction(definition, state.Step, "start_refine")
 		switch actionID {
 		case "record_delivery":
@@ -505,6 +526,18 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		if decision.Failure != nil {
 			return decision
 		}
+	}
+	// The artifact-staleness answer is the admission's (CD-0201 D5): while
+	// the artifact the step evaluates is stale, the premise confirmation
+	// cannot step past the verdict. The declared unhealthy_verdict route —
+	// request_correction back to the producer — is the one admitted return;
+	// families whose steps carry no failure edge keep that route instead of
+	// a forward escape. The refusal precedes the question-closed answer:
+	// staleness is the state of the artifact itself, prior to the operator
+	// question machinery.
+	if actionID == "confirm_premise" && state.ArtifactStale {
+		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
+		return decision
 	}
 	// The question-open answer is the admission's: confirm_premise is
 	// answered only through an open operator question, so the decision
@@ -579,6 +612,8 @@ func workflowAdmissionStepAllows(definition WorkflowDefinition, state WorkflowAd
 		return state.WorkerFailureRecovery
 	case "reject_worker_result":
 		return state.CorrectionRecovery
+	case "accept_worker_evidence":
+		return state.RefineReviewEvidenceAttemptID != ""
 	case "request_correction":
 		return state.CorrectionRequestRecovery
 	}

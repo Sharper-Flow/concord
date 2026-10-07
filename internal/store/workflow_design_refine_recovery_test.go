@@ -156,11 +156,23 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRou
 		t.Fatal("design is current after the acceptance supersede, want stale")
 	}
 
-	// A non-ok verdict and premise confirmation return to refine.
+	// A non-ok verdict and premise confirmation return to refine. The
+	// supersession + non-ok verdict make the artifact the premise confirms
+	// stale (CD-0201 D5); the journey drives a request_correction to the
+	// declared recovery-route target (execution) and a fresh dispatch +
+	// complete + accept cycle that postdates the stale cause, then confirms
+	// the premise. The premise confirmation follows the failure edge from
+	// acceptance to refine (CD-0133 D1) and lands the workflow back on the
+	// refinement step the design recovery test exercises.
 	verdict := json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}
+	correction := json.RawMessage(`{"diagnosis":"the corrected contract needs re-production at the route target","strategy":"repeat the implementation external effect with the new contract","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+		t.Fatalf("request_correction between verdict and confirm_premise: %v", err)
+	}
+	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "return-refine")
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner, operator); err != nil {
 		t.Fatalf("confirm_premise: %v", err)
 	}
@@ -363,9 +375,11 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 }
 
 // returnRefineFromAcceptance corrects the contract at acceptance without a
-// design record, records a mismatch verdict, and confirms the premise so the
-// failure edge returns the item to refine. The caller then repairs the stale
-// design with a supersede that carries the replacement design.
+// design record, records a mismatch verdict, drives a request_correction to
+// the declared recovery-route target (execution) with a fresh dispatch +
+// complete + accept cycle, then confirms the premise so the failure edge
+// returns the item to refine. The caller then repairs the stale design with
+// a supersede that carries the replacement design.
 func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture, workID string, _, operator WorkflowActor) {
 	t.Helper()
 	s, owner := fixture.store, fixture.owner
@@ -379,6 +393,15 @@ func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the corrected contract needs re-production at the route target","strategy":"repeat the implementation external effect with the new contract","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, owner, operator); err != nil {
+		t.Fatalf("request_correction between verdict and confirm_premise: %v", err)
+	}
+	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "return-refine-failure")
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), owner, operator); err != nil {
 		t.Fatalf("confirm_premise: %v", err)
 	}

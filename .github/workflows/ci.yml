@@ -43,6 +43,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -75,12 +76,39 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Bun
+        id: setup-bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.bun/install/cache
+          key: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('.concord/docs/adapter-host-pin.v1.json') }}
+          restore-keys: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-
       - name: Validate public content
         run: python3 scripts/check-public-content.py
       - name: Test the adapter suite
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: bun test adapter/opencode/
       - name: Coordinator observation evaluator tests (no model calls)
         run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
@@ -165,17 +193,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
       - name: Download Go modules
         # `all` scope, not the default: the dependency-inventory generator
         # resolves the full build list offline, including module-graph-only
         # modules that building the main module never fetches.
         run: go mod download all
-      - name: Restore Go build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-build-${{ runner.os }}-
       - name: Check Go formatting
         run: test -z "$(gofmt -l .)"
       - name: Tidy Go modules
@@ -209,12 +232,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Restore Go build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-build-${{ runner.os }}-
+          cache-dependency-path: go.sum
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -225,6 +243,26 @@ jobs:
         # and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
       - name: Test all packages
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: go test -timeout=15m ./...
 
   # Race detector on store tests that coordinate concurrent Go callers.
@@ -244,13 +282,28 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Restore Go build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-build-${{ runner.os }}-
+          cache-dependency-path: go.sum
       - name: Test concurrent store access under the race detector
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: >-
           go test -race -timeout=15m -run
           '^(TestOpenConcurrentlyInitializesOneDatabase|TestAppendEventConcurrentEquivalentAppends|TestAppendEventConcurrentDivergentAppends|TestConcurrentWorkflowActorAppendsUseTheSingleWriter|TestWorkflowLawRevisionCutoverCommitsBeforeCrossConnectionAcceptance)$'
@@ -271,12 +324,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Restore Go build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-build-${{ runner.os }}-
+          cache-dependency-path: go.sum
       - name: Run production-like ten-process acceptance conformance
         env:
           CONCORD_CONFORMANCE_LONG: "1"

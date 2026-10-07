@@ -59,6 +59,16 @@ import (
 // implementation 22 adds the optional out_of_scope prose list beside the
 // shared policy table's fields; builtinActionPolicies stays byte-identical,
 // so every released version above keeps its digest.
+// The recovery-route declaration ships one new version per family:
+// implementation 23, break_fix 20, research 14, architecture_spike 15,
+// ops_runbook 16, static_analysis 13, and generic_one_off 14 declare the
+// optional recovery_routes table. The omitempty field keeps every released
+// manifest above byte-identical; the released versions resolve the same
+// routes through workflowReleasedRecoveryRoutes until instances pin these.
+// The complete-step correction trigger ships in the same tables (CD-0172
+// D3): implementation and break_fix carry a disproved_premise_at_complete
+// route from the complete action step their graphs pin, and CD-0186 keeps
+// the other five families outside that route.
 //
 // Editing a definition changes its computed digest and fails this test. Ship
 // the new content as a new version and add its digest here; never edit a row
@@ -167,13 +177,20 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "21"}:     "sha256:0a6ed9d4f03954f8d8802b4c953cbec7338860f3552aa83bac4b97fcf469c901",
 	{"workflow.implementation", "22"}:     "sha256:1bef12c2d072dae7bfcc65a2b097248678770481cc849bf79107cc9833b3b7f4",
 	{"workflow.break_fix", "19"}:          "sha256:df5d441762daf131a1ae62c1abc9897f0269ebd3890322fff6c9a480ca769cc7",
-	{"workflow.implementation", "23"}:     "sha256:0f90180f4a719365a606b458318ca7c8d77130ecbabb4f594517567168308689",
-	{"workflow.break_fix", "20"}:          "sha256:ed56f699a52571be6ea24162e93dfb3878f235609402f943102ef515c5fec1a0",
+	{"workflow.implementation", "24"}:     "sha256:2f5b7148662ffb007d1e489b74bda8ef51dfce45225c59b386292ba233312257",
+	{"workflow.break_fix", "21"}:          "sha256:9cae99acc96a249252a7c094e8b6958c470ca089dd8bc9e0fddd8a7430f39b85",
 	{"workflow.research", "13"}:           "sha256:ec79e80293f12dd40fc11eac4f0413a4acd45cf76c0289436e7477b882cc3d9f",
 	{"workflow.architecture_spike", "14"}: "sha256:4cafbb1659213f0d80faf45483be186d29fcc9577090d0382989a42aa437726b",
 	{"workflow.ops_runbook", "15"}:        "sha256:547286502ff9c69fad47f5c880508a25803592f9a3befaa7700ca1541843255d",
 	{"workflow.static_analysis", "12"}:    "sha256:a4764e6a87be89a141b7cb1fe16b1e90c25ece9c6ca4e53eb18e8aca47721748",
 	{"workflow.generic_one_off", "13"}:    "sha256:964098ba2681f7fab8e1f67f90478af30ad7fb7442e6af14e9ac232d07825d0f",
+	{"workflow.implementation", "23"}:     "sha256:01e95e83fbe78a4d5fc1d7a4f0c173c30b8225a62393b8a8270bfef9f6b0361b",
+	{"workflow.break_fix", "20"}:          "sha256:ceaca11a0c5df7b3feaec11eed79616a06f5c1723d234fb8cd3cbe17bd787e1e",
+	{"workflow.research", "14"}:           "sha256:4fbb43fd5ecdff2d8625584dc8e99689982a842396b3ed86bb67c2c9ab6ccb0b",
+	{"workflow.architecture_spike", "15"}: "sha256:b8b3397d7918be844bd847e429ec5a224cf1bfe3683ef4f839077c06453bc38d",
+	{"workflow.ops_runbook", "16"}:        "sha256:561dfbf45762ae9ec6deca2bf599a2cd79b3befa0e521f33fb59565b827054d1",
+	{"workflow.static_analysis", "13"}:    "sha256:ee5b49431e30dca99e60c651aa7de54f4f99fae71aa927baf034bf90fecce8ae",
+	{"workflow.generic_one_off", "14"}:    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -339,13 +356,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          20,
-		"workflow.implementation":     23,
-		"workflow.generic_one_off":    13,
-		"workflow.research":           13,
-		"workflow.architecture_spike": 14,
-		"workflow.ops_runbook":        15,
-		"workflow.static_analysis":    12,
+		"workflow.break_fix":          21,
+		"workflow.implementation":     24,
+		"workflow.generic_one_off":    14,
+		"workflow.research":           14,
+		"workflow.architecture_spike": 15,
+		"workflow.ops_runbook":        16,
+		"workflow.static_analysis":    13,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

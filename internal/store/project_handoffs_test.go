@@ -1717,6 +1717,79 @@ func TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject(t *te
 	}
 }
 
+// The Project bind outlives its consumer's occupancy. A verified vacate
+// removes that session's admission without changing the bind's provenance
+// or requiring another consumed event for a later landed receiver.
+func TestConsumedSharedBindSurvivesTheOriginalReceiverVacate(t *testing.T) {
+	t.Parallel()
+	f := setupProjectHandoffFixture(t)
+	ctx := context.Background()
+	// The original receiver lands, and its consume binds the frontier to
+	// the work-and-Project pair.
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, f.targetSession)
+	recorded := recordHandoff(t, f, f.sourceTree)
+	consumeHandoff(t, f, recorded.HandoffID)
+	if err := runHandoffGate(t, f.store, f.workID, f.targetSession); err != nil {
+		t.Fatalf("pre-vacate gate refused the original consumer: %v", err)
+	}
+	// The original consumer vacates its occupancy: the committed
+	// relocation request plus the /proc-readback verified landing release
+	// its occupancy rows (CD-0190).
+	destination := projectMainCheckout(t, f.targetTree)
+	request, err := json.Marshal(sessionVacatedPayload{WorkID: f.workID, ProjectID: f.targetProject, SessionRef: f.targetSession, SourceDirectory: filepath.Clean(f.targetTree), DestinationDirectory: filepath.Clean(destination)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, f.store, Operation{Events: []Event{{
+		EventID: "ph-vacate-original-consumer", Kind: "work.session_vacated", SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: f.targetSession, OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 2, Payload: request,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	landing, err := f.store.RecordSessionVacateLanding(ctx, SessionVacateLandingRequest{
+		WorkID: f.workID, SessionRef: f.targetSession, LandedDirectory: filepath.Clean(destination), HostPID: os.Getpid(), Now: time.Unix(51, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if landing.AlreadyRecorded || len(landing.ReleasedSources) == 0 {
+		t.Fatalf("vacate landing=%+v, want the original consumer's occupancy released", landing)
+	}
+	// The original placement no longer verifies: the released session's
+	// own admission fails closed.
+	err = runHandoffGate(t, f.store, f.workID, f.targetSession)
+	if failureKind(err) != KindInvalidOperation || !strings.Contains(fmt.Sprint(err), "no verified placement") {
+		t.Fatalf("err=%v, want the vacated consumer's placement refusal", err)
+	}
+	// A second landed session of the receiving Project dispatches under
+	// the standing work-and-Project bind, and its consume replay resolves
+	// AlreadyConsumed with no second consumed event.
+	bindSessionToProjectWorktree(t, f.store, f.targetTree, "session/target-b")
+	if err := runHandoffGate(t, f.store, f.workID, "session/target-b"); err != nil {
+		t.Fatalf("second receiver gate refused under the standing bind: %v", err)
+	}
+	replay, err := runConsumeProjectHandoffTx(f, ConsumeProjectHandoffRequest{
+		WorkID: f.workID, HandoffID: recorded.HandoffID, ConsumerProjectID: f.targetProject, ConsumerSessionRef: "session/target-b", Now: time.Unix(52, 0).UTC(),
+	})
+	if err != nil || !replay.AlreadyConsumed || replay.HandoffID != recorded.HandoffID {
+		t.Fatalf("replay=%+v err=%v, want the standing bind resolved as AlreadyConsumed", replay, err)
+	}
+	var events int
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id=?`, f.workID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Fatalf("consumed events=%d, want the second receiver's replay to record no new event", events)
+	}
+	// The original consumer keeps the bind's provenance.
+	var state, consumer string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT state, consumed_by_session_ref FROM project_handoffs WHERE handoff_id=?`, recorded.HandoffID).Scan(&state, &consumer); err != nil {
+		t.Fatal(err)
+	}
+	if state != ProjectHandoffConsumed || consumer != f.targetSession {
+		t.Fatalf("state=%q consumer=%q, want the original consumer to keep the provenance", state, consumer)
+	}
+}
+
 // The widened bind never crosses Projects: a session whose verified
 // placement names the source Project acquires no bind of the receiving
 // Project — the consume refuses on the placement and the consumed frontier

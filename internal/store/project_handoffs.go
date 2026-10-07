@@ -572,8 +572,8 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		}
 		// The addressed resolution reads the newest handoff addressed to the
 		// consumer's Project in any state, so a standing bind replays as
-		// AlreadyConsumed and a foreign bind refuses with the bound session
-		// named. The recorded-event ordering matches the admission gate, the
+		// AlreadyConsumed after placement and contract validation. The
+		// recorded-event ordering matches the admission gate, the
 		// boot frontier, the continuity read, and the retirement facts, so
 		// every read of "the current handoff" agrees on one durable order.
 		var id string
@@ -808,7 +808,7 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, s
 	if contractErr == nil && version != frontierVersion {
 		return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed under contract version %d, but the active contract is version %d; a stale handoff cannot be consumed, so the source session must record a fresh addressed handoff that supersedes it", frontierID, frontierSource, frontierVersion, version), false, "have the source session record a fresh addressed handoff under the active contract, then consume it")
 	}
-	return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until this session consumes the handoff addressed to it", frontierID, frontierSource), false, "consume the addressed Project handoff before managed execution")
+	return newFailure(KindInvalidOperation, "project_handoff", fmt.Sprintf("handoff %s recorded by %s stands unconsumed; managed execution refuses until a verified session of the receiving Project consumes the addressed handoff", frontierID, frontierSource), false, "consume the addressed Project handoff before managed execution")
 }
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State

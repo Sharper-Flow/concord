@@ -25,7 +25,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bf3d7d4bd51c6698927e7be0600f9b4b44b68939f65f09b3bce6c4207cb7a1e1",
+  "sha256": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
   "status": "accepted",
   "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. An installer facing a pending breaking step or unknown readiness prepares the candidate durably and names the exact migration and activation commands; the incompatible migration and its cleanup run inside a maintenance boundary whose session-admission exclusion is held through the final lease check, the migration, and the activation. No refusal names a session restart as its recovery.",
   "tags": [

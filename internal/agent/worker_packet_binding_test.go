@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -48,7 +49,10 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 		inputs["task"] = premise
 	}
 	inputs["binding"] = binding
-	if lane, ok := builtinLane(laneID); ok && (lane.CapabilityClass == "implementation" || lane.CapabilityClass == "design") {
+	// A job-executing lane also binds the work's one dispatch-ready worker-job
+	// revision, as the adapter selects it from the continuity projection
+	// (CD-0205). Call it immediately before the dispatch the packet rides.
+	if _, ok := builtinLane(laneID); ok {
 		snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
 		if err != nil {
 			t.Fatal(err)
@@ -59,6 +63,7 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 				t.Fatal(err)
 			}
 			inputs["worker_job"] = json.RawMessage(raw)
+			packet["schema_version"] = store.WorkerPacketSchemaVersion
 		}
 	}
 	return packet
@@ -77,15 +82,39 @@ func builtinLane(laneID string) (store.LaneDefinition, bool) {
 // the public record_worker_job action, so a job-capable pin admits the
 // implementation dispatches the fixture runs.
 func recordReadyRetryJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
+	recordReadyRetryJobWithChecks(t, s, service, env, jobID, 1, nil)
+}
+
+// recordReadyRetryJobUnderContract records one dispatch-ready worker-job
+// revision through the public record_worker_job action under the named active
+// contract version. A revision recorded under a predecessor contract stays
+// undispatchable until a successor records a fresh one (CD-0205); supersession
+// paths re-record before the next dispatch.
+func recordReadyRetryJobUnderContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string, contractVersion int64) {
+	recordReadyRetryJobWithChecks(t, s, service, env, jobID, contractVersion, nil)
+}
+
+// recordReadyRetryJobWithChecks records one dispatch-ready worker-job
+// revision. A verification worker job requires nonempty checks; the helper
+// passes them through when the caller supplies them.
+func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string, contractVersion int64, checks []string) {
 	t.Helper()
 	const workID = "work-1"
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
+	fields := map[string]any{
+		"job_id": jobID, "objective": "Carry out the approved retry objective.",
+		"stopping_condition": "The approved objective's checks pass.",
+		"ready":              true, "readiness_evidence": []string{"contract:" + workID + ":" + strconv.FormatInt(contractVersion, 10)},
+	}
+	if len(checks) > 0 {
+		fields["checks"] = checks
+	}
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
-		"fields": map[string]any{"job_id": jobID, "objective": "Carry out the approved retry objective.", "stopping_condition": "The approved objective's checks pass.", "ready": true, "readiness_evidence": []string{"contract:" + workID + ":1"}},
+		"fields": fields,
 	})
 	if err != nil {
 		t.Fatal(err)

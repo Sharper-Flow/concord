@@ -246,13 +246,6 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   }
 }
 
-// A job-executing lane class produces repository changes (CD-0205). The core
-// owns the same class set (workerJobCapabilityClass); a mismatch refuses
-// at dispatch, so the adapter never decides admission from this set alone.
-function isWorkerJobCapabilityClass(capabilityClass: AgentLane["capability_class"]): boolean {
-  return capabilityClass === "implementation" || capabilityClass === "design"
-}
-
 // selectReadyWorkerJob binds the one dispatch-ready worker-job revision the
 // pinned continuity carries (CD-0205). The pinned step declares
 // record_worker_job exactly where a job-capable definition dispatches a
@@ -410,10 +403,13 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const binding = { objective_source: objectiveSource, work_version: workVersion, contract_version: contractVersion, assigned_result: assignedResult }
   const stepActions = Array.isArray(pinned.step_actions) ? pinned.step_actions : []
   let workerJob: Record<string, unknown> | undefined
-  if (isWorkerJobCapabilityClass(lane.capability_class) && stepActions.includes("record_worker_job")) {
+  if (stepActions.includes("record_worker_job")) {
     const selected = selectReadyWorkerJob(request.workId, pinned)
     if (selected.failure) return { failure: selected.failure }
     workerJob = selected.job
+    if (lane.capability_class === "verification" && (!Array.isArray(workerJob?.checks) || workerJob.checks.length === 0)) {
+      return failure("worker_job_unavailable", `work ${request.workId} requires recorded executable checks for a verification job; record the bounded checks before dispatching this lane`)
+    }
   }
   const taskCodePoints = codePoints(task)
   if (taskCodePoints > TASK_MAX_LENGTH) {

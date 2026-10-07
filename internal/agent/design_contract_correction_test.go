@@ -146,6 +146,14 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	if workflowIssue31Version(t, s) != version {
 		t.Fatal("invalid replacement changed work version")
 	}
+	// The v2 worker-job revision was recorded under the now-superseded
+	// v2 contract; record a fresh ready revision under v3 (the active
+	// successor) so the dispatch finds a dispatch-ready job bound to the
+	// current parent authority (CD-0205). The verify lane is a
+	// verification capability class, so the recorded checks cannot
+	// be empty.
+	recordReadyRetryJobWithChecks(t, s, service, env, "job:design-correction-replace", 3, []string{"go test ./internal/store/"})
+	version = workflowIssue31Version(t, s)
 	currentDispatch := dispatch(version, "design-current-dispatch")
 	if currentDispatch.Outcome != OutcomeOK {
 		t.Fatalf("current replacement did not restore dispatch admission: %+v", currentDispatch.Error)

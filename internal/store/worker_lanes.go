@@ -33,6 +33,38 @@ const (
 	WorkerReportSchemaVersionLegacy = "1.0"
 )
 
+// workerDispatchedWorkerJobVersion and workerCompletedWorkerJobVersion are
+// the payload versions at which each worker event kind may first bind a
+// worker job (CD-0205). A stored or supplied event whose recorded source
+// version sits below the boundary cannot carry worker_job bytes: the field
+// did not exist when that version was released, so any bytes that name it
+// are a fabricated job disposition that no store ever recorded. The fold
+// rejects them closed so the live boundary and log-ordered replay enforce
+// one rule.
+const (
+	workerDispatchedWorkerJobVersion = 5
+	workerCompletedWorkerJobVersion  = 4
+)
+
+// WorkerEvidenceEventPayloadVersion resolves the payload version the event
+// registry currently owns for the named worker evidence kind (CD-0205), so
+// callers at the emission boundary — the CLI command routes in
+// cmd/concord, and the fixture helpers in this package — cannot hand-write a
+// competing version that drifts from the registry. WorkerFailed has no job
+// capability and is registered at version 1.
+func WorkerEvidenceEventPayloadVersion(kind string) int {
+	switch kind {
+	case WorkerDispatched, WorkerCompleted, WorkerFailed:
+	default:
+		panic(fmt.Sprintf("worker evidence event %q is not recognized", kind))
+	}
+	reg, ok := registeredEventKind(kind)
+	if !ok {
+		panic(fmt.Sprintf("worker event %q is not registered", kind))
+	}
+	return reg.CurrentVersion
+}
+
 const (
 	WorkerFailureFallbackBlocked        = "fallback_blocked"
 	WorkerFailureWorkerError            = "worker_error"
@@ -850,6 +882,16 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// CD-0205: worker_job was introduced at the worker.dispatched job-capable
+	// payload version (workerDispatchedWorkerJobVersion). A replayed event
+	// whose recorded source version sits below the boundary cannot carry
+	// worker_job bytes: the field did not exist when that version was
+	// released, so any bytes that name it are a fabricated binding that no
+	// store ever recorded. Refuse it closed so the live boundary and
+	// log-ordered replay enforce one rule.
+	if payload.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerDispatchedWorkerJobVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched worker_job is reserved for payload version >= 5", false, "record the worker_job on the current dispatch payload")
+	}
 	// CD-0205: the dispatch evidence carries exactly the worker-job binding
 	// its dispatch_worker authorization recorded — the same revision, or none
 	// when the authorization bound none. A binding with no authorizing
@@ -888,10 +930,14 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	// before any worker evidence exists; the worker's own dispatch evidence
 	// promotes that binding instead of re-inserting the row. Rows no
 	// completion bound take the insert path unchanged.
+	// CD-0205: the promote path records the dispatch payload's packet and
+	// report schema identities on the row so the completion fold can read
+	// the matched pair the attempt was bound under and refuse a completion
+	// whose claim disagrees with it.
 	promoted, err := tx.ExecContext(ctx, `UPDATE worker_attempts
-		SET readback_model=?,lifecycle_state=?,failure_kind=?,failure_detail=?,dispatched_at=?,failed_at=?
+		SET readback_model=?,lifecycle_state=?,failure_kind=?,failure_detail=?,dispatched_at=?,failed_at=?,packet_schema_version=?,report_schema_version=?
 		WHERE attempt_id=? AND work_id=? AND lifecycle_state='in_flight'`,
-		readbackModel, lifecycleState, failureKind, failureDetail, now, failedAt, payload.AttemptID, event.SubjectID)
+		readbackModel, lifecycleState, failureKind, failureDetail, now, failedAt, payload.PacketSchemaVersion, payload.ReportSchemaVersion, payload.AttemptID, event.SubjectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot promote the in-flight worker attempt binding", true, "retry once the database is writable", err)
 	}
@@ -1004,7 +1050,7 @@ func PrepareLaneActorDispatch(ctx context.Context, transaction *Transaction, dis
 		OccurredAt: dispatch.OccurredAt, PayloadVersion: 1, Payload: actorRaw,
 	}
 	dispatch.Payload = dispatchRaw
-	dispatch.PayloadVersion = 4
+	dispatch.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerDispatched)
 	return []Event{actorEvent, dispatch}, nil
 }
 
@@ -1038,9 +1084,28 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// CD-0205: worker_job was introduced at the worker.completed job-capable
+	// payload version (workerCompletedWorkerJobVersion). A replayed event
+	// whose recorded source version sits below the boundary cannot carry
+	// worker_job bytes: the field did not exist when that version was
+	// released, so any bytes that name it are a fabricated claim that no
+	// store ever recorded. Refuse it closed so the live boundary and
+	// log-ordered replay enforce one rule.
+	if payload.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedWorkerJobVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed worker_job is reserved for payload version >= 4", false, "record the worker_job on the current completion payload")
+	}
 	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, map[string]bool{"dispatched": true})
 	if err != nil {
 		return err
+	}
+	// CD-0205: the completion's report schema identity must match the one the
+	// dispatch persisted on the attempt row. A dispatch recorded the matched
+	// packet/report pair (workerSchemaVersionFault refuses the rest), and the
+	// completion carries only the report side; an unmatched claim — legacy on
+	// a job-capable attempt, or job-capable on a legacy attempt — refuses
+	// closed so a mixed legacy/current shape never reaches the projection.
+	if payload.ReportSchemaVersion != attempt.ReportSchemaVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed report_schema_version does not match the schema identity the attempt was dispatched with", false, "report the report_schema_version the dispatch packet carried")
 	}
 	// The host session can retain its old process directory after the host moves
 	// the session record. Refuse a reported directory that is not an active claim
@@ -1238,14 +1303,18 @@ func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) 
 
 // workerTerminalAttempt is the dispatched-attempt identity a terminal worker
 // fold needs. It carries the lane identity and dispatch-time model so the fold
-// can resolve the lane and preserve that model for an abandonment event.
+// can resolve the lane and preserve that model for an abandonment event, and
+// the report schema identity the dispatch fold persisted so the completion
+// fold can refuse a completion whose claim disagrees with the matched pair
+// the dispatch bound (CD-0205).
 type workerTerminalAttempt struct {
-	WorkID        string
-	Lifecycle     string
-	LaneID        string
-	LaneVersion   int64
-	LaneDigest    string
-	ReadbackModel string
+	WorkID              string
+	Lifecycle           string
+	LaneID              string
+	LaneVersion         int64
+	LaneDigest          string
+	ReadbackModel       string
+	ReportSchemaVersion string
 }
 
 // readWorkerTerminalAttempt reads through the passed transaction only. The
@@ -1259,7 +1328,7 @@ func readWorkerTerminalAttempt(ctx context.Context, tx *sql.Tx, event Event, att
 	if event.SubjectType != SubjectWorkItem {
 		return attempt, newFailure(KindInvalidPayload, "fold_event", "worker terminal event must target a work item", false, "use subject_type=work_item")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_version,lane_digest,readback_model FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.ReadbackModel); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,lane_id,lane_version,lane_digest,readback_model,report_schema_version FROM worker_attempts WHERE attempt_id=?`, attemptID).Scan(&attempt.WorkID, &attempt.Lifecycle, &attempt.LaneID, &attempt.LaneVersion, &attempt.LaneDigest, &attempt.ReadbackModel, &attempt.ReportSchemaVersion); err != nil {
 		if err == sql.ErrNoRows {
 			return attempt, newFailure(KindProjectionNotFound, "fold_event", "worker dispatch row does not exist", false, "record worker.dispatched before the terminal worker event")
 		}

@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 #
-# Repository-local conformance throttle wrapper.
+# Repository-local verification throttle wrapper.
 #
-# Tier:
+# Tiers:
+#   smoke       All Go packages, adapter tests, and JSON/law validation.
+#   targeted    Caller-supplied command and arguments, passed through unchanged.
 #   conformance Gated production-like ten-process conformance harness.
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
-# When it is missing the tier still runs, unthrottled, after a warning. The
-# continuous-integration workflow does not use this wrapper; it calls the same
+# When it is missing the tier still runs, unthrottled, after a warning. Smoke
+# uses smoke admission; targeted uses ungated targeted admission; conformance
+# uses full admission. The continuous-integration workflow does not use this
+# wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
 #
 # The tier above and the gate's admission class are separate vocabularies. A
@@ -23,14 +27,16 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test conformance
+Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance
 
+  smoke        all Go packages, adapter suite, and JSON/law validation under host admission control
+  targeted     caller-supplied command and arguments without heavy admission or added limits
   conformance  long uninstrumented ten-process SQLite harness under host admission control
 USAGE
   exit 64
 }
 
-# Run the conformance workload, wrapped in host admission control when it is available.
+# Run a workload, wrapped in host admission control when it is available.
 # The first argument is the tier this wrapper reports. The second is the
 # admission class the host gate understands.
 run_tier() {
@@ -48,7 +54,7 @@ run_tier() {
 
   printf 'START %s\n' "$tier"
   local rc=0
-  if [[ ${#gate[@]} -gt 0 ]]; then
+  if [[ ${#gate[@]} -gt 0 && "$admission_class" != targeted ]]; then
     printf 'WAIT admission: %s (shared heavy-test slot)\n' "$tier"
   fi
   set +e
@@ -73,6 +79,18 @@ shift || true
 [[ "${1:-}" != "--" ]] || shift
 
 case "$tier" in
+  smoke)
+    [[ $# -eq 0 ]] || usage
+    run_tier smoke smoke bash -euo pipefail -c '
+      go test -timeout=15m ./...
+      env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
+      env -u CONCORD_SELECTED_PRODUCT_ID CONCORD_REQUIRE_BUN=1 python3 scripts/check-json.py
+    '
+    ;;
+  targeted)
+    [[ $# -gt 0 ]] || usage
+    run_tier targeted targeted "$@"
+    ;;
   conformance)
     [[ $# -eq 0 ]] || usage
     run_tier conformance full env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v

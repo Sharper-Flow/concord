@@ -15,16 +15,33 @@ import (
 // attempt dispatched under a recorded worker job must complete against the
 // same revision. Legacy dispatches return no binding, so the helper is a
 // no-op when the dispatch predated the worker-job lifecycle.
-func jobBoundReviewCompletion(event *Event, attemptID string, s *Store) {
+func jobBoundReviewCompletion(t *testing.T, event *Event, attemptID string, s *Store) {
+	t.Helper()
 	binding, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, attemptID)
-	if err != nil || binding == nil {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding == nil {
 		return
 	}
 	var payload WorkerCompletedPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return
+		t.Fatal(err)
+	}
+	var laneID, laneDigest string
+	var laneVersion int64
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, event.SubjectID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
+		t.Fatal(err)
+	}
+	lane, err := LookupLane(laneID, laneVersion, laneDigest)
+	if err != nil {
+		t.Fatal(err)
 	}
 	payload.WorkerJob = binding
+	payload.ReportSchemaVersion = WorkerReportSchemaVersion
+	payload.EvidenceOrigin = WorkerEvidenceReported
+	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
+	event.PayloadVersion = WorkerEvidenceEventPayloadVersion(WorkerCompleted)
 	event.Payload = mustJSONValue(payload)
 }
 
@@ -333,7 +350,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
 			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
-			jobBoundReviewCompletion(&completion, reviewID, s)
+			jobBoundReviewCompletion(t, &completion, reviewID, s)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 				t.Fatal(err)
 			}

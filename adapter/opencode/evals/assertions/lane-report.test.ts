@@ -87,7 +87,7 @@ test("a report carrying a wrong schema_version is refused", () => {
   const result = run(report({ schema_version: "2.0" }))
   expect(result.pass).toBe(false)
   expect(result.reason).toContain("schema_version")
-  expect(result.reason).toContain("must equal")
+  expect(result.reason).toContain('expected one of ["1.0","1.1"]')
 })
 
 test("a report status outside the declared lifecycle is refused", () => {

@@ -1189,11 +1189,29 @@ test("a job-capable step refuses a dispatch without exactly one ready worker job
   expect(several.failure?.message).toContain("job:other@1")
 })
 
-test("a step without record_worker_job and a non-job lane bind no worker job", async () => {
+test("a step without record_worker_job binds no worker job", async () => {
   const legacy = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker"], [READY_JOB]) })
   expect(legacy.failure).toBeUndefined()
   expect(legacy.packet!.inputs.worker_job).toBeUndefined()
-  const review = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) }, { laneId: "review" })
-  expect(review.failure).toBeUndefined()
-  expect(review.packet!.inputs.worker_job).toBeUndefined()
+})
+
+test("verification and review bind explicit checks instead of treating the parent premise as their job", async () => {
+  const job = { ...READY_JOB, objective: "Verify the bounded store change with the recorded test command.", stopping_condition: "Report each check's exit code without integrating or delivering." }
+  for (const laneId of ["verify", "review"]) {
+    const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [job]) }, { laneId })
+    expect(built.failure).toBeUndefined()
+    expect(built.packet!.inputs.worker_job).toEqual(job)
+    expect(built.packet!.inputs.task).toBe(pinnedContract().premise)
+  }
+})
+
+test("verification refuses a job without recorded executable checks", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...READY_JOB, checks: [] }]) }, { laneId: "verify" })
+  expect(built.failure?.kind).toBe("worker_job_unavailable")
+})
+
+test("the legacy packet schema forbids job fields while the current identity binds them", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) })
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  expect(validateAgentLanePacket({ ...built.packet!, schema_version: "1.0" })).toBe(false)
 })

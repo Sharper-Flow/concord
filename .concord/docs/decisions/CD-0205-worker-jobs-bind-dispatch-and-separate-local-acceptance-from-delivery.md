@@ -16,6 +16,9 @@
 - **Approval:** The operator approved contract version 1 of
   `work-e46f4308fb5dad191fcbe259`. That contract names CD-0164 and CD-0198 as
   modified law and adds this record.
+  On 2026-10-07, the operator approved the carried edits under CD-0122 D2.
+  The outside repair also serves the approved contract's explicit verification
+  job binding, which the implementation-only restriction did not supply.
 
 ## Context
 
@@ -51,11 +54,12 @@ each prerequisite revision is satisfied.
 
 ### D2. A job-capable dispatch binds one ready revision end to end
 
-The worker-job lifecycle applies to `workflow.implementation` version 23 and
-`workflow.break_fix` version 20. These versions declare `record_worker_job` at
-each step where an implementation or design lane can dispatch.
+The worker-job lifecycle applies to `workflow.implementation` version 24 and
+`workflow.break_fix` version 21. These versions retain the declared recovery
+routes and declare `record_worker_job` at each dispatch step that accepts
+worker results and declares `record_delivery` as its explicit phase exit.
 
-At such a step, a dispatch of an implementation or design lane must carry one
+At such a step, a dispatch of any admitted lane must carry one
 ready revision in `inputs.worker_job`, with the recorded content. The core
 refuses a packet without it, and a packet with other content. `inputs.task`
 stays the complete parent premise.
@@ -64,8 +68,12 @@ The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
 A satisfied revision refuses a new dispatch, on resume and on the first ask.
 
-An earlier definition version refuses `inputs.worker_job`. A lane of another
-capability class refuses it at every version.
+An earlier definition version refuses `inputs.worker_job`. A step without
+`record_worker_job` also refuses it. The lane-step join keeps its existing
+capability limits. Verification requires nonempty recorded checks. The worker
+receives that job's objective, checks, and stopping condition, not an instruction
+to execute the complete parent premise. The dispatch binds the job to its exact
+attempt and lane. Review and verification remain nonproducing capabilities.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -170,7 +178,7 @@ treats its absence as no job.
 
 ## Consequences
 
-A coordinator records a bounded job before an implementation or design
+A coordinator records a bounded job before a worker
 dispatch on a new pin. The adapter selects the one ready revision from the
 work pin and refuses zero or several ready revisions. A successful job gets a
 disposition while the parent work stays open. An unrelated success no longer
@@ -181,7 +189,7 @@ complete delivery admission.
 
 ```gherkin
 Scenario: A dispatch binds only the recorded ready revision
-  Given a break-fix version-20 item at repair with one recorded ready job
+  Given a break-fix version-21 item at repair with one recorded ready job
   When a dispatch carries no job, an unrecorded job, a changed digest, or changed content
   Then the core refuses each dispatch
   And a report that names another revision refuses

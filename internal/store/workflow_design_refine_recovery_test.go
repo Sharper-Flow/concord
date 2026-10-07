@@ -80,14 +80,23 @@ func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, wor
 // dispatch authorization recorded so the fold's end-to-end check passes on
 // job-capable pins. The helper carries no binding on legacy pins.
 func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding) Event {
-	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: binding}
-	version := 1
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: binding, EvidenceOrigin: WorkerEvidenceReported}
 	if len(lane.RequiredReportBlocks) > 0 {
-		version = 3
-		payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
 		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
 	}
-	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
+	payload.Evidence = reportedLaneEvidenceForTest(lane, payload.Review)
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(payload)}
+}
+
+func reportedLaneEvidenceForTest(lane LaneDefinition, review *WorkerReviewBlock) []WorkerReportEvidence {
+	evidence := make([]WorkerReportEvidence, 0, len(lane.EvidenceObligations))
+	for _, obligation := range lane.EvidenceObligations {
+		if obligation == "severity" && review != nil {
+			continue
+		}
+		evidence = append(evidence, WorkerReportEvidence{Obligation: obligation, Detail: "synthetic reported evidence for " + obligation})
+	}
+	return evidence
 }
 
 // seedReturnedRefineCorrection drives an implementation item through a first

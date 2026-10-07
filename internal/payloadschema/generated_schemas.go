@@ -12539,6 +12539,31 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_packet": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_version": {
+                "const": "1.0"
+              }
+            },
+            "required": [
+              "schema_version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "not": {
+                  "required": [
+                    "worker_job"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
       "properties": {
         "attempt_id": {
@@ -12598,7 +12623,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "const": "1.0"
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "type": "string"
         },
         "step_id": {
           "$ref": "#/$defs/id"

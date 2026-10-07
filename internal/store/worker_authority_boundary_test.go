@@ -1015,8 +1015,8 @@ func TestDistinctWorkflowOwnerAcceptsCompletedWorkerResult(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version,json_extract(payload,'$.worker_attempt_id') FROM domain_events WHERE event_id=?`, "accept-authority:completed").Scan(&payloadVersion, &workerAttempt); err != nil {
 		t.Fatal(err)
 	}
-	if payloadVersion != 3 || workerAttempt != attemptID {
-		t.Fatalf("accept completion evidence = version %d attempt %q, want v3 %q", payloadVersion, workerAttempt, attemptID)
+	if payloadVersion != 4 || workerAttempt != attemptID {
+		t.Fatalf("accept completion evidence = version %d attempt %q, want v4 %q", payloadVersion, workerAttempt, attemptID)
 	}
 }
 
@@ -1554,5 +1554,168 @@ func workflowExecutionSetupEvents(t *testing.T, prefix, workID, ownerRef string,
 		workflowActionCompletedFixture(prefix+"-planning", workID, ownerRef, 7, "planning", "approve_contract"),
 		workflowEventWithActor(prefix+"-start", WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": prefix + ":start", "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
 		workflowEvent(prefix+"-lane-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
+	}
+}
+
+// CD-0205 P2.1 — production emitter version drift. The event registry owns the
+// current payload version for each event kind; the production emitter routes
+// (PrepareLaneActorDispatch for the dispatch evidence, ApplyOperation for the
+// completion) must persist at the registry's current version, not at a
+// hand-written competing number. A drift lands silently in the durable log
+// because appendEvent persists the supplied version, so the bug is invisible
+// to the fold (which upcasts at validate/replay time) and surfaces only on
+// log replay where the durable row labels a job-capable shape as legacy.
+func TestWorkerAuthorizePersistsRegistryCurrentDispatchVersion(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedWork(t, s, "version-dispatch")
+	seedWorkflowLaw(t, s)
+	lane := BuiltinLaneDefinitions()[0]
+	dispatch := Event{EventID: "version-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "version-dispatch", Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:version-dispatch", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("d", 64)})}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatch, "principal/operator", "client/concord-1")
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("dispatch authorize failed: %v", err)
+	}
+	var stored int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-dispatch").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	current := func() int { r, _ := registeredEventKind(WorkerDispatched); return r.CurrentVersion }()
+	if stored != current {
+		t.Fatalf("worker.dispatched stored payload_version=%d, want registry current %d", stored, current)
+	}
+}
+
+// CD-0205 P2.1 — completion emission drift. The CLI writes the worker.completed
+// event with a hand-written PayloadVersion. The store persists the supplied
+// version, so the durable row should land at the registry's current version.
+func TestWorkerCompletedPersistsRegistryCurrentVersion(t *testing.T) {
+	t.Parallel()
+	s, _ := seedDispatchedWorkerAtExecution(t, "version-completion")
+	lane := BuiltinLaneDefinitions()[0]
+	completed := Event{EventID: "version-completion", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "version-completion", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-version-completion", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}}); err != nil {
+		t.Fatal(err)
+	}
+	var stored int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_version FROM domain_events WHERE event_id=?`, "version-completion").Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()
+	if stored != current {
+		t.Fatalf("worker.completed stored payload_version=%d, want registry current %d", stored, current)
+	}
+}
+
+// CD-0205 P2.2 — source-version prohibition for the worker.dispatched job
+// binding. The fold must refuse a payload whose recorded source version sits
+// below the version the worker_job field was introduced, mirroring the
+// action_completed prohibition in workflow.go. The check lives in the fold
+// so the live boundary and the log-ordered replay enforce one rule.
+func TestWorkerDispatchedJobBindingRefusedAtLegacySourceVersion(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	seedWork(t, s, "dispatch-job-legacy")
+	lane := BuiltinLaneDefinitions()[0]
+	current := func() int { r, _ := registeredEventKind(WorkerDispatched); return r.CurrentVersion }()
+	if current <= 1 {
+		t.Fatalf("dispatch current version %d is too low to stage a legacy job-binding scenario", current)
+	}
+	legacyVersion := current - 1
+	dispatch := Event{EventID: "dispatch-job-legacy", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "dispatch-job-legacy", Actor: "worker:test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: legacyVersion, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "attempt:dispatch-job-legacy", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("e", 64), WorkerJob: &WorkerJobBinding{JobID: "job:legacy", Revision: 1, Digest: "sha256:" + strings.Repeat("f", 64)}})}
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{dispatch}})
+	if err == nil {
+		t.Fatalf("worker.dispatched v%d with worker_job bytes was accepted; want refusal", legacyVersion)
+	}
+	if !strings.Contains(err.Error(), "worker_job") {
+		t.Fatalf("refusal detail = %v, want the worker_job prohibition detail", err)
+	}
+}
+
+// CD-0205 P2.2 — source-version prohibition for the worker.completed job
+// binding. Same rule, opposite surface. The historical payload shape stays
+// admissible when worker_job is absent, so a non-job-bearing completion at
+// the legacy version lands; a job-bearing one refuses.
+func TestWorkerCompletedJobBindingRefusedAtLegacySourceVersion(t *testing.T) {
+	t.Parallel()
+	s, _ := seedDispatchedWorkerAtExecution(t, "completed-job-legacy")
+	lane := BuiltinLaneDefinitions()[0]
+	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()
+	if current <= 1 {
+		t.Fatalf("completion current version %d is too low to stage a legacy job-binding scenario", current)
+	}
+	legacyVersion := current - 1
+	completed := Event{EventID: "completed-job-legacy", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "completed-job-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: legacyVersion, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-completed-job-legacy", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable, WorkerJob: &WorkerJobBinding{JobID: "job:legacy", Revision: 1, Digest: "sha256:" + strings.Repeat("f", 64)}})}
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
+	if err == nil {
+		t.Fatalf("worker.completed v%d with worker_job bytes was accepted; want refusal", legacyVersion)
+	}
+	if !strings.Contains(err.Error(), "worker_job") {
+		t.Fatalf("refusal detail = %v, want the worker_job prohibition detail", err)
+	}
+}
+
+// CD-0205 P2.3 — matched-pair immutability across dispatch and completion.
+// The worker.dispatched event carries a matched packet/report schema pair
+// the worker_schema_version_fault helper already validates; the worker.completed
+// fold must compare its reported schema identity against the attempt row the
+// dispatch fold persisted, so a completion whose report_schema_version
+// disagrees with the attempt refuses. A 1.0 pair that finishes with a 1.1
+// report (or the inverse) is the precise mixed legacy/current shape the
+// store must reject.
+func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
+	t.Parallel()
+	lane := BuiltinLaneDefinitions()[0]
+	current := func() int { r, _ := registeredEventKind(WorkerCompleted); return r.CurrentVersion }()
+
+	// The mixed-shape scenario must drive both attempts through the dispatch
+	// fold (the worker_attempts row is fold-only). The legacy-pair dispatch
+	// admits the 1.0/1.0 identities when worker_job is absent; the current
+	// dispatch records 1.1/1.1.
+
+	// Same-identity pair lands: a 1.0/1.0 attempt admits a 1.0 completion.
+	s, _ := seedDispatchedWorkerAtExecution(t, "matched-pair-legacy")
+	legacyDispatch := Event{EventID: "matched-pair-legacy-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-matched-pair-legacy-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyDispatch}}); err != nil {
+		t.Fatalf("legacy-pair dispatch refused: %v", err)
+	}
+	completedSame := Event{EventID: "matched-pair-legacy-ok", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-matched-pair-legacy-2", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersionLegacy, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completedSame}}); err != nil {
+		t.Fatalf("matched 1.0 pair completion refused: %v", err)
+	}
+
+	// Legacy attempt + current completion: dispatch recorded 1.0/1.0 on the
+	// row; a completion that claims the job-capable 1.1 refuses closed.
+	legacyAttemptID := "dispatch-mixed-pair-legacy-claim"
+	legacyDispatch2 := Event{EventID: "mixed-pair-legacy-claim-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: legacyAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyDispatch2}}); err != nil {
+		t.Fatalf("legacy-pair dispatch 2 refused: %v", err)
+	}
+	completedMismatch := Event{EventID: "mixed-pair-legacy-mismatch", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(6, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: legacyAttemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completedMismatch}}); err == nil {
+		t.Fatalf("worker.completed with report_schema_version %q accepted against an attempt row at %q; want refusal",
+			WorkerReportSchemaVersion, WorkerReportSchemaVersionLegacy)
+	} else if !strings.Contains(err.Error(), "report_schema_version") {
+		t.Fatalf("refusal detail = %v, want the matched-pair detail", err)
+	}
+
+	// Inverse: a current 1.1/1.1 attempt refuses a completion that claims 1.0.
+	s2, _ := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
+	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
+	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{currentDispatch}}); err != nil {
+		t.Fatalf("current-pair dispatch refused: %v", err)
+	}
+	completedLegacy := Event{EventID: "mixed-pair-current-legacy", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-mixed-pair-current-2", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersionLegacy, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{completedLegacy}}); err == nil {
+		t.Fatalf("worker.completed with report_schema_version %q accepted against an attempt row at %q; want refusal",
+			WorkerReportSchemaVersionLegacy, WorkerReportSchemaVersion)
+	} else if !strings.Contains(err.Error(), "report_schema_version") {
+		t.Fatalf("refusal detail = %v, want the matched-pair detail", err)
 	}
 }

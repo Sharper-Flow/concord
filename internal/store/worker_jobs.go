@@ -547,14 +547,16 @@ func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-// workerJobCapabilityClass names the lane capability classes whose attempts
-// execute a bounded worker job (CD-0205): the classes that produce repository
-// changes, which the lane-step dispatch join confines to external-effect
-// steps. Review, verification, and research lanes judge or read the whole
-// work against the parent contract, so they carry no job and their accepts
-// keep the existing disposition.
+// workerJobCapabilityClass admits only capability classes in the closed lane
+// registry. Every registered worker executes a bounded job on a job-capable
+// pin; the lane-step dispatch join separately confines where it may dispatch.
 func workerJobCapabilityClass(class string) bool {
-	return class == "implementation" || class == "design"
+	for _, lane := range builtinLaneRegistry.entries {
+		if lane.CapabilityClass == class {
+			return true
+		}
+	}
+	return false
 }
 
 // WorkerPacketJob is the inputs.worker_job a job-bound lane packet carries:
@@ -597,6 +599,7 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet "+message, false, remedy)
 	}
 	var packet struct {
+		StepID string `json:"step_id"`
 		Inputs struct {
 			WorkerJob json.RawMessage `json:"worker_job"`
 		} `json:"inputs"`
@@ -605,7 +608,7 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		return nil, refuse("is not readable", "build a fresh packet from the current work pin")
 	}
 	present := len(packet.Inputs.WorkerJob) != 0 && string(packet.Inputs.WorkerJob) != "null"
-	if !workflowWorkerJobsActive(definition) || !workerJobCapabilityClass(lane.CapabilityClass) {
+	if !workflowWorkerJobsActive(definition) || !stepDeclaresAction(definition, packet.StepID, "record_worker_job") || !workerJobCapabilityClass(lane.CapabilityClass) {
 		if present {
 			return nil, refuse("carries inputs.worker_job, which the pinned workflow definition does not admit for a "+lane.CapabilityClass+" lane", "dispatch without a worker job")
 		}
@@ -636,6 +639,9 @@ func validateWorkerPacketJob(ctx context.Context, q queryer, definition Workflow
 		normalized, _ := json.Marshal(claimed)
 		if string(recorded) != string(normalized) {
 			return nil, refuse("inputs.worker_job content does not match the recorded revision", "build the worker job from the recorded revision")
+		}
+		if lane.CapabilityClass == "verification" && len(view.Checks) == 0 {
+			return nil, refuse("inputs.worker_job for a verification worker job requires nonempty checks", "record a new revision with the commands the verification worker must execute")
 		}
 		return &binding, nil
 	}

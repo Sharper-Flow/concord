@@ -464,7 +464,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([WORKFLOW_PREDICATE.predicate_id])
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
@@ -512,7 +512,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(20)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(21)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
@@ -680,7 +680,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     // with it, the report discharges the assigned result, and the store
     // completes the attempt.
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
@@ -762,7 +762,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     // that born the failure under repair.
     expect(Buffer.byteLength(exportedSession(packet, BULK_TEXT_BYTES))).toBeGreaterThan(8_388_608)
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),
@@ -845,7 +845,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     refuseWorkerSessionRead = true
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
       worker_job: reportWorkerJob(packet as JSONRecord),

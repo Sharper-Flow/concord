@@ -314,8 +314,8 @@ func TestWorkflowActionCompletedV1UpcastsWithoutWorkerAttemptIdentity(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upcasted.PayloadVersion != 3 {
-		t.Fatalf("upcast payload version=%d, want 3", upcasted.PayloadVersion)
+	if upcasted.PayloadVersion != 4 {
+		t.Fatalf("upcast payload version=%d, want 4 (workflow.action_completed current)", upcasted.PayloadVersion)
 	}
 	var payload workflowActionCompletedPayload
 	if err := json.Unmarshal(upcasted.Payload, &payload); err != nil {

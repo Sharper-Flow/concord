@@ -19,7 +19,7 @@ func TestUnrelatedAcceptedJobPreservesCorrectionWindow(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
-	lane := BuiltinLaneDefinitions()[0]
+	lane := reviewGateLane(t, "implementation")
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	workerRef, err := WorkflowActorRef(worker)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestSatisfyingAcceptedJobResetsCorrectionWindow(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
-	lane := BuiltinLaneDefinitions()[0]
+	lane := reviewGateLane(t, "implementation")
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	workerRef, err := WorkflowActorRef(worker)
 	if err != nil {
@@ -195,7 +195,7 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	issue1013StartRepair(t, s, workID, worker, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
 	pin = issue1013Pin(t, s, workID)
 	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, worker, pin.Version, "job-partial-3", jobA)
-	completeAndAcceptAttempt(t, s, workID, attempt3, BuiltinLaneDefinitions()[0], acceptor)
+	completeAndAcceptAttempt(t, s, workID, attempt3, reviewGateLane(t, "implementation"), acceptor)
 	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
 		t.Fatalf("correction count after partially satisfying acceptance = %d, want 3 dispatches in the preserved window", count)
 	}
@@ -256,6 +256,7 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 		recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	}
 	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
+	packet["schema_version"] = WorkerPacketSchemaVersion
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = map[string]any{
 			"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
@@ -270,9 +271,14 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 }
 
 // dispatchJobPacketForTest runs the dispatch_worker authorization with the
-// given packet at the work's current version.
+// given packet at the work's current version. A bound job uses the current
+// packet schema so these fixtures reach job admission, not a legacy-shape
+// refusal before admission.
 func dispatchJobPacketForTest(t *testing.T, s *Store, workID, attemptID string, actor WorkflowActor, key string, packet map[string]any) error {
 	t.Helper()
+	if packet["inputs"].(map[string]any)["worker_job"] != nil {
+		packet["schema_version"] = WorkerPacketSchemaVersion
+	}
 	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
 	packetPayload, err := json.Marshal(packet)
 	if err != nil {
@@ -321,7 +327,7 @@ func recordJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 
 func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID string, job *WorkerJobBinding) error {
 	t.Helper()
-	lane := BuiltinLaneDefinitions()[0]
+	lane := reviewGateLane(t, "implementation")
 	var packetDigest string
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		packetDigest = "sha256:" + strings.Repeat("d", 64)
@@ -416,9 +422,19 @@ func completeAndAcceptAttempt(t *testing.T, s *Store, workID, attemptID string, 
 }
 
 // completeJobBoundAttemptForTest appends the worker.completed report claiming
-// the named worker-job revision.
-func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, lane LaneDefinition, job *WorkerJobBinding) error {
-	completed := Event{EventID: "job-window-completed-" + attemptID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(16, 0).UTC(), PayloadVersion: 3, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable, WorkerJob: job})}
+// the named worker-job revision. The recorded attempt owns the lane identity
+// and the evidence obligations its report must discharge.
+func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDefinition, job *WorkerJobBinding) error {
+	var laneID, laneDigest string
+	var laneVersion int64
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT lane_id,lane_version,lane_digest FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID, &laneVersion, &laneDigest); err != nil {
+		return err
+	}
+	lane, err := LookupLane(laneID, laneVersion, laneDigest)
+	if err != nil {
+		return err
+	}
+	completed := jobBoundCompletionEvent(workID, "job-window-completed-"+attemptID, attemptID, lane, time.Unix(16, 0).UTC(), job)
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
 }
 
@@ -455,6 +471,7 @@ func attachReadyWorkerJobIfJobCapable(t *testing.T, s *Store, workID, stepID, at
 	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, actor, job)
 	bindPacketToRecordedState(t, s, packet)
+	packet["schema_version"] = WorkerPacketSchemaVersion
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
 	return job
 }
@@ -470,7 +487,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
-	lane := BuiltinLaneDefinitions()[0]
+	lane := reviewGateLane(t, "implementation")
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	job := &WorkerJobBinding{JobID: "job:record-core", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, worker, job)
@@ -484,6 +501,7 @@ func TestWorkerJobDispatchRequiresRecordedRevision(t *testing.T) {
 
 	packetWith := func(attemptID string, mutate func(map[string]any)) map[string]any {
 		packet := dispatchWorkerPacket(t, s, workID, "repair", attemptID)
+		packet["schema_version"] = WorkerPacketSchemaVersion
 		if mutate != nil {
 			mutate(packet["inputs"].(map[string]any))
 		}
@@ -703,7 +721,7 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 			defer s.Close()
 			owner := f.fixture.owner
 			acceptor := reviewGateAcceptor(workID)
-			lane := BuiltinLaneDefinitions()[0]
+			lane := reviewGateLane(t, "implementation")
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", owner)
 			epoch := func() int64 { return latestStepStartEpoch(t, s, workID, "refine") }
 

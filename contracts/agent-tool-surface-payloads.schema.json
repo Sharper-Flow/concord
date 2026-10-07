@@ -8407,7 +8407,8 @@
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0"
+          "type": "string",
+          "enum": ["1.0", "1.1"]
         },
         "attempt_id": {
           "$ref": "#/$defs/id"
@@ -8471,7 +8472,18 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"schema_version": {"const": "1.0"}},
+            "required": ["schema_version"]
+          },
+          "then": {
+            "properties": {"inputs": {"not": {"required": ["worker_job"]}}}
+          }
+        }
+      ]
     },
     "worker_packet_binding": {
       "description": "Typed binding of the packet objective to the recorded state it projected. Mirrors contracts/agent-lane-packet.schema.json $defs/lane_packet_binding exactly.",

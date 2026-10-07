@@ -237,11 +237,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Fetch the released source the coexistence test builds
-        # TestDistinctReleasedCoresCoexistOnOneStore builds its older core
-        # from this tag (releasedPairTag); the default checkout is shallow
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
         # and carries no tags.
-        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
       - name: Test all packages
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product

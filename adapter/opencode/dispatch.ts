@@ -43,12 +43,6 @@ const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
 type AgentLanePacketSchemaVersion = (typeof agentLanePacketSchema.properties.schema_version.enum)[number]
 type AgentLaneReportSchemaVersion = (typeof agentLaneReportSchema.properties.schema_version.enum)[number]
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
-const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.enum[
-  agentLanePacketSchema.properties.schema_version.enum.length - 1
-]
-const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.enum[
-  agentLaneReportSchema.properties.schema_version.enum.length - 1
-]
 
 // DispatchRunnerResult is one child process outcome. `exited` resolves to the
 // wait status number for both a clean exit and a killed child, so exitCode
@@ -620,6 +614,9 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
       if (!validateSchema(branch, value, root, path, failures)) return false
     }
   }
+  if (schema.not !== undefined && validateSchema(schema.not, value, root, path)) {
+    return fail("matches a forbidden schema")
+  }
   return true
 }
 
@@ -1021,6 +1018,9 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
   const admitted = normalized
+  if (admitted.schema_version !== packet.schema_version) {
+    return { detail: "worker report schema identity does not match its dispatch packet" }
+  }
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
   if (admitted.status === "completed") {
@@ -1304,8 +1304,8 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
     lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
-    readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
-    report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
+    readback_model: "", packet_schema_version: packet.schema_version,
+    report_schema_version: packet.schema_version, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
     host_provenance: provenance, ...packetWorkerJobBinding(packet), assertion,
   }, signal)
@@ -2050,8 +2050,8 @@ async function completeWorkerSession(
     lane_version: lane.version,
     lane_digest: packet.lane_digest,
     readback_model: readback.readback_model,
-    packet_schema_version: PACKET_SCHEMA_VERSION,
-    report_schema_version: REPORT_SCHEMA_VERSION,
+    packet_schema_version: packet.schema_version,
+    report_schema_version: packet.schema_version,
     // The CLI requires the digest on the request as well as inside the
     // signed assertion: it is the seam that checks the value the assertion
     // claims is the value the core recorded (CD-0067 D6).
@@ -2128,7 +2128,7 @@ async function completeWorkerSession(
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     readback_model: readback.readback_model,
-    report_schema_version: REPORT_SCHEMA_VERSION,
+    report_schema_version: terminal.report.schema_version,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
     base_comparison: terminal.report.base_comparison,

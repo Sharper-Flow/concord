@@ -1350,8 +1350,8 @@ test("a successful run records dispatch evidence before completion evidence", as
   expect(dispatched.lane_version).toBe(lane.version)
   expect(dispatched.lane_digest).toBe(lane.digest)
   expect(dispatched.readback_model).toBe(READBACK_MODEL)
-  expect(dispatched.packet_schema_version).toBe("1.1")
-  expect(dispatched.report_schema_version).toBe("1.1")
+  expect(dispatched.packet_schema_version).toBe("1.0")
+  expect(dispatched.report_schema_version).toBe("1.0")
   expect(typeof dispatched.event_id).toBe("string")
 
   const completed = JSON.parse(records[1].input)
@@ -1746,12 +1746,29 @@ test("the AGENTS.md walk names the global file once when the spawn directory is 
 // into a typed worker-fail rather than a completion.
 import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison } from "./dispatch"
 
-async function terminalEvidence(carried: unknown = report()) {
+test("legacy report identity forbids a worker-job claim", () => {
+  const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
+  expect(validateAgentLaneReport(report({ worker_job }))).toBe(false)
+  expect(validateAgentLaneReport(report({ schema_version: "1.1", worker_job }))).toBe(true)
+})
+
+test("report admission preserves matched schema identities and refuses mixed pairs", () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    const p = { ...packet(), schema_version }
+    const good = resolveWorkerReportFromText(JSON.stringify(report({ schema_version })), p)
+    expect("report" in good).toBe(true)
+    if ("report" in good) expect(good.report.schema_version).toBe(schema_version)
+    const bad = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: schema_version === "1.0" ? "1.1" : "1.0" })), p)
+    expect("detail" in bad).toBe(true)
+  }
+})
+
+async function terminalEvidence(carried: unknown = report(), p: AgentLanePacket = packet()) {
   const calls: { argv: string[]; input: string }[] = []
   const result = await complete(workerBody(carried), {
     concordBinary: "concord-test",
     evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
-  })
+  }, p)
   // The session-list observation rides the same CLI runner; the evidence
   // records are the worker-* calls alone.
   const records = calls.filter((call) => call.argv[1].startsWith("worker-"))
@@ -1765,6 +1782,17 @@ test("a valid completed report carries its reported evidence into worker-complet
   expect(payloads[1].evidence_origin).toBe("reported")
   expect(payloads[1].evidence).toEqual(reportEvidence())
   expect(payloads[1].report_schema_version).toBe("1.0")
+})
+
+test("terminal evidence preserves both legacy and current schema pairs without relabeling", async () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    const { result, verbs, payloads } = await terminalEvidence(report({ schema_version }), { ...packet(), schema_version })
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(payloads[0].packet_schema_version).toBe(schema_version)
+    expect(payloads[0].report_schema_version).toBe(schema_version)
+    expect(payloads[1].report_schema_version).toBe(schema_version)
+  }
 })
 
 // The dispatch window owns the worker directory; the report does not carry

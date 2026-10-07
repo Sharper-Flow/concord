@@ -541,6 +541,14 @@ or the recorded work question when it is `work_question`. The packet adds no
 header or trailer, so the whole task text is the objective. The workflow step
 and lane identity are packet root fields, not task text.
 
+When `inputs.worker_job` is present, its `objective` is this attempt's job.
+The parent premise in `inputs.task` is context, not an instruction to integrate
+or deliver the parent work. Follow the job's `path_scope`, `predicate_ids`,
+`checks`, and `stopping_condition`. Execute every recorded check assigned to
+verification and report its command and exit code. Repository ancestry alone
+does not discharge a recorded test command. If a required check cannot run,
+report the blocker and return `status` `failed`, not a successful empty run.
+
 `inputs.binding` is the typed authority for the objective: `objective_source`
 names where the task text came from, `work_version` and `contract_version`
 record the versions the packet binds (`contract_version` is null before a

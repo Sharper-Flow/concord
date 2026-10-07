@@ -19,7 +19,7 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	t.Helper()
 	task, binding := recordedPacketInputs(t, s, workID, laneID)
 	return map[string]any{
-		"schema_version": "1.0",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        laneID,
 		"lane_version":   laneVersion,

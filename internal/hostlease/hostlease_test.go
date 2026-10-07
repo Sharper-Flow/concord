@@ -1,13 +1,18 @@
 package hostlease
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestLeaseRoundTripKeepsALiveProcessAndPrunesAStaleOne(t *testing.T) {
@@ -291,4 +296,286 @@ func TestMaintenanceIsExclusiveAndDoesNotWait(t *testing.T) {
 		t.Fatalf("acquire after release: %v", err)
 	}
 	again()
+}
+
+// A first-install bootstrap locks the same way an established root does:
+// the acquisition creates an absent root before opening it, so the lock is
+// held from the first command on and a second command refuses (CON-807).
+// The release retains the bootstrapped root and its ancestors: retention
+// (obs:1ca149d633e69626) is the approved outcome, because no cleanup can
+// prove a replacement holder has not taken the directory over.
+func TestMaintenanceLocksAnAbsentRootBeforeAnyStateWork(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "concord")
+	release, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatalf("acquire over an absent root: %v", err)
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		t.Fatalf("the acquisition must create the root it locks: %v (%v)", info, err)
+	}
+	if _, err := AcquireMaintenance(root); !errors.Is(err, ErrMaintenanceBusy) {
+		t.Fatalf("a second command must refuse against the bootstrapped root: %v", err)
+	}
+	release()
+	if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain the empty bootstrapped root: %v (%v)", info, err)
+	}
+}
+
+// A symlinked data root is refused by the open itself, never followed: the
+// lock would otherwise serialize on a directory the operator did not name,
+// and the migration would run against whatever the link points at (CON-807).
+func TestMaintenanceRefusesASymlinkedDataRoot(t *testing.T) {
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "concord")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := AcquireMaintenance(link)
+	if err == nil || errors.Is(err, ErrMaintenanceBusy) {
+		t.Fatalf("a symlinked data root must be refused, not locked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("the refusal must name the symlink: %v", err)
+	}
+	// The refusal must not have locked the link's target either.
+	targetRelease, err := AcquireMaintenance(target)
+	if err != nil {
+		t.Fatalf("the refused acquisition locked the symlink's target: %v", err)
+	}
+	targetRelease()
+}
+
+// The lock identity is the directory the path names at admission. A root
+// removed and recreated between the open and the flock leaves the lock on
+// an orphaned inode; the acquisition must release the stale descriptor,
+// re-open the current path, and admit a lock the next command refuses
+// against — deterministically, without sleeping (CON-807).
+func TestMaintenanceReacquiresAfterTheRootIsReplacedBetweenOpenAndFlock(t *testing.T) {
+	root := t.TempDir()
+	calls := 0
+	open := openMaintenanceDirectory
+	flock := func(fd int, how int) error {
+		calls++
+		if calls == 1 {
+			// The deterministic race: between the production open and
+			// this flock, the root the descriptor names is removed and a
+			// different directory is created at the same path.
+			if err := os.RemoveAll(root); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return syscall.Flock(fd, how)
+	}
+	file, err := acquireMaintenanceLock(root, open, flock)
+	if err != nil {
+		t.Fatalf("the acquisition must re-acquire on the recreated root: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+	// The admitted lock must sit on the directory the path now names: a
+	// second command opening that directory refuses, while the orphaned
+	// inode the stale descriptor held would have left it free.
+	if _, err := AcquireMaintenance(root); !errors.Is(err, ErrMaintenanceBusy) {
+		t.Fatalf("the admitted lock must cover the current root: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("the acquisition retried %d times, want a bounded local sequence", calls)
+	}
+}
+
+// A replacement that outlives the bounded retry sequence refuses the
+// command instead of looping or sleeping (CON-807).
+func TestMaintenanceRefusesWhenTheRootNeverStopsChanging(t *testing.T) {
+	root := t.TempDir()
+	open := openMaintenanceDirectory
+	flock := func(fd int, how int) error {
+		if err := os.RemoveAll(root); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		return syscall.Flock(fd, how)
+	}
+	_, err := acquireMaintenanceLock(root, open, flock)
+	if !errors.Is(err, ErrMaintenanceRootReplaced) {
+		t.Fatalf("a churning root must refuse with the typed error: %v", err)
+	}
+}
+
+// The lock dies with its holder: a process killed while holding the
+// maintenance lock leaves the root immediately acquirable, because the
+// kernel releases a flock when the open file description closes (CON-807).
+func TestMaintenanceLockIsReleasedWhenTheHolderDies(t *testing.T) {
+	if os.Getenv("CONCORD_TEST_HOLD_MAINTENANCE") == "1" {
+		release, err := AcquireMaintenance(os.Args[len(os.Args)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		fmt.Println("held")
+		// Block until the parent kills this process; the lock must not
+		// outlive it.
+		time.Sleep(10 * time.Second)
+		return
+	}
+	root := t.TempDir()
+	command := exec.Command(os.Args[0], "-test.run=TestMaintenanceLockIsReleasedWhenTheHolderDies", root)
+	command.Env = append(os.Environ(), "CONCORD_TEST_HOLD_MAINTENANCE=1")
+	pipe, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(pipe)
+	line, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "held" {
+		_ = command.Process.Kill()
+		t.Fatalf("the holder never reported the lock: %q %v", line, err)
+	}
+	if err := command.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = command.Wait()
+	release, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatalf("the lock must die with its holder: %v", err)
+	}
+	release()
+}
+
+// A root replaced by a symlink between the open and the flock is never
+// admitted: the confirmation must be an lstat, not a stat that follows the
+// link back to the inode the descriptor holds — the rename-aside-and-link
+// probe. The refusal names the symlink, and the moved directory is unlocked
+// again afterwards (CON-807).
+func TestMaintenanceRefusesARootReplacedByASymlinkBetweenOpenAndFlock(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "concord")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "moved-aside")
+	open := openMaintenanceDirectory
+	flock := func(fd int, how int) error {
+		if err := os.Rename(root, moved); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(moved, root); err != nil {
+			t.Fatal(err)
+		}
+		return syscall.Flock(fd, how)
+	}
+	_, err := acquireMaintenanceLock(root, open, flock)
+	if err == nil {
+		t.Fatal("a root the path no longer names as a directory must not be admitted")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("the refusal must name the symlink: %v", err)
+	}
+	if _, err := os.Lstat(root); err != nil {
+		t.Fatalf("the probe must leave the planted symlink in place: %v", err)
+	}
+	// The moved-aside directory is unlocked again: the stale descriptor was
+	// released with the refused acquisition.
+	probe, err := os.Open(moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = probe.Close() }()
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("the refused acquisition must release the stale descriptor: %v", err)
+	}
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The release retains the empty bootstrap chain the acquisition created
+// (CON-807, obs:1ca149d633e69626): retained disk space is the accepted cost
+// of never letting a cleanup delete a directory a replacement holder may
+// own. A root another participant recreated during the hold, a root the
+// command never bootstrapped, and the bootstrapped chain itself all survive
+// the release.
+func TestMaintenanceReleaseRetainsTheEmptyRootItBootstrapped(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "share", "concord")
+	release, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain the bootstrapped root: %v (%v)", info, err)
+	}
+	if info, err := os.Lstat(filepath.Dir(root)); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain the bootstrapped ancestor: %v (%v)", info, err)
+	}
+	next, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatalf("the retained root must admit the next command: %v", err)
+	}
+	next()
+}
+
+// A root the command did not bootstrap is retained by the release like any
+// other (CON-807): nothing in the release path distinguishes a foreign root
+// from a bootstrapped one, because nothing is removed at all.
+func TestMaintenanceReleaseRetainsARootItDidNotBootstrap(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "concord")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain a root it did not bootstrap: %v (%v)", info, err)
+	}
+}
+
+// The reproduced final-cleanup interleaving, promoted to deterministic
+// coverage (CON-807): while the first holder still holds the lock, another
+// participant moves the root away and publishes its own directory at the
+// path, and a second real acquisition holds the replacement — a different
+// inode, so the flocks do not collide. Retention keeps both roots: the
+// first holder's release deletes nothing, so the second holder's root and
+// the moved-aside root both survive. Exclusion against this external
+// replacement is explicitly not promised; retention is what keeps it safe.
+func TestMaintenanceReleaseRetainsAReplacedRootAndItsSecondHolder(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "concord")
+	aside := filepath.Join(parent, "aside")
+	first, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The external replacement: the root the first holder flocks is renamed
+	// away, and a foreign empty root is published at the same path.
+	if err := os.Rename(root, aside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	second, err := AcquireMaintenance(root)
+	if err != nil {
+		t.Fatalf("the replacement root must admit its own holder: %v", err)
+	}
+	first()
+	second()
+	if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain the second holder's root: %v (%v)", info, err)
+	}
+	if info, err := os.Lstat(aside); err != nil || !info.IsDir() {
+		t.Fatalf("the release must retain the moved-aside root: %v (%v)", info, err)
+	}
 }

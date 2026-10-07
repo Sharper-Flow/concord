@@ -8,6 +8,7 @@ OpenCode configuration paths.
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import json
@@ -559,6 +560,77 @@ def admission_lock(paths: Paths):
         handle.close()
 
 
+# The acquisition retries only this many times when the data root is removed
+# or replaced between the open and the flock. The bound keeps a churning root
+# from turning the lock into a wait; the operator re-runs the command (CON-807).
+MAINTENANCE_ACQUIRE_ATTEMPTS = 3
+
+
+def _acquire_maintenance_lock(path: Path) -> int:
+    """Open and flock the data root directory, without waiting (CON-807).
+
+    A first-install bootstrap locks the same way an established root does:
+    the root is created before it is opened, so an absent root is never an
+    unlocked window another command could recover a live transaction through.
+    The creation is a plain mkdir of the missing levels; what it created is
+    retained at release (obs:1ca149d633e69626), so no creation-attribution
+    machinery follows it — attribution existed only to authorize deletion,
+    and no path-based deletion is safe against a replacement holder.
+
+    The lock identity is the directory the path names at admission: the root
+    is opened without following symlinks, and after the flock the open
+    descriptor's device and inode are compared with what the path names now,
+    read with lstat so a replaced symlink is never followed. A root removed
+    or replaced in between releases the stale descriptor and the next
+    attempt re-opens the current path; the bounded sequence never sleeps.
+
+    Returns the locked descriptor. Nothing removes the root afterwards:
+    retained disk space is the accepted cost.
+    """
+    for attempt in range(1, MAINTENANCE_ACQUIRE_ATTEMPTS + 1):
+        last = attempt == MAINTENANCE_ACQUIRE_ATTEMPTS
+        os.makedirs(path, exist_ok=True)
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as error:
+            if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                # The open itself refused, without following the path; the
+                # lstat only names the reason for the operator.
+                if path.is_symlink():
+                    raise InstallerError(f"refusing symlinked data root {path}") from error
+                raise InstallerError(f"refusing data root {path}: it is not a directory") from error
+            if error.errno == errno.ENOENT and not last:
+                continue
+            raise
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            os.close(descriptor)
+            raise InstallerError(
+                f"another maintenance command is in progress: {path} is locked; re-run when it finishes"
+            ) from error
+        except BaseException:
+            os.close(descriptor)
+            raise
+        held = os.fstat(descriptor)
+        try:
+            current = os.lstat(path)
+        except FileNotFoundError:
+            os.close(descriptor)
+            if not last:
+                continue
+            raise InstallerError(
+                f"the data root {path} kept changing while the maintenance lock was taken; re-run the command"
+            ) from None
+        if not stat.S_ISDIR(current.st_mode) or (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+            os.close(descriptor)
+            continue
+        return descriptor
+    raise InstallerError(
+        f"the data root {path} kept changing while the maintenance lock was taken; re-run the command"
+    )
+
+
 @contextmanager
 def maintenance_lock(paths: Paths):
     """Hold the data root's exclusive maintenance lock (CON-807).
@@ -571,25 +643,19 @@ def maintenance_lock(paths: Paths):
     migration still needs. The lock does not wait; a second command refuses.
 
     The lock is a flock on the data root directory itself, so it leaves no
-    file behind: a refused install creates nothing and uninstall still
-    removes the data root. An absent data root holds no store, boundary, or
-    transaction, so there is nothing yet to serialize against.
+    file behind. A first-install bootstrap creates the root to lock it, and
+    the release removes nothing (obs:1ca149d633e69626): the empty root, its
+    ancestors, a root another participant created or recreated, and any
+    state in them all survive a failed installation, a normal release, and
+    an uninstall. A held directory flock cannot make a later path-based
+    removal conditional on the inode the holder once observed, so no cleanup
+    removes the data root at all, and retained disk space is the accepted
+    cost. An uninstall removes the intended installed content only. Neither
+    the installer nor the core promises exclusion against an arbitrary
+    external replacement of the root directory.
     """
-    path = paths.data_root
-    if path.is_symlink():
-        raise InstallerError(f"refusing symlinked data root {path}")
+    descriptor = _acquire_maintenance_lock(paths.data_root)
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    except FileNotFoundError:
-        yield
-        return
-    try:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise InstallerError(
-                f"another maintenance command is in progress: {path} is locked; re-run when it finishes"
-            ) from error
         yield
     finally:
         os.close(descriptor)
@@ -3118,7 +3184,10 @@ def ensure_rollback_safe(journal: dict[str, object], paths: Paths) -> None:
 def cleanup_transaction(transaction_root: Path, journal: dict[str, object], paths: Paths, remove_old_version: bool = True) -> None:
     # The replaced release and every retained one leave through the one
     # lease-aware path (CD-0111 D2); nothing here removes a version root by
-    # itself anymore.
+    # itself anymore. The data root itself is never touched here: it is the
+    # maintenance lock's root, and no cleanup removes it (CON-807,
+    # obs:1ca149d633e69626). A mid-command rmdir would delete a directory
+    # the command never created and keep making state effects after it.
     if remove_old_version:
         remove_unheld_releases(journal, paths)
         if journal.get("operation") == "uninstall":
@@ -3134,7 +3203,7 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
         fsync_directory(transaction_root.parent.parent)
     except OSError:
         pass
-    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.data_root):
+    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir):
         try:
             directory.rmdir()
         except OSError:
@@ -4401,7 +4470,11 @@ def uninstall(args: argparse.Namespace) -> int:
     advance_phase(transaction_root, journal, "cleanup")
     verify_states(journal, paths, committed=True)
     cleanup_transaction(transaction_root, journal, paths)
-    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir, paths.data_root):
+    # The data root is the maintenance lock's root and is retained: an
+    # uninstall removes the intended installed content only, and no cleanup
+    # may remove a directory a replacement holder could own (CON-807,
+    # obs:1ca149d633e69626).
+    for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir):
         try:
             directory.rmdir()
         except OSError:
@@ -5212,7 +5285,9 @@ def main() -> int:
     }
     try:
         # Every command recovers transactions first, so every command is a
-        # maintenance command and runs alone.
+        # maintenance command and runs alone. The release removes nothing:
+        # the lock root is retained through failed installation, normal
+        # release, and uninstall (CON-807, obs:1ca149d633e69626).
         with maintenance_lock(paths_for(args.root)):
             return commands[args.command](args)
     except InstallerError as error:

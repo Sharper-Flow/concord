@@ -121,6 +121,29 @@ once. A migration command decides whether to close its boundary from what it
 alone committed, and an installer command recovers transactions and may close
 the boundary, so an overlap could reopen admission early.
 
+The shared lock has one identity in both languages. It is a non-blocking
+flock on the data root directory itself, taken before any recovery or
+staging. The root is created before it is opened, so a first-install
+bootstrap holds the same lock an established root holds. The open refuses a
+symlinked root without following it. After the flock, the holder compares the
+open descriptor's device and inode with what the path names now, read
+without following symlinks: a root removed or replaced before admission
+releases its stale descriptor, and a bounded local sequence re-opens the
+current path. The sequence never sleeps or waits on contention.
+
+No cleanup removes the data root. A held directory flock cannot make a
+later path-based removal conditional on the inode the holder once
+observed: between any check and any removal another participant may take
+the directory over, so an owner-tagged removal could delete a directory
+the command never created. The acquisition creates a missing root only to
+lock it, and the empty root, its necessary ancestors, a root another
+participant created or recreated, and any state in them are retained
+after a failed installation, a normal maintenance release, and an
+uninstall. An uninstall removes the intended installed content only.
+Retained disk space is the accepted cost, and retention is what keeps a
+Concord cleanup from deleting a replacement holder's directory; exclusion
+against an arbitrary external replacement of the root is not promised.
+
 The recorded migration command pins the environment the plan read: it unsets
 the inline database override and names the data home, so an operator shell
 cannot point the migration at another store. While a boundary is open, the
@@ -226,6 +249,22 @@ Scenario: two migration commands never overlap
   When the first command commits the breaking migration
   Then the boundary stays open until the prepared release activates
 
+Scenario: the maintenance lock keeps one identity in both languages
+  Given a data root no command has created yet
+  When the first command takes the shared maintenance lock
+  Then the root exists and every other command refuses at once
+  And the core's migration command and the installer's commands refuse the same way
+  When the root is removed or replaced before a command is admitted
+  Then the command releases its stale descriptor
+  And a bounded local sequence re-opens the root the path now names
+  And the sequence never sleeps or waits on contention
+  When a command finishes without writing state
+  Then the empty root it bootstrapped and its ancestors are retained
+  And a root another participant created or recreated is never deleted
+  And no transaction cleanup or mid-command step removes the data root
+  When an uninstall finishes with an empty data root
+  Then the intended installed content is gone and the lock root remains
+
 Scenario: a blocked install keeps the open boundary's candidate
   Given an open maintenance boundary for a prepared release N+1
   When an install of release N+2 finds its own activation blocked
@@ -274,6 +313,21 @@ Scenario: the operator confirms an unfenceable tree is idle
   on unknown states, additive steps beyond the binary, and breaking steps
   beyond it. Host-lease tests prove admission refuses a claim whose pinned
   core was removed.
+- Host-lease and installer tests prove the shared maintenance-lock identity
+  in both languages: the first-install bootstrap creates and locks an absent
+  root, a symlinked root is refused at the open, a root replaced between the
+  open and the flock is re-acquired on the current inode, a root replaced by
+  a symlink is never admitted, the lock dies with its holder, and the
+  read-only plan takes no lock and creates no missing store. They prove the
+  retention rule: the empty bootstrapped root, its ancestors, a
+  foreign-created root, and a root replaced or recreated during a hold all
+  survive a failed install, a crashed install and its recovery, a normal
+  release, and an uninstall; no transaction cleanup removes the data root,
+  and an uninstall removes the intended installed content only. The
+  final-cleanup interleaving — a replacement published and held while the
+  holder's cleanup runs — is covered deterministically and proves the
+  release removes no data root at all. Both interop directions run the real
+  core binary beside the real installer.
 - The release-pair test proves one representative compatible pair with the
   actually released source: each release's own adapter claims its lease by
   calling its own pinned core, the old session keeps operating after the newer core

@@ -410,7 +410,7 @@ func TestMaintenanceRefusesWhenTheRootNeverStopsChanging(t *testing.T) {
 // maintenance lock leaves the root immediately acquirable, because the
 // kernel releases a flock when the open file description closes (CON-807).
 func TestMaintenanceLockIsReleasedWhenTheHolderDies(t *testing.T) {
-	if os.Getenv("CONCORD_TEST_HOLD_MAINTENANCE") == "1" {
+	if os.Getenv("TEST_CONCORD_HOLD_MAINTENANCE") == "1" {
 		release, err := AcquireMaintenance(os.Args[len(os.Args)-1])
 		if err != nil {
 			t.Fatal(err)
@@ -424,7 +424,7 @@ func TestMaintenanceLockIsReleasedWhenTheHolderDies(t *testing.T) {
 	}
 	root := t.TempDir()
 	command := exec.Command(os.Args[0], "-test.run=TestMaintenanceLockIsReleasedWhenTheHolderDies", root)
-	command.Env = append(os.Environ(), "CONCORD_TEST_HOLD_MAINTENANCE=1")
+	command.Env = append(os.Environ(), "TEST_CONCORD_HOLD_MAINTENANCE=1")
 	pipe, err := command.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

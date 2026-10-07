@@ -11,9 +11,9 @@ import (
 // Python validator test. The fixture root comes from the test environment.
 func TestUnprocessedKnowledgeDocsFixture(t *testing.T) {
 	t.Parallel()
-	root := os.Getenv("CONCORD_KNOWLEDGE_FIXTURE_ROOT")
+	root := os.Getenv("TEST_CONCORD_KNOWLEDGE_FIXTURE_ROOT")
 	if root == "" {
-		t.Skip("CONCORD_KNOWLEDGE_FIXTURE_ROOT is not set")
+		t.Skip("TEST_CONCORD_KNOWLEDGE_FIXTURE_ROOT is not set")
 	}
 	data, err := os.ReadFile(filepath.Join(root, "manifest.json"))
 	if err != nil {

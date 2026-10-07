@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	conformanceWorkerEnv           = "CONCORD_CONFORMANCE_WORKER"
+	conformanceWorkerEnv           = "TEST_CONCORD_CONFORMANCE_WORKER"
 	conformanceLongEnv             = "CONCORD_CONFORMANCE_LONG"
 	conformanceAttemptsEnv         = "CONCORD_CONFORMANCE_ATTEMPTS"
 	conformanceUnpacedEnv          = "CONCORD_CONFORMANCE_UNPACED"
@@ -135,11 +135,11 @@ func readLoadAverageOneMinute() (load float64, ok bool) {
 	return value, true
 }
 
-// acceptanceRunnerSignal reads the acceptance-runner environment variable at
-// the harness boundary. Only an exact "1" grants accepted authority, so unset,
+// acceptanceRunnerSignal returns the invocation signal consumed by TestMain.
+// Only an exact "1" grants accepted authority, so unset,
 // empty, and any other value all resolve to diagnostic.
 func acceptanceRunnerSignal() string {
-	return os.Getenv(conformanceAcceptanceRunnerEnv)
+	return conformanceConfiguration.acceptanceRunner
 }
 
 // githubActionsSignal reads the GITHUB_ACTIONS environment variable at the
@@ -278,9 +278,9 @@ func TestConformanceWorker(t *testing.T) {
 	if os.Getenv(conformanceWorkerEnv) != "1" {
 		return
 	}
-	path := os.Getenv("CONCORD_CONFORMANCE_DB")
-	worker := mustIntEnv("CONCORD_CONFORMANCE_WORKER_ID")
-	scenario := os.Getenv("CONCORD_CONFORMANCE_SCENARIO")
+	path := os.Getenv("TEST_CONCORD_CONFORMANCE_DB")
+	worker := mustIntEnv("TEST_CONCORD_CONFORMANCE_WORKER_ID")
+	scenario := os.Getenv("TEST_CONCORD_CONFORMANCE_SCENARIO")
 	s, err := Open(context.Background(), path)
 	if err != nil {
 		emitWorker(WorkerResult{Worker: worker, PID: os.Getpid(), Outcome: outcomeError, FailureKind: failureKind(err), DBIdentity: dbIdentity(path)})
@@ -304,7 +304,7 @@ func TestTenProcessConformance(t *testing.T) {
 	if os.Getenv(conformanceWorkerEnv) == "1" {
 		return
 	}
-	runTenProcessConformance(t, runnerProfileDiagnostic, os.Getenv(conformanceLongEnv) == "1")
+	runTenProcessConformance(t, runnerProfileDiagnostic, conformanceConfiguration.long)
 }
 
 // TestTenProcessAcceptanceConformance is the isolated acceptance-workflow entry
@@ -314,7 +314,7 @@ func TestTenProcessAcceptanceConformance(t *testing.T) {
 	if os.Getenv(conformanceWorkerEnv) == "1" {
 		return
 	}
-	if os.Getenv(conformanceLongEnv) != "1" {
+	if !conformanceConfiguration.long {
 		t.Skip("acceptance conformance runs only in long mode")
 	}
 	// CI tripwire: a CI run missing the required-check signal must fail
@@ -572,7 +572,7 @@ func validateLoadPacing(profile conformanceRunnerProfile, unpaced bool) error {
 }
 
 func loadPaceInterval() time.Duration {
-	if os.Getenv(conformanceUnpacedEnv) == "1" {
+	if conformanceConfiguration.unpaced {
 		return 0
 	}
 	return productionLikePaceInterval
@@ -614,7 +614,7 @@ func classifySustainedFalsifier(authority populationAuthority, aboveTarget, roun
 
 func runLongProfiles(t *testing.T, ctx context.Context, root string, runnerProfile conformanceRunnerProfile, controlCommitP99MS int64) {
 	t.Helper()
-	if err := validateLoadPacing(runnerProfile, os.Getenv(conformanceUnpacedEnv) == "1"); err != nil {
+	if err := validateLoadPacing(runnerProfile, conformanceConfiguration.unpaced); err != nil {
 		t.Fatal(err)
 	}
 	const rounds = 3
@@ -812,7 +812,7 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 }
 
 func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string) WorkerResult {
-	attempts := mustIntEnv(conformanceAttemptsEnv)
+	attempts := conformanceConfiguration.attempts
 	if attempts < 1 {
 		attempts = 100
 	}
@@ -980,7 +980,7 @@ func runConformanceWorkersWithHook(ctx context.Context, path, scenario string, b
 	children := make([]child, 0, 10)
 	for worker := 0; worker < 10; worker++ {
 		cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestConformanceWorker$", "-test.v=false")
-		cmd.Env = append(os.Environ(), conformanceWorkerEnv+"=1", "CONCORD_CONFORMANCE_DB="+path, fmt.Sprintf("CONCORD_CONFORMANCE_WORKER_ID=%d", worker), "CONCORD_CONFORMANCE_SCENARIO="+scenario)
+		cmd.Env = append(os.Environ(), conformanceWorkerEnv+"=1", "TEST_CONCORD_CONFORMANCE_DB="+path, fmt.Sprintf("TEST_CONCORD_CONFORMANCE_WORKER_ID=%d", worker), "TEST_CONCORD_CONFORMANCE_SCENARIO="+scenario)
 		if scenario == "backup_load" {
 			cmd.Env = append(cmd.Env, conformanceAttemptsEnv+"=5")
 		}
@@ -1079,7 +1079,7 @@ func conformanceCreationOperation(id, membershipID string) Operation {
 
 func killBeforeCommitAndRetry(ctx context.Context, path string, s *Store) error {
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestConformanceWorker$", "-test.v=false")
-	cmd.Env = append(os.Environ(), conformanceWorkerEnv+"=1", "CONCORD_CONFORMANCE_DB="+path, "CONCORD_CONFORMANCE_WORKER_ID=99", "CONCORD_CONFORMANCE_SCENARIO=kill")
+	cmd.Env = append(os.Environ(), conformanceWorkerEnv+"=1", "TEST_CONCORD_CONFORMANCE_DB="+path, "TEST_CONCORD_CONFORMANCE_WORKER_ID=99", "TEST_CONCORD_CONFORMANCE_SCENARIO=kill")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

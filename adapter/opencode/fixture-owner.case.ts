@@ -74,7 +74,7 @@ const caseBody: Record<string, () => Promise<void>> = {
   },
 
   async "timeout-resumption"() {
-    // The exact no_ship counterexample: a real bun:test 50ms timeout, a body
+    // The regression shape: a real bun:test 50ms timeout, a body
     // that resumes at 200ms — during another awaited hook — and writes into
     // the root. The root must still exist at resumption, and removal happens
     // only after this process can no longer write.
@@ -181,8 +181,8 @@ test(scenario || "unconfigured", async () => {
 }, TEST_TIMEOUTS[scenario] ?? 60_000)
 
 // A later awaited hook for the resumption case: it runs while the timed-out
-// body's 200ms timer is still pending, which is exactly when the superseded
-// afterAll sweep used to remove the root.
+// body's 200ms timer is still pending — a live writer in the root exactly
+// when removal must not yet happen.
 test("later awaited hook", async () => {
   await new Promise((resolve) => setTimeout(resolve, 400))
 })

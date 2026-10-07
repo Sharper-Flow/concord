@@ -4,9 +4,9 @@
 // with an ownership marker and nonce, launches the case file as a child
 // `bun test` run, and removes that exact root only after this process can no
 // longer write and every owned descendant is killed and reaped (the kernel's
-// own ECHILD boundary). Nothing here removes anything: there is no in-process
-// scope registry, no file-level afterAll sweep, no signal sweep, and no
-// per-command supervisor — those superseded designs are gone.
+// own ECHILD boundary). Nothing here removes anything: removal belongs to
+// the external owner alone, so there is no in-process scope registry, no
+// file-level afterAll sweep, no signal sweep, and no per-command supervisor.
 //
 // All fixture allocations go through fixtureTempRoot(), which places them
 // under the owner's run root and nowhere else. The global TMPDIR is NOT

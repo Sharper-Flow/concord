@@ -2,13 +2,15 @@
 // (fixture-root-owner.py). Every case runs the real owner as a child of this
 // test, and the owner runs the real case file (fixture-owner.case.ts) as a
 // child `bun test` process, so bun:test's own timeouts, hooks, and exit
-// statuses are the exercised ones. The three no_ship counterexamples are
-// permanent residents here: (1) a real 50ms-timeout body that resumes at
-// 200ms during another awaited hook and writes into the root, (2) a
-// separately sessioned SIGTERM-ignoring six-process writer chain that only
-// unbounded kill/reap rounds — bounded by the kernel's ECHILD, never by a
-// round count — can drain before removal, and (3) a cleanup failure after a
-// passing run, which must exit nonzero with a visible removal_error.
+// statuses are the exercised ones. Three regression shapes are permanent
+// residents here: (1) a real 50ms-timeout body that resumes at 200ms during
+// another awaited hook and writes into the root, (2) a separately sessioned
+// SIGTERM-ignoring six-process writer chain that only unbounded kill/reap
+// rounds — bounded by the kernel's ECHILD, never by a round count — can
+// drain before removal, and (3) a cleanup failure after a passing run, which
+// must exit nonzero with a visible removal_error. The owner's whole startup,
+// cancellation, and pipe-failure surface is covered by the focused
+// regressions below this matrix.
 //
 // Every lifecycle case runs three consecutive times and asserts: the exact
 // owned run root (from the owner's own allocated_root journal, never a
@@ -17,16 +19,24 @@
 // 130/143 are preserved, removal errors are visible with evidence retained,
 // a same-prefix sibling and a concurrent foreign-run sentinel stay
 // untouched, and an owner killed by SIGKILL — which can run no cleanup at
-// all — leaves an identifiable leftover confined only by the probe's own
-// recovery owner. No model call happens anywhere in this file.
+// all — leaves an identifiable leftover that no shipped mode reclaims: only
+// the test-owned adoption probe (fixture-owner-adopt-probe.py) confines it,
+// through kernel adoption of exactly that run's descendants. No model call
+// happens anywhere in this file.
 import { expect, test } from "bun:test"
-import { chmod, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { OWNED_ROOT_MARKER } from "./fixture-temp-root"
 
 const OWNER = join(import.meta.dir, "fixture-root-owner.py")
+const PROBE = join(import.meta.dir, "fixture-owner-adopt-probe.py")
 const CASE_FILE = join(import.meta.dir, "fixture-owner.case.ts")
+// Resolved once here, against a stable PATH: a pyenv-style shim would break
+// when a case deliberately strips PATH inside the child environment, and the
+// owner process itself must still be spawnable in every case.
+const PYTHON = (Bun.which("python3", { PATH: "/usr/bin:/bin" }) ?? Bun.which("python3")) as string
 const SIGNAL_NUMBERS: Record<string, number> = { SIGINT: 2, SIGTERM: 15, SIGKILL: 9 }
 
 const EXPECTED_EXIT: Record<string, number> = {
@@ -211,7 +221,7 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
   // A stale heartbeat from an earlier run would satisfy the live-chain wait
   // with dead PIDs; each run observes only its own chain.
   await rm(pulsePath, { force: true })
-  const child = Bun.spawn(["python3", OWNER, CASE_FILE], {
+  const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
     cwd: import.meta.dir,
     env: {
       ...process.env,
@@ -297,9 +307,9 @@ async function assertScenario(result: OwnerRun, scenario: string, workDir: strin
       break
     }
     case "timeout-resumption": {
-      // The no_ship counterexample, promoted: the body really resumed after
-      // a real timeout and wrote into the root, the root was still there,
-      // and removal happened only after the process could not write again.
+      // The regression shape: the body really resumed after a real timeout
+      // and wrote into the root, the root was still there, and removal
+      // happened only after the process could not write again.
       expect(findings.resumedAfterTimeout).toBe(true)
       expect(findings.rootPresentAtResumption).toBe(true)
       expect(findings.wroteAfterTimeout).toBe(true)
@@ -390,10 +400,204 @@ test("every owner lifecycle case cleans its exact root across three consecutive 
   }
 }, 480_000)
 
-test("owner SIGKILL leaves an identifiable leftover that only the probe's recovery owner confines", async () => {
+test("owner SIGKILL leaves an identifiable leftover that only the test-owned adoption probe confines", async () => {
   const workDir = await mkdtemp(join(tmpdir(), "concord-owner-kill-"))
   const pulsePath = join(workDir, "kill.pulse.txt")
-  const child = Bun.spawn(["python3", OWNER, CASE_FILE], {
+  // The probe is the owner's parent and a subreaper BEFORE the owner
+  // launches, so the killed owner's whole process tree moves onto it by
+  // kernel adoption. No shipped mode reclaims the leftover: this is test
+  // machinery, and it claims containment of exactly this run, nothing else.
+  const probe = Bun.spawn([PYTHON, PROBE, CASE_FILE, pulsePath], {
+    cwd: import.meta.dir,
+    env: {
+      ...process.env,
+      CONCORD_OWNER_CASE: "sleepy",
+      CONCORD_OWNER_REPORT: join(workDir, "report.json"),
+      CONCORD_OWNER_PULSE: pulsePath,
+      CONCORD_OWNER_BUN: process.execPath,
+    },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr, exited] = await Promise.all([new Response(probe.stdout).text(), new Response(probe.stderr).text(), probe.exited])
+  const events = parseEvents(stderr)
+  const root = eventAt(events, "probe_registered_root")?.root
+  expect(exited, `adoption probe failed: ${stdout}${stderr}`).toBe(0)
+  expect(root, "probe never registered the owner's allocated root").toBeDefined()
+
+  // The killed owner ran no cleanup at all: its status is 137 and the
+  // leftover — root plus intact ownership marker — was observed before any
+  // containment started. No automatic reclamation is claimed or performed.
+  expect(eventAt(events, "probe_kill")?.owner_status).toBe(137)
+  const leftover = eventAt(events, "probe_leftover")
+  expect(leftover, "probe never observed the SIGKILL leftover").toBeDefined()
+  expect(leftover?.marker_present, "leftover root lost its ownership marker").toBe(true)
+  expect(leftover?.owner_journalled_removal_error).toBe(false)
+
+  // Containment order is the owner's own: every adopted descendant dead and
+  // reaped to the kernel's ECHILD boundary BEFORE the exact root is removed.
+  const drain = eventAt(events, "probe_drain_complete")
+  expect(drain, "probe never reached the drain boundary").toBeDefined()
+  expect(events.indexOf(drain as OwnerEvent), "leftover observed after containment").toBeGreaterThan(events.indexOf(leftover as OwnerEvent))
+  expect((drain?.reaped ?? []).length, "the adopted tree was not fully reaped").toBeGreaterThanOrEqual(6)
+  const cleanup = eventAt(events, "cleanup_entry")
+  expect(cleanup, "probe removed no root").toBeDefined()
+  expect(events.indexOf(cleanup as OwnerEvent), "removal began before the drain boundary").toBeGreaterThan(events.indexOf(drain as OwnerEvent))
+  expect(eventAt(events, "removal_error")).toBeUndefined()
+  expect(eventAt(events, "completion")).toBeDefined()
+
+  const rootPath = root as string
+  expect(await pathExists(rootPath), "confined root survived").toBe(false)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(await pathExists(rootPath), "confined root was recreated after removal").toBe(false)
+  const heartbeat = await expectHeartbeatStable(pulsePath, "owner-sigkill after containment")
+  expect(heartbeat.pids.length, "chain never reached six links").toBeGreaterThanOrEqual(6)
+  for (const pid of heartbeat.pids) await expectProcessGone(pid, "contained chain link")
+  try {
+    await rm(workDir, { recursive: true, force: true })
+  } finally {
+    if (await pathExists(rootPath)) await rm(rootPath, { recursive: true, force: true })
+  }
+}, 120_000)
+
+test("the removed recovery route stays removed: usage only, nothing scanned, nothing touched", async () => {
+  // A decoy root with a valid-looking marker: a usage error must leave it
+  // exactly as it was — no process-table scan, no signalling, no removal.
+  const decoy = await mkdtemp(join(tmpdir(), "cfx-"))
+  const markerText = `${JSON.stringify({ nonce: "synthetic", owner: "decoy" })}\n`
+  await Bun.write(join(decoy, OWNED_ROOT_MARKER), markerText)
+  const run = Bun.spawnSync([PYTHON, OWNER, "--recover", decoy, "synthetic"], {
+    cwd: import.meta.dir,
+    env: { ...process.env },
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  expect(run.exitCode, `removed route was not a usage error: ${run.stdout.toString()}${run.stderr.toString()}`).toBe(2)
+  expect(run.stderr.toString()).toContain("usage: fixture-root-owner.py CASE_FILE")
+  expect(run.stderr.toString()).not.toContain("recovery_")
+  expect(run.stdout.toString()).toBe("")
+  expect(await pathExists(decoy), "usage error touched a root").toBe(true)
+  expect(await readFile(join(decoy, OWNED_ROOT_MARKER), "utf8")).toBe(markerText)
+  await rm(decoy, { recursive: true, force: true })
+}, 30_000)
+
+test("startup failure — unresolvable or unspawnable bun — cleans the exact root and fails visibly", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "concord-owner-startfail-"))
+  const unspawnable = join(workDir, "not-a-bun")
+  await writeFile(unspawnable, "#!/bin/sh\nsleep 30\n")
+  await chmod(unspawnable, 0o644) // exists, but will not exec
+  const cases: Array<{ label: string; bun: string; path?: string }> = [
+    { label: "no-executable", bun: "", path: "/nonexistent" },
+    { label: "unresolved-path", bun: join(workDir, "missing-bun") },
+    { label: "unspawnable", bun: unspawnable },
+  ]
+  for (const { label, bun, path } of cases) {
+    const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
+      cwd: import.meta.dir,
+      env: {
+        ...process.env,
+        ...(path ? { PATH: path } : {}),
+        CONCORD_OWNER_CASE: "success",
+        CONCORD_OWNER_REPORT: join(workDir, `${label}.report.json`),
+        CONCORD_OWNER_PULSE: join(workDir, `${label}.pulse.txt`),
+        CONCORD_OWNER_BUN: bun,
+      },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr, exited] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+    const events = parseEvents(stderr)
+    const root = eventAt(events, "allocated_root")?.root
+    expect(root, `${label}: owner never journalled its run root`).toBeDefined()
+    expect(exited, `${label} startup failure stderr: ${stdout}${stderr}`).toBe(92)
+    expect(eventAt(events, "startup_error"), `${label}: no startup_error journalled`).toBeDefined()
+    expect(eventAt(events, "drain_complete"), `${label}: no drain at startup failure`).toBeDefined()
+    expect(eventAt(events, "completion"), `${label}: exact root not removed at startup failure`).toBeDefined()
+    expect(await pathExists(root as string), `${label}: root survived startup failure`).toBe(false)
+    await rm(root as string, { recursive: true, force: true })
+  }
+  await rm(workDir, { recursive: true, force: true })
+}, 30_000)
+
+test("startup cancellation — SIGTERM before the inner run starts — still drains and removes the root", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "concord-owner-startcancel-"))
+  const stub = join(workDir, "slow-bun")
+  await writeFile(stub, "#!/bin/sh\nsleep 30\n")
+  await chmod(stub, 0o755)
+  const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
+    cwd: import.meta.dir,
+    env: {
+      ...process.env,
+      CONCORD_OWNER_CASE: "sleepy",
+      CONCORD_OWNER_REPORT: join(workDir, "report.json"),
+      CONCORD_OWNER_PULSE: join(workDir, "sc.pulse.txt"),
+      CONCORD_OWNER_BUN: stub,
+    },
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const reader = new LineReader(child.stderr)
+  // allocated_root is journalled BEFORE the inner spawn: the moment it
+  // appears, the owner is mid-startup and signal handling is already
+  // installed, so this cancellation lands in the startup window.
+  await reader.waitFor((line) => line.includes('"allocated_root"'), 15_000)
+  child.kill("SIGTERM")
+  const stderr = await reader.textAfterExit()
+  const exited = await child.exited
+  const events = parseEvents(stderr)
+  const root = eventAt(events, "allocated_root")?.root
+  expect(root, "owner never journalled its run root").toBeDefined()
+  expect(exited, `startup-cancellation stderr: ${stderr.slice(-2000)}`).toBe(143)
+  expect(eventAt(events, "cancelled")?.via).toBe("SIGTERM")
+  expect(eventAt(events, "drain_complete"), "no drain at startup cancellation").toBeDefined()
+  expect(eventAt(events, "completion"), "root not removed at startup cancellation").toBeDefined()
+  expect(await pathExists(root as string), "root survived startup cancellation").toBe(false)
+  await rm(workDir, { recursive: true, force: true })
+}, 60_000)
+
+test("a SIGTERM arriving during drain/removal preserves its conventional 143 status", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "concord-owner-late-"))
+  const pulsePath = join(workDir, "late.pulse.txt")
+  const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
+    cwd: import.meta.dir,
+    env: {
+      ...process.env,
+      CONCORD_OWNER_CASE: "chain-writer",
+      CONCORD_OWNER_REPORT: join(workDir, "report.json"),
+      CONCORD_OWNER_PULSE: pulsePath,
+      CONCORD_OWNER_BUN: process.execPath,
+    },
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const reader = new LineReader(child.stderr)
+  // The inner chain-writer run passes and exits on its own; the drain of its
+  // six-link chain is the cleanup window this signal lands in.
+  await reader.waitFor((line) => line.includes('"child_exit"'), 30_000)
+  child.kill("SIGTERM")
+  const stderr = await reader.textAfterExit()
+  const exited = await child.exited
+  const events = parseEvents(stderr)
+  const root = eventAt(events, "allocated_root")?.root
+  expect(root, "owner never journalled its run root").toBeDefined()
+  expect(exited, `late-signal stderr: ${stderr.slice(-2000)}`).toBe(143)
+  expect(eventAt(events, "completion"), "cleanup did not complete after the late signal").toBeDefined()
+  expect(await pathExists(root as string), "root survived the late signal").toBe(false)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(await pathExists(root as string), "run root was recreated after removal").toBe(false)
+  const heartbeat = await expectHeartbeatStable(pulsePath, "late-signal")
+  for (const pid of heartbeat.pids) await expectProcessGone(pid, "late-signal chain link")
+  await rm(workDir, { recursive: true, force: true })
+}, 90_000)
+
+test("launcher death with closed output pipes cannot abort the owner's cleanup", async () => {
+  const workDir = await mkdtemp(join(tmpdir(), "concord-owner-pipes-"))
+  const pulsePath = join(workDir, "pipes.pulse.txt")
+  const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
     cwd: import.meta.dir,
     env: {
       ...process.env,
@@ -406,39 +610,47 @@ test("owner SIGKILL leaves an identifiable leftover that only the probe's recove
     stdout: "pipe",
     stderr: "pipe",
   })
-  const reader = new LineReader(child.stderr)
-  const allocatedLine = await reader.waitFor((line) => line.includes('"allocated_root"'), 15_000)
-  const allocated = JSON.parse(allocatedLine.slice("@@concord-owner ".length)) as OwnerEvent
+  // Read just enough journal to learn the exact root, then give the pipe
+  // away: this test deliberately keeps no copy of the owner's output.
+  const streamReader = child.stderr.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let root: string | undefined
+  const deadline = Date.now() + 15_000
+  while (root === undefined && Date.now() < deadline) {
+    const { done, value } = await streamReader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split("\n")
+    buffer = parts.pop() ?? ""
+    for (const line of parts) {
+      if (line.startsWith("@@concord-owner ") && line.includes('"allocated_root"')) {
+        root = (JSON.parse(line.slice("@@concord-owner ".length)) as OwnerEvent).root
+      }
+    }
+  }
+  expect(root, "owner never journalled its run root").toBeDefined()
   for (let attempt = 0; attempt < 100; attempt++) {
     if ((await readHeartbeat(pulsePath)).pids.length >= 6) break
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  // SIGKILL runs no cleanup at all: the owner dies, the leftover stays.
-  child.kill("SIGKILL")
-  const stderr = await reader.textAfterExit()
+  expect((await readHeartbeat(pulsePath)).pids.length, "chain never reached six links").toBeGreaterThanOrEqual(6)
+  // The launcher side dies completely: both output pipes close first (every
+  // later owner write must fail), then the stdin pipe closes (EOF). Cleanup
+  // has to run through those failures and still remove the exact root.
+  streamReader.releaseLock()
+  await child.stderr.cancel()
+  await child.stdout.cancel()
+  await child.stdin.end()
   const exited = await child.exited
-  const exitCode = exited ?? 128 + (SIGNAL_NUMBERS[child.signalCode ?? "SIGKILL"] ?? 9)
-  expect(exitCode).toBe(137)
-  expect(allocated.root).toBeDefined()
-  const root = allocated.root as string
-  const nonce = allocated.nonce as string
-  expect(await pathExists(root), "owner SIGKILL should leave the run root in place").toBe(true)
-  expect(stderr).not.toContain("removal_error")
-  // The inner bun process and the chain survive the owner's death — no
-  // cleanup claim is made here — so the heartbeat may still grow until the
-  // recovery owner signals exactly them, by nonce, never a reused PID.
-  const beforeRecovery = await readHeartbeat(pulsePath)
-  expect(beforeRecovery.pids.length, "chain never reached six links").toBeGreaterThanOrEqual(6)
-  const recovery = Bun.spawn(["python3", OWNER, "--recover", root, nonce], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
-  const [recoveryStdout, recoveryErr, recoveryExit] = await Promise.all([new Response(recovery.stdout).text(), new Response(recovery.stderr).text(), recovery.exited])
-  expect(recoveryExit, `recovery owner failed: ${recoveryStdout}${recoveryErr}`).toBe(0)
-  expect(await pathExists(root), "recovery owner left the root").toBe(false)
-  await expectProcessGone(allocated.inner_pid, "recovered inner bun process")
-  for (const pid of beforeRecovery.pids) await expectProcessGone(pid, "recovered chain link")
-  await expectHeartbeatStable(pulsePath, "owner-sigkill after recovery")
-  try {
-    await rm(workDir, { recursive: true, force: true })
-  } finally {
-    if (await pathExists(root)) await rm(root, { recursive: true, force: true })
+  expect(exited).toBe(125) // EOF cancellation with cleanup completed
+  const rootPath = root as string
+  for (let attempt = 0; attempt < 200 && (await pathExists(rootPath)); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
-}, 120_000)
+  expect(await pathExists(rootPath), "cleanup aborted when the output pipes closed").toBe(false)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(await pathExists(rootPath), "run root was recreated after removal").toBe(false)
+  for (const pid of (await readHeartbeat(pulsePath)).pids) await expectProcessGone(pid, "closed-pipes chain link")
+  await rm(workDir, { recursive: true, force: true })
+}, 90_000)

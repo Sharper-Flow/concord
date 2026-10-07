@@ -247,9 +247,11 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
   // The action cases all drive one live inner run from outside; the case
   // scenario selects it while the label keeps the action.
   const caseScenario = action ? (ACTION_CASE_SCENARIO[scenario] ?? "sleepy") : scenario
-  // A stale heartbeat from an earlier run would satisfy the live-chain wait
-  // with dead PIDs; each run observes only its own chain.
+  // A stale heartbeat AND a stale report from an earlier run would satisfy
+  // the readiness wait with the previous run's facts; each run observes only
+  // its own run's publications.
   await rm(pulsePath, { force: true })
+  await rm(reportPath, { force: true })
   const child = Bun.spawn([PYTHON, OWNER, CASE_FILE], {
     cwd: import.meta.dir,
     env: {
@@ -264,22 +266,35 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
     stderr: "pipe",
   })
   const reader = new LineReader(child.stderr)
+  // Readiness for an externally driven case, measured only from THIS run's
+  // own publications: the cleanup-failure variants republish their findings
+  // report after writing evidence and before going quiet, and every variant
+  // raises its six-link chain. A readiness wait is scheduling, never an
+  // assertion: it waits on what the case itself published, so the driving
+  // action can never land before the facts the assertions rely on exist.
+  // The settle margin covers the case's own post-chain window before it
+  // chmods the run root read-only, so a signal case is never firesigned
+  // ahead of its deliberate removal failure.
+  const waitForReport = caseScenario === "sleepy-cleanup-failure"
+  const awaitReady = async (): Promise<void> => {
+    for (let attempt = 0; attempt < 600; attempt++) {
+      const chainUp = (await readHeartbeat(pulsePath)).pids.length >= 6
+      const published = !waitForReport || (await pathExists(reportPath))
+      if (chainUp && published) break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    if (waitForReport) await new Promise((resolve) => setTimeout(resolve, 400))
+  }
   if (action === "eof") {
     await reader.waitFor((line) => line.includes('"allocated_root"'), 15_000)
     // Give the sleepy case time to spawn its writer chain, then die the way
     // an abnormal launcher does: the stdin pipe closes, which requests
     // cancellation by EOF alone.
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if ((await readHeartbeat(pulsePath)).pids.length >= 6) break
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
+    await awaitReady()
     await child.stdin.end()
   } else if (action === "SIGINT" || action === "SIGTERM" || action === "SIGKILL") {
     await reader.waitFor((line) => line.includes('"allocated_root"'), 15_000)
-    for (let attempt = 0; attempt < 100; attempt++) {
-      if ((await readHeartbeat(pulsePath)).pids.length >= 6) break
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
+    await awaitReady()
     child.kill(action)
   }
   const stdout = await new Response(child.stdout).text()

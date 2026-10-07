@@ -535,7 +535,22 @@ func workflowCorrectionAttemptCount(ctx context.Context, q queryer, workID strin
 	var count int64
 	// Authorization already creates an attempt. Dispatch evidence corroborates
 	// that same identity, so count it once rather than requiring or doubling it.
-	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id) FROM worker_attempts a JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=a.work_id AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id) OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker' AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id)) WHERE a.work_id=? AND opening.seq<=? AND opening.seq>COALESCE((SELECT MAX(accepted.seq) FROM domain_events accepted WHERE accepted.subject_type=opening.subject_type AND accepted.subject_id=opening.subject_id AND accepted.kind=? AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'),0)`, string(SubjectWorkItem), WorkerDispatched, WorkflowActionCompleted, workID, seq, WorkflowActionCompleted, seq).Scan(&count); err != nil {
+	// Both event populations belong to the requested work. Bind the acceptance
+	// window directly so SQLite computes it once, not once per joined opening.
+	if err := q.QueryRowContext(ctx, `
+SELECT count(DISTINCT a.attempt_id)
+FROM worker_attempts a
+JOIN domain_events opening ON opening.subject_type=? AND opening.subject_id=?
+    AND ((opening.kind=? AND json_extract(opening.payload,'$.attempt_id')=a.attempt_id)
+      OR (opening.kind=? AND json_extract(opening.payload,'$.action_id')='dispatch_worker'
+          AND json_extract(opening.payload,'$.worker_attempt_id')=a.attempt_id))
+WHERE a.work_id=? AND opening.seq<=?
+    AND opening.seq>COALESCE((
+        SELECT MAX(accepted.seq) FROM domain_events accepted
+        WHERE accepted.subject_type=? AND accepted.subject_id=? AND accepted.kind=?
+            AND accepted.seq<? AND json_extract(accepted.payload,'$.action_id')='accept_worker_result'
+    ),0)`, string(SubjectWorkItem), workID, WorkerDispatched, WorkflowActionCompleted, workID, seq,
+		string(SubjectWorkItem), workID, WorkflowActionCompleted, seq).Scan(&count); err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot count correction attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return count, nil

@@ -86,8 +86,7 @@ var _ FreshnessRunner = ExecGitRunner{}
 // refused, so a remote that wants credentials fails instead of blocking.
 // The command runs under the runner's one bounded execution policy: its own
 // process group, a SIGKILL of that group when the caller's context ends, and
-// WaitDelay bounding the remaining pipe drainage after cancellation, even
-// when a descendant of git holds the output pipes open.
+// file-backed output capture that does not wait for inherited descriptors.
 func (ExecGitRunner) RunNoninteractive(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
 		return nil, errors.New("empty git directory")

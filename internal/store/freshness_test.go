@@ -504,7 +504,7 @@ func TestFreshnessPreflightKeepsLocalTagsUnderConfiguredPrune(t *testing.T) {
 }
 
 // writeDeadlineProbeShim installs a fake git on PATH whose descendant sleep
-// inherits the command's output pipes and outlives every budget the tests
+// inherits the command's output descriptors and outlives every budget the tests
 // set: the shape a wedged probe takes on a host.
 func writeDeadlineProbeShim(t *testing.T) {
 	t.Helper()
@@ -516,9 +516,9 @@ func writeDeadlineProbeShim(t *testing.T) {
 }
 
 // Every freshness subprocess must end inside the fixed deadline, including
-// the local probes: the runner kills the probe's process group and bounds
-// the pipe drainage, so a descendant holding a probe's output pipes cannot
-// stretch a 20ms budget to the descendant's own lifetime.
+// the local probes: the runner kills the probe's process group and captures
+// output without waiting for inherited descriptors, so a descendant cannot
+// stretch a 20ms budget to its own lifetime.
 func TestSampleWorktreeFreshnessDeadlineBoundsProbeDescendants(t *testing.T) {
 	original := freshnessPreflightTimeout
 	freshnessPreflightTimeout = 20 * time.Millisecond
@@ -531,7 +531,7 @@ func TestSampleWorktreeFreshnessDeadlineBoundsProbeDescendants(t *testing.T) {
 		t.Fatalf("freshness=%+v want unknown timeout with no count", freshness)
 	}
 	if elapsed > 150*time.Millisecond {
-		t.Fatalf("20ms sample deadline returned after %s: a probe descendant held the output pipes", elapsed)
+		t.Fatalf("20ms sample deadline returned after %s: a probe descendant extended command completion", elapsed)
 	}
 }
 
@@ -555,13 +555,13 @@ func TestWorkBootstrapRefreshDeadlineBoundsProbeDescendants(t *testing.T) {
 		t.Fatalf("err=%v want a typed git-unreachable refusal", err)
 	}
 	if elapsed > 150*time.Millisecond {
-		t.Fatalf("20ms creation deadline returned after %s: a probe descendant held the output pipes", elapsed)
+		t.Fatalf("20ms creation deadline returned after %s: a probe descendant extended command completion", elapsed)
 	}
 }
 
 // RunNoninteractive must end inside the caller's deadline even when a
-// descendant of the git process holds the output pipes open: the runner
-// kills the process group and bounds the pipe drainage, so a wedged child
+// descendant of the git process retains output descriptors: the runner
+// kills the process group and does not wait for those descriptors, so a wedged child
 // cannot stretch a 20ms budget to the descendant's own lifetime.
 func TestRunNoninteractiveBoundsDescendantHeldPipes(t *testing.T) {
 	bin := t.TempDir()
@@ -578,7 +578,7 @@ func TestRunNoninteractiveBoundsDescendantHeldPipes(t *testing.T) {
 		t.Fatal("expected the deadline to cancel the fetch")
 	}
 	if elapsed > 150*time.Millisecond {
-		t.Fatalf("20ms deadline returned after %s: the runner waited for a descendant-held output pipe: %v", elapsed, err)
+		t.Fatalf("20ms deadline returned after %s: a descendant extended command completion: %v", elapsed, err)
 	}
 }
 

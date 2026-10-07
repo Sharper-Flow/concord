@@ -142,10 +142,13 @@ func durableNeighborOperations() []neighborOperation {
 		rows = append(rows, neighborOperation{name, func(t *testing.T) (*Store, func() error, func()) {
 			s := openTemp(t)
 			claim := testClaim("neighbor-fence", "neighbor-claim")
+			var epoch int64
 			if name == "CompleteStep" {
-				if _, err := ClaimStep(ctx, s, claim); err != nil {
+				claimed, err := ClaimStep(ctx, s, claim)
+				if err != nil {
 					t.Fatal(err)
 				}
+				epoch = claimed.AttemptEpoch
 			}
 			called := false
 			run := func() error {
@@ -157,7 +160,7 @@ func durableNeighborOperations() []neighborOperation {
 					})
 					return err
 				}
-				_, err := CompleteStep(ctx, s, completionRequest(claim.OpID, 1, "neighbor-complete", `{"ok":true}`))
+				_, err := CompleteStep(ctx, s, completionRequest(claim.OpID, epoch, "neighbor-complete", `{"ok":true}`))
 				return err
 			}
 			return s, run, func() {

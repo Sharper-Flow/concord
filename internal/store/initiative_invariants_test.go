@@ -120,9 +120,9 @@ func readInt[T any](t *testing.T, s *Store, query string) T {
 }
 
 // addEntry folds an initiative_entry.added event.
-func addEntry(t *testing.T, ctx context.Context, s *Store, initiativeID, childID string, position, expected int64) {
+func addEntry(t *testing.T, ctx context.Context, s *Store, initiativeID, childID string, expected int64) {
 	t.Helper()
-	event, err := InitiativeEntryEvent("entry-"+initiativeID+"-"+childID, "initiative_entry.added", initiativeID, InitiativeEntry{ChildWorkID: childID, Position: position, Required: true}, "test", time.Unix(30, 0).UTC(), expected)
+	event, err := InitiativeEntryEvent("entry-"+initiativeID+"-"+childID, "initiative_entry.added", initiativeID, InitiativeEntry{ChildWorkID: childID, Position: 0, Required: true}, "test", time.Unix(30, 0).UTC(), expected)
 	if err != nil {
 		t.Fatalf("build entry event: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestInitiativeInvariants_Accepts(t *testing.T) {
 			seedSiblingProjectInProduct(t, s, "project-sibling")
 			addWork(t, s, "init-child-dup", "initiative", "project-bootstrap", "primary")
 			addWork(t, s, "child-dup", "task", "project-bootstrap", "primary")
-			addEntry(t, context.Background(), s, "init-child-dup", "child-dup", 0, 2)
+			addEntry(t, context.Background(), s, "init-child-dup", "child-dup", 2)
 			synthExec(t, s, synthSecondPrimary("child-dup", "project-sibling"))
 			return s
 		}},
@@ -253,7 +253,7 @@ func TestInitiativeInvariants_Accepts(t *testing.T) {
 			addWork(t, s, "child-scope", "task", "project-bootstrap", "primary")
 			addSecondaryProject(t, s, "init-scope", "project-far", 2)
 			addSecondaryProject(t, s, "child-scope", "project-far", 2)
-			addEntry(t, context.Background(), s, "init-scope", "child-scope", 0, 3)
+			addEntry(t, context.Background(), s, "init-scope", "child-scope", 3)
 			return s
 		}},
 		{"noise work and cross-scope secondaries", func(t *testing.T) *Store {
@@ -263,7 +263,7 @@ func TestInitiativeInvariants_Accepts(t *testing.T) {
 			addWork(t, s, "child-noise", "task", "project-bootstrap", "primary")
 			addWork(t, s, "lone-noise", "task", "project-bootstrap", "primary")
 			addWork(t, s, "cross-noise", "task", "project-noise", "primary")
-			addEntry(t, context.Background(), s, "init-noise", "child-noise", 0, 2)
+			addEntry(t, context.Background(), s, "init-noise", "child-noise", 2)
 			return s
 		}},
 	}
@@ -432,7 +432,7 @@ func TestInitiativeInvariants_DurableTransactRollsBackInvalidScope(t *testing.T)
 	seedForeignScope(t, s, "project-far", "product-far")
 	addWork(t, s, "init-keep", "initiative", "project-bootstrap", "primary")
 	addWork(t, s, "child-keep", "task", "project-bootstrap", "primary")
-	addEntry(t, ctx, s, "init-keep", "child-keep", 0, 2)
+	addEntry(t, ctx, s, "init-keep", "child-keep", 2)
 
 	priorVersion := readInt[int64](t, s, `SELECT version FROM work_items WHERE id='init-keep'`)
 	priorChildVersion := readInt[int64](t, s, `SELECT version FROM work_items WHERE id='child-keep'`)

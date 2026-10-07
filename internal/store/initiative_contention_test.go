@@ -28,8 +28,8 @@ func seedInitiativeProjection(tb testing.TB, s *Store, productID, projectID stri
 	}
 	now := "2026-01-01T00:00:00Z"
 	cols := `id,kind,title,lifecycle,priority,urgency,version,created_at,updated_at`
-	ph := func(cap int, name string) string {
-		return fmt.Sprintf(`%s(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM %s WHERE n<%d)`, name, name, cap)
+	ph := func(limit int, name string) string {
+		return fmt.Sprintf(`%s(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM %s WHERE n<%d)`, name, name, limit)
 	}
 	si, sc := ph(n-1, "si"), ph(m-1, "sc")
 	stmts := []struct {

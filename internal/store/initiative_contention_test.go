@@ -174,6 +174,7 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 				err                   error
 				validateDur, totalDur time.Duration
 				released              time.Time
+				queries, queryRows    int64
 			}
 			holderReady := make(chan struct{})
 			holderDone := make(chan holderResult, 1)
@@ -187,9 +188,11 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 						return err
 					}
 					close(holderReady)
+					counter := &countingQueryer{Tx: tx.tx}
 					v0 := time.Now()
-					err = validateInitiativeInvariantsTx(ctx, tx.tx)
+					err = validateInitiativeInvariantsTx(ctx, counter)
 					result.validateDur = time.Since(v0)
+					result.queries, result.queryRows = counter.queries.Load(), counter.queryRows.Load()
 					return errors.Join(err, scope.close(ctx))
 				})
 				result.totalDur = time.Since(start)
@@ -205,8 +208,8 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 			waiterErr := tc.waiter()
 			waiterDur := time.Since(waiterStart)
 			holder := <-holderDone
-			t.Logf("holder: validate=%s total=%s busy_timeout=%dms; waiter: dur=%s err=%v",
-				holder.validateDur, holder.totalDur, testContentionBusyTimeoutMs, waiterDur, waiterErr)
+			t.Logf("holder: validate=%s total=%s busy_timeout=%dms reads: queryContext=%d queryRow=%d; waiter: dur=%s err=%v",
+				holder.validateDur, holder.totalDur, testContentionBusyTimeoutMs, holder.queries, holder.queryRows, waiterDur, waiterErr)
 			if holder.err != nil {
 				t.Fatalf("holder: %v", holder.err)
 			}
@@ -216,45 +219,67 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 			if waiterErr != nil {
 				t.Fatalf("waiter failed while holder validator held the write lock for %s: %v", holder.validateDur, waiterErr)
 			}
+			// The validator must stay set-based over the whole population: query
+			// count is the deterministic regression guard for a per-entry loop,
+			// independent of the busy_timeout budget (CD-0045 D1 bounded hold).
+			if holder.queries != 0 || holder.queryRows != 2 {
+				t.Errorf("holder validator read counts=(%d queryContext, %d queryRow), want (0, 2) for the 150x100 entry population",
+					holder.queries, holder.queryRows)
+			}
 			tc.assert(t)
 		})
 	}
 }
 
-// BenchmarkInitiativeValidator measures validateInitiativeInvariantsTx at
-// 300x300 (90000 entries). Run with `-bench=BenchmarkInitiativeValidator -benchtime=1x`.
+// BenchmarkInitiativeValidator measures validateInitiativeInvariantsTx over
+// finite projection fixtures at 150x100 (15000 entries), 300x100 (30000), and
+// 300x300 (90000). Each subbenchmark names its dimensions and reports its entry
+// population; the three points bound the measured range only and claim no
+// scaling law beyond them. Run with `-bench=BenchmarkInitiativeValidator -benchtime=5x`.
 func BenchmarkInitiativeValidator(b *testing.B) {
-	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(b.TempDir(), "concord.db"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer s.Close()
-	if err := withFold(ctx, s, func(tx *sql.Tx, _ *foldScope) error {
-		for _, stmt := range []string{
-			`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('p-bench','C','prototype','operator_only',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
-			`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('pr-bench','P',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
-		} {
-			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		b.Fatal(err)
-	}
-	seedInitiativeProjection(b, s, "p-bench", "pr-bench", 300, 300)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			scope, err := beginFold(ctx, tx.tx)
+	for _, tc := range []struct {
+		name string
+		n, m int
+	}{
+		{"150x100_15000entries", 150, 100},
+		{"300x100_30000entries", 300, 100},
+		{"300x300_90000entries", 300, 300},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			ctx := context.Background()
+			s, err := Open(ctx, filepath.Join(b.TempDir(), "concord.db"))
 			if err != nil {
-				return err
+				b.Fatal(err)
 			}
-			defer func() { _ = scope.close(ctx) }()
-			return validateInitiativeInvariantsTx(ctx, tx.tx)
-		}); err != nil {
-			b.Fatal(err)
-		}
+			defer s.Close()
+			if err := withFold(ctx, s, func(tx *sql.Tx, _ *foldScope) error {
+				for _, stmt := range []string{
+					`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('p-bench','C','prototype','operator_only',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+					`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('pr-bench','P',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`,
+				} {
+					if _, err := tx.ExecContext(ctx, stmt); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				b.Fatal(err)
+			}
+			seedInitiativeProjection(b, s, "p-bench", "pr-bench", tc.n, tc.m)
+			b.ResetTimer()
+			b.ReportMetric(float64(tc.n*tc.m), "entries/op")
+			for i := 0; i < b.N; i++ {
+				if err := s.Transact(ctx, func(tx *Transaction) error {
+					scope, err := beginFold(ctx, tx.tx)
+					if err != nil {
+						return err
+					}
+					defer func() { _ = scope.close(ctx) }()
+					return validateInitiativeInvariantsTx(ctx, tx.tx)
+				}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

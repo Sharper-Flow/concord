@@ -278,7 +278,7 @@ describe("project_retirement composes adapter dispatch-window quiescence", () =>
   // real resolvable directory, so the authorization identity check passes.
   async function openThenBind() {
     windows().open("session-receive", retirePacket, "", process.cwd())
-    await windows().bind(TASK_TOOL_ID, "session-receive", {}, "call-1", async () => process.cwd())
+    await windows().bind(TASK_TOOL_ID, "session-receive", {}, "call-1", async () => process.cwd(), process.cwd())
   }
 
   afterEach(() => {

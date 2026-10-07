@@ -44,7 +44,7 @@ test("a lane Task with no open dispatch window is refused with the dispatch rout
 })
 
 test("a Task call inside an open dispatch window still binds the recorded packet", async () => {
-  const plugin = (await ConcordAdapterPlugin()) as Plugin
+  const plugin = (await ConcordAdapterPlugin({ directory: process.cwd() })) as Plugin
   hostControlPlane().bind({
     get: async () => ({ data: { id: "session-lane-window", directory: process.cwd() }, response: new Response(null, { status: 200 }) }),
     post: async () => { throw new Error("Task admission cannot write host state") },

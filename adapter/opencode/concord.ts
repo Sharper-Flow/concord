@@ -676,7 +676,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // adapter-owned domain logic.
     const consequenceSummary = response.error.consequence_summary && typeof response.error.consequence_summary === "object" ? response.error.consequence_summary : null
     const askMetadata = toolName === "concord_work_transition" && operation === "workflow_action"
-      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary, ...(consequenceSummary ? { consequence_summary: consequenceSummary } : {}) }
+      ? { approval_ref: details.approval_ref, operation_digest: details.operation_digest, scope: details.scope, versions: details.versions, work_id: details.work_id, action_id: details.action_id, contract_version: details.contract_version, selected_choice: details.selected_choice, decision_context_digest: details.decision_context_digest, premise_summary: details.premise_summary, ...(consequenceSummary ? { consequence_summary: consequenceSummary } : {}) }
       : {
           approval_ref: details.approval_ref,
           operation_digest: details.operation_digest,
@@ -695,8 +695,9 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
           ...(response.error?.consequence_summary ? { consequence_summary: response.error.consequence_summary } : {}),
         }
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
-    // only this exact core-issued challenge.
-    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
+    // only this exact core-issued challenge. OpenCode evaluates permission per
+    // pattern; an empty list skips the policy and never asks the operator.
+    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [details.operation_digest], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
     envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: details.scope, versions: details.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: sessionDirectory, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
     if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")

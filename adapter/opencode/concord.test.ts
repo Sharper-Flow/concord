@@ -1339,6 +1339,56 @@ test("approval rejection and possible-effect conflict are valid adapter envelope
   expect(conflicted.error.effect_state).toBe("possible")
 })
 
+test("approval requests suspend under ask policy before resubmission", async () => {
+  const challenge = approvalChallenge()
+  const digest = challenge.error.details.operation_digest
+  const runner = runnerWithContext((_argv: string[], _input: string, _signal: AbortSignal, calls: number) => calls === 2 ? challenge : approvalSuccess())
+  let notifyPrompt!: (request: any) => void
+  const prompted = new Promise<any>((resolve) => { notifyPrompt = resolve })
+  let approve!: () => void
+  const decision = new Promise<void>((resolve) => { approve = resolve })
+  adapter.configureConcordAdapter({ runner })
+  const invocation = rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
+    work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "ask-policy-1",
+  }), contextFor(async (request: any) => {
+    // OpenCode evaluates policy per pattern; an empty list returns without a prompt.
+    if (request.patterns.length === 0) return
+    notifyPrompt(request)
+    await decision
+  })))
+  let result: any
+  try {
+    const phase = await Promise.race([
+      prompted.then((request) => ({ kind: "prompted", request })),
+      invocation.then(() => ({ kind: "returned", request: null })),
+    ])
+    expect(phase.kind).toBe("prompted")
+    expect(phase.request.patterns).toEqual([digest])
+    expect(phase.request.always).toEqual([])
+    expect(runner.calls()).toBe(2)
+  } finally {
+    approve()
+    result = await invocation
+  }
+  expect(result.outcome).toBe("ok")
+  expect(runner.calls()).toBe(3)
+})
+
+test("approval requests respect deny policy without resubmission", async () => {
+  const challenge = workflowActionChallenge("approve_contract")
+  const runner = runnerWithContext((_argv: string[], _input: string, _signal: AbortSignal, calls: number) => calls === 2 ? challenge : { ...approvalSuccess(), operation: "workflow_action" })
+  adapter.configureConcordAdapter({ runner })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
+    work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "deny-policy-1",
+  }), contextFor(async (request: any) => {
+    if (request.patterns.length === 0) return
+    throw new Error("host policy denies this approval")
+  })))
+  expect(result.error?.kind).toBe("cancelled")
+  expect(result.error?.effect_state).toBe("none")
+  expect(runner.calls()).toBe(2)
+})
+
 test("approval challenge is resubmitted once with the same idempotency key and unsigned binding", async () => {
   const requests: any[] = []
   let calls = 0
@@ -1430,7 +1480,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"], work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
   expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_agent_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
@@ -1464,7 +1514,7 @@ test("escalated correction challenge round-trips with the failed attempt binding
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-challenge-transport" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective" })
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"], versions: ["work:7", "contract:1", "failed_attempt_epoch:3"], work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective" })
   expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"])
   expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:7", "contract:1", "failed_attempt_epoch:3"])
 })

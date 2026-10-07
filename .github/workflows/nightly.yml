@@ -27,14 +27,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
       - name: Download Go modules
         run: go mod download all
-      - name: Restore Go build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-build-${{ runner.os }}-
       - name: Test every package under the race detector
         # internal/agent under -race runs at ~575-595s on 2-core runners.
         # The 30m timeout leaves headroom for routine growth.

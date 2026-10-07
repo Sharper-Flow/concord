@@ -7,7 +7,7 @@ import os from "node:os"
 import path from "node:path"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { dispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
+import { directoryIdentity, dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice } from "./concord"
 import { hostToolSchemas } from "./generated-contracts"
@@ -201,7 +201,10 @@ const packet = {
 
 describe("plugin entry registers the dispatch window hook", () => {
   test("binds the recorded packet onto the next task call", async () => {
-    const plugin = (await ConcordAdapterPlugin()) as {
+    // The factory directory is the execution instance directory the bind
+    // compares against the window's claim, so the fixture host instance runs
+    // in the same directory the window recorded.
+    const plugin = (await ConcordAdapterPlugin({ directory: process.cwd() })) as {
       "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
     }
     expect(typeof plugin["tool.execute.before"]).toBe("function")
@@ -238,6 +241,170 @@ describe("plugin entry registers the dispatch window hook", () => {
     const other = { args: { filePath: "/x" } }
     await plugin["tool.execute.before"]({ tool: "read", sessionID: "session-none", callID: "call-3" }, other)
     expect(other.args.filePath).toBe("/x")
+  })
+})
+
+// CON-397. The host runs a native Task child in the plugin factory's
+// directory — the execution instance directory — while GET /session/{id} can
+// report the claimed worktree. Reported placement is still checked, but only
+// the instance directory proves where the worker executes, so the bind gate
+// in tool.execute.before (CD-0102 D7) compares it against the window's claim.
+describe("plugin entry refuses a dispatch whose worker would execute in the launch trunk", () => {
+  test("trunk execution: the before hook refuses before the worker writes, preserves the caller arguments, discards the window, and records no in-flight attempt", async () => {
+    const originalCwd = process.cwd()
+    const trunk = fs.mkdtempSync(path.join(os.tmpdir(), "concord-trunk-"))
+    const claimedWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "concord-claimed-worktree-"))
+    const sessionID = "session-trunk-execution"
+    const sentinel = path.join(trunk, "worker-write-sentinel")
+    try {
+      // The observed case: the host process also runs from the trunk.
+      process.chdir(trunk)
+      expect(directoryIdentity(process.cwd())).toBe(directoryIdentity(trunk))
+      expect(directoryIdentity(trunk)).not.toBe(directoryIdentity(claimedWorktree))
+      const raw = {
+        get: async (request: { url: string }) => {
+          if (request.url === "/session/{id}") {
+            return { data: { id: sessionID, directory: claimedWorktree }, response: new Response(null, { status: 200 }) }
+          }
+          return { response: new Response(null, { status: 404 }) }
+        },
+        post: async () => { throw new Error("Task admission cannot write host state") },
+      }
+      const plugin = (await ConcordAdapterPlugin({ directory: trunk, worktree: trunk, client: { _client: raw } as never })) as {
+        "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      }
+      // The host session record reports the claimed worktree and the open
+      // window owns the claim on it.
+      expect(directoryIdentity(await hostControlPlane().sessionDirectory(sessionID))).toBe(directoryIdentity(claimedWorktree))
+      dispatchWindows().open(sessionID, packet, "", claimedWorktree)
+      expect(dispatchWindows().has(sessionID)).toBe(true)
+
+      const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
+      const callerArgs = { ...output.args }
+      let refusal: unknown
+      try {
+        await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-trunk-execution" }, output)
+      } catch (error) {
+        refusal = error
+      }
+      // An admitted call runs the worker in the factory directory — the
+      // trunk — so the write below is the first worker write the admitted
+      // execution performs there. A refused call writes nothing.
+      if (refusal === undefined) fs.writeFileSync(sentinel, "the worker wrote the trunk")
+
+      expect(refusal).toBeInstanceOf(DispatchWindowError)
+      // The refusal leaves the caller's composed arguments untouched.
+      expect(output.args).toEqual(callerArgs)
+      // The open window is discarded, so no later Task call consumes it.
+      expect(dispatchWindows().has(sessionID)).toBe(false)
+      // No in-flight attempt exists, so no settle path can admit a result.
+      expect(dispatchWindows().inFlightAttempt(sessionID)).toBe(null)
+      // The refused worker never wrote the trunk.
+      expect(fs.existsSync(sentinel)).toBe(false)
+    } finally {
+      process.chdir(originalCwd)
+      dispatchWindows().close(sessionID)
+      dispatchWindows().takeInFlight(sessionID)
+      hostControlPlane().bind(undefined)
+      configureHostLease({ reset: true })
+      fs.rmSync(trunk, { recursive: true, force: true })
+      fs.rmSync(claimedWorktree, { recursive: true, force: true })
+    }
+  })
+
+  // A host restart recreates the plugin and empties in-memory claim records,
+  // so the fence rests on the window record plus the factory's own instance
+  // directory alone; a recreated instance enforces it identically.
+  test("a recreated plugin enforces the execution fence with no in-memory claim", async () => {
+    const trunk = fs.mkdtempSync(path.join(os.tmpdir(), "concord-trunk-recreated-"))
+    const claimedWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "concord-claimed-recreated-"))
+    const sessionID = "session-plugin-recreation"
+    const raw = {
+      get: async () => ({ data: { id: sessionID, directory: claimedWorktree }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("Task admission cannot write host state") },
+    }
+    const callerArgs = () => ({ subagent_type: "general", prompt: "whatever I like", task_id: "old" })
+    try {
+      dispatchWindows().open(sessionID, packet, "", claimedWorktree)
+      const first = (await ConcordAdapterPlugin({ directory: trunk, worktree: trunk, client: { _client: raw } as never })) as {
+        "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      }
+      const firstOutput = { args: callerArgs() }
+      await expect(first["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-first-instance" }, firstOutput))
+        .rejects.toThrow(/does not match the active claimed worktree/i)
+      expect(firstOutput.args).toEqual(callerArgs())
+
+      dispatchWindows().open(sessionID, packet, "", claimedWorktree)
+      const restarted = (await ConcordAdapterPlugin({ directory: trunk, worktree: trunk, client: { _client: raw } as never })) as {
+        "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      }
+      const restartedOutput = { args: callerArgs() }
+      await expect(restarted["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-restarted-instance" }, restartedOutput))
+        .rejects.toThrow(/does not match the active claimed worktree/i)
+      expect(restartedOutput.args).toEqual(callerArgs())
+      expect(dispatchWindows().has(sessionID)).toBe(false)
+      expect(dispatchWindows().inFlightAttempt(sessionID)).toBe(null)
+
+      // An instance whose factory directory is the claimed worktree binds.
+      dispatchWindows().open(sessionID, packet, "", claimedWorktree)
+      const placed = (await ConcordAdapterPlugin({ directory: claimedWorktree, worktree: claimedWorktree, client: { _client: raw } as never })) as {
+        "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      }
+      const bound = { args: callerArgs() }
+      await placed["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-placed-instance" }, bound)
+      expect(bound.args.subagent_type).toBe("concord-implement")
+      expect(dispatchWindows().inFlightAttempt(sessionID)?.packet.attempt_id).toBe(packet.attempt_id)
+    } finally {
+      dispatchWindows().close(sessionID)
+      dispatchWindows().takeInFlight(sessionID)
+      hostControlPlane().bind(undefined)
+      configureHostLease({ reset: true })
+      fs.rmSync(trunk, { recursive: true, force: true })
+      fs.rmSync(claimedWorktree, { recursive: true, force: true })
+    }
+  })
+
+  // The positive path: an instance whose factory directory is the claimed
+  // worktree binds the packet, and the worker's first write lands only in the
+  // claimed worktree while the host process stays in the trunk.
+  test("a claimed-instance dispatch binds and the simulated worker writes only the claimed worktree", async () => {
+    const originalCwd = process.cwd()
+    const trunk = fs.mkdtempSync(path.join(os.tmpdir(), "concord-trunk-positive-"))
+    const claimedWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "concord-claimed-positive-"))
+    const sessionID = "session-claimed-instance"
+    const sentinelName = "worker-write-sentinel"
+    const raw = {
+      get: async () => ({ data: { id: sessionID, directory: claimedWorktree }, response: new Response(null, { status: 200 }) }),
+      post: async () => { throw new Error("Task admission cannot write host state") },
+    }
+    try {
+      process.chdir(trunk)
+      const plugin = (await ConcordAdapterPlugin({ directory: claimedWorktree, worktree: claimedWorktree, client: { _client: raw } as never })) as {
+        "tool.execute.before": (i: { tool: string; sessionID: string; callID: string }, o: { args: any }) => Promise<void>
+      }
+      dispatchWindows().open(sessionID, packet, "", claimedWorktree)
+      const output = { args: { subagent_type: "general", prompt: "whatever I like", task_id: "old" } }
+      await plugin["tool.execute.before"]({ tool: TASK_TOOL_ID, sessionID, callID: "call-claimed-instance" }, output)
+      expect(output.args.subagent_type).toBe("concord-implement")
+      expect(JSON.parse(output.args.prompt).attempt_id).toBe(packet.attempt_id)
+
+      // Simulated host execution, not a real OpenCode run: the host starts the
+      // Task child in the instance directory, so a native child with that cwd
+      // performs the worker's first write there.
+      const child = Bun.spawnSync([process.execPath, "-e", `require("node:fs").writeFileSync(${JSON.stringify(sentinelName)}, process.cwd())`], { cwd: claimedWorktree })
+      expect(child.exitCode).toBe(0)
+      expect(directoryIdentity(fs.readFileSync(path.join(claimedWorktree, sentinelName), "utf8"))).toBe(directoryIdentity(claimedWorktree))
+      expect(fs.existsSync(path.join(trunk, sentinelName))).toBe(false)
+      expect(process.cwd()).toBe(trunk)
+    } finally {
+      process.chdir(originalCwd)
+      dispatchWindows().close(sessionID)
+      dispatchWindows().takeInFlight(sessionID)
+      hostControlPlane().bind(undefined)
+      configureHostLease({ reset: true })
+      fs.rmSync(trunk, { recursive: true, force: true })
+      fs.rmSync(claimedWorktree, { recursive: true, force: true })
+    }
   })
 })
 

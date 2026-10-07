@@ -1035,6 +1035,6 @@ test("dispatchLaneWorker retains the core's packet digest for completion", async
   // CD-0067 D6: the adapter never computes the digest. The value the core
   // recorded is carried across the host's Task call and quoted by the dispatch
   // assertion at completion.
-  await windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" }, undefined, async () => process.cwd())
+  await windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" }, undefined, async () => process.cwd(), process.cwd())
   expect(windows.takeInFlight("session-1")?.packetDigest).toBe(CORE_PACKET_DIGEST)
 })

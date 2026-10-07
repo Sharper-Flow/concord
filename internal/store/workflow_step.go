@@ -98,6 +98,9 @@ func pinWorkflowInstanceToStepTx(ctx context.Context, tx *sql.Tx, workID string,
 	if err != nil {
 		return workflowProjectionError(err, "cannot record workflow definition")
 	}
+	if err := recordRuntimeStateWriter(ctx, tx, "workflow", definition.Definition.Ref, definition.Definition.Version, definition.Digest); err != nil {
+		return err
+	}
 	if selectingActor == "" {
 		return nil
 	}

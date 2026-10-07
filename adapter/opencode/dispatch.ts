@@ -1559,31 +1559,6 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
 }
 
-// sitsUnder reports whether child is the prefix itself or a path under it.
-// Both inputs are canonicalized directories, so the comparison is lexical and
-// exact: a path outside the prefix cannot share its leading segments.
-function sitsUnder(child: string, prefix: string): boolean {
-  const relative = path.relative(prefix, child)
-  if (relative === "") return true
-  return !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
-}
-
-// cwdGuardRestartRemedy is the remedy text the process-cwd guard prescribes.
-// Under the oc wrapper the host process never leaves the wrapper: the
-// wrapper's restart loop re-executes opencode inside the same wrapper process,
-// so an in-app restart cannot change process.cwd() and the plain
-// "restart the host process" remedy is unreachable. The wrapper exports
-// OC_WRAPPER_RESTART_DIR for its restart requests, so its presence names the
-// condition exactly and the remedy demands a full wrapper quit instead. The
-// env parameter is the test seam.
-export function cwdGuardRestartRemedy(env: Record<string, string | undefined> = process.env): string {
-  const restartDir = env.OC_WRAPPER_RESTART_DIR
-  if (typeof restartDir === "string" && restartDir !== "") {
-    return "this host runs under the oc wrapper, whose restart relaunches opencode inside the same wrapper process and cannot change the process directory, so an in-app restart cannot repair this; quit the wrapper entirely and relaunch it from the project trunk or the claimed worktree, then dispatch again"
-  }
-  return "restart the host process from the project trunk or in the claimed worktree, then dispatch again"
-}
-
 // contextPreflightRefusal is the pre-effect tool-context gate shared by the
 // lane dispatch path and the dispatchWorker authorize seam (issue #1322). The
 // dispatch_worker action persists an authorized attempt in the core, so a
@@ -1694,18 +1669,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   // whose host process restarted after the claim, dispatches exactly as before.
   const armedClaim = armedClaimedWorktree(sessionID)
   if (armedClaim !== null) {
-    // A native Task child runs in the directory the turn resolved at its start.
-    // Across turns, that directory equals the host-reported session directory.
-    // Within a moved turn, it remains the pre-move directory, so the turn-move
-    // boundary above refuses dispatch until the next operator turn. This cwd
-    // guard still rejects a host booted in a sibling managed worktree, which is
-    // a separate process-start condition that host metadata cannot expose.
-    const physicalWorkerDirectory = canonicalDirectory(process.cwd())
-    const managedWorktreesPrefix = path.dirname(armedClaim)
-    if (physicalWorkerDirectory !== null && sitsUnder(physicalWorkerDirectory, managedWorktreesPrefix) && physicalWorkerDirectory !== armedClaim) {
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the adapter process runs in ${JSON.stringify(physicalWorkerDirectory)} inside the managed worktrees of ${JSON.stringify(managedWorktreesPrefix)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; ${cwdGuardRestartRemedy()}`, "reconcile_operation")
-    }
-    // The host's fresh answer is checked second: it catches a move that never
+    // The host's fresh answer is checked first: it catches a move that never
     // landed, which replaying worktree_claim can repair.
     if (liveWorkerDirectory !== undefined) {
       const claimMismatch = dispatchDirectoryMismatch(armedClaim, liveWorkerDirectory)

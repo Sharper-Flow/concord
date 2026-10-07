@@ -5621,6 +5621,23 @@ INSERT INTO durability_commits(id,bit) VALUES(1,0);
 	},
 	{
 		Version:  117,
+		Name:     "runtime_state_writer_identity",
+		Breaking: false,
+		SQL: `
+-- Diagnostic provenance is independent of the replay-derived projections.
+-- A representation write records its own binary in the same transaction.
+CREATE TABLE runtime_state_writers (
+    surface TEXT NOT NULL CHECK(surface IN ('knowledge','workflow')),
+    definition_ref TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK(version > 0),
+    digest TEXT NOT NULL,
+    binary_version TEXT NOT NULL,
+    PRIMARY KEY(surface, definition_ref, version, digest)
+);
+`,
+	},
+	{
+		Version:  118,
 		Name:     "worker_job_revisions",
 		Breaking: false,
 		SQL: `
@@ -5671,7 +5688,7 @@ CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_rev
 `,
 	},
 	{
-		Version:  118,
+		Version:  119,
 		Name:     "worker_attempt_job_capable_schema_versions",
 		Breaking: true,
 		SQL: `
@@ -5686,7 +5703,7 @@ CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_rev
 DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
 DROP TRIGGER IF EXISTS worker_attempts_guard_update;
 DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
-ALTER TABLE worker_attempts RENAME TO worker_attempts_v118;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v119;
 CREATE TABLE worker_attempts (
     work_id TEXT NOT NULL,
     attempt_id TEXT PRIMARY KEY,
@@ -5721,8 +5738,8 @@ CREATE TABLE worker_attempts (
 INSERT INTO worker_attempts
     (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
     SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
-    FROM worker_attempts_v118;
-DROP TABLE worker_attempts_v118;
+    FROM worker_attempts_v119;
+DROP TABLE worker_attempts_v119;
 CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
 CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;

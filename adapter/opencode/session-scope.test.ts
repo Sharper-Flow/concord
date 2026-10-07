@@ -31,7 +31,7 @@ function host(records: Session[], persist = true) {
     },
     post: async () => { throw new Error("scope admission must not change permissions, move a session, or invoke a core operation") },
   }
-  return { sessions, reads, writes, client, plugin: () => ConcordAdapterPlugin({ client: { _client: client } as never }) }
+  return { sessions, reads, writes, client, plugin: () => ConcordAdapterPlugin({ directory: process.cwd(), client: { _client: client } as never }) }
 }
 
 // The directory must resolve on disk: the dispatch window compares the claimed

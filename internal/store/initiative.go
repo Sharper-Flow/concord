@@ -356,77 +356,67 @@ func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error)
 	return out, rows.Err()
 }
 
-func validateInitiativeInvariantsTx(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM work_items WHERE kind='initiative' ORDER BY id`)
+// validateInitiativeInvariantsTx checks the whole projection in the owning
+// transaction. Set-based reads keep query count independent of entry count:
+// this validator runs inside every mutation's exclusive SQLite writer window.
+func validateInitiativeInvariantsTx(ctx context.Context, tx queryer) error {
+	var initiative string
+	err := tx.QueryRowContext(ctx, `SELECT w.id FROM work_items w
+		LEFT JOIN work_projects wp ON wp.work_id=w.id AND wp.role='primary'
+		LEFT JOIN product_projects pp ON pp.project_id=wp.project_id
+		WHERE w.kind='initiative' GROUP BY w.id
+		HAVING count(DISTINCT pp.product_id)<>1 ORDER BY w.id LIMIT 1`).Scan(&initiative)
+	if err == nil {
+		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", fmt.Sprintf("Initiative %s does not derive exactly one Product", initiative), false, "repair the Initiative membership operation")
+	}
+	if err != sql.ErrNoRows {
+		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot read Initiative scopes", true, "retry once the database is readable", err)
+	}
+	var kind, childProduct, initiativeProduct sql.NullString
+	var childProducts int
+	// CROSS JOIN keeps the relevant subjects as the outer loop, rather than
+	// scanning primary memberships of unrelated work before the scope lookup.
+	err = tx.QueryRowContext(ctx, `WITH subjects AS (
+		SELECT e.initiative_work_id AS work_id FROM initiative_entries e
+		JOIN work_items w ON w.id=e.initiative_work_id AND w.kind='initiative'
+		UNION
+		SELECT e.child_work_id FROM initiative_entries e
+		JOIN work_items w ON w.id=e.initiative_work_id AND w.kind='initiative'
+	), scopes AS (
+		SELECT wp.work_id, count(DISTINCT pp.product_id) AS products, min(pp.product_id) AS product
+		FROM subjects s CROSS JOIN work_projects wp ON wp.work_id=s.work_id
+		JOIN product_projects pp ON pp.project_id=wp.project_id
+		WHERE wp.role='primary' GROUP BY wp.work_id
+	)
+	SELECT child.kind, coalesce(cs.products,0), cs.product, ins.product
+	FROM initiative_entries e
+	JOIN work_items parent ON parent.id=e.initiative_work_id AND parent.kind='initiative'
+	LEFT JOIN work_items child ON child.id=e.child_work_id
+	LEFT JOIN scopes cs ON cs.work_id=e.child_work_id
+	LEFT JOIN scopes ins ON ins.work_id=e.initiative_work_id
+	LEFT JOIN relations r ON r.work_id_from=e.initiative_work_id AND r.work_id_to=e.child_work_id AND r.kind='includes'
+	WHERE child.id IS NULL OR child.kind='initiative' OR coalesce(cs.products,0)<>1
+		OR cs.product<>ins.product OR r.work_id_to IS NULL
+	ORDER BY e.initiative_work_id,e.position,e.child_work_id LIMIT 1`).Scan(&kind, &childProducts, &childProduct, &initiativeProduct)
+	if err == sql.ErrNoRows {
+		return nil
+	}
 	if err != nil {
-		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot read Initiatives", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot validate Initiative entries", true, "retry once the database is readable", err)
 	}
-	defer rows.Close()
-	var initiatives []string
-	for rows.Next() {
-		var initiative string
-		if err := rows.Scan(&initiative); err != nil {
-			return wrapFailure(KindUnavailable, "initiative_invariants", "cannot decode Initiative", true, "retry once the database is readable", err)
-		}
-		initiatives = append(initiatives, initiative)
+	switch {
+	case !kind.Valid:
+		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false, "create the work item first")
+	case kind.String == "initiative":
+		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "nested Initiative entry exists", false, "remove the nested Initiative entry")
+	case childProducts != 1:
+		return newFailure(KindInitiativeScopeViolation, "fold_event", "Initiative and child must each derive exactly one Product", false, "assign one unambiguous shared Product scope")
+	case childProduct.String != initiativeProduct.String:
+		return newFailure(KindInitiativeScopeViolation, "fold_event", "Initiative child belongs to a different Product", false, "add only children in the Initiative Product scope")
+	default:
+		// relations has one row per (from, to, kind), so presence is exactly one.
+		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "Initiative entry and includes relation diverged", false, "rebuild the Initiative projection from events")
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, initiative := range initiatives {
-		products, err := workProductIDs(ctx, tx, initiative)
-		if err != nil {
-			return err
-		}
-		if len(products) != 1 {
-			return newFailure(KindInitiativeScopeViolation, "initiative_invariants", fmt.Sprintf("Initiative %s does not derive exactly one Product", initiative), false, "repair the Initiative membership operation")
-		}
-		entries, err := readInitiativeEntriesTx(ctx, tx, initiative)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			kind, err := readWorkKind(ctx, tx, entry.ChildWorkID)
-			if err != nil {
-				return err
-			}
-			if kind == "initiative" {
-				return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "nested Initiative entry exists", false, "remove the nested Initiative entry")
-			}
-			if err := validateInitiativeEntryScope(ctx, tx, initiative, entry.ChildWorkID); err != nil {
-				return err
-			}
-			var includes int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from=? AND work_id_to=?`, initiative, entry.ChildWorkID).Scan(&includes); err != nil {
-				return wrapFailure(KindUnavailable, "initiative_invariants", "cannot verify Initiative includes relation", true, "retry once the database is readable", err)
-			}
-			if includes != 1 {
-				return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "Initiative entry and includes relation diverged", false, "rebuild the Initiative projection from events")
-			}
-		}
-	}
-	return nil
-}
-func readInitiativeEntriesTx(ctx context.Context, tx *sql.Tx, initiative string) ([]InitiativeEntry, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT initiative_work_id,child_work_id,position,required FROM initiative_entries WHERE initiative_work_id=? ORDER BY position,child_work_id`, initiative)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "initiative_entries", "cannot read Initiative entries", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	out := make([]InitiativeEntry, 0)
-	for rows.Next() {
-		var e InitiativeEntry
-		var required int
-		if err := rows.Scan(&e.InitiativeWorkID, &e.ChildWorkID, &e.Position, &required); err != nil {
-			return nil, wrapFailure(KindUnavailable, "initiative_entries", "cannot decode Initiative entry", true, "retry once the database is readable", err)
-		}
-		e.Required = required != 0
-		out = append(out, e)
-	}
-	return out, rows.Err()
 }
 
 func initiativeRequiredChildrenComplete(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
@@ -451,7 +441,7 @@ func ReadInitiativeEntries(ctx context.Context, s *Store, initiativeID string) (
 	}
 	return readInitiativeEntriesDB(ctx, s.db, initiativeID)
 }
-func readInitiativeEntriesDB(ctx context.Context, db *sql.DB, id string) ([]InitiativeEntry, error) {
+func readInitiativeEntriesDB(ctx context.Context, db queryer, id string) ([]InitiativeEntry, error) {
 	rows, err := db.QueryContext(ctx, `SELECT initiative_work_id,child_work_id,position,required FROM initiative_entries WHERE initiative_work_id=? ORDER BY position,child_work_id LIMIT ?`, id, maxInitiativeEntriesRead+1)
 	if err != nil {
 		return nil, researchUnavailable("cannot read Initiative entries", err)

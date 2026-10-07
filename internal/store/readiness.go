@@ -136,7 +136,7 @@ func openReadonlyStore(path string) (*sql.DB, error) {
 // transaction, so a single snapshot answers every query: is the schema
 // manifest present, is the store fresh, and which migrations are applied.
 func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]appliedMigration, bool, error) {
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
 			"cannot begin the read-only snapshot", false, "confirm the database is readable", err)
@@ -178,6 +178,9 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 		return nil, false, newFailure(KindReadinessUnknown, "readiness",
 			"the schema manifest is empty on a non-fresh store", false,
 			"do not activate; run the operator-owned offline bootstrap")
+	}
+	if err := checkBinaryCompatibility(ctx, tx); err != nil {
+		return nil, false, err
 	}
 	return applied, false, nil
 }

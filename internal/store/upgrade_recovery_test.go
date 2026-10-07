@@ -87,7 +87,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 // again; no intermediate state survives the failed transaction.
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	stampAsRelease(t)
-	path := migratedStoreWithTailRemoved(t, 117)
+	path := migratedStoreWithTailRemoved(t, 115)
 	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")
 	}
@@ -95,9 +95,11 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	// Remove the colliding object the earlier step left behind; the
-	// migration recreates it with the shipped definition.
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE worker_job_revisions`); err != nil {
+	// Remove the colliding objects; the pending migrations recreate them
+	// with their checksummed definitions. The v119 worker_attempts rebuild
+	// needs no drop: it renames and recreates, so its re-run is shaped by its
+	// own DDL whether or not the objects already exist.
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
 	_ = db.Close()
@@ -105,7 +107,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}
-	if len(report.Applied) != 2 || report.Applied[0] != 117 || report.Applied[1] != 118 || report.SchemaVersion != CurrentSchemaVersion() {
+	if len(report.Applied) != 5 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.Applied[2] != 117 || report.Applied[3] != 118 || report.Applied[4] != 119 || report.SchemaVersion != CurrentSchemaVersion() {
 		t.Fatalf("the repaired tail must reapply exactly the removed steps: %+v", report)
 	}
 	plan, err := PlanUpgradeReadiness(context.Background(), path)

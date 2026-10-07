@@ -3349,7 +3349,7 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
   if (consumed) {
-    await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd())
+    await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-cancel", async () => process.cwd(), process.cwd())
     expect(windows.inFlight(context.sessionID, "call-cancel")).not.toBeNull()
   } else {
     expect(windows.has(context.sessionID)).toBe(true)
@@ -3400,7 +3400,7 @@ test("a worker_abandon refusal for a never-dispatched attempt releases the retai
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd(), process.cwd())
   expect(windows.inFlight(context.sessionID, "call-stranded")).not.toBeNull()
   const calls: string[] = []
   adapter.configureConcordAdapter({
@@ -3445,7 +3445,7 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
     inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
-  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd())
+  await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd(), process.cwd())
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
     runner: { async run(argv) {

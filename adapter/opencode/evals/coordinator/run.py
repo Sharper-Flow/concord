@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import secrets
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -173,6 +174,25 @@ def command_to_files(command, root, stem, timeout):
 CONDUCT_CORPUS = ".concord/instructions"
 
 
+def remove_own_dependency_copy(root):
+    """Remove this run's disposable dependency copy after evidence collection.
+
+    Scoped to the exact `.opencode/node_modules` path inside this run's
+    artifact root: never a wildcard over other runs' artifacts, and never the
+    instruction snapshots, transcripts, tool sources, lockfiles, or provenance
+    beside it. Returns None on success, else the visible error string; the
+    caller records that error beside the retained evidence.
+    """
+    target = root / ".opencode" / "node_modules"
+    if not target.is_dir():
+        return None
+    try:
+        shutil.rmtree(target)
+        return None
+    except OSError as error:
+        return f"{type(error).__name__}: {error}"
+
+
 # The recording doubles import their tool descriptions from these production
 # sources, and the scenario notice doubles mirror move-notice.ts. Each run
 # snapshots them outside the repository and verifies their bytes after the
@@ -297,6 +317,16 @@ return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthet
         "limits": "Advisory instrumented coordinator evaluation. No lane attempt, real state mutation, deployment proof, or independent review authority.",
     })
     write_json(root / "result.json", result)
+    # Evidence collection and result persistence are complete, so the
+    # dependency copy opencode installed under this run's `.opencode` is
+    # disposable — for failed and timed-out evaluations too, which reach this
+    # point through the same result write. A removal failure is recorded into
+    # the persisted result and returned beside it, never swallowed and never
+    # allowed to delete anything outside this run's own copy.
+    cleanup_error = remove_own_dependency_copy(root)
+    if cleanup_error is not None:
+        result["dependency_cleanup_error"] = cleanup_error
+        write_json(root / "result.json", result)
     return result
 
 
@@ -331,7 +361,7 @@ def main():
     for name in selected:
         result = run_case(args, name, source, originals)
         results.append(result)
-        print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "artifact_error", "final_response")}), flush=True)
+        print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "artifact_error", "dependency_cleanup_error", "final_response")}), flush=True)
     return 0 if all(result["passed"] for result in results) else 1
 
 

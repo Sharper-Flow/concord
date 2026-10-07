@@ -440,7 +440,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		t.Fatal(err)
 	}
 	if before.SchemaVersion != releasedPairSchema || before.CompatibilityFloor >= releasedPairSchema ||
-		len(before.PendingBreaking) != 1 || before.PendingBreaking[0].Version != 118 || !before.PendingBreaking[0].Breaking {
+		len(before.PendingBreaking) != 1 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking {
 		t.Fatalf("the released store must await the breaking worker-attempt migration: %+v", before)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
@@ -498,8 +498,8 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		}
 	}
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
-	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 118 || len(after.PendingBreaking) != 0 {
-		t.Fatalf("the breaking upgrade must raise the floor to 118: %+v %v", after, err)
+	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 119 || len(after.PendingBreaking) != 0 {
+		t.Fatalf("the breaking upgrade must raise the floor to 119: %+v %v", after, err)
 	}
 	fence, err := hostlease.ReadFence(dataRoot)
 	if err != nil || fence == nil || !fence.AuthorizesNativeMigration(currentRoot, currentBinary, report.SchemaVersion) {
@@ -517,7 +517,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	code, out, errText = runRelease(t, oldBinary, path, "upgrade", `{}`)
 	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, "defines schema version 118") ||
+		!strings.Contains(errText, "defines schema version 119") ||
 		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", releasedPairSchema)) {
 		t.Fatalf("the old core must refuse the breaking floor, not the maintenance fence: %d %s %s", code, out, errText)
 	}

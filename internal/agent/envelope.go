@@ -17,6 +17,7 @@ import (
 
 const MaxEnvelopeBytes = 65536
 const MaxResultEnvelopeBytes = 51200
+const maxConsequenceSummaryBindings = 32
 
 type Outcome string
 
@@ -902,7 +903,7 @@ func validateConsequenceSummaryShape(summary *ConsequenceSummary) error {
 	if _, err := time.Parse(time.RFC3339Nano, summary.ExpiresAt); err != nil {
 		return errors.New("consequence summary expiry is not RFC3339")
 	}
-	if !sortedBoundedList(summary.Scope, 32) || !sortedOptionalBindings(summary.Versions, 32) {
+	if !sortedBoundedList(summary.Scope, maxConsequenceSummaryBindings) || !sortedOptionalBindings(summary.Versions, maxConsequenceSummaryBindings) {
 		return errors.New("consequence summary scope or versions are not canonical sorted bindings")
 	}
 	return nil

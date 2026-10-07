@@ -63,10 +63,14 @@ func TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt(t *te
 	if got, _ := details["premise_summary"].(string); got != "approved retry objective" {
 		t.Fatalf("escalated challenge premise_summary = %q, want the approved contract premise", details["premise_summary"])
 	}
-	assertBindingContains(t, details["scope"], "failed_attempt_id:"+failedAttemptID)
-	assertBindingContains(t, details["versions"], "failed_attempt_epoch:3")
-	assertBindingContains(t, details["versions"], "contract:1")
-	assertBindingContains(t, details["versions"], "work:"+strconv.FormatInt(version, 10))
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("challenge lacks a consequence summary")
+	}
+	assertBindingContains(t, summary.Scope, "failed_attempt_id:"+failedAttemptID)
+	assertBindingContains(t, summary.Versions, "failed_attempt_epoch:3")
+	assertBindingContains(t, summary.Versions, "contract:1")
+	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 3 {
 		t.Fatalf("challenge created %d worker attempts, want 3", got)
 	}

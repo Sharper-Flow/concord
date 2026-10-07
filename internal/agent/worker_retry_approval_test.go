@@ -139,10 +139,9 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("retry before disposition: %+v, want approval_required", challenge.Error)
 	}
-	scopeBindings, scopeOK := challenge.Error.Details["scope"].([]string)
-	versionBindings, versionsOK := challenge.Error.Details["versions"].([]string)
-	if !scopeOK || !versionsOK || !slices.Contains(scopeBindings, "failed_attempt_id:"+failedID) || !slices.Contains(versionBindings, "failed_attempt_epoch:1") || !slices.Contains(versionBindings, "contract:1") {
-		t.Fatalf("retry challenge lacks exact failure/contract bindings: %#v", challenge.Error.Details)
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil || !slices.Contains(summary.Scope, "failed_attempt_id:"+failedID) || !slices.Contains(summary.Versions, "failed_attempt_epoch:1") || !slices.Contains(summary.Versions, "contract:1") {
+		t.Fatalf("retry challenge lacks exact failure/contract bindings: %#v", summary)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
 		t.Fatalf("approval challenge created %d attempts, want only the failed attempt", got)
@@ -248,10 +247,9 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 	if !ok || ref == "" {
 		t.Fatal("reread retry challenge has no approval reference")
 	}
-	scopeBindings, scopeOK := challenge.Error.Details["scope"].([]string)
-	versionBindings, versionsOK := challenge.Error.Details["versions"].([]string)
-	if !scopeOK || !versionsOK || !slices.Contains(scopeBindings, "failed_attempt_id:"+failedID) || !slices.Contains(versionBindings, "failed_attempt_epoch:1") || !slices.Contains(versionBindings, "contract:1") {
-		t.Fatalf("reread retry challenge lacks exact bindings: %#v", challenge.Error.Details)
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil || !slices.Contains(summary.Scope, "failed_attempt_id:"+failedID) || !slices.Contains(summary.Versions, "failed_attempt_epoch:1") || !slices.Contains(summary.Versions, "contract:1") {
+		t.Fatalf("reread retry challenge lacks exact bindings: %#v", summary)
 	}
 	approvedRaw := retryJSON(cloneWithApproval(t, input, ref))
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}

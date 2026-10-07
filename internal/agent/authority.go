@@ -300,15 +300,6 @@ type PolicyExpansionProposal struct {
 	AgentScope    []string
 }
 
-// maxGrantRequestTotalAdditions caps the total additions one grant request may
-// propose across all four policy dimensions. The smallest carrier that must
-// render the minted challenge is the approval_required details.scope array,
-// whose closed envelope admits 20 string bindings, and client_ref plus
-// policy_version always take two of them. A request past this bound would
-// commit a challenge whose approval response cannot be delivered, so the
-// derivation refuses it before any challenge or policy write.
-const maxGrantRequestTotalAdditions = 18
-
 // DeriveTrustedClientPolicyExpansion diffs the requested additions against
 // the stored policy and returns only the entries the client does not hold
 // yet. It validates the request vocabulary, the per-dimension bounds, and
@@ -348,9 +339,6 @@ func DeriveTrustedClientPolicyExpansion(current store.TrustedClientRecord, addit
 	}
 	if len(proposedCaps)+len(proposal.ProductScope)+len(proposal.ProjectScope)+len(proposal.AgentScope) == 0 {
 		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "the grant request adds nothing the client does not hold; name the grants the dependent work needs", "reread_entities", false)
-	}
-	if len(proposal.Capabilities)+len(proposal.ProductScope)+len(proposal.ProjectScope)+len(proposal.AgentScope) > maxGrantRequestTotalAdditions {
-		return PolicyExpansionProposal{}, newRuntimeFailure("invalid_input", "the grant request proposes more total additions than the operator challenge can render; request fewer grants or split the request", "reread_entities", false)
 	}
 	return proposal, nil
 }
@@ -860,6 +848,11 @@ func (s *Service) CreateApprovalChallengeTx(ctx context.Context, tx *store.Trans
 	}
 	if !validChallengeVersions(spec.Versions) {
 		return "", errors.New("approval challenge versions invalid")
+	}
+	// A challenge must fit the typed prompt before it enters durable state.
+	// Details are not a second owner or an overflow channel for its bindings.
+	if len(approvalScopeBindings(spec.Scope)) > maxConsequenceSummaryBindings || len(approvalVersionBindings(spec.Versions)) > maxConsequenceSummaryBindings {
+		return "", newRuntimeFailure("limit_exceeded", "approval scope or version bindings exceed the consequence summary capacity", "reduce_limit", false)
 	}
 	now := s.now()
 	if !spec.ExpiresAt.After(now) || spec.ExpiresAt.Sub(now) > 24*time.Hour {

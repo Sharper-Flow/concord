@@ -8,6 +8,7 @@ accepts its own seeded manifest would be the defect it exists to close.
 """
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -61,6 +62,84 @@ def test_go_test_anchor_rejects_an_assertion_free_test() -> None:
         assert anchor_findings("go_test", "internal/store.TestAssertionFreeAnchor")
     finally:
         fixture.unlink()
+
+
+# The freshness controls below run the real projector subprocess against the
+# repository population: each mutation must change the source signature, and
+# every resolution must re-decide from current sources rather than a stale
+# process-local fact cache. Timestamps are forced with distinct nanosecond
+# stamps because same-jiffy rewrites can leave mtime_ns unchanged.
+
+_PROBE_PATH = ROOT / "internal" / "store" / "zz_freshness_probe_test.go"
+_PROBE_ANCHOR = "internal/store.TestFreshnessProbe"
+_PROBE_ASSERTING = (
+    "package store\n\nimport \"testing\"\n\n"
+    "func TestFreshnessProbe(t *testing.T) {\n\tt.Fatal(\"freshness probe\")\n}\n"
+)
+_PROBE_ASSERTION_FREE = (
+    "package store\n\nimport \"testing\"\n\n"
+    "func TestFreshnessProbe(t *testing.T) {\n\t_ = t\n}\n"
+)
+_PROBE_STAMP = [10**9]
+
+
+def _write_probe(body: str) -> None:
+    _PROBE_STAMP[0] += 1_000_000_000
+    _PROBE_PATH.write_text(body, encoding="utf-8")
+    os.utime(_PROBE_PATH, ns=(_PROBE_STAMP[0], _PROBE_STAMP[0]))
+
+
+def test_added_asserting_test_resolves_through_the_real_projector() -> None:
+    try:
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "added asserting test did not resolve"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
+
+
+def test_assertion_free_mutation_rejects_through_the_real_projector() -> None:
+    try:
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        _write_probe(_PROBE_ASSERTION_FREE)
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "assertion-free mutation still resolved"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
+
+
+def test_restored_assertion_resolves_through_the_real_projector() -> None:
+    try:
+        _write_probe(_PROBE_ASSERTION_FREE)
+        assert anchor_findings("go_test", _PROBE_ANCHOR)
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "restored assertion did not resolve"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
+
+
+def test_deletion_rejects_through_the_real_projector() -> None:
+    try:
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        _PROBE_PATH.unlink()
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "deleted test still resolved"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
+
+
+def test_repeated_resolution_tracks_in_process_mutation() -> None:
+    """Resolution stays source-sensitive across a warm process-local cache."""
+    try:
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "repeat resolution lost the answer"
+        _write_probe(_PROBE_ASSERTION_FREE)
+        assert anchor_findings("go_test", _PROBE_ANCHOR), "mutation kept a stale resolution"
+        assert anchor_findings("go_test", _PROBE_ANCHOR)
+        _write_probe(_PROBE_ASSERTING)
+        assert not anchor_findings("go_test", _PROBE_ANCHOR), "restoration kept a stale rejection"
+    finally:
+        _PROBE_PATH.unlink(missing_ok=True)
 
 
 def test_go_test_anchor_rejects_a_test_in_a_different_package() -> None:

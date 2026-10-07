@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -68,15 +69,44 @@ _GO_TEST_FACTS: dict[str, dict[str, bool]] = {}
 
 
 def _go_test_source_signature() -> tuple[tuple[str, int, int], ...]:
+    """Source freshness is decided per call: every resolution rescans.
+
+    The walk mirrors what an ``rglob("*.go")`` of ROOT observed: a name check
+    against every entry kind (a directory named ``x.go`` counts), no descent
+    into symlinked directories, ``stat`` following a leaf symlink, and an
+    OSError from a directory scan or a stat dropping only that entry or
+    subtree. ``.git`` and ``vendor`` components are pruned before descent,
+    which yields the same signature as filtering them from the results while
+    never scanning them; an excluded component in ROOT's own path empties the
+    signature just as it filtered out every result before.
+    """
+    if ".git" in ROOT.parts or "vendor" in ROOT.parts:
+        return ()
     files: list[tuple[str, int, int]] = []
-    for path in ROOT.rglob("*.go"):
-        if ".git" in path.parts or "vendor" in path.parts:
-            continue
+    stack: list[tuple[str, str]] = [("", str(ROOT))]
+    while stack:
+        prefix, directory = stack.pop()
         try:
-            stat = path.stat()
+            with os.scandir(directory) as entries:
+                children = list(entries)
         except OSError:
             continue
-        files.append((path.relative_to(ROOT).as_posix(), stat.st_mtime_ns, stat.st_size))
+        for entry in children:
+            if entry.name == ".git" or entry.name == "vendor":
+                continue
+            relative = f"{prefix}/{entry.name}" if prefix else entry.name
+            if entry.name.endswith(".go"):
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    pass
+                else:
+                    files.append((relative, stat.st_mtime_ns, stat.st_size))
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append((relative, f"{directory}/{entry.name}"))
+            except OSError:
+                pass
     return tuple(sorted(files))
 
 

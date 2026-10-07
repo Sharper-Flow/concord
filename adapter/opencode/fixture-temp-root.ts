@@ -57,7 +57,7 @@ export async function fixtureTempRoot(tag = "fx"): Promise<string> {
 
 export interface FixtureProcessOptions {
   cwd?: string
-  env?: Record<string, string>
+  env?: Record<string, string | undefined>
   // Connected to the spawned child for its whole life: an abort that fires
   // after spawn terminates the child immediately.
   signal?: AbortSignal

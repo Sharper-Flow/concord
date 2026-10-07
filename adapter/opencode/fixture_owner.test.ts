@@ -104,6 +104,9 @@ interface OwnerEvent {
   killed?: number[]
   reaped?: number[]
   processes?: number[]
+  owner_status?: number
+  marker_present?: boolean
+  owner_journalled_removal_error?: boolean
 }
 
 interface CaseFindings {
@@ -768,10 +771,11 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     .filter(Boolean)
     .map((line) => JSON.parse(line) as FaultProbeResult & { probes?: number; real_processes_spawned?: number })
   const summary = lines[lines.length - 1]
-  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(49)
+  const expectedProbeCount = 49
+  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(expectedProbeCount)
   expect(summary.real_processes_spawned).toBe(0)
   const byLabel = new Map(lines.slice(0, -1).map((line) => [String(line.probe), line]))
-  expect(byLabel.size, "fault probe labels must identify distinct scenarios").toBe(summary.probes)
+  expect(byLabel.size, "fault probe labels must identify distinct scenarios").toBe(expectedProbeCount)
   const row = (label: string): FaultProbeResult => {
     const found = byLabel.get(label)
     expect(found, `probe ${label} never ran`).toBeDefined()

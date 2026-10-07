@@ -8,14 +8,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -70,50 +68,13 @@ type ExecGitRunner struct{}
 
 var _ StdinGitRunner = ExecGitRunner{}
 
-// boundedGitWaitDelay bounds how long Wait may keep draining a command's
-// output pipes after the deadline has cancelled it, so a descendant that
-// outlives the killed git cannot hold the caller past its deadline.
-const boundedGitWaitDelay = 100 * time.Millisecond
-
-// runBoundedGitOutput is the one bounded execution policy every ExecGitRunner
-// command shares. The command runs in its own process group: when the
-// caller's context ends, the runner SIGKILLs that whole group, because
-// Process.Kill reaches only the git process itself. WaitDelay bounds the
-// remaining pipe drainage after cancellation, because with the zero delay
-// Wait reads the pipes until EOF, which a descendant holding them never
-// reaches. Output capture matches exec.Cmd.Output: a non-zero exit returns
-// the collected stdout and an *exec.ExitError whose Stderr carries the
-// command's stderr.
-func runBoundedGitOutput(cmd *exec.Cmd) ([]byte, []byte, error) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	cmd.WaitDelay = boundedGitWaitDelay
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitErr.Stderr = stderr.Bytes()
-		}
-		return stdout.Bytes(), stderr.Bytes(), err
-	}
-	return stdout.Bytes(), stderr.Bytes(), nil
-}
-
 func (ExecGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
-	stdout, _, err := runBoundedGitOutput(cmd)
+	cmd := exec.Command("git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	stdout, _, err := runBoundedGitOutput(ctx, cmd)
 	return stdout, err
 }
 
@@ -122,9 +83,9 @@ func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, arg
 		return nil, fmt.Errorf("empty git directory")
 	}
 	command := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(ctx, "git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
+	cmd := exec.Command("git", command...) //nolint:gosec // git is fixed, argv values stay separate, and no shell is invoked.
 	cmd.Stdin = bytes.NewReader(stdin)
-	stdout, _, err := runBoundedGitOutput(cmd)
+	stdout, _, err := runBoundedGitOutput(ctx, cmd)
 	return stdout, err
 }
 

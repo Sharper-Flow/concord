@@ -441,9 +441,11 @@ func admissionEnterStep(definition WorkflowDefinition, state admissionModelState
 	}
 	// A delivery gate reads the incoming delivery-bearing step's start.
 	// Other step entries need their own start and a new epoch proof.
+	// Integration persists across the same-pass advance the loader still
+	// reads from the workflow's bound evidence, so the model's
+	// fold-equivalent must carry it forward.
 	if !workflowStepIsDeliveryGate(workflowStep(definition, step)) {
 		state.started = false
-		state.integration = false
 	}
 	state.proof = false
 	state.step, state.attempt, state.failed, state.dispatched = step, "", 0, false
@@ -534,10 +536,11 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// not merely a completed attempt at the route target.
 			next.artifactStale = false
 		}
-		// Any acceptance invalidates the qualifying integration coverage:
-		// the verify runs the facet reads must have observed the results the
-		// acceptance population now records (CD-0205 D3).
-		next.integration = false
+		// An acceptance does not invalidate the qualifying integration
+		// coverage in the model's fold-equivalent: the loader reads every
+		// verification binding after coverageSeq and counts each qualifying
+		// run, so the model's single bool must keep the bound evidence in
+		// scope across the same-pass accept (CD-0205 D3).
 		next.attemptProduces, next.attemptFresh = false, false
 		if next.ready != "" {
 			if next.ready == "no_ship" {
@@ -639,20 +642,22 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 					heldStillRequired.jobs = "required"
 					held.jobs = "satisfied"
 					held.jobsUnsatisfied = ""
-					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
-						return []admissionModelState{heldStillRequired, held, advanced}
-					}
-					return []admissionModelState{heldStillRequired, held}
-				}
-				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
-					successors := []admissionModelState{held}
-					if state.jobs != "satisfied" {
-						successors = append(successors, advanced)
-					}
-					return successors
-				}
-				return []admissionModelState{held}
+if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+				return []admissionModelState{heldStillRequired, held, advanced}
 			}
+			return []admissionModelState{heldStillRequired, held}
+		}
+		if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+			successors := []admissionModelState{held}
+			// CD-0205 D5: when the delivery derivation admits the assertion
+			// the accept carries, the model's fold-equivalent must lift
+			// both the held-satisfied and the advancing successor, the
+			// way the loader reads the integrated delivery on either path.
+			successors = append(successors, advanced)
+			return successors
+		}
+		return []admissionModelState{held}
+	}
 			next = advanced
 		}
 	}

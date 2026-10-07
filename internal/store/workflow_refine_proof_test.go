@@ -140,7 +140,15 @@ func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 	if err != nil {
 		t.Fatalf("parse the refine start: %v", err)
 	}
-	ref := refineProofSeedVerifyRun(t, s, workID, digest, []string{"go", "vet", "./..."}, startedAt.Add(time.Second))
+	// The proof run's Project must match the work's primary Project, the
+	// same scope the recorded worker-job revisions carry. Otherwise the
+	// integration facet's per-Project coverage refuses the proof, and the
+	// recorded-job fold (CD-0205 D3) reads JobsIntegrated as false.
+	var project string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+		t.Fatalf("read the work primary Project: %v", err)
+	}
+	ref := refineProofSeedVerifyRunForProject(t, s, workID, digest, []string{"go", "vet", "./..."}, startedAt.Add(time.Second), project)
 	refineProofBindVerification(t, s, workID, ref, ref)
 }
 

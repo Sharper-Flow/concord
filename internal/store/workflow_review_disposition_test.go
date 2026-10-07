@@ -8,6 +8,26 @@ import (
 	"time"
 )
 
+// jobBoundReviewCompletion reads the worker-job binding the dispatch
+// authorization recorded for the attempt and rewrites the completion event's
+// payload to carry it. The fold's end-to-end check refuses a worker.completed
+// whose worker_job does not match the dispatch's binding, so a refine review
+// attempt dispatched under a recorded worker job must complete against the
+// same revision. Legacy dispatches return no binding, so the helper is a
+// no-op when the dispatch predated the worker-job lifecycle.
+func jobBoundReviewCompletion(event *Event, attemptID string, s *Store) {
+	binding, err := workflowDispatchedJobForAttempt(context.Background(), s.DatabaseForTesting(), event.SubjectID, attemptID)
+	if err != nil || binding == nil {
+		return
+	}
+	var payload WorkerCompletedPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return
+	}
+	payload.WorkerJob = binding
+	event.Payload = mustJSONValue(payload)
+}
+
 func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 	for _, ref := range []string{"workflow.break_fix", "workflow.implementation"} {
 		t.Run(ref, func(t *testing.T) {
@@ -313,6 +333,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
 			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
+			jobBoundReviewCompletion(&completion, reviewID, s)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 				t.Fatal(err)
 			}
@@ -327,6 +348,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			}
 			laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 			packet := joinPacketFor(t, s, workID, "refine", "attempt:"+workID+":pending", "review", laneVersion, laneDigest)
+			attachReadyWorkerJobIfJobCapable(t, s, workID, "refine", "pending", fixture.owner, packet)
 			if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 				t.Fatal(err)
 			}

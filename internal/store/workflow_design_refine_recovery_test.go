@@ -25,25 +25,26 @@ func refineRecoverySuccessor(contractVersion int64, designRecord string) json.Ra
 // dispatch_worker action and records the lane dispatch. The attempt stays
 // live: no report is recorded. A non-nil correction makes the packet consume
 // that correction context, the way a post-failure retry does.
-func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture, workID, label string, correction map[string]any) (string, int64, error) {
+func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture, workID, label string, correction map[string]any) (string, int64, *WorkerJobBinding, error) {
 	t.Helper()
 	ctx := context.Background()
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":" + label
 	packet := joinPacketFor(t, fixture.store, workID, "refine", attemptID, "review", laneVersion, laneDigest)
+	binding := attachReadyWorkerJobIfJobCapable(t, fixture.store, workID, "refine", label, fixture.owner, packet)
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}
 	if _, err := dispatchJoinAttempt(ctx, t, fixture.store, workID, verdictItemVersion(t, fixture.store, workID), fixture.owner, packet); err != nil {
-		return attemptID, 0, err
+		return attemptID, 0, binding, err
 	}
 	var packetDigest string
 	var epoch int64
 	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest'), json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&packetDigest, &epoch); err != nil {
 		t.Fatal(err)
 	}
-	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest})}
+	laneDispatch := Event{EventID: "refine-dispatch-" + label + "-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(40, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: packetDigest, WorkerJob: binding})}
 	if err := fixture.store.Transact(ctx, func(transaction *Transaction) error {
 		prepared, err := PrepareLaneActorDispatch(ctx, transaction, laneDispatch, fixture.owner.PrincipalRef, fixture.owner.ClientRef)
 		if err != nil {
@@ -54,24 +55,39 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	}); err != nil {
 		t.Fatalf("lane actor dispatch: %v", err)
 	}
-	return attemptID, epoch, nil
+	return attemptID, epoch, binding, nil
 }
 
 // dispatchRefineAttempt dispatches a review lane at refine through the
 // dispatch_worker action, completes its report, and returns the attempt epoch.
 func dispatchRefineAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID, label string) (string, int64, error) {
 	t.Helper()
-	attemptID, epoch, err := dispatchRefineAttemptOnly(t, fixture, workID, label, nil)
+	attemptID, epoch, binding, err := dispatchRefineAttemptOnly(t, fixture, workID, label, nil)
 	if err != nil {
 		return attemptID, epoch, err
 	}
 	lane := reviewGateLane(t, "review")
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "refine-completed-"+label+"-"+workID, attemptID, lane, time.Unix(41, 0).UTC()),
+		jobBoundCompletionEvent(workID, "refine-completed-"+label+"-"+workID, attemptID, lane, time.Unix(41, 0).UTC(), binding),
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	return attemptID, epoch, nil
+}
+
+// jobBoundCompletionEvent builds the worker.completed report event the
+// dispatch helpers emit, attaching the recorded worker-job binding the
+// dispatch authorization recorded so the fold's end-to-end check passes on
+// job-capable pins. The helper carries no binding on legacy pins.
+func jobBoundCompletionEvent(workID, eventID, attemptID string, lane LaneDefinition, occurredAt time.Time, binding *WorkerJobBinding) Event {
+	payload := WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: binding}
+	version := 1
+	if len(lane.RequiredReportBlocks) > 0 {
+		version = 3
+		payload.EvidenceOrigin = WorkerEvidenceLegacyUnavailable
+		payload.Review = &WorkerReviewBlock{Verdict: "ship", Findings: []WorkerReviewFinding{}}
+	}
+	return Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
 }
 
 // seedReturnedRefineCorrection drives an implementation item through a first
@@ -134,6 +150,10 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRou
 	if err := acceptRefineResult(t, s, workID, reviewAttempt, reviewEpoch, acceptor); err != nil {
 		t.Fatalf("accept refine review: %v", err)
 	}
+	// The combined accept at refine integrates the worker job before the
+	// record_delivery call at the delivery step; the delivery admission
+	// reads its own integration evidence bound after the recorded acceptance.
+	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:return-route","delivery_state":"asserted"}`)
 	for i := 0; i < 2 && currentStep(t, s, workID) != "acceptance"; i++ {
 		if err := runVerdictActionAs(t, s, workID, "record_delivery", delivery, 0, acceptor); err != nil {
@@ -425,6 +445,7 @@ func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture
 func deliverRefineFirstPass(t *testing.T, fixture workflowReturnRouteFixture, workID string, acceptor WorkflowActor) {
 	t.Helper()
 	s := fixture.store
+	workerJobIntegrationGreenRun(t, s, workID, deliverRefineFirstPassDigest(workID))
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:return-route","delivery_state":"asserted"}`)
 	for i := 0; i < 2 && currentStep(t, s, workID) != "acceptance"; i++ {
 		if err := runVerdictActionAs(t, s, workID, "record_delivery", delivery, 0, acceptor); err != nil {
@@ -436,6 +457,13 @@ func deliverRefineFirstPass(t *testing.T, fixture workflowReturnRouteFixture, wo
 	}
 }
 
+// deliverRefineFirstPassDigest returns a deterministic hex digest the first
+// refine pass's record_delivery integration run binds under, so the seed
+// reuses one lease id and the helper stays byte-for-byte reproducible.
+func deliverRefineFirstPassDigest(workID string) string {
+	return strings.Repeat("d", 64) + "-" + workID + "-refining"
+}
+
 // seedReturnedRefineWithRecordedFailure drives the returned-refine correction
 // with one change in the first pass: the first refine review lane fails and
 // its failure is recorded before a second review lane is accepted. The pass
@@ -445,19 +473,19 @@ func seedReturnedRefineWithRecordedFailure(t *testing.T, workID string) (workflo
 	t.Helper()
 	fixture, acceptor := seedRefineFirstPass(t, workID)
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
-	failedAttempt, failedEpoch, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-review-1", nil)
+	failedAttempt, failedEpoch, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-review-1", nil)
 	if err != nil {
 		t.Fatalf("first-pass refine dispatch with a current design: %v", err)
 	}
 	failReviewWorkerAttempt(t, s, workID, failedAttempt, reviewGateLane(t, "review"))
 	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, verdictItemVersion(t, s, workID), "refine-failure:"+workID)
-	reviewAttempt, reviewEpoch, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-review-2", refineRetryCorrection(t, s, workID))
+	reviewAttempt, reviewEpoch, reviewBinding, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-review-2", refineRetryCorrection(t, s, workID))
 	if err != nil {
 		t.Fatalf("first-pass refine recovery dispatch after the recorded failure: %v", err)
 	}
 	reviewLane := reviewGateLane(t, "review")
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "refine-completed-refine-review-2-"+workID, reviewAttempt, reviewLane, time.Unix(41, 0).UTC()),
+		jobBoundCompletionEvent(workID, "refine-completed-refine-review-2-"+workID, reviewAttempt, reviewLane, time.Unix(41, 0).UTC(), reviewBinding),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +506,7 @@ func TestReturnedRefineRecordedFailureKeepsCorrectionClosed(t *testing.T) {
 	ctx := context.Background()
 	fixture, _, _ := seedReturnedRefineWithRecordedFailure(t, workID)
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
-	liveAttempt, liveEpoch, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-live", nil)
+	liveAttempt, liveEpoch, liveBinding, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-live", nil)
 	if err != nil {
 		t.Fatalf("new-pass dispatch with a current design: %v", err)
 	}
@@ -501,7 +529,7 @@ func TestReturnedRefineRecordedFailureKeepsCorrectionClosed(t *testing.T) {
 	// report and the accept disposes it.
 	lane := reviewGateLane(t, "review")
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		workerCompleteEventForLane(workID, "refine-completed-refine-live-"+workID, liveAttempt, lane, time.Unix(43, 0).UTC()),
+		jobBoundCompletionEvent(workID, "refine-completed-refine-live-"+workID, liveAttempt, lane, time.Unix(43, 0).UTC(), liveBinding),
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -571,13 +599,13 @@ func TestReturnedRefineSamePassRetryClosesCorrection(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(3, refineRecoveryDesign), owner, operator); err != nil {
 		t.Fatalf("supersede_contract with design_record at the returned refine: %v", err)
 	}
-	failedAttempt, failedEpoch, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-fail", nil)
+	failedAttempt, failedEpoch, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-fail", nil)
 	if err != nil {
 		t.Fatalf("same-pass dispatch with a current design: %v", err)
 	}
 	failReviewWorkerAttempt(t, s, workID, failedAttempt, reviewGateLane(t, "review"))
 	applyRecordWorkerFailureForTest(t, s, workID, owner, failedAttempt, failedEpoch, verdictItemVersion(t, s, workID), "same-pass-failure:"+workID)
-	if _, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-retry", refineRetryCorrection(t, s, workID)); err != nil {
+	if _, _, _, err := dispatchRefineAttemptOnly(t, fixture, workID, "refine-same-retry", refineRetryCorrection(t, s, workID)); err != nil {
 		t.Fatalf("same-pass retry dispatch after the recorded failure: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)

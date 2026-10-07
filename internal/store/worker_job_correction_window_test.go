@@ -422,6 +422,43 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, lane Lan
 	return ApplyOperation(context.Background(), s, Operation{Events: []Event{completed}})
 }
 
+// attachReadyWorkerJobIfJobCapable records one ready worker-job revision on
+// the named work when the pinned definition declares CD-0205 at the dispatch
+// step, rewrites the packet's task and binding from the now-current recorded
+// state, and attaches the recorded binding to the packet's inputs.worker_job.
+// On every legacy pin the function leaves the packet untouched, so historic
+// instance journeys dispatch with the byte-for-byte shape they were authored
+// for. A job-capable pin with no recorded revision records one before the
+// dispatch reads the work version the binding carries. The returned binding
+// (nil on a legacy pin) names the worker.dispatched evidence the dispatch
+// follows, so the lane-actor event can carry the same job the authorization
+// recorded.
+//
+// The recorded job uses one job_id per (workID, stepID) so a sequence of
+// dispatches at the same step accumulates revisions under one job, which is
+// the CD-0205 D2 delivery admission the fold reads — the latest revision per
+// job_id must be satisfied, so a sequence of dispatches cannot strand
+// independent failed revisions alongside the satisfying accept.
+func attachReadyWorkerJobIfJobCapable(t *testing.T, s *Store, workID, stepID, attemptLabel string, actor WorkflowActor, packet map[string]any) *WorkerJobBinding {
+	t.Helper()
+	registered, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workflowWorkerJobsActive(registered.Definition) {
+		return nil
+	}
+	if !stepDeclaresAction(registered.Definition, stepID, "record_worker_job") {
+		return nil
+	}
+	jobID := "job:" + workID + ":" + stepID
+	job := &WorkerJobBinding{JobID: jobID, Revision: 1}
+	recordWorkerJobRevisionForTest(t, s, workID, actor, job)
+	bindPacketToRecordedState(t, s, packet)
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	return job
+}
+
 // The dispatch chain binds one recorded revision end to end (CD-0205): the
 // packet must carry the selected ready revision with its recorded content,
 // the worker.dispatched evidence must carry exactly the binding the
@@ -656,8 +693,8 @@ func TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery(t *testing.T) {
 		ref     string
 		version int64
 	}{
-		{"workflow.implementation", 23},
-		{"workflow.break_fix", 20},
+		{"workflow.implementation", 24},
+		{"workflow.break_fix", 21},
 	} {
 		t.Run(family.ref, func(t *testing.T) {
 			const workID = "worker-job-refine-local-accept"

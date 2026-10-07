@@ -13,24 +13,30 @@
 - **Amended:** D5's consume binding widened from the authenticated
   receiving session to the work-and-Project pair: every coordinator
   session with a verified landing in the receiving Project may dispatch
-  under the frontier handoff's bind. The amendment is Proposed for the
-  Concord (CON) work item CON-850 and pending operator review; the
-  widening was first carried by work-65af7591013c1b4d4caa16ef on
-  2026-10-06. The proposal also touches CD-0178 D2 at the exclusive
-  session count: the receiving Project can reuse the one current bind
-  from every verified landed coordinator. CD-0178 D2's repository-local
-  execution and its refusal of a move into another repository stay
-  unchanged.
+  under the frontier handoff's bind. The operator accepted the amendment
+  on 2026-10-07 through the delegated decision the Approval field below
+  records. The widening was first carried by work-65af7591013c1b4d4caa16ef
+  on 2026-10-06 for the Concord (CON) work item CON-850. The amendment
+  also touches CD-0178 D2 at the exclusive session count: the receiving
+  Project can reuse the one current bind from every verified landed
+  coordinator. CD-0178 D2's repository-local execution and its refusal
+  of a move into another repository stay unchanged.
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
 - **Preserves:** CD-0078 D1's boundary for every Concord binary, CD-0093 D2's
   one-directory binding and D3's fail-closed canonical path, CD-0176 D1's
   worktree landing, and CD-0178 D2's repository-local execution with its
   refusal of a move into another repository; CD-0178 D2's exclusive session
-  count is touched by the proposed amendment above, not preserved
+  count is touched by the accepted amendment above, not preserved
 - **Approval:** The operator approved the seven-outcome contract in session
-  on 2026-09-27, and that approval covers only the original record. The
-  proposed amendment above claims no acceptance and waits for operator
-  review. The pull request is the public record.
+  on 2026-09-27, and that approval covers the original record. For the D5
+  amendment, the operator delegated the decision to the coordinator
+  session in chat on 2026-10-07. The coordinator accepted a consume bound
+  to the work item and its receiving Project, usable by every verified
+  landed session, with the stale-contract and cross-Project refusals and
+  CD-0178 D2's repository-local execution unchanged. An exclusive session
+  bind adds no safety beyond verified landing and the contract version,
+  and it forced duplicate sessions. The pull request is the public
+  record.
 
 ## Context
 
@@ -123,11 +129,11 @@ before the record commits: a dirty or untracked worktree refuses, and the
 core never commits, stashes, or hides files.
 
 The receiving session consumes the recorded handoff before it runs any
-managed external effect. Under the proposed amendment in the header, the
-consume binds the record to the work item and its addressed receiving
-Project under the current contract: any coordinator session with a
-verified landing in the receiving Project may dispatch under the frontier
-handoff's bind, and every such session reads the frontier's bounded job.
+managed external effect. The consume binds the record to the work item
+and its addressed receiving Project under the current contract: any
+coordinator session with a verified landing in the receiving Project may
+dispatch under the frontier handoff's bind, and every such session reads
+the frontier's bounded job.
 A session without a verified landing, or in another Project, stays
 refused. A missing, wrong-target, or stale handoff refuses.
 Managed-execution admission fails closed while an unconsumed or stale

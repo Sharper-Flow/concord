@@ -419,21 +419,21 @@ func TestRecoveryRouteRegistrationRefusals(t *testing.T) {
 	doubleFailureEdge.StepGraph.Edges = append(doubleFailureEdge.StepGraph.Edges, WorkflowEdge{From: base.RecoveryRoutes[0].Step, To: "execution", Kind: WorkflowEdgeFailure})
 
 	for name, mutation := range map[string]WorkflowDefinition{
-		"missing evaluator route":                missing,
-		"ambiguous step and trigger":             ambiguous,
-		"unknown trigger":                        unknownTrigger,
-		"unknown step":                           unknownStep,
-		"unknown action":                         unknownAction,
-		"unknown target":                         unknownTarget,
-		"unhealthy trigger pairs wrong action":   unhealthyActionMismatch,
-		"complete trigger pairs wrong action":    completeActionMismatch,
-		"complete trigger off the complete step": completeOnEvaluatorStep,
+		"missing evaluator route":                   missing,
+		"ambiguous step and trigger":                ambiguous,
+		"unknown trigger":                           unknownTrigger,
+		"unknown step":                              unknownStep,
+		"unknown action":                            unknownAction,
+		"unknown target":                            unknownTarget,
+		"unhealthy trigger pairs wrong action":      unhealthyActionMismatch,
+		"complete trigger pairs wrong action":       completeActionMismatch,
+		"complete trigger off the complete step":    completeOnEvaluatorStep,
 		"unhealthy trigger on a non-evaluator step": unhealthyOnNonEvaluatorStep,
-		"target is the route step":               targetIsStep,
-		"target is terminal":                     targetTerminal,
-		"target is approval-gated":               targetApprovalGated,
-		"target not upstream":                    notUpstream,
-		"second failure edge":                    doubleFailureEdge,
+		"target is the route step":                  targetIsStep,
+		"target is terminal":                        targetTerminal,
+		"target is approval-gated":                  targetApprovalGated,
+		"target not upstream":                       notUpstream,
+		"second failure edge":                       doubleFailureEdge,
 	} {
 		if err := ValidateWorkflowDefinition(mutation); err == nil {
 			t.Fatalf("%s was admitted", name)

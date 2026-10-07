@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -43,12 +44,10 @@ const (
 	ciWaitPollSlowAfter     = 300 * time.Second
 	ciWaitCommandRetryDelay = 2 * time.Second
 	ciWaitPRRollupPageSize  = 100
-	ciWaitMaxIterations     = 120
 	ciWaitDefaultBudget     = 1800
 	ciWaitShutdownSlack     = 5 * time.Second
 	ciWaitStateDir          = "concord"
 	ciWaitStateFilePrefix   = "ci-wait-"
-	ciWaitStateMaxAge       = 24 * time.Hour
 )
 
 // ciWaitCommandTimeout bounds one gh invocation. It is a variable so the test
@@ -124,6 +123,7 @@ type ciWaitState struct {
 	HeadSHA        string         `json:"head_sha,omitempty"`
 	LastMergeState string         `json:"last_merge_state,omitempty"`
 	Mode           string         `json:"mode,omitempty"`
+	OwnerPID       int            `json:"owner_pid,omitempty"`
 }
 
 func runCiWait(raw []byte, out, errOut io.Writer) int {
@@ -137,11 +137,20 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 	if err != nil {
 		return ciWaitEmit(out, ciWaitReport{Status: "refused", Reason: err.Error()}, 1)
 	}
+	// Only pending can resume. The caller owns the wait across child slices;
+	// persisting before polling also preserves the deadline if a child dies.
+	resumable := false
+	defer func() {
+		if !resumable {
+			ciWaitRemoveState(stateFile)
+		}
+	}()
+	ciWaitSaveState(state, stateFile)
 
 	// The wall-time budget is a ceiling on the caller's declaration, never a
 	// grant: a caller cannot extend a wait the registry bounds at 1800s.
 	if !time.Now().Before(state.DeadlineAt) {
-		return ciWaitFinishTimeout(state, stateFile, out)
+		return ciWaitFinishTimeout(state, out)
 	}
 
 	remaining := time.Until(state.DeadlineAt)
@@ -150,7 +159,7 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 		slice = remaining - ciWaitShutdownSlack
 	}
 	if slice < time.Second {
-		return ciWaitFinishTimeout(state, stateFile, out)
+		return ciWaitFinishTimeout(state, out)
 	}
 	sliceEnd := time.Now().Add(slice)
 	sliceContext, cancel := context.WithDeadline(context.Background(), sliceEnd)
@@ -177,11 +186,11 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 					StateFile:  stateFile,
 				}
 				ciWaitSaveState(state, stateFile)
+				resumable = true
 				return ciWaitEmit(out, pending, 0)
 			}
-			// A provider, auth, or transport failure is an explicit error.
-			// It is never a success, and it keeps the state file so the wait
-			// can resume after the caller retries.
+			// A provider, auth, or transport failure ends the wait with an
+			// explicit error, never success or a resumable pending report.
 			report.Status = "error"
 			report.Reason = terr.Error()
 			report.Iterations = state.Iterations
@@ -190,12 +199,9 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 			report.SHA = state.LastSHA
 			report.HeadSHA = state.HeadSHA
 			report.MergeState = state.LastMergeState
-			report.StateFile = stateFile
-			ciWaitSaveState(state, stateFile)
 			return ciWaitEmit(out, report, 1)
 		}
 		if terminal {
-			ciWaitRemoveState(stateFile)
 			report.Iterations = state.Iterations
 			report.Elapsed = int(time.Since(state.StartedAt).Seconds())
 			report.Deadline = state.BudgetSeconds
@@ -224,6 +230,7 @@ func runCiWait(raw []byte, out, errOut io.Writer) int {
 		StateFile:  stateFile,
 	}
 	ciWaitSaveState(state, stateFile)
+	resumable = true
 	return ciWaitEmit(out, pending, 0)
 }
 
@@ -868,11 +875,17 @@ func ciWaitStatePath(requested string) (string, error) {
 }
 
 func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
+	path, err := ciWaitStatePath(request.StateFile)
+	if err != nil {
+		return nil, "", err
+	}
+	ciWaitReapState(filepath.Dir(path), path)
 	if request.StateFile != "" {
 		if state, ok := ciWaitReadState(request.StateFile); ok {
 			if state.Mode == "" {
 				state.Mode = "checks"
 			}
+			state.OwnerPID = os.Getppid()
 			return state, request.StateFile, nil
 		}
 		// A named state file that exists but cannot be read back is a caller
@@ -930,10 +943,7 @@ func ciWaitLoadOrCreate(request ciWaitRequest) (*ciWaitState, string, error) {
 		StartedAt:     now,
 		DeadlineAt:    now.Add(time.Duration(budget) * time.Second),
 		Mode:          mode,
-	}
-	path, err := ciWaitStatePath(request.StateFile)
-	if err != nil {
-		return nil, "", err
+		OwnerPID:      os.Getppid(),
 	}
 	return state, path, nil
 }
@@ -943,31 +953,60 @@ func ciWaitReadState(path string) (*ciWaitState, bool) {
 	if err != nil {
 		return nil, false
 	}
-	if err != nil {
-		return nil, false
-	}
 	var state ciWaitState
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return nil, false
 	}
-	if state.SchemaVersion != 1 || time.Since(state.DeadlineAt) > ciWaitStateMaxAge {
+	if state.SchemaVersion != 1 || state.DeadlineAt.IsZero() {
 		return nil, false
 	}
 	return &state, true
+}
+
+// Reap only expired waits with a provably dead caller. Unknown legacy watch
+// owners, unreadable files, symlinks, and live owners are not deletion evidence.
+// The selected file is left for resume to report its original timeout.
+func ciWaitReapState(dir, selected string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasPrefix(name, ciWaitStateFilePrefix) || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if path == selected {
+			continue
+		}
+		state, ok := ciWaitReadState(path)
+		if !ok || time.Now().Before(state.DeadlineAt) {
+			continue
+		}
+		owner := state.OwnerPID
+		if owner == 0 {
+			// The original verb recorded its PID in the filename only.
+			owner, _ = strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, ciWaitStateFilePrefix), ".json"))
+		}
+		if owner > 0 && errors.Is(syscall.Kill(owner, 0), syscall.ESRCH) {
+			ciWaitRemoveState(path)
+		}
+	}
 }
 
 func ciWaitSaveState(state *ciWaitState, path string) {
 	if path == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // G703: CD-0160 D1 permits an operator-selected absolute state_file; ciWaitStatePath validates that boundary before this write. There is no sandbox-relative path here.
 		return
 	}
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, encoded, 0o600)
+	_ = os.WriteFile(path, encoded, 0o600) //nolint:gosec // G703: path is the resolved state path or the operator-selected absolute state_file validated by ciWaitStatePath, as required by CD-0160 D1.
 }
 
 func ciWaitRemoveState(path string) {
@@ -1005,8 +1044,7 @@ func ciWaitHex40(value string) bool {
 // ciWaitFinishTimeout closes a wait whose deadline passed. The deadline comes
 // from the state the CLI itself wrote, never from the caller. A pending check
 // at the bound is a timeout, never a success.
-func ciWaitFinishTimeout(state *ciWaitState, stateFile string, out io.Writer) int {
-	ciWaitRemoveState(stateFile)
+func ciWaitFinishTimeout(state *ciWaitState, out io.Writer) int {
 	report := ciWaitReport{
 		Status:     "timeout",
 		Reason:     "the wall-time deadline expired before CI reached a terminal state",

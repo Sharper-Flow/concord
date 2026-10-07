@@ -21,8 +21,15 @@
 // untouched, and an owner killed by SIGKILL — which can run no cleanup at
 // all — leaves an identifiable leftover that no shipped mode reclaims: only
 // the test-owned adoption probe (fixture-owner-adopt-probe.py) confines it,
-// through kernel adoption of exactly that run's descendants. No model call
-// happens anywhere in this file.
+// through kernel adoption of exactly that run's descendants. The same-prefix
+// sibling and the foreign sentinel are created and hashed BEFORE each owner
+// launch and stay present through drainage and removal, so their unchanged
+// bytes afterwards are real isolation evidence, not an artifact of arriving
+// after the cleanup finished. Faults that cannot be timed against a real
+// run — marker persistence, the post-spawn journal, and a signal racing a
+// failing resolution, drain, or removal — are covered deterministically by
+// fixture-owner-fault-probe.py below the matrix. No model call happens
+// anywhere in this file.
 import { expect, test } from "bun:test"
 import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -32,6 +39,7 @@ import { OWNED_ROOT_MARKER } from "./fixture-temp-root"
 
 const OWNER = join(import.meta.dir, "fixture-root-owner.py")
 const PROBE = join(import.meta.dir, "fixture-owner-adopt-probe.py")
+const FAULT_PROBE = join(import.meta.dir, "fixture-owner-fault-probe.py")
 const CASE_FILE = join(import.meta.dir, "fixture-owner.case.ts")
 // Resolved once here, against a stable PATH: a pyenv-style shim would break
 // when a case deliberately strips PATH inside the child environment, and the
@@ -53,14 +61,35 @@ const EXPECTED_EXIT: Record<string, number> = {
   "owner-eof": 125,
   sigint: 130,
   sigterm: 143,
+  // A signal landing in a live run whose removal will also fail: the
+  // captured signal keeps 130/143 instead of degrading to the cleanup
+  // failure's 91.
+  "sigint-removal-failure": 130,
+  "sigterm-removal-failure": 143,
 }
-const RETAINING = new Set(["cleanup-failure-passing", "cleanup-failure-failing"])
-// The sleepy case has no single expected status: it ends by the matrix's
-// own action (SIGINT, SIGTERM, EOF, SIGKILL), never by itself.
+const RETAINING = new Set([
+  "cleanup-failure-passing",
+  "cleanup-failure-failing",
+  "sigint-removal-failure",
+  "sigterm-removal-failure",
+])
+// The sleepy cases have no single expected status: they end by the matrix's
+// own action (SIGINT, SIGTERM, EOF, SIGKILL), never by themselves.
 const ACTION_CASES: Record<string, "eof" | "SIGINT" | "SIGTERM" | "SIGKILL"> = {
   "owner-eof": "eof",
   sigint: "SIGINT",
   sigterm: "SIGTERM",
+  "sigint-removal-failure": "SIGINT",
+  "sigterm-removal-failure": "SIGTERM",
+}
+// Which live case each action drives: the removal-failure actions need the
+// sleepy variant whose run root is already read-only.
+const ACTION_CASE_SCENARIO: Record<string, string> = {
+  "owner-eof": "sleepy",
+  sigint: "sleepy",
+  sigterm: "sleepy",
+  "sigint-removal-failure": "sleepy-cleanup-failure",
+  "sigterm-removal-failure": "sleepy-cleanup-failure",
 }
 
 interface OwnerEvent {
@@ -215,9 +244,9 @@ function eventAt(events: OwnerEvent[], kind: string): OwnerEvent | undefined {
 async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | "SIGINT" | "SIGTERM" | "SIGKILL"): Promise<OwnerRun> {
   const reportPath = join(workDir, `${scenario}.report.json`)
   const pulsePath = join(workDir, `${scenario}.pulse.txt`)
-  // The action cases all drive one live inner run (the sleepy case) from
-  // outside; the case scenario selects it while the label keeps the action.
-  const caseScenario = action ? "sleepy" : scenario
+  // The action cases all drive one live inner run from outside; the case
+  // scenario selects it while the label keeps the action.
+  const caseScenario = action ? (ACTION_CASE_SCENARIO[scenario] ?? "sleepy") : scenario
   // A stale heartbeat from an earlier run would satisfy the live-chain wait
   // with dead PIDs; each run observes only its own chain.
   await rm(pulsePath, { force: true })
@@ -370,15 +399,18 @@ test("every owner lifecycle case cleans its exact root across three consecutive 
     for (let run = 1; run <= 3; run++) {
       for (const scenario of Object.keys(EXPECTED_EXIT)) {
         const action = ACTION_CASES[scenario]
+        // A same-prefix sibling of the owner's run roots, created and hashed
+        // BEFORE the owner launches and present through drainage and removal:
+        // removal must stay scoped to the exact owned root, never a prefix
+        // match, and the unchanged bytes afterwards prove it.
+        const sibling = await mkdtemp(join(tmpdir(), "cfx-"))
+        await Bun.write(join(sibling, "unregistered.txt"), "not owned by this run\n")
+        const siblingBefore = await digestTree(sibling)
         const result = await runOwnerCase(scenario, workDir, action)
         const label = `${scenario} run ${run}`
         expect(result.exitCode, `${label} stderr: ${result.stderr.slice(-2000)}`).toBe(EXPECTED_EXIT[scenario])
-        // A same-prefix sibling of the owner's run roots: removal must stay
-        // scoped to the exact owned root, never a prefix match.
-        const sibling = await mkdtemp(join(tmpdir(), "cfx-"))
-        await Bun.write(join(sibling, "unregistered.txt"), "not owned by this run\n")
         await assertScenario(result, scenario, workDir, label)
-        expect(await pathExists(join(sibling, "unregistered.txt")), `${label}: same-prefix sibling was wildcard-deleted`).toBe(true)
+        expect(await digestTree(sibling), `${label}: same-prefix sibling changed during cleanup`).toBe(siblingBefore)
         await rm(sibling, { recursive: true, force: true })
         expect(await digestTree(sentinel), `${label}: foreign sentinel changed`).toBe(sentinelBefore)
         // Confine an intentionally retained leftover (failed removal).
@@ -388,8 +420,8 @@ test("every owner lifecycle case cleans its exact root across three consecutive 
           await rm(root, { recursive: true, force: true })
         }
         // The cancelled cases preserve the conventional signal/EOF statuses.
-        if (scenario === "sigint" || scenario === "sigterm") {
-          expect(eventAt(result.events, "cancelled")?.via).toBe(scenario === "sigint" ? "SIGINT" : "SIGTERM")
+        if (scenario === "sigint" || scenario === "sigterm" || scenario === "sigint-removal-failure" || scenario === "sigterm-removal-failure") {
+          expect(eventAt(result.events, "cancelled")?.via).toBe(scenario.startsWith("sigint") ? "SIGINT" : "SIGTERM")
         }
       }
     }
@@ -403,6 +435,13 @@ test("every owner lifecycle case cleans its exact root across three consecutive 
 test("owner SIGKILL leaves an identifiable leftover that only the test-owned adoption probe confines", async () => {
   const workDir = await mkdtemp(join(tmpdir(), "concord-owner-kill-"))
   const pulsePath = join(workDir, "kill.pulse.txt")
+  // A same-prefix foreign sibling, created and hashed BEFORE the probe
+  // launches and present through the whole adoption containment: its
+  // unchanged bytes afterwards prove the probe removed only its registered
+  // root, never a prefix match.
+  const sibling = await mkdtemp(join(tmpdir(), "cfx-"))
+  await Bun.write(join(sibling, "unregistered.txt"), "not owned by this run\n")
+  const siblingBefore = await digestTree(sibling)
   // The probe is the owner's parent and a subreaper BEFORE the owner
   // launches, so the killed owner's whole process tree moves onto it by
   // kernel adoption. No shipped mode reclaims the leftover: this is test
@@ -454,10 +493,12 @@ test("owner SIGKILL leaves an identifiable leftover that only the test-owned ado
   const heartbeat = await expectHeartbeatStable(pulsePath, "owner-sigkill after containment")
   expect(heartbeat.pids.length, "chain never reached six links").toBeGreaterThanOrEqual(6)
   for (const pid of heartbeat.pids) await expectProcessGone(pid, "contained chain link")
+  expect(await digestTree(sibling), "same-prefix sibling changed during containment").toBe(siblingBefore)
   try {
     await rm(workDir, { recursive: true, force: true })
   } finally {
     if (await pathExists(rootPath)) await rm(rootPath, { recursive: true, force: true })
+    await rm(sibling, { recursive: true, force: true })
   }
 }, 120_000)
 
@@ -654,3 +695,144 @@ test("launcher death with closed output pipes cannot abort the owner's cleanup",
   for (const pid of (await readHeartbeat(pulsePath)).pids) await expectProcessGone(pid, "closed-pipes chain link")
   await rm(workDir, { recursive: true, force: true })
 }, 90_000)
+
+interface FaultProbeResult {
+  probe?: string
+  exit?: number
+  escaped?: string
+  root_removed?: boolean
+  events?: string[]
+  details?: Record<string, string>
+  drain_reasons?: string[]
+}
+
+test("deterministic fault probes hold every post-allocation failure inside the one lifecycle", async () => {
+  // Real-run timing cannot place a SIGTERM inside a failing resolution,
+  // drain, or removal, and cannot produce ENOSPC on demand, so these faults
+  // drive the owner's own run_owned() deterministically inside the probe
+  // process: no real child is spawned, no real signal is sent, and every
+  // probe root is confined to a probe-owned temporary parent. The assertions
+  // here are the permanent form of the boundary findings: a marker failure
+  // must not leak an unregistered root, a post-spawn journal failure must
+  // still drain and remove, and a captured signal keeps 130/143 over every
+  // startup, drain, and removal failure.
+  const probe = Bun.spawn([PYTHON, FAULT_PROBE], {
+    cwd: import.meta.dir,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr, exited] = await Promise.all([
+    new Response(probe.stdout).text(),
+    new Response(probe.stderr).text(),
+    probe.exited,
+  ])
+  expect(exited, `fault probe crashed: ${stderr}`).toBe(0)
+  const lines = stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as FaultProbeResult & { probes?: number; real_processes_spawned?: number })
+  const summary = lines[lines.length - 1]
+  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(10)
+  expect(summary.real_processes_spawned).toBe(0)
+  const byLabel = new Map(lines.slice(0, -1).map((line) => [String(line.probe), line]))
+  const row = (label: string): FaultProbeResult => {
+    const found = byLabel.get(label)
+    expect(found, `probe ${label} never ran`).toBeDefined()
+    return found as FaultProbeResult
+  }
+  const expectNoEscape = (label: string, found: FaultProbeResult): void => {
+    expect(found.escaped, `${label}: the fault escaped the lifecycle (${found.escaped})`).toBeUndefined()
+  }
+
+  {
+    // Marker persistence fails after registration: the exact root still
+    // drains and is removed, the error stays visible, and the run fails.
+    const found = row("marker-fault")
+    expectNoEscape("marker-fault", found)
+    expect(found.exit).toBe(92)
+    expect(found.events?.[0], "the root was not registered before the marker write").toBe("allocated_root")
+    expect(found.events).toContain("startup_error")
+    expect(found.details?.startup_error).toContain("marker persistence failed")
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed, "marker failure leaked its root").toBe(true)
+  }
+  {
+    // A SIGTERM racing the marker write keeps 143; cleanup still happens.
+    const found = row("marker-fault-sigterm")
+    expectNoEscape("marker-fault-sigterm", found)
+    expect(found.exit).toBe(143)
+    expect(found.details?.cancelled).toBe("SIGTERM")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed).toBe(true)
+  }
+  {
+    // The post-spawn journal failure: the started child is drained (never
+    // abandoned), the exact root is removed, the fault stays visible.
+    const found = row("postspawn-journal-fault")
+    expectNoEscape("postspawn-journal-fault", found)
+    expect(found.exit).toBe(91)
+    expect(found.events).toContain("owner_fault")
+    expect(found.details?.owner_fault).toContain("journal inner_started failed")
+    expect((found.drain_reasons ?? []).length, "the started child was not drained").toBeGreaterThan(0)
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed, "journal failure leaked its root").toBe(true)
+  }
+  {
+    // A SIGTERM captured during failed executable resolution: 143, not 92,
+    // with the startup failure still journalled and the root still removed.
+    const found = row("startup-signal-sigterm")
+    expectNoEscape("startup-signal-sigterm", found)
+    expect(found.exit).toBe(143)
+    expect(found.details?.cancelled).toBe("SIGTERM")
+    expect(found.events).toContain("startup_error")
+    expect(found.details?.startup_error).toContain("no bun executable")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed).toBe(true)
+  }
+  for (const [label, code] of [["signal-failed-removal-sigterm", 143], ["signal-failed-removal-sigint", 130]] as const) {
+    // A captured signal during a failing removal keeps its conventional
+    // status; the failed removal keeps the root and stays visible.
+    const found = row(label)
+    expectNoEscape(label, found)
+    expect(found.exit, `${label}: the failed removal overrode the captured signal`).toBe(code)
+    expect(found.root_removed).toBe(false)
+    expect(found.events).toContain("removal_error")
+    expect(found.events).toContain("drain_complete")
+    const events = found.events ?? []
+    expect(events.indexOf("cleanup_entry")).toBeGreaterThan(events.indexOf("drain_complete"))
+  }
+  for (const [label, code] of [["signal-failed-drain-sigterm", 143], ["signal-failed-drain-sigint", 130]] as const) {
+    // A captured signal during a failed drainage proof keeps its
+    // conventional status; without drainage proof nothing is removed.
+    const found = row(label)
+    expectNoEscape(label, found)
+    expect(found.exit, `${label}: the failed drain overrode the captured signal`).toBe(code)
+    expect(found.root_removed, `${label}: removed without the kernel's drainage proof`).toBe(false)
+    expect(found.events).toContain("removal_error")
+    expect(found.events).not.toContain("drain_complete")
+    expect(found.events).not.toContain("cleanup_entry")
+    expect(found.events).not.toContain("completion")
+  }
+  {
+    // Without any signal: a failed removal after a passing run exits 91 and
+    // keeps the root (the matrix covers the same decision as a real run).
+    const found = row("plain-failed-removal")
+    expectNoEscape("plain-failed-removal", found)
+    expect(found.exit).toBe(91)
+    expect(found.root_removed).toBe(false)
+    expect(found.events).toContain("removal_error")
+  }
+  {
+    // Without any signal: a plain startup failure cleans the root, 92.
+    const found = row("plain-startup-failure")
+    expectNoEscape("plain-startup-failure", found)
+    expect(found.exit).toBe(92)
+    expect(found.events).toContain("startup_error")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed).toBe(true)
+  }
+}, 60_000)

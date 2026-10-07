@@ -32,6 +32,9 @@
 //   sleepy                  allocates a root and a writer chain, then sleeps;
 //                           the matrix drives the owner (SIGINT, SIGTERM,
 //                           EOF, SIGKILL) while this run is live
+//   sleepy-cleanup-failure  the sleepy shape with the run root chmodded
+//                           read-only: the matrix's signal lands in a live
+//                           run whose removal will also fail
 import { afterAll, test } from "bun:test"
 import { chmod } from "node:fs/promises"
 import { existsSync } from "node:fs"
@@ -170,6 +173,25 @@ const caseBody: Record<string, () => Promise<void>> = {
     findings.root = root
     spawnChain(6)
     await new Promise((resolve) => setTimeout(resolve, 150))
+    findings.ready = true
+    await new Promise<void>(() => {})
+  },
+
+  async "sleepy-cleanup-failure"() {
+    // The sleepy shape plus a run root chmodded read-only: the matrix's
+    // SIGINT/SIGTERM lands in a live run whose removal will also fail, so a
+    // captured signal and a cleanup failure compete for the exit status.
+    const root = await fixtureTempRoot("sleepyfail")
+    findings.root = root
+    await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
+    // This run ends by signal, so afterAll's report may never be written:
+    // publish the allocation facts now, outside the disposable root.
+    if (reportPath) {
+      await Bun.write(reportPath, `${JSON.stringify({ scenario, findings })}\n`)
+    }
+    spawnChain(6)
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
     findings.ready = true
     await new Promise<void>(() => {})
   },

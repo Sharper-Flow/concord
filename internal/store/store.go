@@ -121,6 +121,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkBinaryCompatibility(ctx); err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
 	if err := s.migrateOpen(ctx); err != nil {
 		_ = s.db.Close()
 		return nil, err
@@ -190,6 +194,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		return UpgradeReport{}, err
 	}
 	defer func() { _ = s.db.Close() }()
+	if err := s.checkBinaryCompatibility(ctx); err != nil {
+		return UpgradeReport{}, err
+	}
 
 	unstampedFresh := false
 	var before map[int]appliedMigration
@@ -365,6 +372,9 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 // closed cleanly, so ordinary use stays refused until offline recovery runs.
 func (s *Store) finishOpen(ctx context.Context) error {
 	if err := refuseStrandedFoldGuard(ctx, s.db); err != nil {
+		return err
+	}
+	if err := s.checkBinaryCompatibility(ctx); err != nil {
 		return err
 	}
 	if err := os.Chmod(s.path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.

@@ -5619,6 +5619,23 @@ CREATE TABLE durability_commits (
 INSERT INTO durability_commits(id,bit) VALUES(1,0);
 `,
 	},
+	{
+		Version:  117,
+		Name:     "runtime_state_writer_identity",
+		Breaking: false,
+		SQL: `
+-- Diagnostic provenance is independent of the replay-derived projections.
+-- A representation write records its own binary in the same transaction.
+CREATE TABLE runtime_state_writers (
+    surface TEXT NOT NULL CHECK(surface IN ('knowledge','workflow')),
+    definition_ref TEXT NOT NULL,
+    version INTEGER NOT NULL CHECK(version > 0),
+    digest TEXT NOT NULL,
+    binary_version TEXT NOT NULL,
+    PRIMARY KEY(surface, definition_ref, version, digest)
+);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

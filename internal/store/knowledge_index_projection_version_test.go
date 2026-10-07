@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/version"
 )
 
 // A watermark written by a newer binary must make this binary refuse the
@@ -92,5 +94,12 @@ func TestOlderProjectionWatermarkStillRebuilds(t *testing.T) {
 	}
 	if versionAfter != knowledgeProjectionVersion {
 		t.Fatalf("rebuild stamped version %d, want %d", versionAfter, knowledgeProjectionVersion)
+	}
+	var writer string
+	if err := db.QueryRow(`SELECT binary_version FROM runtime_state_writers WHERE surface='knowledge' AND version=?`, versionAfter).Scan(&writer); err != nil {
+		t.Fatal(err)
+	}
+	if writer != version.Value {
+		t.Fatalf("knowledge writer binary=%q, want %q", writer, version.Value)
 	}
 }

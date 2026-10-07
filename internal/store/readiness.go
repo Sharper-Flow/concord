@@ -179,6 +179,9 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 			"the schema manifest is empty on a non-fresh store", false,
 			"do not activate; run the operator-owned offline bootstrap")
 	}
+	if err := checkBinaryCompatibility(ctx, tx); err != nil {
+		return nil, false, err
+	}
 	return applied, false, nil
 }
 

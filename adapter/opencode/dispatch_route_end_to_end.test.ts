@@ -1,9 +1,9 @@
-import { test, expect } from "bun:test"
+import { afterAll, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
 import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
-import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
+import { beginOwnedFixture, runFixtureProcess, sweepPendingFixtureScopes } from "./fixture-lifecycle"
 import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 
@@ -11,6 +11,7 @@ import { configureCoreBinary } from "./dispatch"
 // replaced there. Bind the nominal path the transport resolves instead of the
 // unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord")
+afterAll(() => sweepPendingFixtureScopes("run_end"))
 import { completeDispatchedWorker } from "./lane_completion"
 import { dispatchLaneWorker } from "./lane_dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
@@ -324,7 +325,8 @@ async function driveWorkflowToContract(
 }
 
 routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
-  const root = await allocateFixtureRoot("concord-dispatch-e2e-", { timeoutMs: 120_000 })
+  const scope = await beginOwnedFixture("concord-dispatch-e2e-")
+  await scope.run(async (root) => {
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, repo, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -521,8 +523,10 @@ routeDeclaration("dispatches a real store route through Task completion and work
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 120_000)
 
 // Full public dispatch capacity test: an admitted maximum premise —
@@ -545,7 +549,8 @@ const EIGHT_ROUTE_PREDICATES: JSONRecord[] = Array.from({ length: 8 }, (_, ordin
 }))
 
 routeDeclaration("dispatches an admitted maximum premise with eight synthetic predicates through the real route", async () => {
-  const root = await allocateFixtureRoot("concord-dispatch-maxpremise-", { timeoutMs: 120_000 })
+  const scope = await beginOwnedFixture("concord-dispatch-maxpremise-")
+  await scope.run(async (root) => {
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -641,8 +646,10 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 120_000)
 
 // The oversized-session completion is verified against the real core and
@@ -650,7 +657,8 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
 // crossed must complete through the bounded message pages, and the evidence
 // verbs must land on the real CLI and its worker_attempts row.
 routeDeclaration("records an oversized worker session through the real CLI and store", async () => {
-  const root = await allocateFixtureRoot("concord-dispatch-oversized-", { timeoutMs: 120_000 })
+  const scope = await beginOwnedFixture("concord-dispatch-oversized-")
+  await scope.run(async (root) => {
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -724,8 +732,10 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 120_000)
 
 // The born-failed recording is verified against the real core and store: a
@@ -734,7 +744,8 @@ routeDeclaration("records an oversized worker session through the real CLI and s
 // surface that once answered 'worker evidence assertion timestamp invalid'
 // and left no attempt row.
 routeDeclaration("records a refused readback as a durable failed attempt through the real CLI and store", async () => {
-  const root = await allocateFixtureRoot("concord-dispatch-refused-", { timeoutMs: 120_000 })
+  const scope = await beginOwnedFixture("concord-dispatch-refused-")
+  await scope.run(async (root) => {
   const previousConfig = process.env.OPENCODE_CONFIG
   try {
     const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
@@ -816,6 +827,8 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     hostControlPlane().bind(undefined)
     if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
     else process.env.OPENCODE_CONFIG = previousConfig
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 120_000)

@@ -1,9 +1,10 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterAll, afterEach, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
-import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
+import { beginOwnedFixture, runFixtureProcess, sweepPendingFixtureScopes } from "./fixture-lifecycle"
+afterAll(() => sweepPendingFixtureScopes("run_end"))
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
@@ -327,7 +328,8 @@ afterEach(async () => {
 })
 
 routeDeclaration("boots, consumes, and retires through the real core routes", async () => {
-  const root = await allocateFixtureRoot("concord-handoff-e2e-", { timeoutMs: 300_000 })
+  const scope = await beginOwnedFixture("concord-handoff-e2e-")
+  await scope.run(async (root) => {
   try {
     const fixture = await bootHandoffFixture(root)
     const { dbPath, workID, sourceWorktree, repoReceive, handoffID, captured } = fixture
@@ -461,6 +463,8 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(dbValue(dbPath, `SELECT lifecycle FROM work_items WHERE id='${workID}'`).lifecycle).toBe("in_progress")
     expect(dbValue(dbPath, `SELECT state FROM project_handoffs WHERE handoff_id='${handoffID}'`).state).toBe("consumed")
   } finally {
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 })

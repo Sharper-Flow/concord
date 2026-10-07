@@ -12,7 +12,8 @@ import { Database } from "bun:sqlite"
 import { createPrivateKey, createPublicKey } from "node:crypto"
 import { chmod, mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { allocateFixtureRoot, releaseFixtureRoot, runFixtureProcess } from "./fixture-lifecycle"
+import { beginOwnedFixture, runFixtureProcess, sweepPendingFixtureScopes } from "./fixture-lifecycle"
+afterAll(() => sweepPendingFixtureScopes("run_end"))
 import { configureConcordAdapter, invokeConcordOperation, work_start, work_transition } from "./concord"
 import { configureCoreBinary } from "./dispatch"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, MOVE_SESSION_ROUTE, SESSION_ROUTE } from "./move-session"
@@ -128,7 +129,8 @@ const connected =
     : test.skip
 
 connected("vacate, work-resume, vacate in one session keeps one event per request", async () => {
-  const root = await allocateFixtureRoot("concord-vacate-reoccupy-", { timeoutMs: 300_000 })
+  const scope = await beginOwnedFixture("concord-vacate-reoccupy-")
+  await scope.run(async (root) => {
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -397,8 +399,10 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 300_000)
 
 // Connected regression for the committed-refusal recovery (CD-0190 D3). A
@@ -410,7 +414,8 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
 // registered main checkout and resolves the core call from it, and the
 // readback-verified landing releases the rows.
 connected("a readback outside every Project recovers through the remembered destination", async () => {
-  const root = await allocateFixtureRoot("concord-vacate-outside-", { timeoutMs: 300_000 })
+  const scope = await beginOwnedFixture("concord-vacate-outside-")
+  await scope.run(async (root) => {
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -578,8 +583,10 @@ connected("a readback outside every Project recovers through the remembered dest
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 300_000)
 
 // Connected regression for the unreadable post-commit answer (CD-0190 D3).
@@ -590,7 +597,8 @@ connected("a readback outside every Project recovers through the remembered dest
 // same-key retry then resolves the pending request from the source worktree
 // the session still runs in, and the verified landing records and releases.
 connected("an unreadable ok answer recovers through the same-key replay from the source", async () => {
-  const root = await allocateFixtureRoot("concord-vacate-unreadable-", { timeoutMs: 300_000 })
+  const scope = await beginOwnedFixture("concord-vacate-unreadable-")
+  await scope.run(async (root) => {
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -757,8 +765,10 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 300_000)
 
 // Connected regression for the state-driven vacate replay (CD-0190 D2/D3).
@@ -768,7 +778,8 @@ connected("an unreadable ok answer recovers through the same-key replay from the
 // complete, the later claim's occupancy row stands, and the refusal's
 // recovery — the later claim's own verified landing or vacate — works.
 connected("a same-key replay after a later claim refuses without moving the host", async () => {
-  const root = await allocateFixtureRoot("concord-vacate-later-claim-", { timeoutMs: 300_000 })
+  const scope = await beginOwnedFixture("concord-vacate-later-claim-")
+  await scope.run(async (root) => {
   const dbPath = join(root, "concord.db")
   const binRoot = join(root, "bin")
   const homeRoot = join(root, "home")
@@ -964,6 +975,8 @@ connected("a same-key replay after a later claim refuses without moving the host
     else process.env.CONCORD_SELECTED_PRODUCT_ID = previousSelectedProduct
     if (previousZellijPane === undefined) delete process.env.ZELLIJ_PANE_ID
     else process.env.ZELLIJ_PANE_ID = previousZellijPane
-    await releaseFixtureRoot(root)
+    await scope.close()
   }
+  })
+  scope.ensureReleased()
 }, 300_000)

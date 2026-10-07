@@ -8,10 +8,17 @@ counted as proof that a law record is enforced. These tests pin the two
 structural resolutions that replaced it: a workflow proves invocation through
 its `run:` commands, and nesting proves it through the `subprocess.run` call
 graph.
+
+The Go source signature is pinned here against the rglob baseline it replaced:
+the scandir walk must observe the same population — including `.go` entries of
+any kind, hidden names, excluded `.git`/`vendor` components, and symlink
+behavior — on the repository and on deterministic Linux fixtures.
 """
 from __future__ import annotations
 
+import errno
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +30,156 @@ assert SPEC and SPEC.loader
 anchors = importlib.util.module_from_spec(SPEC)
 sys.modules["evidence_anchors"] = anchors
 SPEC.loader.exec_module(anchors)
+
+
+def _baseline_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
+    """The superseded rglob traversal, pinned verbatim as the baseline."""
+    files: list[tuple[str, int, int]] = []
+    for path in root.rglob("*.go"):
+        if ".git" in path.parts or "vendor" in path.parts:
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append((path.relative_to(root).as_posix(), stat.st_mtime_ns, stat.st_size))
+    return tuple(sorted(files))
+
+
+def _candidate_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
+    original = anchors.ROOT
+    anchors.ROOT = root
+    try:
+        return anchors._go_test_source_signature()
+    finally:
+        anchors.ROOT = original
+
+
+class _FakeEntry:
+    """A directory entry whose metadata observation fails deterministically.
+
+    ``stat_errno`` selects the failure the entry produces: ``ENOENT`` models
+    a leaf removed between listing and stat, any other errno a leaf whose
+    metadata cannot be read at all. ``stat_calls`` and ``is_dir_calls`` stay
+    separate because pathlib's own recursion calls ``is_dir`` on injected
+    entries; a shared counter would let a directory probe pose as the stat
+    error the control exists to prove.
+    """
+
+    def __init__(self, path: str, name: str, stat_errno: int) -> None:
+        self.name = name
+        self.path = path
+        self.stat_errno = stat_errno
+        self.stat_calls = 0
+        self.is_dir_calls = 0
+
+    def is_dir(self, follow_symlinks: bool = True) -> bool:
+        self.is_dir_calls += 1
+        return False
+
+    def stat(self, follow_symlinks: bool = True) -> os.stat_result:
+        self.stat_calls += 1
+        raise OSError(self.stat_errno, os.strerror(self.stat_errno), self.path)
+
+
+class _ScanResult:
+    def __init__(self, entries: list[object]) -> None:
+        self._entries = entries
+
+    def __enter__(self):
+        return iter(self._entries)
+
+    def __exit__(self, *exception: object) -> bool:
+        return False
+
+    def __iter__(self):
+        return iter(self._entries)
+
+
+class _ScanPlan:
+    """Deterministic directory-scan interception for both traversals.
+
+    The plan is installed on every seam the running interpreter's rglob and
+    the scandir candidate share: `os.scandir` (the candidate, and pathlib on
+    Python 3.12) and the pathlib globber's captured scandir (Python 3.13).
+    A plan no implementation consulted fails the control rather than pass it
+    as silently skipped coverage.
+    """
+
+    def __init__(self, fail_dirs: set[str] | None = None, extras: dict[str, list[object]] | None = None) -> None:
+        self.fail_dirs = fail_dirs or set()
+        self.extras = extras or {}
+        self.scanned: list[str] = []
+
+    def install(self) -> list[tuple[object, str, object]]:
+        import pathlib
+
+        real = os.scandir
+
+        def wrapper(target: object) -> _ScanResult:
+            normalized = os.path.normpath(os.fspath(target))
+            self.scanned.append(normalized)
+            if normalized in self.fail_dirs:
+                raise OSError(errno.EIO, "simulated scan failure")
+            entries: list[object] = list(real(normalized))
+            entries.extend(self.extras.get(normalized, ()))
+            return _ScanResult(entries)
+
+        patches: list[tuple[object, str, object]] = []
+        os.scandir = wrapper
+        patches.append((os, "scandir", real))
+        globber = getattr(pathlib.Path, "_globber", None)
+        if globber is not None and hasattr(globber, "scandir"):
+            original = globber.scandir
+            globber.scandir = staticmethod(wrapper)
+            patches.append((globber, "scandir", original))
+        return patches
+
+    @staticmethod
+    def restore(patches: list[tuple[object, str, object]]) -> None:
+        for owner, name, value in reversed(patches):
+            if name == "scandir" and owner is not os:
+                owner.scandir = staticmethod(value)
+            else:
+                setattr(owner, name, value)
+
+
+class _PathStatPlan:
+    """Deterministic ``pathlib.Path.stat`` interception for the rglob baseline.
+
+    The candidate stats through ``DirEntry.stat`` and never calls
+    ``Path.stat``, so this seam reaches the baseline alone — which is what
+    makes the two stat-error controls independent. Every call is recorded;
+    chosen paths fail with EIO, a non-ENOENT error that no permission state
+    can produce accidentally.
+    """
+
+    def __init__(self, fail_paths: set[str] | None = None) -> None:
+        self.fail_paths = fail_paths or set()
+        self.seen: list[str] = []
+        self.errors: list[str] = []
+
+    def install(self) -> list[tuple[object, str, object]]:
+        import pathlib
+
+        plan = self
+        original = pathlib.Path.stat
+
+        def wrapper(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+            normalized = os.fspath(path)
+            plan.seen.append(normalized)
+            if normalized in plan.fail_paths:
+                plan.errors.append(normalized)
+                raise OSError(errno.EIO, "simulated leaf-stat failure", normalized)
+            return original(path, *args, **kwargs)
+
+        pathlib.Path.stat = wrapper
+        return [(pathlib.Path, "stat", original)]
+
+    @staticmethod
+    def restore(patches: list[tuple[object, str, object]]) -> None:
+        for owner, name, value in reversed(patches):
+            setattr(owner, name, value)
 
 
 def test_workflow_commands_keep_run_bodies() -> None:
@@ -146,6 +303,205 @@ def test_the_adapter_suite_remains_a_direct_workflow_invocation() -> None:
     # suite directly; the nested contract check running the same suite does
     # not satisfy the anchor machinery, so losing the direct step must fail.
     assert anchors.adapter_suite_runs_in_ci()
+
+
+def _build_traversal_fixture(root: Path) -> Path:
+    """A deterministic Linux tree covering the traversal's edge population."""
+    root.mkdir(parents=True)
+    (root / "plain.go").write_text("package f\n", encoding="utf-8")
+    (root / ".hidden.go").write_text("package f\n", encoding="utf-8")
+    (root / ".go").write_text("package f\n", encoding="utf-8")
+    (root / "vendor.go").write_text("package f\n", encoding="utf-8")
+    (root / "ünïcode.go").write_text("package f\n", encoding="utf-8")
+    unicode_directory = root / "日本語"
+    unicode_directory.mkdir()
+    (unicode_directory / "テスト.go").write_text("package f\n", encoding="utf-8")
+
+    nested = root / "deep" / "nest"
+    nested.mkdir(parents=True)
+    (nested / "leaf.go").write_text("package f\n", encoding="utf-8")
+    excluded_git = root / "deep" / ".git"
+    excluded_git.mkdir()
+    (excluded_git / "hidden.go").write_text("package f\n", encoding="utf-8")
+    excluded_vendor = root / "deep" / "vendor"
+    excluded_vendor.mkdir()
+    (excluded_vendor / "suppressed.go").write_text("package f\n", encoding="utf-8")
+    # Only exact `.git`/`vendor` components exclude; look-alike names stay.
+    lookalike = root / "x.git" / "vendors"
+    lookalike.mkdir(parents=True)
+    (lookalike / "kept.go").write_text("package f\n", encoding="utf-8")
+
+    # A directory named `*.go` is itself an entry and is still descended into.
+    go_directory = root / "cmd.go"
+    go_directory.mkdir()
+    (go_directory / "inner.go").write_text("package f\n", encoding="utf-8")
+
+    real_directory = root / "realdir"
+    real_directory.mkdir()
+    (real_directory / "inside.go").write_text("package f\n", encoding="utf-8")
+    # Leaf symlinks stat their target; symlinked directories are not entered.
+    os.symlink(nested / "leaf.go", root / "live.go")
+    os.symlink(real_directory, root / "dirlink")
+    os.symlink(real_directory, root / "dirlink.go")
+    os.symlink(root / "gone" / "nowhere.go", root / "dead.go")
+    return root
+
+
+def test_source_signature_matches_rglob_on_the_repository() -> None:
+    baseline = _baseline_signature(ROOT)
+    candidate = anchors._go_test_source_signature()
+    assert candidate == baseline, "scandir walk diverged from rglob on the repository"
+    assert baseline, "the repository signature must not be empty"
+    assert list(candidate) == sorted(candidate), "signature must stay sorted"
+
+
+def test_source_signature_matches_rglob_on_traversal_fixtures(tmp: Path) -> None:
+    root = _build_traversal_fixture(tmp / "fixture")
+    baseline = _baseline_signature(root)
+    candidate = _candidate_signature(root)
+    assert candidate == baseline, f"scandir walk diverged: {set(candidate) ^ set(baseline)}"
+    present = {path for path, _, _ in candidate}
+    for expected in (
+        "plain.go",
+        ".hidden.go",
+        ".go",
+        "vendor.go",
+        "ünïcode.go",
+        "日本語/テスト.go",
+        "deep/nest/leaf.go",
+        "x.git/vendors/kept.go",
+        "cmd.go",
+        "cmd.go/inner.go",
+        "realdir/inside.go",
+        "live.go",
+        "dirlink.go",
+    ):
+        assert expected in present, f"expected {expected} in the signature"
+    for absent in (
+        "deep/.git/hidden.go",
+        "deep/vendor/suppressed.go",
+        "dead.go",
+        "dirlink/inside.go",
+    ):
+        assert absent not in present, f"{absent} must not resolve"
+
+    # A leaf symlink reports the target's metadata, not the link's.
+    target = os.stat(root / "deep" / "nest" / "leaf.go")
+    by_path = {path: (mtime, size) for path, mtime, size in candidate}
+    assert by_path["live.go"] == (target.st_mtime_ns, target.st_size)
+    directory_target = os.stat(root / "realdir")
+    assert by_path["dirlink.go"] == (directory_target.st_mtime_ns, directory_target.st_size)
+
+
+def test_source_signature_excludes_roots_under_git_or_vendor(tmp: Path) -> None:
+    for component in (".git", "vendor"):
+        excluded_root = tmp / component / "inner"
+        excluded_root.mkdir(parents=True)
+        (excluded_root / "x.go").write_text("package f\n", encoding="utf-8")
+        baseline = _baseline_signature(excluded_root)
+        candidate = _candidate_signature(excluded_root)
+        assert candidate == baseline == (), f"root under {component} must exclude everything"
+
+    # The exclusion is exact-component, not substring: look-alike ancestors stay.
+    boundary_root = tmp / "x.git" / "vendors" / "inner"
+    boundary_root.mkdir(parents=True)
+    (boundary_root / "x.go").write_text("package f\n", encoding="utf-8")
+    assert _candidate_signature(boundary_root) == _baseline_signature(boundary_root)
+    assert len(_candidate_signature(boundary_root)) == 1
+
+
+def test_source_signature_skips_a_directory_that_cannot_be_scanned(tmp: Path) -> None:
+    root = tmp / "scan-failure"
+    root.mkdir()
+    (root / "kept.go").write_text("package f\n", encoding="utf-8")
+    unreadable = root / "poisoned"
+    unreadable.mkdir()
+    (unreadable / "lost.go").write_text("package f\n", encoding="utf-8")
+
+    plan = _ScanPlan(fail_dirs={str(unreadable)})
+    patches = plan.install()
+    try:
+        baseline = _baseline_signature(root)
+        assert str(root) in plan.scanned, "baseline scan seam was not intercepted"
+        plan.scanned.clear()
+        candidate = _candidate_signature(root)
+        assert str(root) in plan.scanned, "candidate scan seam was not intercepted"
+    finally:
+        plan.restore(patches)
+    assert candidate == baseline, "a failed scan must drop the subtree in both traversals"
+    present = {path for path, _, _ in candidate}
+    assert "kept.go" in present and "poisoned/lost.go" not in present, sorted(present)
+
+
+def test_source_signature_skips_entries_removed_before_stat(tmp: Path) -> None:
+    root = tmp / "vanished"
+    root.mkdir()
+    (root / "present.go").write_text("package f\n", encoding="utf-8")
+    vanished = _FakeEntry(str(root / "vanished.go"), "vanished.go", errno.ENOENT)
+
+    plan = _ScanPlan(extras={str(root): [vanished]})
+    stat_plan = _PathStatPlan()
+    patches = plan.install()
+    stat_patches = stat_plan.install()
+    try:
+        baseline = _baseline_signature(root)
+        assert str(root) in plan.scanned, "baseline scan seam was not intercepted"
+        assert str(root / "vanished.go") in stat_plan.seen, "baseline never stat-ed the vanished leaf"
+        plan.scanned.clear()
+        stat_plan.seen.clear()
+        vanished.stat_calls = 0
+        vanished.is_dir_calls = 0
+        candidate = _candidate_signature(root)
+        assert str(root) in plan.scanned, "candidate scan seam was not intercepted"
+        assert vanished.stat_calls >= 1, "candidate's stat error path did not run"
+    finally:
+        stat_plan.restore(stat_patches)
+        plan.restore(patches)
+    assert candidate == baseline, "an entry removed before stat must drop in both traversals"
+    present = {path for path, _, _ in candidate}
+    assert "present.go" in present and "vanished.go" not in present, sorted(present)
+
+
+def test_source_signature_skips_a_leaf_whose_stat_fails(tmp: Path) -> None:
+    """A non-ENOENT stat failure drops one leaf and keeps its sibling.
+
+    The baseline seam (``Path.stat``) and the candidate seam (an injected
+    ``DirEntry.stat``) fail independently and deterministically with EIO, so
+    the control cannot pass by one traversal silently skipping the entry.
+    """
+    root = tmp / "stat-failure"
+    root.mkdir()
+    (root / "kept.go").write_text("package f\n", encoding="utf-8")
+    poison_path = str(root / "poison.go")
+    poison = _FakeEntry(poison_path, "poison.go", errno.EIO)
+
+    plan = _ScanPlan(extras={str(root): [poison]})
+    stat_plan = _PathStatPlan(fail_paths={poison_path})
+    patches = plan.install()
+    stat_patches = stat_plan.install()
+    try:
+        baseline = _baseline_signature(root)
+        assert str(root) in plan.scanned, "baseline scan seam was not intercepted"
+        assert poison_path in stat_plan.errors, "baseline's stat error path did not run"
+        plan.scanned.clear()
+        stat_plan.seen.clear()
+        stat_plan.errors.clear()
+        poison.stat_calls = 0
+        poison.is_dir_calls = 0
+        candidate = _candidate_signature(root)
+        assert str(root) in plan.scanned, "candidate scan seam was not intercepted"
+        assert poison.stat_calls >= 1, "candidate's stat error path did not run"
+    finally:
+        stat_plan.restore(stat_patches)
+        plan.restore(patches)
+    assert candidate == baseline, "a failed leaf stat must drop the entry in both traversals"
+    present = {path for path, _, _ in candidate}
+    assert "kept.go" in present and "poison.go" not in present, sorted(present)
+
+
+def test_source_signature_of_a_missing_root_is_empty(tmp: Path) -> None:
+    absent_root = tmp / "does-not-exist"
+    assert _candidate_signature(absent_root) == _baseline_signature(absent_root) == ()
 
 
 def main() -> int:

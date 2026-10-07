@@ -55,21 +55,31 @@ def _candidate_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
         anchors.ROOT = original
 
 
-class _VanishedEntry:
-    """A directory entry that disappears between listing and stat."""
+class _FakeEntry:
+    """A directory entry whose metadata observation fails deterministically.
 
-    def __init__(self, path: str) -> None:
-        self.name = "vanished.go"
+    ``stat_errno`` selects the failure the entry produces: ``ENOENT`` models
+    a leaf removed between listing and stat, any other errno a leaf whose
+    metadata cannot be read at all. ``stat_calls`` and ``is_dir_calls`` stay
+    separate because pathlib's own recursion calls ``is_dir`` on injected
+    entries; a shared counter would let a directory probe pose as the stat
+    error the control exists to prove.
+    """
+
+    def __init__(self, path: str, name: str, stat_errno: int) -> None:
+        self.name = name
         self.path = path
-        self.touched = False
+        self.stat_errno = stat_errno
+        self.stat_calls = 0
+        self.is_dir_calls = 0
 
     def is_dir(self, follow_symlinks: bool = True) -> bool:
-        self.touched = True
+        self.is_dir_calls += 1
         return False
 
     def stat(self, follow_symlinks: bool = True) -> os.stat_result:
-        self.touched = True
-        raise FileNotFoundError(errno.ENOENT, "vanished before stat", self.path)
+        self.stat_calls += 1
+        raise OSError(self.stat_errno, os.strerror(self.stat_errno), self.path)
 
 
 class _ScanResult:
@@ -132,6 +142,44 @@ class _ScanPlan:
                 owner.scandir = staticmethod(value)
             else:
                 setattr(owner, name, value)
+
+
+class _PathStatPlan:
+    """Deterministic ``pathlib.Path.stat`` interception for the rglob baseline.
+
+    The candidate stats through ``DirEntry.stat`` and never calls
+    ``Path.stat``, so this seam reaches the baseline alone — which is what
+    makes the two stat-error controls independent. Every call is recorded;
+    chosen paths fail with EIO, a non-ENOENT error that no permission state
+    can produce accidentally.
+    """
+
+    def __init__(self, fail_paths: set[str] | None = None) -> None:
+        self.fail_paths = fail_paths or set()
+        self.seen: list[str] = []
+        self.errors: list[str] = []
+
+    def install(self) -> list[tuple[object, str, object]]:
+        import pathlib
+
+        plan = self
+        original = pathlib.Path.stat
+
+        def wrapper(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+            normalized = os.fspath(path)
+            plan.seen.append(normalized)
+            if normalized in plan.fail_paths:
+                plan.errors.append(normalized)
+                raise OSError(errno.EIO, "simulated leaf-stat failure", normalized)
+            return original(path, *args, **kwargs)
+
+        pathlib.Path.stat = wrapper
+        return [(pathlib.Path, "stat", original)]
+
+    @staticmethod
+    def restore(patches: list[tuple[object, str, object]]) -> None:
+        for owner, name, value in reversed(patches):
+            setattr(owner, name, value)
 
 
 def test_workflow_commands_keep_run_bodies() -> None:
@@ -389,24 +437,66 @@ def test_source_signature_skips_entries_removed_before_stat(tmp: Path) -> None:
     root = tmp / "vanished"
     root.mkdir()
     (root / "present.go").write_text("package f\n", encoding="utf-8")
-    vanished = _VanishedEntry(str(root / "vanished.go"))
+    vanished = _FakeEntry(str(root / "vanished.go"), "vanished.go", errno.ENOENT)
 
     plan = _ScanPlan(extras={str(root): [vanished]})
+    stat_plan = _PathStatPlan()
     patches = plan.install()
+    stat_patches = stat_plan.install()
     try:
         baseline = _baseline_signature(root)
         assert str(root) in plan.scanned, "baseline scan seam was not intercepted"
-        assert vanished.touched, "the vanished entry reached neither traversal"
+        assert str(root / "vanished.go") in stat_plan.seen, "baseline never stat-ed the vanished leaf"
         plan.scanned.clear()
-        vanished.touched = False
+        stat_plan.seen.clear()
+        vanished.stat_calls = 0
+        vanished.is_dir_calls = 0
         candidate = _candidate_signature(root)
         assert str(root) in plan.scanned, "candidate scan seam was not intercepted"
-        assert vanished.touched, "the vanished entry reached neither traversal"
+        assert vanished.stat_calls >= 1, "candidate's stat error path did not run"
     finally:
+        stat_plan.restore(stat_patches)
         plan.restore(patches)
     assert candidate == baseline, "an entry removed before stat must drop in both traversals"
     present = {path for path, _, _ in candidate}
     assert "present.go" in present and "vanished.go" not in present, sorted(present)
+
+
+def test_source_signature_skips_a_leaf_whose_stat_fails(tmp: Path) -> None:
+    """A non-ENOENT stat failure drops one leaf and keeps its sibling.
+
+    The baseline seam (``Path.stat``) and the candidate seam (an injected
+    ``DirEntry.stat``) fail independently and deterministically with EIO, so
+    the control cannot pass by one traversal silently skipping the entry.
+    """
+    root = tmp / "stat-failure"
+    root.mkdir()
+    (root / "kept.go").write_text("package f\n", encoding="utf-8")
+    poison_path = str(root / "poison.go")
+    poison = _FakeEntry(poison_path, "poison.go", errno.EIO)
+
+    plan = _ScanPlan(extras={str(root): [poison]})
+    stat_plan = _PathStatPlan(fail_paths={poison_path})
+    patches = plan.install()
+    stat_patches = stat_plan.install()
+    try:
+        baseline = _baseline_signature(root)
+        assert str(root) in plan.scanned, "baseline scan seam was not intercepted"
+        assert poison_path in stat_plan.errors, "baseline's stat error path did not run"
+        plan.scanned.clear()
+        stat_plan.seen.clear()
+        stat_plan.errors.clear()
+        poison.stat_calls = 0
+        poison.is_dir_calls = 0
+        candidate = _candidate_signature(root)
+        assert str(root) in plan.scanned, "candidate scan seam was not intercepted"
+        assert poison.stat_calls >= 1, "candidate's stat error path did not run"
+    finally:
+        stat_plan.restore(stat_patches)
+        plan.restore(patches)
+    assert candidate == baseline, "a failed leaf stat must drop the entry in both traversals"
+    present = {path for path, _, _ in candidate}
+    assert "kept.go" in present and "poison.go" not in present, sorted(present)
 
 
 def test_source_signature_of_a_missing_root_is_empty(tmp: Path) -> None:

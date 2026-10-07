@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9a6dd37523f455bcbed071069fb429f2e42d3a7b862fcc949040790af4dd2155",
+  "sha256": "sha256:1d799e8227331a70b475ad3a45cb97220de613cfd14c9506f387efb53cb16671",
   "status": "accepted",
   "summary": "A worker-job revision is an immutable record under the work item; on workflow.implementation v23 and workflow.break_fix v20 an implementation or design dispatch binds one ready revision through the packet, the dispatch evidence, the report, and the acceptance. A plain accept of a job-bound attempt is local acceptance: it satisfies that revision and holds the step, and whole-work delivery keeps its complete admission. A failed job's correction window closes only on an acceptance that satisfies that job, refining CD-0164 D1-D2 and amending CD-0198 D4 at a job-capable refine step.",
   "tags": [

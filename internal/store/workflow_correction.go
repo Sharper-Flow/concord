@@ -741,18 +741,40 @@ func workflowSameStepWallState(ctx context.Context, q queryer, definition Workfl
 	return count, attemptID, attemptEpoch, nil
 }
 
+// workflowHeldJobAcceptPredicate is the SQL shape of an accept_worker_result
+// completion that recorded a held local job acceptance (CD-0205 D3): the
+// completion carries a worker-job disposition and asserts no delivery. Such
+// an acceptance holds the parent step, so it never enters a new step window.
+// A completion without a worker-job disposition — every acceptance a pre-job
+// version records, and the delivery-asserting accept — never matches, so the
+// CD-0164 D2 step-entry behavior those histories keep is byte-for-byte
+// unchanged. The acceptance reset itself is not decided here: it is the
+// correction window boundary's own discharge rule, so the wall and the
+// counting window share one owner.
+const workflowHeldJobAcceptPredicate = `(COALESCE(json_extract(payload,'$.action_id'),'')<>'accept_worker_result' OR json_extract(payload,'$.worker_job') IS NULL OR COALESCE(json_extract(payload,'$.delivery_state'),'')<>'')`
+
 // workflowSameStepWindowAnchor returns the event sequence the same-step
-// window opens after: the later of the last accepted worker result and the
-// latest step entry. It is the one owner of the anchor query, so the wall's
-// refusal count and its approval binding read one window.
+// window opens after: the later of the last window-opening accepted result
+// and the latest step entry. The acceptance term is the correction window
+// boundary's own walk (CD-0164 D2 refined by CD-0205 D4): an accepted result
+// resets the wall exactly when it opens a counting window — every acceptance
+// while no recorded job obligation is unresolved, and the held local
+// acceptance that discharges the last unresolved obligation. A held local
+// acceptance of an unrelated or rewritten job resets nothing, so the wall it
+// opened and its exact retry binding stay. Histories with no job binding on
+// any dispatched attempt keep the CD-0164 D2 reset byte-for-byte, because
+// every acceptance opens a window when no obligation stands unresolved.
 // excludeSeq names the fold's own in-flight completion, which must not count
 // against its admission; read surfaces pass zero so every settled event counts.
 func workflowSameStepWindowAnchor(ctx context.Context, q queryer, definition WorkflowDefinition, workID, subject string, excludeSeq int64) (int64, error) {
-	var acceptedSeq int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result'`, string(SubjectWorkItem), workID, WorkflowActionCompleted).Scan(&acceptedSeq); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect accepted worker results", true, "retry once the workflow projection is readable", err)
+	prefix := int64(1) << 62
+	if excludeSeq > 0 {
+		prefix = excludeSeq
 	}
-	anchor := acceptedSeq
+	anchor, err := workflowCorrectionWindowBoundary(ctx, q, workID, prefix, subject)
+	if err != nil {
+		return 0, err
+	}
 	entries := append(advancingWorkflowActions(definition), "request_correction")
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(entries)), ",")
 	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted}
@@ -764,7 +786,7 @@ func workflowSameStepWindowAnchor(ctx context.Context, q queryer, definition Wor
 		entryBound = " AND seq<>?"
 		args = append(args, excludeSeq)
 	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.action_id'),json_extract(payload,'$.step_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`)`+entryBound, args...)
+	rows, err := q.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.action_id'),json_extract(payload,'$.step_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`) AND `+workflowHeldJobAcceptPredicate+entryBound, args...)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's entries", true, "retry once the workflow event log is readable", err)
 	}
@@ -1483,90 +1505,75 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	return nil
 }
 
-// workflowCorrectionContext reads the latest unconsumed failure or rejection.
-// A later dispatch whose worker attempt materializes consumes the record, while
-// all earlier worker attempts stay immutable.
+// workflowCorrectionContext reads the latest open failure or rejection. A
+// record closes per CD-0205 D4: a job-bound record stays open until an
+// acceptance discharges its recorded obligation, and an unbound record (and a
+// recorded correction request) closes on the next materialized dispatch.
 func workflowCorrectionContext(ctx context.Context, q queryer, workID, stepID string) (*WorkflowCorrectionContext, error) {
 	return workflowCorrectionContextForDispatch(ctx, q, workID, stepID, "")
+}
+
+// workflowCorrectionRecordState is one failure, rejection, or correction
+// request record the walk selected, with the prefix its count reads.
+type workflowCorrectionRecordState struct {
+	seq    int64
+	fields workflowCorrectionCompletionFields
+	// jobKey names the recorded revision the failed attempt was dispatched
+	// under; empty when the attempt carried no job binding.
+	jobKey       string
+	countThrough int64
+}
+
+// workflowCorrectionCompletionFields is the durable completion payload of one
+// correction record.
+type workflowCorrectionCompletionFields struct {
+	ActionID             string   `json:"action_id"`
+	AttemptID            string   `json:"worker_attempt_id"`
+	AttemptEpoch         int64    `json:"attempt_epoch"`
+	CorrectionDiagnosis  string   `json:"correction_diagnosis"`
+	CorrectionStrategy   string   `json:"correction_strategy"`
+	CorrectionPredicates []string `json:"correction_predicate_ids"`
+	CorrectionEvidence   []string `json:"correction_evidence_refs"`
+	ResultEvidence       []string `json:"result_evidence_refs"`
 }
 
 // The consuming dispatch must have a worker attempt that materialized: a
 // worker.dispatched event for the completion's worker_attempt_id. A dispatch
 // intent folded without its host worker-dispatch call (an interruption between
-// the workflow action and the dispatch) leaves the correction record live, so
-// the retry binding stays readable and the escalation wall keeps its
-// operator-approvable escape. json_extract returns NULL for a missing path and
-// a plain = with NULL on either side matches no row, so a completion without a
-// worker_attempt_id consumes nothing.
+// the workflow action and the dispatch) leaves an unbound correction record
+// open, so the retry binding stays readable and the escalation wall keeps its
+// operator-approvable escape.
 //
-// Job-aware consumption (the worker-job lifecycle repair): when the failed
-// attempt was dispatched under a recorded worker job, only a newer dispatch
-// under the same job identity consumes its correction record. An unrelated
-// job's dispatch — a different job_id, or a dispatch with no job binding —
-// leaves the record live, so the pin keeps carrying the open window, its
-// counted dispatches, and the exact retry approval to the corrective retry.
-// A failure with no job binding keeps the historical behavior: any newer
-// materialized dispatch consumes it.
+// Job-aware consumption (CD-0205 D4): a failure or rejection dispatched under
+// a recorded worker job stays open until an accepted result discharges its
+// recorded obligation — the same discharge rule workflowCorrectionWindowBoundary
+// walks. Job identity alone consumes nothing: a newer dispatch under the same
+// job_id with a rewritten obligation, or an unrelated job's dispatch, or an
+// acceptance without a job disposition, leaves the record open with its
+// counted dispatches and the exact retry approval bound to the failed
+// attempt. A failure with no job binding keeps the historical behavior: any
+// newer materialized dispatch closes it.
 func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID, stepID, dispatchAttemptID string) (*WorkflowCorrectionContext, error) {
-	// failedJob selects the worker-job identity the failed attempt was
-	// dispatched under; nextJob selects the identity the consuming dispatch
-	// was dispatched under. Both read the recorded worker.dispatched
-	// bindings, never caller-asserted fields.
-	const failedJob = `(SELECT json_extract(failed.payload,'$.worker_job.job_id') FROM domain_events failed WHERE failed.subject_type=d.subject_type AND failed.subject_id=d.subject_id AND failed.kind=? AND json_extract(failed.payload,'$.attempt_id')=json_extract(d.payload,'$.worker_attempt_id') ORDER BY failed.seq DESC LIMIT 1)`
-	const nextJob = `(SELECT json_extract(nextdis.payload,'$.worker_job.job_id') FROM domain_events nextdis WHERE nextdis.subject_type=newer.subject_type AND nextdis.subject_id=newer.subject_id AND nextdis.kind=? AND json_extract(nextdis.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id') ORDER BY nextdis.seq DESC LIMIT 1)`
-	query := `SELECT d.seq,d.payload FROM domain_events d
-WHERE d.subject_type=? AND d.subject_id=? AND d.kind=?
-  AND json_extract(d.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction')
-  AND NOT EXISTS (SELECT 1 FROM domain_events newer
-    WHERE newer.subject_type=d.subject_type AND newer.subject_id=d.subject_id
-      AND newer.kind=? AND newer.seq>d.seq
-      AND json_extract(newer.payload,'$.action_id')='dispatch_worker'
-      AND EXISTS (SELECT 1 FROM domain_events dispatched
-        WHERE dispatched.subject_type=newer.subject_type AND dispatched.subject_id=newer.subject_id
-          AND dispatched.kind=?
-          AND json_extract(dispatched.payload,'$.attempt_id')=json_extract(newer.payload,'$.worker_attempt_id'))
-      AND (COALESCE(` + failedJob + `,'')=''
-        OR COALESCE(` + failedJob + `,'')=COALESCE(` + nextJob + `,''))`
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted, WorkflowActionCompleted, WorkerDispatched, WorkerDispatched, WorkerDispatched, WorkerDispatched}
-	if dispatchAttemptID != "" {
-		query += ` AND json_extract(newer.payload,'$.worker_attempt_id')<>?`
-		args = append(args, dispatchAttemptID)
+	record, err := workflowCorrectionOpenRecord(ctx, q, workID, dispatchAttemptID, "workflow_correction")
+	if err != nil {
+		return nil, err
 	}
-	query += `)
-ORDER BY d.seq DESC LIMIT 1`
-	var seq int64
-	var raw []byte
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&seq, &raw); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read correction context", true, "retry once the workflow projection is readable", err)
+	if record == nil {
+		return nil, nil
 	}
-	var fields struct {
-		ActionID             string   `json:"action_id"`
-		AttemptID            string   `json:"worker_attempt_id"`
-		AttemptEpoch         int64    `json:"attempt_epoch"`
-		CorrectionDiagnosis  string   `json:"correction_diagnosis"`
-		CorrectionStrategy   string   `json:"correction_strategy"`
-		CorrectionPredicates []string `json:"correction_predicate_ids"`
-		CorrectionEvidence   []string `json:"correction_evidence_refs"`
-		ResultEvidence       []string `json:"result_evidence_refs"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_correction", "correction completion payload is malformed", false, "rebuild workflow projections from the event log")
-	}
+	fields := record.fields
 	if fields.ActionID == "request_correction" {
 		// The CD-0164 D4 window the recorded request owns opens at the same
 		// comparable-healthy baseline the admission derived before it admitted
 		// the request, so the dispatched packet's count and escalation state
 		// match the admitted count and an incomparable or partial ok verdict
 		// set cannot reset the window between the two reads.
-		lastHealthySeq, baselineErr := workflowCorrectionActiveHealthyBaseline(ctx, q, workID, seq, "workflow_correction")
+		lastHealthySeq, baselineErr := workflowCorrectionActiveHealthyBaseline(ctx, q, workID, record.seq, "workflow_correction")
 		if baselineErr != nil {
 			return nil, baselineErr
 		}
 		var attempts int64
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, seq).Scan(&attempts); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='request_correction' AND seq>? AND seq<=?`, string(SubjectWorkItem), workID, WorkflowActionCompleted, lastHealthySeq, record.seq).Scan(&attempts); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot count correction requests", true, "retry once the workflow correction projection is readable", err)
 		}
 		return &WorkflowCorrectionContext{
@@ -1579,24 +1586,11 @@ ORDER BY d.seq DESC LIMIT 1`
 	}
 	if stepID != "" && fields.ActionID != "request_correction" {
 		var actionStep string
-		if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.step_id') FROM domain_events WHERE seq=?`, seq).Scan(&actionStep); err == nil && actionStep != "" && actionStep != stepID {
+		if err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.step_id') FROM domain_events WHERE seq=?`, record.seq).Scan(&actionStep); err == nil && actionStep != "" && actionStep != stepID {
 			return nil, nil
 		}
 	}
-	countThrough := seq
-	job, err := workflowDispatchedJobForAttempt(ctx, q, workID, fields.AttemptID)
-	if err != nil {
-		return nil, err
-	}
-	if job != nil {
-		// A retained job correction remains open across unrelated dispatches.
-		// Count its current window, not the prefix at which the failure was
-		// recorded. Unbound histories retain their recorded-prefix semantics.
-		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),?) FROM domain_events WHERE subject_type=? AND subject_id=?`, seq, string(SubjectWorkItem), workID).Scan(&countThrough); err != nil {
-			return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
-		}
-	}
-	count, err := workflowCorrectionAttemptCount(ctx, q, workID, countThrough, "workflow_correction")
+	count, err := workflowCorrectionAttemptCount(ctx, q, workID, record.countThrough, "workflow_correction")
 	if err != nil {
 		return nil, err
 	}
@@ -1624,6 +1618,156 @@ ORDER BY d.seq DESC LIMIT 1`
 		Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy, FailureKind: failureKind, FailureDetail: failureDetail,
 		FailedAttemptID: fields.AttemptID, FailedAttemptEpoch: fields.AttemptEpoch,
 	}, nil
+}
+
+// workflowCorrectionOpenRecord walks the work item's dispatch, job, failure,
+// rejection, and acceptance history in log order and selects the latest open
+// correction record with the prefix its count reads. The consumption rule is
+// the one the window boundary walks (CD-0205 D4): a record whose failed
+// attempt was dispatched under a recorded worker job closes only when an
+// acceptance discharges that recorded obligation — job identity or a newer
+// same-job dispatch alone closes nothing — while an unbound record, and a
+// recorded correction request, close on the next materialized dispatch after
+// them. dispatchAttemptID excludes the packet's own attempt from the
+// materialized-dispatch consumption, so a dispatch never closes the record it
+// must still consume. A job-bound record counts the walked watermark, not the
+// prefix at which the failure was recorded, so unrelated dispatches inside
+// the open window stay counted; unbound histories keep the recorded-prefix
+// semantics. The walk is a pure function of the event log prefix, so a replay
+// selects the same record (CD-0201 parity).
+func workflowCorrectionOpenRecord(ctx context.Context, q queryer, workID, dispatchAttemptID, subject string) (*workflowCorrectionRecordState, error) {
+	var watermark int64
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&watermark); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window watermark", true, "retry once the workflow event log is readable", err)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT e.seq,e.kind,COALESCE(json_extract(e.payload,'$.attempt_id'),''),COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''),COALESCE(json_extract(e.payload,'$.action_id'),''),COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''),COALESCE(json_extract(e.payload,'$.worker_job.revision'),0),e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, watermark, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction record history", true, "retry once the workflow event log is readable", err)
+	}
+	defer func() { _ = rows.Close() }()
+	dispatchJob := make(map[string]string)
+	obligations := make(map[string]string)
+	unresolved := make(map[string]bool)
+	type materializedDispatch struct {
+		seq     int64
+		attempt string
+	}
+	var dispatchCompletions []materializedDispatch
+	var records []workflowCorrectionRecordState
+	for rows.Next() {
+		var rowSeq int64
+		var jobRevision int64
+		var kind, dispatchAttempt, actionAttempt, actionID, jobID, payload string
+		if err := rows.Scan(&rowSeq, &kind, &dispatchAttempt, &actionAttempt, &actionID, &jobID, &jobRevision, &payload); err != nil {
+			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction record history", true, "retry once the workflow event log is readable", err)
+		}
+		switch kind {
+		case string(WorkerDispatched):
+			dispatchJob[dispatchAttempt] = jobKeyOrEmpty(jobID, jobRevision)
+		case string(WorkerJobRecorded):
+			var recorded WorkerJobRecordedPayload
+			if err := json.Unmarshal([]byte(payload), &recorded); err == nil {
+				obligations[workerJobKey(recorded.JobID, recorded.Revision)] = workerJobObligationKey(recorded)
+			}
+		case string(WorkflowActionCompleted):
+			switch actionID {
+			case "dispatch_worker":
+				// The completion's materialization is decided after the walk:
+				// a worker.dispatched event may land anywhere in the prefix,
+				// typically right after the dispatch it corroborates.
+				if actionAttempt != "" {
+					dispatchCompletions = append(dispatchCompletions, materializedDispatch{seq: rowSeq, attempt: actionAttempt})
+				}
+			case "record_worker_failure", "reject_worker_result":
+				var fields workflowCorrectionCompletionFields
+				if err := json.Unmarshal([]byte(payload), &fields); err != nil {
+					return nil, newFailure(KindInvariantViolation, subject, "correction completion payload is malformed", false, "rebuild workflow projections from the event log")
+				}
+				jobKey := dispatchJob[actionAttempt]
+				records = append(records, workflowCorrectionRecordState{seq: rowSeq, fields: fields, jobKey: jobKey})
+				if jobKey != "" {
+					unresolved[jobKey] = true
+				}
+			case "request_correction":
+				var fields workflowCorrectionCompletionFields
+				if err := json.Unmarshal([]byte(payload), &fields); err != nil {
+					return nil, newFailure(KindInvariantViolation, subject, "correction completion payload is malformed", false, "rebuild workflow projections from the event log")
+				}
+				// A recorded request owns no worker attempt and no recorded
+				// obligation, so it keeps the historical consumption: the
+				// next materialized dispatch closes it.
+				records = append(records, workflowCorrectionRecordState{seq: rowSeq, fields: fields})
+			case "accept_worker_result":
+				// The same discharge the counting boundary applies: the
+				// acceptance's recorded disposition discharges an unresolved
+				// revision only when the named revision of that job carries
+				// the same recorded obligation.
+				if jobID != "" {
+					acceptedObligation := obligations[workerJobKey(jobID, jobRevision)]
+					if acceptedObligation != "" {
+						for open := range unresolved {
+							if strings.HasPrefix(open, jobID+"|") && obligations[open] == acceptedObligation {
+								delete(unresolved, open)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction record history", true, "retry once the workflow event log is readable", err)
+	}
+	// A dispatch completion consumes only when its worker attempt materialized
+	// somewhere in the walked prefix: a worker.dispatched event for the
+	// completion's attempt. A dispatch intent folded without its host dispatch
+	// closes nothing, so its record keeps the retry binding readable and the
+	// escalation wall operator-approvable.
+	var dispatches []materializedDispatch
+	for _, completion := range dispatchCompletions {
+		if dispatchAttemptMaterialized(dispatchJob, completion.attempt) {
+			dispatches = append(dispatches, completion)
+		}
+	}
+	for i := len(records) - 1; i >= 0; i-- {
+		record := records[i]
+		if record.jobKey != "" {
+			if unresolved[record.jobKey] {
+				record.countThrough = watermark
+				return &record, nil
+			}
+			continue
+		}
+		consumed := false
+		for _, dispatch := range dispatches {
+			if dispatch.seq > record.seq && dispatch.attempt != dispatchAttemptID {
+				consumed = true
+				break
+			}
+		}
+		if !consumed {
+			record.countThrough = record.seq
+			return &record, nil
+		}
+	}
+	return nil, nil
+}
+
+// dispatchAttemptMaterialized reports whether the attempt's worker.dispatched
+// event was walked: dispatchJob carries an entry only for attempts whose
+// dispatch evidence the prefix holds.
+func dispatchAttemptMaterialized(dispatchJob map[string]string, attemptID string) bool {
+	_, materialized := dispatchJob[attemptID]
+	return materialized
+}
+
+// jobKeyOrEmpty derives the recorded job key of a dispatch binding, with the
+// empty key for an unbound dispatch.
+func jobKeyOrEmpty(jobID string, revision int64) string {
+	if jobID == "" {
+		return ""
+	}
+	return workerJobKey(jobID, revision)
 }
 
 // correctionReferenceStrings keeps only the entries a work pin correction may

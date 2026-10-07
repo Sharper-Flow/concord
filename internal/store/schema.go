@@ -5656,6 +5656,65 @@ CREATE TRIGGER worker_job_revisions_guard_update BEFORE UPDATE ON worker_job_rev
 CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_job_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  117,
+		Name:     "worker_attempt_job_capable_schema_versions",
+		Breaking: true,
+		SQL: `
+-- CD-0205's packet/report schema boundary: the job-capable "1.1" identities
+-- join the released "1.0" ones a worker attempt may record. A dispatch under
+-- a selected ready worker-job revision carries packet and report schema
+-- version 1.1; every existing row stays at its recorded 1.0 identity, which
+-- keeps meaning "no worker-job binding". Widening a CHECK has only SQLite's
+-- rebuild shape — rename, recreate, copy, drop — and the rename and drop
+-- name schema objects an older binary may reference, so the step declares
+-- Breaking exactly as the v110/v111 rebuilds before it.
+DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
+DROP TRIGGER IF EXISTS worker_attempts_guard_update;
+DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v117;
+CREATE TABLE worker_attempts (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_version INTEGER NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('in_flight','dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(lane_version > 0),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version IN ('1.0','1.1')),
+    CHECK(report_schema_version IN ('1.0','1.1')),
+    CHECK((lifecycle_state='in_flight' AND completed_at IS NULL AND failed_at IS NULL AND readback_model='' AND failure_kind='' AND failure_detail='') OR
+          (lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            (length(readback_model) >= 3 OR failure_kind IN ('model_readback_missing','model_readback_ambiguous','abandoned'))))
+);
+INSERT INTO worker_attempts
+    (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
+    SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
+    FROM worker_attempts_v117;
+DROP TABLE worker_attempts_v117;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

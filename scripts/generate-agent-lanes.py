@@ -148,6 +148,15 @@ def go_slice(values: list[str]) -> str:
     return "[]string{" + ", ".join(go_string(value) for value in values) + "}"
 
 
+def current_schema_version(schema: dict) -> str:
+    """The current identity of a versioned packet/report schema: the last
+    entry of schema_version's enum. Earlier entries are released historical
+    identities a stored payload may still carry; new packets and reports
+    record the current one."""
+    versions = schema["properties"]["schema_version"]["enum"]
+    return versions[-1]
+
+
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]
@@ -165,7 +174,10 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
         f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
         "schema_version: "
-        f"const={json.dumps(properties['schema_version']['const'], ensure_ascii=False)}.",
+        f"enum={json.dumps(properties['schema_version']['enum'], ensure_ascii=False)}; "
+        "a report records the current identity "
+        f"{json.dumps(current_schema_version(report_schema), ensure_ascii=False)}, "
+        "and only that identity may carry the worker_job claim.",
         "readback_model: "
         f"type={properties['readback_model']['type']}, "
         f"minLength={properties['readback_model']['minLength']}, "
@@ -554,7 +566,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premi
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["x-maxBytes"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
-    report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
+    report_version = json.dumps(current_schema_version(report_schema), ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())

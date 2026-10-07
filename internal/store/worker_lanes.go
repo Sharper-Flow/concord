@@ -18,8 +18,19 @@ const (
 	WorkerCompleted  = "worker.completed"
 	WorkerFailed     = "worker.failed"
 
-	WorkerPacketSchemaVersion = "1.0"
-	WorkerReportSchemaVersion = "1.0"
+	// WorkerPacketSchemaVersion and WorkerReportSchemaVersion are the
+	// job-capable schema identities (CD-0205): the versions whose packets
+	// and reports may carry the worker-job binding. The adapter records
+	// them on every dispatch and report it builds.
+	WorkerPacketSchemaVersion = "1.1"
+	WorkerReportSchemaVersion = "1.1"
+	// WorkerPacketSchemaVersionLegacy and WorkerReportSchemaVersionLegacy
+	// are the released pre-job identities. A payload that records them
+	// never carries a worker-job binding: the binding at "1.0" was the
+	// in-place addition the explicit boundary replaces, so the validator
+	// refuses it and the historical identities keep their released shape.
+	WorkerPacketSchemaVersionLegacy = "1.0"
+	WorkerReportSchemaVersionLegacy = "1.0"
 )
 
 const (
@@ -285,8 +296,14 @@ func validateWorkerDispatchedPayload(event Event, payload WorkerDispatchedPayloa
 }
 
 func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) error {
-	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
+	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
+	}
+	if payload.ReportSchemaVersion != WorkerReportSchemaVersion && payload.ReportSchemaVersion != WorkerReportSchemaVersionLegacy {
+		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
+	}
+	if payload.WorkerJob != nil && payload.ReportSchemaVersion != WorkerReportSchemaVersion {
+		return invalidWorkerPayload("worker.completed worker_job requires the job-capable report schema " + WorkerReportSchemaVersion)
 	}
 	if err := validateWorkerBaseComparison(payload.BaseComparison); err != nil {
 		return err
@@ -295,6 +312,23 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 		return err
 	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
+}
+
+// workerSchemaVersionFault names the boundary violation of one dispatch's
+// recorded packet/report schema identities against its worker-job binding
+// (CD-0205): the released "1.0" identities never carry a job, the job-capable
+// "1.1" identities may, and a dispatch records one matched pair. An empty
+// return means the coupling holds.
+func workerSchemaVersionFault(packetVersion, reportVersion string, jobBound bool) string {
+	current := packetVersion == WorkerPacketSchemaVersion && reportVersion == WorkerReportSchemaVersion
+	legacy := packetVersion == WorkerPacketSchemaVersionLegacy && reportVersion == WorkerReportSchemaVersionLegacy
+	switch {
+	case !current && !legacy:
+		return "packet and report schema versions must be the matched pair " + WorkerPacketSchemaVersion + " or " + WorkerPacketSchemaVersionLegacy
+	case jobBound && !current:
+		return "worker_job requires the job-capable packet and report schema " + WorkerPacketSchemaVersion
+	}
+	return ""
 }
 
 // workerComparisonResultVocabulary is the closed result set one
@@ -515,8 +549,11 @@ func decodeClosedWorkerPayload(event Event, target any) error {
 }
 
 func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) error {
-	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) || payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion {
+	if event.SubjectType != SubjectWorkItem || event.SubjectID == "" || payload.AttemptID == "" || !laneIDPattern.MatchString(payload.LaneID) || payload.LaneVersion < 1 || !laneDigestPattern.MatchString(payload.LaneDigest) || !workerVersionPattern.MatchString(payload.CapabilityClass) {
 		return invalidWorkerPayload("worker.dispatched payload has invalid identity")
+	}
+	if fault := workerSchemaVersionFault(payload.PacketSchemaVersion, payload.ReportSchemaVersion, payload.WorkerJob != nil); fault != "" {
+		return invalidWorkerPayload("worker.dispatched payload has invalid identity: " + fault)
 	}
 	// CD-0067 D6: the dispatched event carries the packet digest the
 	// authorization recorded, so a forged dispatch that swaps the
@@ -1472,6 +1509,26 @@ func upcastWorkerDispatchedV2(event Event) (Event, error) {
 // dispatch stays a legacy dispatch and pins no executing actor, matching the
 // behavior of the store that originally recorded it.
 func upcastWorkerDispatchedV3(event Event) (Event, error) {
+	event.PayloadVersion = 4
+	return event, nil
+}
+
+// upcastWorkerDispatchedV4 carries a v4 dispatch into the v5 payload that may
+// bind a worker job (CD-0205). v4 payloads never carried one and recorded the
+// released 1.0 packet/report identities, so the upcast is the bytes unchanged
+// at the new version: a replayed dispatch stays an unbound dispatch under the
+// identities the store originally recorded, and no upcaster fabricates a job.
+func upcastWorkerDispatchedV4(event Event) (Event, error) {
+	event.PayloadVersion = 5
+	return event, nil
+}
+
+// upcastWorkerCompletedV3 carries a v3 completion into the v4 payload that
+// may claim a worker-job revision (CD-0205). v3 payloads never claimed one
+// and recorded the released 1.0 report identity, so the upcast is the bytes
+// unchanged at the new version: a replayed completion stays a report without
+// a job claim, exactly as the worker returned it.
+func upcastWorkerCompletedV3(event Event) (Event, error) {
 	event.PayloadVersion = 4
 	return event, nil
 }

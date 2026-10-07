@@ -153,6 +153,7 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	scopes := make([]string, 0, 4)
 	requiredScopes := map[string]bool{}
 	acceptRefs := make([]string, 0, 4)
+	requiredRevisions := make([]string, 0, 4)
 	for rows.Next() {
 		var jobID, jobState, resultRef, scope string
 		var revision int64
@@ -160,6 +161,7 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the worker-job dispositions for delivery", true, "retry once the worker-job projection is readable", err)
 		}
 		state.JobsRecorded = true
+		requiredRevisions = append(requiredRevisions, workerJobKey(jobID, revision))
 		if !requiredScopes[scope] {
 			requiredScopes[scope] = true
 			scopes = append(scopes, scope)
@@ -178,11 +180,19 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 	if !state.JobsRecorded {
 		return nil, nil
 	}
-	// The integration epoch opens at the latest of the phase start and every
-	// required job's recorded acceptance: the verify run must have executed
-	// and bound after those results, so it observed the integrated whole.
-	// Order is the log's seq, not a timestamp; the occurred_at clock only
-	// bounds the lease's acquire time, as the refine proof already does.
+	// The integration epoch opens at the latest of the phase start, every
+	// required job's recorded acceptance, and every required job's recorded
+	// result population: the latest worker.completed event of an attempt
+	// dispatched under each required latest revision. The verify run must
+	// have executed and bound after those results, so it observed the
+	// integrated whole — including the pending final job a combined
+	// acceptance counts as satisfied, whose own completion is in the log
+	// before the acceptance that asserts delivery. A satisfied revision
+	// refuses redispatch, so on the standalone route the acceptance of the
+	// result still dominates its own completion and the derivation keeps its
+	// recorded shape. Order is the log's seq, not a timestamp; the
+	// occurred_at clock only bounds the lease's acquire time, as the refine
+	// proof already does.
 	coverageSeq := startSeq
 	anchorAt := time.Time{}
 	if startFound {
@@ -207,6 +217,34 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 		if at, err := time.Parse(time.RFC3339Nano, occurred); err == nil && at.After(anchorAt) {
 			anchorAt = at
 		}
+	}
+	completions, err := q.QueryContext(ctx, `SELECT COALESCE(json_extract(payload,'$.worker_job.job_id'),''),COALESCE(json_extract(payload,'$.worker_job.revision'),0),seq,occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>?`, workID, WorkerCompleted, startSeq)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot read the required job result population for delivery", true, "retry once the event log is readable", err)
+	}
+	defer func() { _ = completions.Close() }()
+	required := map[string]bool{}
+	for _, key := range requiredRevisions {
+		required[key] = true
+	}
+	for completions.Next() {
+		var jobID, occurred string
+		var revision, seq int64
+		if err := completions.Scan(&jobID, &revision, &seq, &occurred); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot scan the required job result population for delivery", true, "retry once the event log is readable", err)
+		}
+		if jobID == "" || !required[workerJobKey(jobID, revision)] {
+			continue
+		}
+		if seq > coverageSeq {
+			coverageSeq = seq
+		}
+		if at, err := time.Parse(time.RFC3339Nano, occurred); err == nil && at.After(anchorAt) {
+			anchorAt = at
+		}
+	}
+	if err := completions.Err(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot enumerate the required job result population for delivery", true, "retry once the event log is readable", err)
 	}
 	refs, err := workflowVerificationBindingsAfter(ctx, q, workID, coverageSeq, "workflow_action")
 	if err != nil {

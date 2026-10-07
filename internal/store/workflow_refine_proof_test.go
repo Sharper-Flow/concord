@@ -146,17 +146,19 @@ func refineProofSeedGreenRun(t *testing.T, s *Store, workID, digest string) {
 
 // workerJobIntegrationGreenRun seeds the integration evidence the job-capable
 // delivery admission requires (CD-0205 D3): one green worktree_verify run of
-// the fixture's Project acquired after the current refine start and after
-// every recorded worker-job acceptance, then bound as verification evidence.
+// the fixture's Project acquired after the current delivery-bearing step's
+// start, after every recorded worker-job acceptance, and after every
+// required job's recorded result population, then bound as verification
+// evidence.
 func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string) {
 	t.Helper()
 	var occurred string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
-		t.Fatalf("read the refine start: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted).Scan(&occurred); err != nil {
+		t.Fatalf("read the delivery-bearing step start: %v", err)
 	}
 	anchor, err := time.Parse(time.RFC3339Nano, occurred)
 	if err != nil {
-		t.Fatalf("parse the refine start: %v", err)
+		t.Fatalf("parse the delivery-bearing step start: %v", err)
 	}
 	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,''),e.occurred_at FROM worker_job_revisions j LEFT JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=j.work_id AND e.event_id=j.satisfied_result_ref WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
 	if err != nil {
@@ -183,6 +185,17 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	}
 	if err := srows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	// The integration epoch the admission derives also opens after every
+	// required job's recorded result population (CD-0205 D3): seed the run
+	// after the latest recorded completion too, including the pending final
+	// job a combined acceptance counts as satisfied.
+	var completed string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(e.occurred_at),'') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=?`, workID, WorkerCompleted).Scan(&completed); err != nil {
+		t.Fatalf("read the required job result population: %v", err)
+	}
+	if at, err := time.Parse(time.RFC3339Nano, completed); err == nil && at.After(anchor) {
+		anchor = at
 	}
 	seed := len(scopes)
 	if seed == 0 && anyScope {

@@ -1350,8 +1350,8 @@ test("a successful run records dispatch evidence before completion evidence", as
   expect(dispatched.lane_version).toBe(lane.version)
   expect(dispatched.lane_digest).toBe(lane.digest)
   expect(dispatched.readback_model).toBe(READBACK_MODEL)
-  expect(dispatched.packet_schema_version).toBe("1.0")
-  expect(dispatched.report_schema_version).toBe("1.0")
+  expect(dispatched.packet_schema_version).toBe("1.1")
+  expect(dispatched.report_schema_version).toBe("1.1")
   expect(typeof dispatched.event_id).toBe("string")
 
   const completed = JSON.parse(records[1].input)

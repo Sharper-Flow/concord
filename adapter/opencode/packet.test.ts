@@ -183,7 +183,7 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(built.failure).toBeUndefined()
   const packet = built.packet!
   expect(validateAgentLanePacket(packet)).toBe(true)
-  expect(packet.schema_version).toBe("1.0")
+  expect(packet.schema_version).toBe("1.1")
   expect(packet.attempt_id).toBe("attempt-1")
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe("step-1")
@@ -1165,6 +1165,19 @@ test("a job-executing lane binds the one ready worker-job revision verbatim", as
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.worker_job).toEqual(READY_JOB)
   expect(built.packet!.inputs.task).toBe(pinnedContract().premise)
+})
+
+// The closed packet schema admits the same predicate-id grammar the store,
+// the report schema, and the tool surface admit: one or more characters
+// after the "predicate:" prefix, not an eleven-character suffix minimum. A
+// recorded short id such as "predicate:primary" must pass production packet
+// validation, because the core records and returns it verbatim.
+test("a ready worker job with a short predicate id passes the closed packet schema", async () => {
+  const short = { ...READY_JOB, predicate_ids: ["predicate:primary", "predicate:con795-eight-3"] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [short]) })
+  expect(built.failure).toBeUndefined()
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  expect(built.packet!.inputs.worker_job).toEqual(short)
 })
 
 test("a job-capable step refuses a dispatch without exactly one ready worker job", async () => {

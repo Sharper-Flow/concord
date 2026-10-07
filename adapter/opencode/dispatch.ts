@@ -35,11 +35,20 @@ const MAX_FAILURE_DETAIL_BYTES = 4_096
 const MAX_DIAGNOSTIC_MESSAGE_BYTES = 256
 const MAX_EXPORT_BODY_DIAGNOSTIC_BYTES = 1_024
 const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
-type AgentLanePacketSchemaVersion = typeof agentLanePacketSchema.properties.schema_version.const
-type AgentLaneReportSchemaVersion = typeof agentLaneReportSchema.properties.schema_version.const
+// The packet/report schema identities are versioned (CD-0205): "1.0" is the
+// released pre-job identity a stored payload may carry, "1.1" is the
+// job-capable identity a new packet or report records — the last enum entry
+// the generated schema declares. The adapter always records the current
+// identity; the core accepts the released "1.0" pair on replayed evidence.
+type AgentLanePacketSchemaVersion = (typeof agentLanePacketSchema.properties.schema_version.enum)[number]
+type AgentLaneReportSchemaVersion = (typeof agentLaneReportSchema.properties.schema_version.enum)[number]
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
-const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.const
-const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.const
+const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.enum[
+  agentLanePacketSchema.properties.schema_version.enum.length - 1
+]
+const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.enum[
+  agentLaneReportSchema.properties.schema_version.enum.length - 1
+]
 
 // DispatchRunnerResult is one child process outcome. `exited` resolves to the
 // wait status number for both a clean exit and a killed child, so exitCode

@@ -12857,7 +12857,7 @@ const GeneratedPayloadSchemaDocument = `{
           "items": {
             "maxLength": 128,
             "minLength": 11,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]{10,127}$",
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
             "type": "string"
           },
           "maxItems": 8,

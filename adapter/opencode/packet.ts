@@ -10,7 +10,10 @@ const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
-const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.const
+// The packet identity is versioned (CD-0205): the builder records the
+// current identity — the last enum entry the generated schema declares —
+// which is the job-capable packet that may carry inputs.worker_job.
+const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.enum[agentLanePacketSchema.properties.schema_version.enum.length - 1]
 
 export type AgentLanePacketFailureKind =
   | "unregistered_lane"

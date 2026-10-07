@@ -10,6 +10,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,10 @@ type admissionConformanceView struct {
 	DeliveryProofReady          bool
 	DeliveryFailure             bool
 	DeliveryProofFailure        bool
+	DeliveryJobsRecorded        bool
+	DeliveryJobsUnsatisfiedKeys string
+	DeliveryJobsScopeKeys       string
+	DeliveryJobsIntegrated      bool
 	MandatePresent              bool
 	MandateMissing              bool
 	MandateBindingStep          string
@@ -72,6 +77,8 @@ func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConforman
 		CompleteStepCorrection: state.CompleteStepCorrection, ContractCorrectionAvailable: state.ContractCorrectionAvailable,
 		DeliveryStarted: state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
 		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
+		DeliveryJobsRecorded: state.Delivery.JobsRecorded, DeliveryJobsUnsatisfiedKeys: state.Delivery.JobsUnsatisfiedKeys,
+		DeliveryJobsScopeKeys: state.Delivery.JobsScopeKeys, DeliveryJobsIntegrated: state.Delivery.JobsIntegrated,
 		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
 		MandateAddedByContract: state.Mandate.AddedByContract, MandateCorrectionAction: state.Mandate.CorrectionAction,
 	}
@@ -194,8 +201,9 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 // acceptance on the current break-fix definition through the real store: a
 // recorded job, its job-bound dispatch and report, and the plain accept that
 // satisfies the job. The loader's fold must equal the model's holding
-// successor, and the held state must still exit through the delivery
-// assertion the step declares.
+// successor at every checkpoint, and the held state must still exit through
+// the real delivery admission the step declares: record_delivery refuses
+// without qualifying integration evidence and admits behind it.
 func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	const workID = "admission-conformance-local-job"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
@@ -216,6 +224,17 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:conformance-repair", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	model = admissionSuccessor(def, model, "record_worker_job")
+	// The conformance lift compares the folded delivery state verbatim, so
+	// the model carries the recorded revision's real deterministic keys.
+	views, err := s.WorkerJobRevisions(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("recorded revisions = %d, want the one required revision", len(views))
+	}
+	model.jobsUnsatisfied = workerJobKey(views[0].Binding.JobID, views[0].Binding.Revision)
+	model.jobsScope = views[0].ProjectScope
 	conformanceCheckpoint(t, s, workID, def, model, "after record_worker_job")
 
 	attempt := "attempt:" + workID + ":repair"
@@ -230,22 +249,87 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 		t.Fatalf("local accept: %v", err)
 	}
 	accepts := admissionSuccessors(def, model, "accept_worker_result")
-	if len(accepts) != 2 || accepts[0].step != "repair" || accepts[1].step == "repair" {
-		t.Fatalf("model accept successors = %v, want the held local acceptance then the advance", accepts)
-	}
-	model = accepts[0]
-	conformanceCheckpoint(t, s, workID, def, model, "after local job accept")
-
-	held := false
-	for _, actionID := range admissionStateActions(def, model) {
-		if actionID == "record_delivery" {
-			held = true
-			if next := admissionSuccessor(def, model, actionID); next.step == "repair" {
-				t.Fatalf("record_delivery from the held state stays at repair: %s", next)
-			}
+	var heldSatisfied *admissionModelState
+	for i, successor := range accepts {
+		if successor.step == "repair" && successor.jobs == "satisfied" && successor.jobsUnsatisfied == "" {
+			heldSatisfied = &accepts[i]
 		}
 	}
-	if !held {
-		t.Fatal("the held repair state declares no record_delivery exit")
+	if heldSatisfied == nil {
+		t.Fatalf("model accept successors = %v, want the held satisfied local acceptance", accepts)
+	}
+	if advanced := accepts[len(accepts)-1]; advanced.step == "repair" {
+		t.Fatalf("model accept successors = %v, want the unbound advance beside the holds", accepts)
+	}
+	model = *heldSatisfied
+	conformanceCheckpoint(t, s, workID, def, model, "after local job accept")
+
+	// Re-recording the job onto the satisfied population reopens it
+	// (CD-0205 D1/D2): the fold reads each job's latest revision only, so
+	// revision 2 is required and unsatisfied, and the delivery facet keeps
+	// no integration from the earlier acceptance epoch. The model successor
+	// must hold exactly the fold the real engine derives.
+	reRecorded := &WorkerJobBinding{JobID: job.JobID, Revision: 2}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, reRecorded)
+	model = admissionSuccessor(def, model, "record_worker_job")
+	views, err = s.WorkerJobRevisions(context.Background(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 2 || views[1].Binding.Revision != 2 || views[1].State != "recorded" || views[0].State != "satisfied" {
+		t.Fatalf("re-recorded revisions = %#v, want revision 1 satisfied beside revision 2 required and unsatisfied", views)
+	}
+	model.jobsUnsatisfied = workerJobKey(views[1].Binding.JobID, views[1].Binding.Revision)
+	model.jobsScope = views[1].ProjectScope
+	conformanceCheckpoint(t, s, workID, def, model, "after re-recorded worker job")
+
+	// The reopened revision dispatches, completes, and is accepted locally
+	// again: the held state returns to the satisfied population with no
+	// integration coverage, exactly as the first pass held.
+	reAttempt := "attempt:" + workID + ":reopened"
+	dispatchJobBoundAttempt(t, s, workID, "repair", reAttempt, nil, fixture.owner, 0, "conformance-reopened", reRecorded)
+	if err := completeJobBoundAttemptForTest(s, workID, reAttempt, BuiltinLaneDefinitions()[0], reRecorded); err != nil {
+		t.Fatal(err)
+	}
+	model = admissionSuccessor(def, model, "dispatch_worker")
+	conformanceCheckpoint(t, s, workID, def, model, "after reopened job-bound completion")
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": reAttempt, "attempt_epoch": latestStepStartEpoch(t, s, workID, "repair")}), 0, acceptor); err != nil {
+		t.Fatalf("local accept of the reopened revision: %v", err)
+	}
+	accepts = admissionSuccessors(def, model, "accept_worker_result")
+	heldSatisfied = nil
+	for i, successor := range accepts {
+		if successor.step == "repair" && successor.jobs == "satisfied" && successor.jobsUnsatisfied == "" {
+			heldSatisfied = &accepts[i]
+		}
+	}
+	if heldSatisfied == nil {
+		t.Fatalf("model accept successors = %v, want the held satisfied local acceptance of the reopened revision", accepts)
+	}
+	model = *heldSatisfied
+	conformanceCheckpoint(t, s, workID, def, model, "after local accept of the reopened revision")
+
+	// The held state's exit is the real delivery admission, not the abstract
+	// successor: record_delivery refuses behind the satisfied population
+	// without qualifying integration evidence (CD-0205 D3).
+	err = runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-held", "delivery_state": "asserted"}), 0, acceptor)
+	if err == nil {
+		t.Fatal("record_delivery from the held state admitted without integration evidence")
+	}
+	if !strings.Contains(err.Error(), "verification evidence") {
+		t.Fatalf("held record_delivery refusal = %v, want the integration remedy", err)
+	}
+	// The qualifying integration run integrates the required Project after
+	// the recorded acceptance and result population, and the real exit
+	// advances the step.
+	workerJobIntegrationGreenRun(t, s, workID, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+	model.integration = true
+	conformanceCheckpoint(t, s, workID, def, model, "after integration evidence")
+	before := issue1013Pin(t, s, workID).Step
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:conformance-held", "delivery_state": "asserted"}), 0, acceptor); err != nil {
+		t.Fatalf("record_delivery behind integration evidence: %v", err)
+	}
+	if after := issue1013Pin(t, s, workID).Step; after == before || after == "" {
+		t.Fatalf("record_delivery behind integration evidence left the step at %q", after)
 	}
 }

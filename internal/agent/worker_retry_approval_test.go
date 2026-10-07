@@ -183,8 +183,9 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 		t.Fatal(err)
 	}
 	const failedID = "attempt:work-1:concurrent-abandonment"
+	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:concurrent-abandonment")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
+		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, mutationEnvelope(grant, scopeVersion))
 	if first.Outcome != OutcomeOK {

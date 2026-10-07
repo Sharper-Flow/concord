@@ -12,7 +12,11 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0"
+      "enum": [
+        "1.0",
+        "1.1"
+      ],
+      "description": "The report identity this report records. \"1.0\" is the released report: it never carries worker_job. \"1.1\" is the job-capable report (CD-0205): it may carry worker_job when the dispatching packet selected a worker-job revision."
     },
     "readback_model": {
       "type": "string",
@@ -274,5 +278,26 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "worker_job"
+          ]
+        }
+      }
+    }
+  ]
 }

@@ -47,6 +47,11 @@ const (
 	WorkflowCompleted                = "workflow.completed"
 )
 
+// workflowActionCompletedWorkerJobVersion is the payload version at which a
+// workflow.action_completed completion may record a worker-job disposition
+// (CD-0205). Stored completions below it never carried one.
+const workflowActionCompletedWorkerJobVersion = 4
+
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -2122,6 +2127,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := validateWorkflowActionCompletedShape(p); err != nil {
 		return err
 	}
+	// The CD-0205 event boundary: the worker-job disposition lands only on
+	// the v4 completion shape. A stored v1–v3 completion never carried one,
+	// so a replayed payload that claims a job below the boundary is a
+	// payload no store ever recorded; refuse it instead of folding a
+	// fabricated disposition.
+	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
+	}
 	// CD-0205: an accepted worker result records the worker-job disposition
 	// it satisfies, on the exact revision the accept guard derived from the
 	// attempt's dispatch binding. The update fails closed when the derived
@@ -2501,7 +2514,10 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 		args = append(args, action)
 	}
 	var entrySeq int64
-	query := `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id') IN (` + placeholders + `)`
+	// A held local job acceptance records a disposition and holds the step
+	// (CD-0205 D3), so it is no step entry: the pass boundary it would move
+	// past still governs the reads that recover results and corrections.
+	query := `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.action_id') IN (` + placeholders + `) AND ` + workflowHeldJobAcceptPredicate
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
 	}
@@ -3345,6 +3361,16 @@ func upcastWorkflowActionCompletedV1(event Event) (Event, error) {
 // in-flight row for it.
 func upcastWorkflowActionCompletedV2(event Event) (Event, error) {
 	event.PayloadVersion = 3
+	return event, nil
+}
+
+// upcastWorkflowActionCompletedV3 carries a v3 completion into the v4 payload
+// that may record a worker-job disposition (CD-0205). v3 completions never
+// carried one, so the upcast is the bytes unchanged at the new version: a
+// replayed completion stays a completion without a job disposition, and the
+// held local acceptance the job-capable definitions record lands only at v4.
+func upcastWorkflowActionCompletedV3(event Event) (Event, error) {
+	event.PayloadVersion = 4
 	return event, nil
 }
 

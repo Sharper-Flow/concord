@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f319e7d0976b27e4b5ff636017a05aed05a90347674d6e2113101efe99086ca3",
+  "sha256": "sha256:443172b4f65f0f74a72b7f47e7de90d0db6d71a702dfd4b0deaaba1e1dc4a596",
   "status": "accepted",
   "summary": "The folded admission state carries the acceptance-deliverables refusal while a premise question is open, so the preflight, the work pin, and execution refuse confirm_premise alike; the fresh-review refusal defers to the guards only for accept_worker_result, so every site refuses record_delivery behind review debt; and the late record_verdict route serves a premise-question step that does not declare record_verdict, so frozen ops runbooks at cleanup without a verdict record it there. No definition version changes.",
   "tags": [

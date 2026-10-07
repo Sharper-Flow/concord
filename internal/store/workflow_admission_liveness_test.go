@@ -32,6 +32,14 @@ import (
 
 const admissionModelWorkID = "admission-model"
 
+func workflowCapabilityClassProduces(class string) bool {
+	return containsString(workflowProducingCapabilityClasses, class)
+}
+
+func workflowStepJudgesStaleArtifact(definition WorkflowDefinition, stepID string) bool {
+	return len(workflowStalenessSpanTargets(definition, stepID)) != 0
+}
+
 // admissionModelState is one node of the abstract admission state space.
 type admissionModelState struct {
 	step string
@@ -42,6 +50,10 @@ type admissionModelState struct {
 	// attempt is the latest worker attempt since the step's latest start:
 	// "", "completed", "failed", "failure_recorded", or "rejected".
 	attempt string
+	// A completed attempt refreshes the artifact only when its capability
+	// produces artifacts and its dispatch follows the latest stale cause.
+	attemptProduces bool
+	attemptFresh    bool
 	// failed is the same-step failed-attempt count, capped at the wall.
 	failed int64
 	// contracts is the active contract count: 2 is the duplicated
@@ -53,6 +65,12 @@ type admissionModelState struct {
 	stale string
 	// designStale is a recorded design a contract correction invalidated.
 	designStale bool
+	// artifactStale mirrors the artifact-staleness fold (CD-0201 D5): a
+	// bad verdict or a successor contract made the artifact the evaluator
+	// judges stale, and only fresh production at the declared route target
+	// clears it. While set, record_verdict admits only a non-ok verdict and
+	// confirm_premise refuses.
+	artifactStale bool
 	// verdict is the latest predicate verdict: "", "ok", or "bad".
 	verdict string
 	// artifact is the recorded investigation artifact; observed is a
@@ -70,8 +88,8 @@ type admissionModelState struct {
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q failed %d contracts %d stale %q designStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.failed, s.contracts, s.stale, s.designStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q producer %v freshOrigin %v failed %d contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.attemptProduces, s.attemptFresh, s.failed, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -165,6 +183,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 		return false
 	}
 	checkpoint := containsString(step.Actions, "complete") ||
+		(workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" && !admissionTerminalStep(definition, state.step)) ||
 		(step.Kind == WorkflowStepHumanCheckpoint && containsString(step.Actions, "confirm_premise") && !admissionTerminalStep(definition, state.step)) ||
 		(step.Kind == WorkflowStepExternalEffect && containsString(step.Actions, "dispatch_worker"))
 	switch {
@@ -192,7 +211,7 @@ func admissionCompleteStepCorrection(definition WorkflowDefinition, state admiss
 // terminal or premise-question step behind a verdict step whose latest
 // verdict is not ok.
 func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionModelState) bool {
-	if !workflowLateVerdictRecoveryStep(definition, state.step) || state.contracts == 0 || state.verdict == "ok" {
+	if stepDeclaresAction(definition, state.step, "record_verdict") || workflowUnhealthyVerdictRouteTarget(definition, state.step) == "" || state.contracts == 0 || (state.verdict == "ok" && !state.artifactStale) {
 		return false
 	}
 	for _, step := range definition.StepGraph.Steps {
@@ -207,7 +226,7 @@ func admissionLateVerdictRoute(definition WorkflowDefinition, state admissionMod
 // WorkflowAdmissionState workflowAdmit decides over, applying the loader's
 // rules to the model's dimensions.
 func admissionWorkflowState(definition WorkflowDefinition, state admissionModelState) WorkflowAdmissionState {
-	correction := workflowCorrectionWorkflow(definition)
+	refinement := workflowRefinementStepID(definition) != ""
 	reviewStep := workflowPostRejectionReviewStep(definition, state.step)
 	instance, lifecycle := "running", "in_progress"
 	if state.done {
@@ -229,13 +248,14 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		Step:                        state.step,
 		Lifecycle:                   lifecycle,
 		InstanceState:               instance,
-		CorrectionWorkflow:          correction,
+		RefinementWorkflow:          refinement,
 		ReviewStep:                  reviewStep,
 		ActiveContracts:             state.contracts,
 		LawPinStale:                 staleErr != nil && workflowContractRecoveryStaleness(staleErr, admissionModelWorkID),
 		LawPinStaleError:            staleErr,
 		LawPinSelfError:             admissionModelStaleError(state.stale, true),
 		DesignStale:                 state.designStale,
+		ArtifactStale:               state.artifactStale,
 		AttemptState:                attemptState,
 		LatestResultDisposition:     disposition,
 		ReviewDebt:                  ReviewDebtNone,
@@ -274,7 +294,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 	if action, _ := workflowOperatorQuestionAction(definition, state.step); folded.PendingOperatorDecision && action == "confirm_premise" && state.verdict == "" {
 		folded.AcceptanceDeliverablesMissing = newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
 	}
-	if correction && reviewStep {
+	if refinement && reviewStep {
 		folded.ReviewDebt = state.debt
 		if state.debt == ReviewDebtOutstanding {
 			folded.ReadyReviewAttemptID = admissionReadyAttemptID(state)
@@ -283,10 +303,25 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		}
 	}
 	gate := workflowStepIsDeliveryGate(workflowStep(definition, state.step))
-	if correction && gate {
+	if gate {
 		folded.CorrectionRequestRecovery = folded.ReviewDebt == ReviewDebtOutstanding
 		if !folded.CorrectionRequestRecovery {
 			folded.CorrectionRequestMissing = workflowCorrectionMissingGateReview
+		}
+	} else if workflowUnhealthyVerdictRouteTarget(definition, state.step) != "" {
+		// The evaluator-step correction request mirrors the fold's verdict
+		// route: a declared unhealthy_verdict route — the step's own,
+		// which every admitted late evaluator context, terminal or
+		// premise-question, carries (CD-0204) — an
+		// active contract, and a current non-ok verdict, where an ok
+		// verdict the staleness frontier predates counts as non-ok
+		// (CD-0201 D5/D6), so the declared route carries the continuation
+		// after a successor contract. The accepted-delivery prerequisite
+		// is history the model abstracts: a well-formed history that
+		// recorded the verdict delivered and accepted the result first.
+		folded.CorrectionRequestRecovery = state.contracts == 1 && state.verdict == "bad"
+		if !folded.CorrectionRequestRecovery && state.contracts == 1 {
+			folded.CorrectionRequestMissing = workflowCorrectionMissingVerdict
 		}
 	}
 	return folded
@@ -364,6 +399,7 @@ func admissionEnterStep(definition WorkflowDefinition, state admissionModelState
 	}
 	state.proof = false
 	state.step, state.attempt, state.failed = step, "", 0
+	state.attemptProduces, state.attemptFresh = false, false
 	return state
 }
 
@@ -405,22 +441,38 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		next.started, next.proof = true, false
 		completed := next
 		completed.attempt = "completed"
+		completed.attemptFresh = true
 		failed := next
 		failed.attempt = "failed"
+		failed.attemptProduces, failed.attemptFresh = false, false
 		if failed.failed < workflowCorrectionAttemptLimit {
 			failed.failed++
 		}
 		if next.debt != ReviewDebtOutstanding {
-			return []admissionModelState{completed, failed}
+			successors := []admissionModelState{}
+			for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
+				candidate := completed
+				candidate.attemptProduces = produces
+				successors = append(successors, candidate)
+			}
+			return append(successors, failed)
 		}
 		// A fresh review dispatch supersedes any ready review: the loader
 		// names the latest completed review whose acceptance no action has
 		// dispositioned, so the new completion replaces the standing one.
 		ship, noShip := completed, completed
+		ship.attemptProduces, noShip.attemptProduces = false, false
 		ship.ready, noShip.ready = "ship", "no_ship"
 		return []admissionModelState{ship, noShip, failed}
 	case "accept_worker_result":
 		next.attempt, next.failed = "", 0
+		if state.attempt == "completed" && state.attemptProduces && state.attemptFresh && admissionProducesAtRouteTarget(definition, state.step, "accept_worker_result") {
+			// Dispatch admission includes evaluator capabilities. Acceptance
+			// therefore needs the producing class and fresh causal origin,
+			// not merely a completed attempt at the route target.
+			next.artifactStale = false
+		}
+		next.attemptProduces, next.attemptFresh = false, false
 		if next.ready != "" {
 			if next.ready == "no_ship" {
 				// The no_ship accept preserves the findings and settles
@@ -433,9 +485,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		}
 	case "accept_worker_evidence":
 		next.attempt = ""
+		next.attemptProduces, next.attemptFresh = false, false
 	case "reject_worker_result":
 		next.attempt = "rejected"
-		if workflowCorrectionWorkflow(definition) && workflowPostRejectionReviewStep(definition, state.step) {
+		if workflowPostRejectionReviewStep(definition, state.step) {
 			next.debt, next.ready = ReviewDebtOutstanding, ""
 		}
 	case "record_worker_failure":
@@ -451,9 +504,23 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			next.mandate = "bound"
 		}
 	case "record_verdict":
+		if next.artifactStale {
+			// The artifact-staleness guard: only a non-ok verdict records
+			// while the artifact a declared route's span holds is stale,
+			// so the ok successor is not admitted (CD-0201 D5). The bad
+			// successor keeps the declared route open. A step that
+			// resolves no route evaluates nothing, so its verdicts fold
+			// unstale exactly as the loader does.
+			bad := next
+			bad.verdict, bad.observed = "bad", false
+			bad.attemptFresh = false
+			return []admissionModelState{bad}
+		}
 		ok, bad := next, next
 		ok.verdict, bad.verdict = "ok", "bad"
 		ok.observed, bad.observed = false, false
+		bad.artifactStale = true
+		bad.attemptFresh = false
 		return []admissionModelState{ok, bad}
 	case "confirm_premise":
 		target := workflowNextStep(definition, state.step)
@@ -464,7 +531,7 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		}
 		return []admissionModelState{admissionEnterStep(definition, next, target)}
 	case "request_correction":
-		return []admissionModelState{admissionEnterStep(definition, next, workflowCorrectionTargetStep(definition, state.step))}
+		return []admissionModelState{admissionEnterStep(definition, next, workflowCorrectionReturnTarget(definition, state.step))}
 	case "complete":
 		next.done = true
 		return []admissionModelState{next}
@@ -475,8 +542,14 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// A fresh fenced start opens a new attempt window and releases
 			// the hold of every attempt before it.
 			next.attempt = ""
+			next.attemptProduces, next.attemptFresh = false, false
 			next.started, next.proof = true, false
 		}
+	}
+	// Direct artifact actions prove production by their own event authority,
+	// independently of advancement. Worker acceptance uses its origin above.
+	if containsString(workflowStepArtifactActions(definition, state.step), actionID) && admissionProducesAtRouteTarget(definition, state.step, actionID) {
+		next.artifactStale = false
 	}
 	if advance {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
@@ -486,15 +559,75 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	return []admissionModelState{next}
 }
 
+// The authored dispatch join admits both producing and evaluator classes.
+// Classes with the same production behavior share one abstract successor.
+func admissionDispatchProductionClasses(definition WorkflowDefinition, stepID string) []bool {
+	classes := map[bool]bool{}
+	for capability := range laneStepDispatchKinds {
+		if LaneStepDispatchAllowed(capability, workflowStep(definition, stepID).Kind) {
+			classes[workflowCapabilityClassProduces(capability)] = true
+		}
+	}
+	var result []bool
+	for _, produces := range []bool{true, false} {
+		if classes[produces] {
+			result = append(result, produces)
+		}
+	}
+	if len(result) == 0 {
+		// An unidentified historical completion carries no production proof.
+		return []bool{false}
+	}
+	return result
+}
+
+// admissionProducesAtRouteTarget reports whether completing actionID at
+// stepID is actual production of the artifact the declared routes' evaluator
+// judges: the action positively produces (workflowStepArtifactActions, or the
+// accepted result delivery at a step that dispatches workers) AND the step is
+// a declared unhealthy_verdict route target — the producer the staleness
+// causal frontier reads. Every registered definition's unhealthy routes name
+// one shared target, so the single staleness bit stays exact. Evidence-only
+// acceptance, starts, checkpoints, bindings, verdicts, and producing-shaped
+// actions at non-target steps never produce.
+func admissionProducesAtRouteTarget(definition WorkflowDefinition, stepID, actionID string) bool {
+	if !admissionStepProducesArtifact(definition, stepID, actionID) {
+		return false
+	}
+	for _, route := range workflowRecoveryRoutes(definition) {
+		if route.Trigger == WorkflowRecoveryTriggerUnhealthyVerdict && route.Target == stepID {
+			return true
+		}
+	}
+	return false
+}
+
+// admissionStepProducesArtifact reports whether completing actionID at stepID
+// is a producing completion of the step's own mechanism: one of the step's
+// positively classified artifact actions (workflowStepArtifactActions), or
+// the accepted result delivery at a step that dispatches workers. Starts,
+// checkpoints, evidence bindings, verdicts, unrelated holds, and
+// evidence-only acceptance never produce.
+func admissionStepProducesArtifact(definition WorkflowDefinition, stepID, actionID string) bool {
+	if containsString(workflowStepArtifactActions(definition, stepID), actionID) {
+		return true
+	}
+	return actionID == "accept_worker_result" && stepDeclaresAction(definition, stepID, "dispatch_worker")
+}
+
 // admissionSupersedeSuccessors folds the contract supersession: a successor
-// contract re-pins the law and starts a fresh verdict record; at the pinned
-// complete step it returns the instance to the correction target; without a
-// successor the instance returns to the contract step with no contract.
+// contract re-pins the law, starts a fresh verdict record, and makes the
+// artifact the evaluator judges stale until it is re-produced (CD-0201 D6);
+// at the pinned complete step it returns the instance to the correction
+// target; without a successor the instance returns to the contract step with
+// no contract.
 func admissionSupersedeSuccessors(definition WorkflowDefinition, state admissionModelState) []admissionModelState {
 	successor := state
 	successor.contracts, successor.stale, successor.verdict, successor.observed = 1, "", "", false
-	if workflowCompleteStepCorrectionStep(definition, state.step) {
-		successor = admissionEnterStep(definition, successor, workflowCorrectionTargetStep(definition, state.step))
+	successor.artifactStale = true
+	successor.attemptFresh = false
+	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
+		successor = admissionEnterStep(definition, successor, target)
 		return []admissionModelState{successor}
 	}
 	successors := []admissionModelState{successor}
@@ -507,7 +640,12 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
 		reset := admissionEnterStep(definition, state, contractStep)
 		reset.contracts, reset.stale, reset.verdict, reset.observed = 0, "", "", false
-		reset.mandate = ""
+		// The supersession stands as a staleness cause with or without a
+		// successor (CD-0201 D6): the fold reads the event sequence, not
+		// the projection, so only fresh production at the route target —
+		// which every walk back to an evaluator step passes — clears it.
+		reset.mandate, reset.artifactStale = "", true
+		reset.attemptFresh = false
 		successors = append(successors, reset)
 	}
 	return successors
@@ -573,10 +711,13 @@ func admissionStepIndex(definition WorkflowDefinition, stepID string) int {
 // states of one definition version: every step crossed with the dimension
 // values the loader can fold there. A step at or before the contract step
 // holds no contract; a later step holds one, or the duplicated projection.
-// Staleness, design currency, and verdicts exist only under a contract, and
-// verdicts only from the first verdict step on. Attempts exist on a step
+// Staleness, design currency, verdicts, and artifact staleness exist only
+// under a contract, verdicts and artifact staleness only from the first
+// verdict step on — a staleness cause is a bad verdict or a successor
+// contract, and no evaluator sits before that step. Attempts exist on a step
 // that dispatches or starts work. The review debt exists only on a
-// correction workflow's review steps, and a ready review implies the debt.
+// definition that declares the refinement shape's review steps, and a ready
+// review implies the debt.
 func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelState {
 	contractIndex := -1
 	if contractStep, err := workflowDefinitionContractStep(definition); err == nil {
@@ -590,7 +731,7 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 		}
 	}
 	design := admissionDeclaresAction(definition, "record_design")
-	correction := workflowCorrectionWorkflow(definition)
+	refinement := workflowRefinementStepID(definition) != ""
 	var states []admissionModelState
 	for i, step := range definition.StepGraph.Steps {
 		contracts := []int64{0}
@@ -615,11 +756,11 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			ready string
 		}
 		debts := []debtShape{{ReviewDebtNone, ""}}
-		if correction && workflowPostRejectionReviewStep(definition, step.ID) {
+		if refinement && workflowPostRejectionReviewStep(definition, step.ID) {
 			debts = append(debts, debtShape{ReviewDebtOutstanding, ""}, debtShape{ReviewDebtOutstanding, "ship"}, debtShape{ReviewDebtOutstanding, "absent"}, debtShape{ReviewDebtOutstanding, "no_ship"})
 		}
 		for _, count := range contracts {
-			stales, designs, verdicts := []string{""}, []bool{false}, []string{""}
+			stales, designs, verdicts, artifacts := []string{""}, []bool{false}, []string{""}, []bool{false}
 			if count > 0 {
 				stales = []string{"", "law", "registry"}
 				if design {
@@ -628,20 +769,25 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 				if verdictIndex >= 0 && i >= verdictIndex {
 					verdicts = []string{"", "ok", "bad"}
 				}
+				if workflowStepJudgesStaleArtifact(definition, step.ID) {
+					artifacts = []bool{false, true}
+				}
 			}
 			for _, stale := range stales {
 				for _, designStale := range designs {
 					for _, verdict := range verdicts {
-						for _, attempt := range attempts {
-							for _, wall := range walls {
-								for _, shape := range debts {
-									for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-										states = append(states, admissionModelState{
-											step: step.ID, debt: shape.debt, ready: shape.ready,
-											attempt: attempt, failed: wall, contracts: count, stale: stale,
-											designStale: designStale, verdict: verdict,
-											artifact: observation[0], observed: observation[1],
-										})
+						for _, artifactStale := range artifacts {
+							for _, attempt := range attempts {
+								for _, wall := range walls {
+									for _, shape := range debts {
+										for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+											states = append(states, admissionModelState{
+												step: step.ID, debt: shape.debt, ready: shape.ready,
+												attempt: attempt, failed: wall, contracts: count, stale: stale,
+												designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+												artifact: observation[0], observed: observation[1],
+											})
+										}
 									}
 								}
 							}
@@ -684,7 +830,21 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			}
 		}
 	}
-	return withEvidence
+	var withOrigins []admissionModelState
+	for _, state := range withEvidence {
+		if state.attempt != "completed" {
+			withOrigins = append(withOrigins, state)
+			continue
+		}
+		for _, produces := range admissionDispatchProductionClasses(definition, state.step) {
+			for _, fresh := range []bool{false, true} {
+				next := state
+				next.attemptProduces, next.attemptFresh = produces, fresh
+				withOrigins = append(withOrigins, next)
+			}
+		}
+	}
+	return withOrigins
 }
 
 // admissionExits returns the admitted actions with a successor that leaves
@@ -935,6 +1095,76 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 	return admissionSuccessors(definition, state, actionID)[0]
 }
 
+// admissionBadToOkWitnesses walks every well-formed state whose artifact is
+// stale and returns a witness for each admitted path that records an ok
+// verdict or confirms the premise without re-production at the declared route
+// target — the bad-to-ok transition CD-0201 D5 forbids. With enforce false
+// the walk seeds the unmirrored fold the trap ran under: the staleness bit is
+// dropped before the model decides, so the check names exactly the witnesses
+// the enforcement removes and a regression that loses the mirror cannot pass
+// silently.
+func admissionBadToOkWitnesses(definition WorkflowDefinition, enforce bool) []string {
+	var witnesses []string
+	for _, state := range wellFormedAdmissionStates(definition) {
+		if !state.artifactStale || state.contracts == 0 || !workflowStepJudgesStaleArtifact(definition, state.step) {
+			// Staleness bites only inside a declared route's
+			// producer-to-evaluator span; elsewhere the fold reads it
+			// unstale.
+			continue
+		}
+		probe := state
+		if !enforce {
+			probe.artifactStale = false
+		}
+		if workflowAdmit(definition, admissionWorkflowState(definition, probe), "record_verdict").Admitted {
+			for _, successor := range admissionSuccessors(definition, probe, "record_verdict") {
+				if successor.verdict == "ok" && !successor.artifactStale && successor.step == state.step {
+					witnesses = append(witnesses, fmt.Sprintf("stale state %s records an ok verdict without re-production", state))
+				}
+			}
+		}
+		if workflowAdmit(definition, admissionWorkflowState(definition, probe), "confirm_premise").Admitted && stepDeclaresAction(definition, state.step, "confirm_premise") {
+			witnesses = append(witnesses, fmt.Sprintf("stale state %s confirms its premise past the verdict without re-production", state))
+		}
+	}
+	return witnesses
+}
+
+// TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction proves the
+// artifact-staleness safety property over every registered definition
+// version: from no well-formed stale state does an admitted move record an ok
+// verdict or step the premise past the verdict before the artifact is
+// re-produced at the declared route target.
+func TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction(t *testing.T) {
+	definitions := builtinWorkflowDefinitionsWithHistory()
+	if len(definitions) == 0 {
+		t.Fatal("no built-in workflow definitions are registered")
+	}
+	for _, definition := range definitions {
+		for _, witness := range admissionBadToOkWitnesses(definition, true) {
+			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+		}
+	}
+}
+
+// TestStaleArtifactCheckNamesSeededWitness proves the safety check fails
+// rather than assumes: with the staleness mirror dropped — the fold the
+// CON-846 trap ran under — the same walk names a bad-to-ok witness, so the
+// check detects a model or admission that loses the enforcement.
+func TestStaleArtifactCheckNamesSeededWitness(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
+	witnesses := admissionBadToOkWitnesses(definition, false)
+	if len(witnesses) == 0 {
+		t.Fatal("the seeded unmirrored staleness produced no bad-to-ok witness")
+	}
+	for _, witness := range witnesses {
+		if strings.Contains(witness, "ok verdict") {
+			return
+		}
+	}
+	t.Fatalf("no witness names the ok verdict; first witness: %s", witnesses[0])
+}
+
 // TestContractStepAdvancesOnlyThroughItsApproval pins the version-1 research
 // strand: frame_research is advance-moded beside approve_contract on the
 // frame step, so admitting it with no active contract would move the work
@@ -970,5 +1200,62 @@ func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 	state.ActiveContracts = 1
 	if bound := workflowAdmit(definition, state, "frame_research"); bound.Failure != nil {
 		t.Fatalf("frame_research with an active contract refused: %v", bound.Failure)
+	}
+}
+
+func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
+	for _, test := range []struct {
+		name            string
+		produces, fresh bool
+		wantStale       bool
+	}{
+		{"unidentified-completion", false, false, true},
+		{"fresh-evaluator-result", false, true, true},
+		{"old-producing-dispatch", true, false, true},
+		{"fresh-producing-result", true, true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := admissionModelState{
+				step: "execute", contracts: 1, artifactStale: true,
+				attempt: "completed", attemptProduces: test.produces,
+				attemptFresh: test.fresh, started: true, proof: true,
+				debt: ReviewDebtNone,
+			}
+			if decision := workflowAdmit(definition, admissionWorkflowState(definition, state), "accept_worker_result"); !decision.Admitted {
+				t.Fatalf("acceptance refused: %v", decision.Failure)
+			}
+			for _, next := range admissionSuccessors(definition, state, "accept_worker_result") {
+				if next.artifactStale != test.wantStale {
+					t.Fatalf("accepted result stale=%v, want %v: %s", next.artifactStale, test.wantStale, next)
+				}
+			}
+		})
+	}
+}
+
+func TestAdmissionModelDispatchKeepsEvaluatorAndProducerAlternatives(t *testing.T) {
+	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
+	state := admissionModelState{step: "execute", contracts: 1, artifactStale: true, debt: ReviewDebtNone}
+	producing, evaluating := false, false
+	for _, next := range admissionSuccessors(definition, state, "dispatch_worker") {
+		if next.attempt != "completed" {
+			continue
+		}
+		if !next.attemptFresh || !next.artifactStale {
+			t.Fatalf("dispatch changed staleness or omitted its fresh origin: %s", next)
+		}
+		producing = producing || next.attemptProduces
+		evaluating = evaluating || !next.attemptProduces
+	}
+	if !producing || !evaluating {
+		t.Fatal("external-effect dispatch lost an admitted capability alternative")
+	}
+	completed := state
+	completed.attempt, completed.attemptProduces, completed.attemptFresh = "completed", true, true
+	for _, revised := range admissionSupersedeSuccessors(definition, completed) {
+		if revised.attemptFresh {
+			t.Fatalf("contract revision preserved a pre-revision producing origin: %s", revised)
+		}
 	}
 }

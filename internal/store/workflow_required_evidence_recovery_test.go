@@ -8,15 +8,13 @@ import (
 	"time"
 )
 
-// Issue #983. An accepted delivery can reach the acceptance checkpoint with a
-// contract-required evidence kind still unbound. Confirmation refuses, and the
-// declared bind_evidence route refused as well, because recovery admitted only
-// an unbound law mandate or an exact obligation tuple. Recovery and acceptance
-// now read one outstanding-requirement calculation, so the typed route binds
-// what the gate still demands, and refuses everything else.
+// Issue #983. A healthy delivery can reach the acceptance checkpoint with a
+// contract-required evidence kind still unbound. Recovery and acceptance read
+// one outstanding-requirement calculation, so the typed bind_evidence route
+// binds what the gate still demands and refuses everything else.
 //
-// The corpus scenario WF04 carries an empty law mandate, so these tests also
-// cover the empty-mandate contract the earlier guard returned early for.
+// The corpus scenario WF05 carries a healthy verdict and an empty law mandate,
+// so these tests isolate evidence requirements without a stale artifact.
 
 // wf04OutstandingKind is a contract-required evidence kind the replayed
 // history never binds, which is the live shape this repair addresses: an
@@ -62,7 +60,7 @@ type acceptanceRecoveryFixture struct {
 	scenario workflowScenario
 }
 
-// newAcceptanceRecoveryFixture replays WF04 without its premise confirmation,
+// newAcceptanceRecoveryFixture replays healthy WF05 without its premise confirmation,
 // with the named kinds added to the approved contract's required evidence, and
 // holds the instance at acceptance. The replayed history binds none of the
 // added kinds, so each one is outstanding at the checkpoint.
@@ -71,13 +69,13 @@ func newAcceptanceRecoveryFixture(ctx context.Context, t *testing.T, extraRequir
 	corpus := readWorkflowScenarioCorpus(t)
 	var scenario workflowScenario
 	for _, candidate := range corpus.Scenarios {
-		if candidate.ID == "WF04-weaker-delivery" {
+		if candidate.ID == "WF05-stronger-delivery" {
 			scenario = candidate
 			break
 		}
 	}
 	if scenario.ID == "" {
-		t.Fatal("WF04 is missing from the corpus")
+		t.Fatal("WF05 is missing from the corpus")
 	}
 	registered, err := BuiltinWorkflowDefinitionForRef(scenario.Request.DefinitionPin.Ref)
 	if err != nil {

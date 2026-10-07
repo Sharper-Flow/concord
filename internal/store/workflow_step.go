@@ -226,12 +226,12 @@ func workflowCompletedInstanceActionImmutable(state, actionID, lifecycle string)
 	return lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded"
 }
 
-// returnWorkflowInstanceFromCompleteStepTx returns a break-fix instance to its
-// repair step or an implementation instance to its execution step after a
-// typed contract supersession folded at the pinned complete step, and reopens
-// the instance so the successor contract runs under the unchanged pinned
-// definition. Any other current step, work kind, or shape leaves the instance
-// unchanged.
+// returnWorkflowInstanceFromCompleteStepTx returns an instance to its declared
+// complete-step correction target — the producer step the
+// disproved_premise_at_complete route names — after a typed contract
+// supersession folded at the pinned complete step, and reopens the instance so
+// the successor contract runs under the unchanged pinned definition. Any other
+// current step or shape leaves the instance unchanged.
 func returnWorkflowInstanceFromCompleteStepTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	definition, err := pinnedWorkflowDefinitionTx(ctx, tx, workID)
 	if err != nil {
@@ -241,19 +241,16 @@ func returnWorkflowInstanceFromCompleteStepTx(ctx context.Context, tx *sql.Tx, w
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		return workflowProjectionError(err, "cannot read the workflow step for the contract correction return")
 	}
-	if !workflowCorrectionWorkflow(definition.Definition) || !stepDeclaresAction(definition.Definition, currentStep, "complete") {
-		return nil
-	}
-	target := workflowCorrectionTargetStep(definition.Definition, currentStep)
+	target := workflowDisprovedPremiseAtCompleteRouteTarget(definition.Definition, currentStep)
 	if target == "" {
-		return newFailure(KindInvariantViolation, "fold_event", "contract correction at the complete step has no declared external-effect return step", false, "repair the pinned workflow definition")
+		return nil
 	}
 	step, err := workflowDeclaredStep(definition.Definition, target)
 	if err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET current_step=?,instance_state='running' WHERE work_id=?`, step, workID); err != nil {
-		return workflowProjectionError(err, "cannot return the workflow to its external-effect step after contract correction")
+		return workflowProjectionError(err, "cannot return the workflow to its producer step after contract correction")
 	}
 	return nil
 }

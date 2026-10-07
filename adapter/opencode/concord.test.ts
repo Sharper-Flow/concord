@@ -9,7 +9,7 @@ import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./di
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
 import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
-import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
+import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
 import { armTurnMoveBoundary, clearTurnMoveBoundary, dispatchRequiresNextTurn } from "./turn-move-boundary"
@@ -1111,6 +1111,206 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
 
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+})
+
+for (const blockedVerb of ["project-resolve", "invoke"] as const) {
+  for (const interruption of ["deadline", "deadline-as-abort-error", "caller-cancellation"] as const) {
+    test(`worker recovery ${interruption} during ${blockedVerb} preserves its effect boundary`, async () => {
+      const controller = new AbortController()
+      const calls: string[] = []
+      const signals: AbortSignal[] = []
+      let abortedAt: number | null = null
+      adapter.configureConcordAdapter({ runner: { async run(argv, _input, signal) {
+        calls.push(argv[1])
+        signals.push(signal)
+        if (signal.aborted) throw signal.reason
+        if (argv[1] !== blockedVerb) return { exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }
+        return await new Promise<{ exitCode: number; stdout: string; stderr: string }>((resolve, reject) => {
+          const abort = () => {
+            abortedAt = performance.now()
+            clearTimeout(timer)
+            reject(interruption === "deadline-as-abort-error" ? new DOMException("transport interrupted", "AbortError") : signal.reason)
+          }
+          const timer = setTimeout(() => {
+            signal.removeEventListener("abort", abort)
+            resolve({ exitCode: 0, stdout: "{}", stderr: "" })
+          }, 2_000)
+          signal.addEventListener("abort", abort, { once: true })
+          if (interruption === "caller-cancellation") controller.abort()
+          else if (signal.aborted) abort()
+        })
+      } } })
+      const started = performance.now()
+      try {
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_reconcile", {
+          work_id: "work-1", attempt_id: "attempt-1", task_part_id: "retained-part",
+          idempotency_key: "recover-interruption", requested_budget_seconds: 1,
+        }), contextFor(() => {}, controller)))
+        assertAdapterEnvelope(result)
+        expect(result.outcome).toBe("error")
+        // An uncertain mutation attempts a readback with the same expired
+        // signal; it cannot renew the deadline or start another invocation.
+        expect(calls).toEqual(blockedVerb === "project-resolve" ? ["project-resolve"] : ["project-resolve", "invoke", "project-resolve"])
+        if (blockedVerb === "project-resolve") {
+          expect(result.error.kind, JSON.stringify(result)).toBe(interruption === "caller-cancellation" ? "cancelled" : "timeout")
+          expect(result.error.adapter_reason).toBe(interruption === "caller-cancellation" ? "cancelled_no_effect" : "timeout_no_effect")
+          expect(result.error.effect_state).toBe("none")
+          expect(result.error.retry_safe).toBe(true)
+          expect(result.error.recovery_action.kind).toBe("retry_same_request")
+        } else {
+          expect(result.error.kind).toBe("operation_conflict")
+          expect(result.error.adapter_reason).toBe("unknown_effect")
+          expect(result.error.effect_state).toBe("possible")
+          expect(result.error.retry_safe).toBe(false)
+          expect(result.error.recovery_action.kind).toBe("reconcile_operation")
+        }
+        expect(abortedAt).not.toBeNull()
+        expect(abortedAt! - started).toBeLessThan(1_600)
+        expect(new Set(signals).size).toBe(1)
+        expect(signals[0]).not.toBe(controller.signal)
+        expect(signals[0].reason.name).toBe(interruption === "caller-cancellation" ? "AbortError" : "TimeoutError")
+      } finally {
+        adapter.configureConcordAdapter({ reset: true })
+      }
+    })
+  }
+}
+
+for (const blockedRead of [1, 2]) {
+  for (const interruption of ["deadline", "caller-cancellation"] as const) {
+    test(`worker recovery ${interruption} during host context read ${blockedRead} preserves its cause`, async () => {
+      const controller = new AbortController()
+      const signals: AbortSignal[] = []
+      const calls: string[] = []
+      let reads = 0
+      let abortedAt: number | null = null
+      hostControlPlane().bind({
+        get: async ({ signal }) => {
+          signals.push(signal!)
+          signal!.throwIfAborted()
+          if (++reads !== blockedRead) return { data: { id: "session-1", directory: "/worktree" }, response: new Response("{}") }
+          return await new Promise<RouteResult>((resolve, reject) => {
+            const abort = () => { abortedAt = performance.now(); clearTimeout(timer); reject(signal!.reason) }
+            const timer = setTimeout(() => {
+              signal!.removeEventListener("abort", abort)
+              resolve({ data: { id: "session-1", directory: "/worktree" }, response: new Response("{}") })
+            }, 2_000)
+            signal!.addEventListener("abort", abort, { once: true })
+            if (interruption === "caller-cancellation") controller.abort()
+            else if (signal!.aborted) abort()
+          })
+        },
+        post: async () => { throw new Error("context resolution must not create or move a session") },
+      })
+      adapter.configureConcordAdapter({ runner: { async run(argv) {
+        calls.push(argv[1])
+        throw new Error("interrupted host context must stop before core transport")
+      } } })
+      const started = performance.now()
+      try {
+        const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_reconcile", {
+          work_id: "work-1", attempt_id: "attempt-1", task_part_id: "retained-part",
+          idempotency_key: "recover-context-read", requested_budget_seconds: 1,
+        }), contextFor(() => {}, controller)))
+        assertAdapterEnvelope(result)
+        expect(result.error.kind, JSON.stringify(result)).toBe(interruption === "deadline" ? "timeout" : "cancelled")
+        expect(result.error.effect_state).toBe("none")
+        expect(result.error.recovery_action.kind).toBe("retry_same_request")
+        expect(calls).toEqual([])
+        expect(new Set(signals).size).toBe(1)
+        expect(abortedAt).not.toBeNull()
+        expect(abortedAt! - started).toBeLessThan(1_600)
+      } finally {
+        adapter.configureConcordAdapter({ reset: true })
+      }
+    })
+  }
+}
+
+test("worker recovery deadline keeps its identity when the default runner kills a context child", async () => {
+  const root = await mkdtemp(join(tmpdir(), "concord-context-deadline-"))
+  const binary = join(root, "synthetic-core")
+  await Bun.write(binary, "#!/usr/bin/env bun\nawait new Promise(resolve => setTimeout(resolve, 2_000))\n")
+  await chmod(binary, 0o700)
+  configureCoreBinary(binary)
+  adapter.configureConcordAdapter({ reset: true })
+  const started = performance.now()
+  try {
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_reconcile", {
+      work_id: "work-1", attempt_id: "attempt-1", task_part_id: "retained-part",
+      idempotency_key: "recover-default-runner", requested_budget_seconds: 1,
+    }), contextFor()))
+    assertAdapterEnvelope(result)
+    expect(result.error.kind, JSON.stringify(result)).toBe("timeout")
+    expect(result.error.effect_state).toBe("none")
+    expect(result.error.recovery_action.kind).toBe("retry_same_request")
+    expect(performance.now() - started).toBeLessThan(1_600)
+  } finally {
+    configureCoreBinary("concord")
+    adapter.configureConcordAdapter({ reset: true })
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("worker recovery bounds a cooperative two-second host read with one caller deadline", async () => {
+  const lane = (await import("./generated-agent-lanes")).agentLanes[0]
+  const directory = process.cwd()
+  const recovery = {
+    packet_digest: "sha256:" + "a".repeat(64), worker_worktree: directory,
+    coordinator_session: "session-1", attempt_epoch: 1,
+    dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
+    dispatch: {
+      attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
+      lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),
+      capability_class: lane.capability_class, packet_schema_version: "1.0", report_schema_version: "1.0",
+      readback_model: "openai/test-model",
+      host_provenance: { digest: "sha256:" + "b".repeat(64), sources: [{ kind: "agent_definition", path: "synthetic-agent.md", sha256: "sha256:" + "c".repeat(64) }] },
+    },
+  }
+  const response = coreEnvelope("concord_work_transition", "worker_reconcile", "ok", {
+    result: { changed_refs: [], next_valid_intents: [], worker_recovery: recovery },
+    changed_refs: [], next_valid_intents: [],
+  })
+  const signals: AbortSignal[] = []
+  const evidence: string[] = []
+  let readStarted = false
+  let abortedAt: number | null = null
+  hostControlPlane().bind({
+    get: async ({ url, signal }) => {
+      if (url !== SESSION_MESSAGES_ROUTE) return { data: { id: "session-1", directory }, response: new Response("{}") }
+      readStarted = true
+      return await new Promise<RouteResult>((resolve, reject) => {
+        const abort = () => { abortedAt = performance.now(); clearTimeout(timer); reject(signal!.reason) }
+        const timer = setTimeout(() => { signal!.removeEventListener("abort", abort); resolve({ data: [], response: new Response("[]") }) }, 2_000)
+        signal!.addEventListener("abort", abort, { once: true })
+        if (signal!.aborted) abort()
+      })
+    },
+    post: async () => { throw new Error("recovery must not move or create a session") },
+  })
+  adapter.configureConcordAdapter({ runner: { async run(argv, _input, signal) {
+    signals.push(signal)
+    if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse(false)), stderr: "" }
+    if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(response), stderr: "" }
+    evidence.push(argv[1])
+    throw new Error("deadline must stop before worker evidence")
+  } } })
+  const started = performance.now()
+  try {
+    const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_reconcile", {
+      work_id: "work-1", attempt_id: "attempt-1", task_part_id: "retained-part",
+      idempotency_key: "recover-deadline", requested_budget_seconds: 1,
+    }), contextFor(() => {}, new AbortController(), directory)))
+    expect(result.error.kind, JSON.stringify(result)).toBe("timeout")
+    expect(readStarted).toBe(true)
+    expect(result.error.effect_state).toBe("none")
+    expect(abortedAt).not.toBeNull()
+    expect(abortedAt! - started).toBeLessThan(1_600)
+    expect(new Set(signals).size).toBe(1)
+    expect(evidence).toEqual([])
+  } finally {
+    adapter.configureConcordAdapter({ reset: true })
+  }
 })
 
 test("every declared query id passes the generated envelope contract", () => {
@@ -3331,6 +3531,32 @@ test("worker_abandon routes through the signed worker-abandon command", async ()
 // abandoned-attempt receipt is the named reconciliation route, so an ok abandon
 // must release the retained record and both an abandon accepted now and a
 // replay answered already terminal must land there.
+test("an uncertain durable abandonment reports a possible effect and heals on retry", async () => {
+  let abandonExit = 1
+  const abandonStderr = "store: durable_commit: unavailable: synthetic commit IO error"
+  adapter.configureConcordAdapter({
+    credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+    runner: { async run(argv) {
+      if (argv[1] === "worker-abandon") return abandonExit === 1 ? { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: ["abandon-1"], error: { kind: "unavailable", operation: "durable_commit", retry_safe: true, effect_state: "possible", message: abandonStderr } }), stderr: abandonStderr } : { exitCode: 0, stdout: "", stderr: "" }
+      if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (argv[1] === "invoke") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "worker_abandon", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })), stderr: "" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  const input = { work_id: "work-1", attempt_id: "attempt-1", lane_id: "implement", detail: "the worker session ended", idempotency_key: "worker-abandon-durability-1" }
+  const pending: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(pending.outcome).toBe("error")
+  expect(pending.error.effect_state).toBe("possible")
+  expect(pending.error.recovery_action.kind).toBe("retry_same_request")
+  expect(pending.error.message).toContain("durable_commit")
+  expect(pending.error.message).not.toContain("remains open")
+  // The retry reaches a CLI exit 0, so the recorded envelope flows through
+  // the receipt replay and the abandonment settles.
+  abandonExit = 0
+  const settled: any = await rawHostResult(adapter.work_transition.execute(hostCall("worker_abandon", input), contextFor()))
+  expect(settled.outcome).toBe("ok")
+})
+
 test.each([false, true])("an ok worker_abandon releases its exact authorization (Task consumed=%s)", async (consumed) => {
   bindSessionRoutes({ sessions: [{ id: "ses_other", directory: "/elsewhere" }] })
   const windows = dispatchWindows()
@@ -3682,7 +3908,7 @@ test("an occupancy refusal naming a foreign holder keeps the unchanged refusal",
   expect(result.outcome).toBe("error")
   expect(result.error.kind).toBe("operation_conflict")
   expect(result.error.adapter_reason).toBe("worker_abandon_refused")
-  expect(result.error.details.abandon_error_message).toBe(`worker attempt remains open because abandonment could not be recorded: ${foreignRefusal}`)
+  expect(result.error.details.abandon_error_message).toBe(foreignRefusal)
   expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
   // Only the one refused CLI abandon ran: no vacate, no retry, no receipt.
   expect(calls).toEqual(["worker-abandon"])
@@ -3824,7 +4050,7 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(result.outcome).toBe("error")
   expect(result.error.effect_state).toBe("possible")
   expect(result.error.details.recovery_stopped_at).toBe("worker_abandon_retry")
-  expect(result.error.details.recovery_error_message).toBe(`worker attempt remains open because abandonment could not be recorded: ${ownRowRefusal}`)
+  expect(result.error.details.recovery_error_message).toBe(ownRowRefusal)
   expect(validateGeneratedEnvelope(result), `${envelopeFailurePath(result)}: ${JSON.stringify(result)}`).toBe(true)
   const steps = result.error.details.recovery_steps as string[]
   expect(steps[0]).toContain("session_vacate:")

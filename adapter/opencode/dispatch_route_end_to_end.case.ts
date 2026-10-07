@@ -18,6 +18,7 @@ import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
+import { contractOperations } from "./generated-contracts"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 
 const PRODUCT_ID = "product-e2e"
@@ -293,7 +294,7 @@ async function driveWorkflowToContract(
 ): Promise<void> {
   const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
-  expect(response.outcome).toBe("ok")
+  expect(response.outcome, JSON.stringify(response)).toBe("ok")
   response = await transition(7, "record_alignment", "e2e-alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
   expect(response.outcome).toBe("ok")
   response = await transition(9, "record_root_cause", "e2e-root-cause", {})
@@ -524,6 +525,211 @@ routeDeclaration("dispatches a real store route through Task completion and work
     else process.env.OPENCODE_CONFIG = previousConfig
   }
 }, 120_000)
+
+const RECOVERY_PROCESS = `
+import { configureConcordAdapter, work_transition } from "./adapter/opencode/concord.ts";
+import { configureCoreBinary } from "./adapter/opencode/dispatch.ts";
+import { hostControlPlane, SESSION_ROUTE, SESSION_MESSAGES_ROUTE } from "./adapter/opencode/move-session.ts";
+import { dispatchWindows } from "./adapter/opencode/dispatch-window.ts";
+const fixture = await new Response(Bun.stdin).json();
+let abortedAt = null;
+let abortedPhase = null;
+let preparationInvoked = false;
+let evidenceAcknowledged = false;
+const coreCommands = [];
+const observedSignals = new Set();
+const observeSignal = (signal) => {
+  if (observedSignals.has(signal)) return;
+  observedSignals.add(signal);
+  signal.addEventListener("abort", () => { abortedAt ??= performance.now(); }, { once: true });
+};
+const delay = (milliseconds, signal, phase) => new Promise((resolve, reject) => {
+  const abort = () => { abortedAt ??= performance.now(); abortedPhase ??= phase; clearTimeout(timer); reject(signal.reason); };
+  const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, milliseconds);
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) abort();
+});
+configureCoreBinary(fixture.binary);
+if (dispatchWindows().inFlightAttempt(fixture.sessionID)) throw new Error("restart fixture must have no retained in-memory dispatch");
+hostControlPlane().bind({
+  get: async ({ url, path, signal }) => {
+    observeSignal(signal);
+    if (fixture.hostReadDelayMs && url === SESSION_MESSAGES_ROUTE && path.id === fixture.sessionID) await delay(fixture.hostReadDelayMs, signal, "host_proof_read");
+    const session = path.id === fixture.sessionID ? fixture.parent : fixture.child;
+    if (url === SESSION_ROUTE) return { data: session.info, response: new Response(null, { status: 200 }) };
+    if (url === SESSION_MESSAGES_ROUTE) return { data: session.messages, response: new Response("[]", { status: 200 }) };
+    throw new Error("unexpected host route");
+  },
+  post: async () => { throw new Error("recovery must not spawn or move a host session") },
+});
+configureConcordAdapter({
+  credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
+  runner: { async run(argv, input, signal) {
+    observeSignal(signal);
+    const command = argv[1];
+    coreCommands.push(command);
+    let phase;
+    if (command === "project-resolve") phase = evidenceAcknowledged ? "receipt_read" : preparationInvoked ? "reconciliation_read" : "context_read";
+    else if (command === "invoke") {
+      const call = JSON.parse(input);
+      phase = call.tool === "concord_work_browse" ? "reconciliation_read" : evidenceAcknowledged ? "receipt_read" : "mutation_transport";
+    } else if (command === "worker-dispatch" || command === "worker-complete") phase = "mutation_transport";
+    else throw new Error("unexpected recovery core command: " + command);
+    if (signal.aborted) throw signal.reason;
+    if (fixture.contextReadDelayMs && phase === "context_read") await delay(fixture.contextReadDelayMs, signal, phase);
+    if (command === "invoke" && phase === "mutation_transport") preparationInvoked = true;
+    const child = Bun.spawn([fixture.binary, ...argv.slice(1)], { env: { ...process.env, CONCORD_DB_PATH: fixture.dbPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const abort = () => { abortedAt ??= performance.now(); abortedPhase ??= phase; child.kill(); };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal.aborted) { abort(); throw signal.reason; }
+      await child.stdin.write(input); await child.stdin.end();
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      if (signal.aborted) throw signal.reason;
+      if (command === "worker-complete" && exitCode === 0) evidenceAcknowledged = true;
+      return { stdout, stderr, exitCode };
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  } },
+});
+const started = performance.now();
+const result = await work_transition.execute({ request: fixture.request }, { sessionID: fixture.sessionID, messageID: "recovery-message", agent: "concord-implement", directory: fixture.worktree, worktree: fixture.worktree, abort: new AbortController().signal, metadata() {}, ask: async () => {} });
+console.log(JSON.stringify({ envelope: JSON.parse(result.output), elapsed_ms: performance.now() - started, abort_elapsed_ms: abortedAt === null ? null : abortedAt - started, aborted_phase: abortedPhase, signal_count: observedSignals.size, core_commands: coreCommands }));
+`
+
+for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
+  routeDeclaration(`recovers a lost ${blockedVerb} acknowledgement with a pinned reader after adapter process restart`, async () => {
+    const root = await fixtureTempRoot("dispatch-recovery")
+    const previousConfig = process.env.OPENCODE_CONFIG
+    let reader: Database | undefined
+    try {
+      const { binary, dbPath, configPath, workID, worktree, lane } = await bootRouteFixture(root)
+      process.env.OPENCODE_CONFIG = configPath
+      const context = contextFor(worktree)
+      let metadata: JSONRecord = {}
+      let packet: JSONRecord | null = null
+      hostControlPlane().bind({
+        get: async ({ url, path }) => {
+          if (url === SESSION_MESSAGES_ROUTE) return { data: JSON.parse(exportedSession(packet)).messages, response: new Response("[]", { status: 200 }) }
+          return { data: { id: path?.id, directory: worktree, metadata, ...(path?.id === "worker-session" ? { parentID: SESSION_ID } : {}) }, response: new Response(null, { status: 200 }) }
+        },
+        patch: async () => { metadata = { [MANAGED_TASK_SCOPE_KEY]: "managed" }; return { response: new Response(null, { status: 200 }) } },
+        post: async () => { throw new Error("dispatch must not change the host session") },
+      })
+      const calls: Array<{ argv: string[]; input: JSONRecord }> = []
+      const baseRunner = realStoreRunner(binary, dbPath, calls, worktree)
+      let blocked = false
+      const runner: DispatchRunner = { async run(argv, input, signal) {
+        const loseAcknowledgement = !blocked && argv[1] === blockedVerb
+        if (loseAcknowledgement) {
+          blocked = true
+          reader = new Database(dbPath, { readonly: true })
+          reader.exec("BEGIN")
+          reader.query("SELECT count(*) FROM domain_events").get()
+        }
+        const result = await baseRunner.run(argv, input, signal)
+        if (loseAcknowledgement) {
+          expect(result.exitCode, result.stderr).toBe(0)
+          // The real FULL commit succeeded. Only its host acknowledgement is
+          // lost; this fixture does not claim to inject a filesystem sync fault.
+          return { exitCode: 1, stdout: "", stderr: "synthetic lost worker-evidence acknowledgement" }
+        }
+        return result
+      } }
+      configureConcordAdapter({ runner })
+      const invoke = (toolName: string, args: any, callContext: any) => invokeConcordOperation(toolName, args, callContext)
+      await driveWorkflowToContract(workID, invoke, context)
+      const windows = new DispatchWindows()
+      const credentials = { async getPrivateKey() { return PRIVATE_SEED } }
+      const dispatch = await dispatchLaneWorker({ work_id: workID, expected_version: 12, idempotency_key: "recovery-dispatch", lane_id: lane.id }, { context, invoke, credentials, windows })
+      expect(dispatch.outcome, JSON.stringify(dispatch)).toBe("ok")
+      const taskArgs: JSONRecord = {}
+      let nativeTaskCalls = 0
+      await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, "recovery-task-call", async () => worktree, worktree)
+      nativeTaskCalls++
+      packet = JSON.parse(taskArgs.prompt)
+      const report = { schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
+      const output = { title: "task", output: taskResult(report), metadata: {} }
+      await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "recovery-task-call", args: taskArgs }, output, { windows, credentials, runner, concordBinary: binary })
+      const pending = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
+      expect(pending.outcome).toBe("error")
+      expect(pending.error.details.effect_state).toBe("unknown")
+      expect(windows.inFlightAttempt(SESSION_ID)).not.toBeNull()
+      const before = dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")
+      expect(before.map((event) => event.kind)).toEqual(blockedVerb === "worker-dispatch" ? ["worker.dispatched"] : ["worker.dispatched", "worker.completed"])
+      const child = JSON.parse(exportedSession(packet))
+      child.info = { id: "worker-session", parentID: SESSION_ID, directory: worktree }
+      child.messages[child.messages.length - 1].parts = [{ type: "text", text: JSON.stringify(report) }]
+      const fixture = { binary, dbPath, worktree, sessionID: SESSION_ID, parent: { info: { id: SESSION_ID, directory: worktree, metadata }, messages: [{ info: { id: MESSAGE_ID, sessionID: SESSION_ID, role: "assistant" }, parts: [{ id: "retained-task-part", sessionID: SESSION_ID, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: taskArgs, output: output.output } }] }] }, child, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: packet!.attempt_id, task_part_id: "retained-task-part", idempotency_key: "recover-original-report" } } }
+      const recover = async (body: JSONRecord = fixture) => {
+        const result = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify(body), join(import.meta.dir, "..", ".."))
+        expect(result.exitCode, result.stderr).toBe(0)
+        return JSON.parse(result.stdout)
+      }
+      const declaration = contractOperations.find((operation) => operation.id === "concord_work_transition.worker_reconcile")!
+      const { envelope: refusedBudget } = await recover({ ...fixture, request: { ...fixture.request, input: { ...fixture.request.input, idempotency_key: "recover-original-report-over-budget", requested_budget_seconds: declaration.supported_budget_seconds + 1 } } })
+      expect(refusedBudget.outcome, JSON.stringify(refusedBudget)).toBe("error")
+      expect(refusedBudget.error.kind, JSON.stringify(refusedBudget)).toBe("budget_refused")
+      expect(refusedBudget.error.effect_state).toBe("none")
+      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      const contextDeadline = await recover({
+        ...fixture,
+        contextReadDelayMs: 2_000,
+        request: { ...fixture.request, input: { ...fixture.request.input, idempotency_key: "recover-context-deadline", requested_budget_seconds: 1 } },
+      })
+      expect(contextDeadline.envelope.error.kind, JSON.stringify(contextDeadline)).toBe("timeout")
+      expect(contextDeadline.envelope.error.effect_state).toBe("none")
+      expect(contextDeadline.envelope.error.recovery_action.kind).toBe("retry_same_request")
+      expect(contextDeadline.aborted_phase).toBe("context_read")
+      expect(contextDeadline.core_commands).toEqual(["project-resolve"])
+      expect(contextDeadline.signal_count).toBe(1)
+      expect(contextDeadline.abort_elapsed_ms).not.toBeNull()
+      expect(contextDeadline.abort_elapsed_ms).toBeLessThan(1_600)
+      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      const { envelope: expired, abort_elapsed_ms: elapsed, aborted_phase: phase, signal_count: signalCount } = await recover({
+        ...fixture,
+        hostReadDelayMs: 2_000,
+        request: {
+          ...fixture.request,
+          input: { ...fixture.request.input, idempotency_key: "recover-original-report-deadline", requested_budget_seconds: 1 },
+        },
+      })
+      expect(expired.outcome, JSON.stringify(expired)).toBe("error")
+      expect(["context_read", "host_proof_read", "mutation_transport", "reconciliation_read", "receipt_read"]).toContain(phase)
+      if (phase === "context_read" || phase === "host_proof_read") {
+        expect(expired.error.kind, JSON.stringify(expired)).toBe("timeout")
+        expect(expired.error.effect_state).toBe("none")
+      } else {
+        expect(expired.error.kind, JSON.stringify(expired)).toBe("operation_conflict")
+        expect(expired.error.effect_state).toBe("possible")
+        expect(expired.error.recovery_action.kind).toBe(phase === "receipt_read" ? "retry_same_request" : "reconcile_operation")
+      }
+      expect(signalCount).toBe(1)
+      expect(elapsed).not.toBeNull()
+      expect(elapsed).toBeLessThan(1_600)
+      expect(dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")).toEqual(before)
+      await Bun.write(configPath, JSON.stringify({ instructions: ["https://example.invalid/changed-after-worker"] }))
+      for (let repeat = 0; repeat < 3; repeat++) {
+        const { envelope: receipt } = await recover()
+        expect(receipt.outcome, JSON.stringify(receipt)).toBe("ok")
+        expect(receipt.result.worker_recovery.lifecycle_state).toBe("completed")
+      }
+      const after = dbRows(dbPath, "SELECT event_id,kind,payload FROM domain_events WHERE kind IN ('worker.dispatched','worker.completed','worker.failed') ORDER BY seq")
+      expect(after.map((event) => event.kind)).toEqual(["worker.dispatched", "worker.completed"])
+      expect(after.slice(0, before.length)).toEqual(before)
+      expect(nativeTaskCalls).toBe(1)
+      expect(dbValue(dbPath, "SELECT count(*) AS n FROM worker_attempts").n).toBe(1)
+      expect(dbValue(dbPath, "SELECT count(*) AS n FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker'").n).toBe(1)
+    } finally {
+      if (reader) { reader.exec("ROLLBACK"); reader.close() }
+      configureConcordAdapter({ reset: true })
+      hostControlPlane().bind(undefined)
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG
+      else process.env.OPENCODE_CONFIG = previousConfig
+    }
+  }, 120_000)
+}
 
 // Full public dispatch capacity test: an admitted maximum premise —
 // 4096 UTF-8 bytes of ASCII, the full approval limit — approved through the

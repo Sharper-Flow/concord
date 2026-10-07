@@ -835,14 +835,15 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 }
 
 type workerDispatchRequest struct {
-	EventID             string `json:"event_id"`
-	WorkID              string `json:"work_id"`
-	AttemptID           string `json:"attempt_id"`
-	LaneID              string `json:"lane_id"`
-	LaneVersion         int64  `json:"lane_version"`
-	LaneDigest          string `json:"lane_digest"`
-	PacketSchemaVersion string `json:"packet_schema_version"`
-	ReportSchemaVersion string `json:"report_schema_version"`
+	AuthorizedPacket    json.RawMessage               `json:"authorized_packet,omitempty"`
+	EventID             string                        `json:"event_id"`
+	WorkID              string                        `json:"work_id"`
+	AttemptID           string                        `json:"attempt_id"`
+	LaneID              string                        `json:"lane_id"`
+	LaneVersion         int64                         `json:"lane_version"`
+	LaneDigest          string                        `json:"lane_digest"`
+	PacketSchemaVersion string                        `json:"packet_schema_version"`
+	ReportSchemaVersion string                        `json:"report_schema_version"`
 	// PacketDigest is the canonical lane-packet digest the dispatch_worker
 	// authorization recorded on its completion. CD-0067 D6 makes the
 	// adapter quote this value on its signed assertion; the store gate
@@ -980,6 +981,13 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			return 1
 		}
 		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail}
+		if len(request.AuthorizedPacket) != 0 {
+			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
+				writeOperatorDiagnostic(errOut, command, err.Error())
+				writeWorkerEvidenceFailure(out, errOut, err, nil)
+				return 1
+			}
+		}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: 3, Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-complete":
 		var request workerCompleteRequest
@@ -1035,18 +1043,9 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 	return 2
 }
 
-// applyWorkerEvidence authenticates the assertion, resolves the stored attempt
-// for the two result verbs, and appends the evidence — all inside one
-// transaction. Authorization that committed without its evidence, or evidence
-// that committed without its authorization, would both be defects.
-//
-// CD-0059 D5: dispatch evidence also enforces an authorized, unconsumed
-// dispatch window for (work_id, current_step). One authorization admits
-// exactly one attempt; a worker spawned outside the registered action is
-// refused at the evidence boundary, so lane work outside the adapter is
-// visible as absent evidence rather than as an indistinguishable attempt.
-// The integrity check sits beside the existing capability, signature, and
-// nonce checks so a worker that fails any one boundary fails consistently.
+// applyWorkerEvidence authenticates and consumes a fresh assertion in the
+// same durable transaction as new evidence or an exact existing-event match.
+// A match appends nothing and consumes no second dispatch authorization.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
 	// CD-0179 D3: an abandoned close releases a legacy occupancy row only on
 	// the lease-set proof, so the verb reads the live host lease set before
@@ -1057,20 +1056,9 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	}
 	var eventIDs []string
 	err := s.TransactDurable(ctx, func(tx *store.Transaction) error {
-		if command == "worker-abandon" {
-			existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
-			if lookupErr != nil {
-				return lookupErr
-			}
-			if found {
-				var prior store.WorkerFailedPayload
-				var requested store.WorkerFailedPayload
-				if existing.Kind != store.WorkerFailed || existing.SubjectType != store.SubjectWorkItem || existing.SubjectID != event.SubjectID || json.Unmarshal(existing.Payload, &prior) != nil || json.Unmarshal(event.Payload, &requested) != nil || prior.AttemptID != binding.AttemptID || prior.FailureKind != store.WorkerFailureAbandoned || prior.Detail != requested.Detail {
-					return errors.New("worker abandonment event identity conflicts with an existing event")
-				}
-				eventIDs = []string{existing.EventID}
-				return nil
-			}
+		existing, found, lookupErr := store.EventByIDTx(ctx, tx, event.EventID)
+		if lookupErr != nil {
+			return lookupErr
 		}
 		if binding.Verb != agent.WorkerEvidenceVerbDispatch {
 			attempt, err := store.WorkerAttemptByIDTx(ctx, tx, binding.AttemptID)
@@ -1080,14 +1068,14 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			if attempt.WorkID != binding.WorkID {
 				return errors.New("worker attempt belongs to a different work item")
 			}
-			if store.WorkerAttemptIsTerminal(attempt) {
+			if store.WorkerAttemptIsTerminal(attempt) && !found {
 				return errors.New("worker attempt already reached a terminal outcome")
 			}
 			binding.LaneID = attempt.LaneID
 			binding.LaneVersion = attempt.LaneVersion
 			binding.LaneDigest = attempt.LaneDigest
 		}
-		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
+		if binding.Verb == agent.WorkerEvidenceVerbDispatch && !found {
 			// The dispatch window integrity check runs after the attempt
 			// lookup (a no-op for dispatch) and before the assertion
 			// validation: a worker that fails this gate cannot consume a
@@ -1103,6 +1091,23 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			return err
 		}
 		event.Actor = "client:" + assertion.ClientRef + ":" + principal
+		if found {
+			if err := store.ValidateWorkerEvidenceReplayWindow(ctx, tx, binding.WorkID, binding.AttemptID, binding.PacketDigest); err != nil {
+				return err
+			}
+			if binding.Verb == agent.WorkerEvidenceVerbDispatch && existing.PayloadVersion == 4 {
+				prepared, err := store.PrepareLaneActorDispatch(ctx, tx, event, "principal:"+principal, "client:"+assertion.ClientRef)
+				if err != nil {
+					return err
+				}
+				event = prepared[len(prepared)-1]
+			}
+			if !sameWorkerEvidence(existing, event) {
+				return errors.New("worker evidence event identity conflicts with an existing event")
+			}
+			eventIDs = []string{existing.EventID}
+			return nil
+		}
 		if binding.Verb == agent.WorkerEvidenceVerbDispatch {
 			// Issue #800 / CD-0017 D4: the dispatched lane is the step's
 			// executing actor. The actor is recorded and pinned in the same
@@ -1128,6 +1133,14 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	})
 	if err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
+		// An uncertain durable commit can leave the very event a retry will
+		// reconcile. The typed result carries the event identities then, so
+		// the adapter reports a possible effect instead of a bare refusal.
+		var failure *store.Failure
+		if !errors.As(err, &failure) || !failure.EffectPossible {
+			eventIDs = nil
+		}
+		writeWorkerEvidenceFailure(out, errOut, err, eventIDs)
 		return 1
 	}
 	return writeOperatorResult(command, s, eventIDs, nil, out, errOut)

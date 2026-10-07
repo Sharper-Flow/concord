@@ -1318,19 +1318,62 @@ test("a run whose evidence cannot be recorded is not reported as a success", asy
   expect(result.error?.message).toBe("evidence write refused")
 })
 
+// A typed refusal that names no effect state — an unknown transport, a
+// malformed result, or a precommit refusal that is not about the report
+// payload itself — never becomes an invalid-report terminal assertion.
+test.each([
+  { name: "unknown transport", stdout: "", effect: "unknown" },
+  { name: "malformed typed result", stdout: JSON.stringify({ ok: false, event_ids: [], unexpected: true, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "untrusted malformed result" } }), effect: "unknown" },
+  { name: "retry-safe precommit refusal", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "unavailable", operation: "transaction", retry_safe: true, effect_state: "none", message: "writer admission refused" } }), effect: "none" },
+  { name: "non-report authority refusal", stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "unauthorized_dispatch", operation: "worker_evidence", retry_safe: false, effect_state: "none", message: "different authorized work" } }), effect: "none" },
+])("a $name never becomes an invalid-report failure", async ({ stdout, effect }) => {
+  const calls: string[] = []
+  const result = await complete(workerBody(), { evidenceRunner: { async run(argv) {
+    calls.push(argv[1])
+    return argv[1] === "worker-complete" ? { exitCode: 1, stdout, stderr: "completion refused" } : { exitCode: 0, stdout: "", stderr: "" }
+  } } })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.details?.effect_state).toBe(effect)
+  expect(calls).toEqual(["worker-dispatch", "worker-complete"])
+})
+
+// CON-842: a worker-complete refusal whose typed result carries an unbounded
+// effect state — the completion may have committed — must surface that
+// uncertainty to the coordinator. Closing it with worker-fail records a
+// terminal precommit failure assertion against an attempt that may have
+// completed, and the invalid_report envelope sends reconciliation down the
+// wrong path. The durability boundary is the durable commit (CD-0207), so
+// the typed refusal names that operation.
+test("a committed completion with a possible durability effect is never changed into worker-fail", async () => {
+  const verbs: string[] = []
+  const result = await complete(workerBody(), {
+    evidenceRunner: { async run(argv) {
+      verbs.push(argv[1])
+      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: ["complete-1"], error: { kind: "unavailable", operation: "durable_transaction", retry_safe: true, effect_state: "possible", message: "the durable commit could not be confirmed" } }), stderr: "completion write refused" }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } },
+  })
+  expect(verbs.filter((verb) => verb.startsWith("worker-"))).toEqual(["worker-dispatch", "worker-complete"])
+  expect(result.outcome).toBe("error")
+  const details = (result.error?.details ?? {}) as Record<string, unknown>
+  expect(details.effect_state).toBe("possible")
+  expect(result.error?.kind).not.toBe("invalid_report")
+})
+
 // A refused completion is reported as an error and closed with worker-fail, so
 // the attempt never stays dispatched. An open attempt blocks every later
 // dispatch on that work item and pins the host session to its worktree. The
 // close is invalid_report carrying the refusal text, not abandoned, so the
 // abandoned liveness gate (CD-0178 D3) cannot block a lane that ran inside the
-// live coordinator process.
-test("a completion that cannot be recorded is closed and not reported as a success", async () => {
+// live coordinator process. Only a precommit refusal about the report payload
+// itself takes this close.
+test("a precommit report-payload refusal is closed and not reported as a success", async () => {
   const verbs: string[] = []
   let failureInput: Record<string, unknown> | undefined
   const result = await complete(workerBody(), {
     evidenceRunner: { async run(argv, input) {
       verbs.push(argv[1])
-      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "worker attempt belongs to a different work item" }
+      if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "worker report leaves lane evidence obligations undischarged" } }), stderr: "invalid report evidence" }
       if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
       return { exitCode: 0, stdout: "", stderr: "" }
     } },
@@ -1338,9 +1381,9 @@ test("a completion that cannot be recorded is closed and not reported as a succe
   expect(verbs.filter((verb) => verb.startsWith("worker-"))).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_report")
-  expect(result.error?.message).toBe("worker-complete refused: worker attempt belongs to a different work item")
+  expect(result.error?.message).toBe("worker-complete refused: worker report leaves lane evidence obligations undischarged")
   expect(failureInput?.failure_kind).toBe("invalid_report")
-  expect(failureInput?.detail).toBe("worker-complete refused: worker attempt belongs to a different work item")
+  expect(failureInput?.detail).toBe("worker-complete refused: worker report leaves lane evidence obligations undischarged")
 })
 
 test("generic host agents are not dispatchable and never spawn or record", async () => {

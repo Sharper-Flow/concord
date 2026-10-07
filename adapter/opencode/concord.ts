@@ -5,8 +5,9 @@ import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeB
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
-import { abandonWorkerAttempt } from "./dispatch"
-import { dispatchWindows, staleReleaseDispatchRefusal } from "./dispatch-window"
+import { abandonWorkerAttempt, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
+import { reconcileRetainedWorker } from "./worker_recovery"
+import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
 import { agentLanes, type AgentLane } from "./generated-agent-lanes"
 import { hostControlPlane, MoveSessionUnavailable } from "./move-session"
 import { createRunSessionObservation, errorEnvelopeForLane, MAX_OUTPUT_BYTES, observeRunSessionLine, readExportSessionMetadata, readRunSessionMetadata, readRunTextParts, runStreamRefusalMessage, runStreamRefusalRecovery, validateAgainstSchema, type AgentResultEnvelope, type RunLineMetadata, type RunSessionObservation } from "./dispatch"
@@ -120,6 +121,7 @@ export async function readChildStdout(stream: ReadableStream<Uint8Array>, onLine
 
 const defaultRunner: ChildRunner = {
   async run(argv, input, signal, options) {
+    signal.throwIfAborted()
     const child = Bun.spawn(argv, {
       stdin: "pipe",
       stdout: "pipe",
@@ -135,6 +137,7 @@ const defaultRunner: ChildRunner = {
     const stderrPromise = new Response(child.stderr).text()
     try {
       const [captured, stderr, exitCode] = await Promise.all([readChildStdout(child.stdout, options?.onStdoutLine, options?.runSessionObservation), stderrPromise, child.exited])
+      signal.throwIfAborted()
       return { exitCode, stdout: captured.stdout, stderr, runSessionObservation: captured.runSessionObservation }
     } catch (error) {
       child.kill()
@@ -369,7 +372,7 @@ function failureEnvelope(toolName: string, operation: string, requestID: string,
   return adapterError(toolName, operation, requestID, "transport_failure", fallbackReason, String(error), "none", "contact_operator")
 }
 
-function runnerFailure(error: unknown, aborted: boolean) {
+function runnerFailure(error: unknown, signal: AbortSignal) {
   if (error instanceof AdapterFailure) return error
   if (error instanceof CoreBinaryUnavailable) return new AdapterFailure("transport_failure", "missing_binary", error.message)
   const name = error instanceof Error ? error.name : ""
@@ -378,8 +381,10 @@ function runnerFailure(error: unknown, aborted: boolean) {
   // child started, whatever the abort signal's state, so it outranks the
   // abort and timeout names.
   if (code === "ENOENT") return new AdapterFailure("transport_failure", "missing_binary", String(error))
-  if (aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
-  if (name === "TimeoutError") return new AdapterFailure("timeout", "timeout_no_effect", String(error), "none", "retry_same_request")
+  // A transport can throw AbortError for a deadline. The shared caller
+  // signal retains the cause even when the transport erases its name.
+  if (name === "TimeoutError" || signal.aborted && signal.reason?.name === "TimeoutError") return new AdapterFailure("timeout", "timeout_no_effect", String(error), "none", "retry_same_request")
+  if (signal.aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
   return new AdapterFailure("transport_failure", "spawn_failure", String(error))
 }
 
@@ -508,8 +513,8 @@ function vacateReplayRecovery(message: string): string {
 // classification: a possible effect with the reconcile recovery, or the
 // session_vacate state-driven replay where no work id can drive a
 // reconciliation (CD-0190 D3).
-function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, aborted: boolean, invokeRan: boolean) {
-  const failure = runnerFailure(error, aborted)
+function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, signal: AbortSignal, invokeRan: boolean) {
+  const failure = runnerFailure(error, signal)
   if ((failure.reason === "missing_binary" && !invokeRan) || !operationIsMutation(toolName, operation)) {
     return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
   }
@@ -530,7 +535,7 @@ async function resolveAmbientContext(context: ToolContext, sessionDirectory: str
   try {
     result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: sessionDirectory, worktree: sessionDirectory }), context.abort)
   } catch (error) {
-    throw runnerFailure(error, context.abort.aborted)
+    throw runnerFailure(error, context.abort)
   }
   if (result.exitCode !== 0) throw new AdapterFailure("transport_failure", "io_failure", result.stderr.slice(0, MAX_STDERR))
   let response
@@ -545,6 +550,7 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
   try {
     return await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
+    if (context.abort.aborted) throw runnerFailure(error, context.abort)
     throw new AdapterFailure("transport_failure", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
   }
 }
@@ -575,7 +581,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   const vacateOperation = toolName === "concord_work_transition" && operation === "session_vacate"
   const outcomeMessage = (message: string) => (vacateOperation ? vacateReplayRecovery(message) : message)
   let result: any
-  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, false) }
+  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -613,7 +619,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
-      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, true) }
+      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
@@ -704,7 +710,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     try {
       result = await run(approvedInput)
     } catch (error) {
-      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort.aborted, false)
+      return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false)
     }
     try { response = singleJSON(result.stdout) } catch (error) {
       if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(String(error)), "possible", "retry_same_request", salvageDetails(result.stdout))
@@ -1289,7 +1295,7 @@ function workStartFailure(error: unknown, target: { product_id: string; project_
 }
 
 async function runWorkStartChild(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions) {
-  try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal.aborted) }
+  try { return await runner.run(argv, input, signal, options) } catch (error) { throw runnerFailure(error, signal) }
 }
 
 // The session opener is host placement (CD-0078 as amended by CD-0182): the
@@ -1416,7 +1422,7 @@ async function openSecondCoordinatorSession(workID: string, projectID: string, d
   try {
     result = await runner.run(argv, "", context.abort, { cwd: context.directory })
   } catch (error) {
-    const failure = runnerFailure(error, context.abort.aborted)
+    const failure = runnerFailure(error, context.abort)
     return workStartError("session_opener_failed", `The session opener could not run: ${failure.message}. Concord does not claim the second session is running. ${command}`, identity, "contact_operator", false, { launch })
   }
   const openerReport = { argv, exit_code: result.exitCode }
@@ -1824,7 +1830,21 @@ export const knowledge = tool({ description: "Concord knowledge", args: argsSche
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
 export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: laneGuarded("concord_work_initiative", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context)) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context)) })
+const guardedWorkTransition = laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context))
+export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
+  const request = hostRequest(args)
+  if (request.operation === "worker_reconcile") {
+    const declaration = contractOperations.find((item) => item.id === "concord_work_transition.worker_reconcile")
+    if (!declaration) throw new Error("worker_reconcile has no generated operation declaration")
+    const seconds = request.input?.requested_budget_seconds
+    // Unsupported values reach core budget admission unchanged. One admitted
+    // signal bounds the host guard, preparation, readback, evidence and receipt.
+    if (typeof seconds === "number" && Number.isSafeInteger(seconds) && seconds >= 1 && seconds <= declaration.supported_budget_seconds) {
+      context = { ...context, abort: AbortSignal.any([context.abort, AbortSignal.timeout(seconds * 1_000)]) }
+    }
+  }
+  return guardedWorkTransition(args, context)
+} })
 export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
@@ -1910,6 +1930,38 @@ async function reportWorktreeRemoval(args: HostToolArgs, context: ToolContext, e
 
 const WORKER_ABANDON_OPERATION = "worker_abandon"
 
+async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
+  const operation = "worker_reconcile"
+  const requestID = `${context.sessionID}-${context.messageID}`
+  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_input", "invalid_worker_reconcile_input", "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key", "none", "correct_request")
+  const input = args.input as { work_id: string; attempt_id: string; task_part_id: string; idempotency_key: string }
+  const key = (phase: string) => `worker-reconcile-${createHash("sha256").update(`${phase}\0${input.idempotency_key}`).digest("hex")}`
+  const prepared = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("prepare") } }, context)
+  if (prepared.outcome !== "ok") return prepared
+  const recovery = (prepared.result as any)?.worker_recovery
+  if (!validateGeneratedPayload("worker_recovery_context", recovery)) return adapterError("concord_work_transition", operation, requestID, "malformed_response", "invalid_worker_recovery_context", "the core supplied no closed original-attempt recovery context", "none", "contact_operator")
+  let result: AgentResultEnvelope
+  try {
+    const mismatch = dispatchDirectoryMismatch(recovery.worker_worktree, await resolveSessionDirectory(context))
+    if (mismatch) throw new Error(mismatch)
+    result = await reconcileRetainedWorker(recovery as WorkerRecoveryContext, input.work_id, input.attempt_id, input.task_part_id, { credentials: credentialsOverride ?? undefined, evidenceRunner: runner, sessionReader: hostSessionReader() ?? undefined, workerDirectory: recovery.worker_worktree }, context.abort)
+  } catch (error) {
+    if (context.abort.aborted) {
+      const kind = context.abort.reason?.name === "TimeoutError" ? "timeout" : "cancelled"
+      return adapterError("concord_work_transition", operation, requestID, kind, "worker_recovery_read_aborted", `retained-report proof read stopped before evidence: ${String(error)}`, "none", "retry_same_request")
+    }
+    return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_recovery_proof_unavailable", `retained-report recovery stopped without accepting evidence: ${String(error)}`, "none", "contact_operator")
+  }
+  if (result.outcome !== "ok") {
+    const effect = result.error?.details?.effect_state
+    return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_reconciliation_pending", result.error?.message ?? "worker reconciliation returned no completion", effect === "none" ? "none" : "possible", result.error?.retry_safe ? "retry_same_request" : "contact_operator")
+  }
+  const receipt = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("receipt") } }, context)
+  if (receipt.outcome !== "ok" || (receipt.result as any)?.worker_recovery?.lifecycle_state !== "completed") return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_reconciliation_receipt_pending", "the worker evidence was acknowledged, but the matching completed-attempt receipt is unavailable", "possible", "retry_same_request")
+  dispatchWindows().releaseRetained(recovery.coordinator_session, input.attempt_id, recovery.dispatch.lane_id)
+  return receipt
+}
+
 function workerAbandonToken(idempotencyKey: string): string {
   return createHash("sha256").update(`concord_work_transition.${WORKER_ABANDON_OPERATION}\0${idempotencyKey}`).digest("hex")
 }
@@ -1991,7 +2043,6 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     credentials: credentialsOverride ?? undefined,
     evidenceRunner: runner,
     abandonEventID: `worker-abandon-${token}`,
-    abandonNonce: token,
   }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
   const message = result.error?.message ?? "worker abandonment returned no diagnostic"
   if (workerAbandonFoundNothingDurable(message)) {
@@ -2010,6 +2061,9 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (ownRowAbandonRefusal(message, context.sessionID)) {
     return recoverOwnRowAbandon(args, context, abandonInput, lane, token, requestID, message)
   }
+  if (result.error?.retry_safe && result.error.details?.effect_state === "possible") {
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_effect_uncertain", `the abandonment has an uncertain effect: ${message}; retry the same worker_abandon to confirm its receipt`, "possible", "retry_same_request")
+  }
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
     if (receipt.outcome === "ok") {
@@ -2017,7 +2071,7 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     }
     return workerAbandonReceiptFailure(requestID, receipt)
   }
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "worker abandonment could not be recorded", "none", "reconcile_operation", { abandon_error_message: message })
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "worker abandonment could not be recorded", result.error?.details?.effect_state === "none" ? "none" : "possible", "reconcile_operation", { abandon_error_message: message })
 }
 
 function workerAbandonReceiptFailure(requestID: string, receipt: CoreConcordEnvelope, steps: string[] = []): HostConcordEnvelope {
@@ -2115,7 +2169,6 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     credentials: credentialsOverride ?? undefined,
     evidenceRunner: runner,
     abandonEventID: `worker-abandon-${token}`,
-    abandonNonce: token,
   }, context.abort, () => { dispatchWindows().releaseRetained(context.sessionID, abandonInput.attempt_id, abandonInput.lane_id) })
   // A recorded abandonment is itself an error envelope — the attempt is
   // closed, so its result is terminal — and marks that outcome with
@@ -2357,6 +2410,7 @@ export const WORKTREE_REMOVAL_OPERATIONS = new Set(["worktree_reclaim", "worktre
 
 async function executeWorkTransition(args: HostToolArgs, context: ToolContext, staleness: ReleaseStaleness | null): Promise<HostConcordEnvelope> {
   if (args?.operation === WORKER_ABANDON_OPERATION) return executeWorkerAbandon(args, context)
+  if (args?.operation === "worker_reconcile") return executeWorkerReconcile(args, context)
   if (WORKTREE_REMOVAL_OPERATIONS.has(args?.operation)) {
     const envelope = await invokeConcordOperation("concord_work_transition", args, context)
     await reportWorktreeRemoval(args, context, envelope)

@@ -1,0 +1,61 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority",
+    "operator-surface",
+    "workflow-engine"
+  ],
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-eee5ffe324a3c303eab87703",
+    "tier": "legislated"
+  },
+  "date": "2026-10-06T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "cmd/concord/worker_evidence_reconcile.go",
+    "cmd/concord/worker_reconcile_test.go",
+    "internal/store/worker_recovery.go",
+    "internal/store/worker_recovery_test.go",
+    "internal/store/durable_failure_test.go",
+    "internal/agent/worker_reconcile.go",
+    "adapter/opencode/worker_recovery.ts",
+    "adapter/opencode/worker_recovery.test.ts",
+    "adapter/opencode/concord.test.ts",
+    "adapter/opencode/dispatch_route_end_to_end.test.ts"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0208",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0044"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0059"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0067"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0208-exact-worker-evidence-acknowledgment.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3739a617f5daf5126913ee0fcf7292354019d2e71067c8dac0fa24005ce474b2",
+  "status": "accepted",
+  "summary": "A fresh currently authenticated assertion can acknowledge an exact existing worker event without another evidence append. The nonce and match share the consequential FULL transaction; terminal outcomes, original packet/provenance/model identity and consumed execution authorization remain immutable. Retained completed-Task recovery uses original trusted host proof, refuses failed attempts, and keeps one caller deadline. Uncertain commits require reconciliation rather than a success or no-effect claim. Original event identifiers bound recovery; random-ID failure paths remain separate follow-up scope.",
+  "tags": [
+    "worker-evidence",
+    "authentication",
+    "recovery",
+    "durability"
+  ],
+  "title": "Exact worker-evidence acknowledgment appends no new evidence"
+}

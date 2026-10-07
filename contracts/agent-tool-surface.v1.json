@@ -104,6 +104,7 @@
         "concord_work_transition.remove",
         "concord_work_transition.workflow_action",
         "concord_work_transition.worker_abandon",
+        "concord_work_transition.worker_reconcile",
         "concord_work_transition.worktree_claim",
         "concord_work_transition.session_vacate",
         "concord_work_transition.project_handoff_record",
@@ -1039,6 +1040,27 @@
         ]
       },
       "supported_budget_seconds": 30
+    },
+    {
+      "id": "concord_work_transition.worker_reconcile",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_worker_reconcile_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "recovery",
+      "approval": "none",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
     },
     {
       "id": "concord_work_transition.worker_abandon",
@@ -2102,6 +2124,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_abandon_input",
       "closed": true
     },
+    "work_transition_worker_reconcile_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worker_reconcile_input",
+      "closed": true
+    },
     "work_transition_worktree_audit_reclaim_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_worktree_audit_reclaim_input",
       "closed": true
@@ -2215,6 +2241,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:a3ca6d1010e099ebcaf396f58b59359c4674301a15b52fef49fc660a2625c41d",
-  "digest": "sha256:6d32c05db7d74465326b74f70df59b0ce9463395930332c2d366bf914ec12d79"
+  "payload_digest": "sha256:fdd89618d79624d3cdede044c2fc2c1b2a69e2432f89017ab3466884c496f501",
+  "digest": "sha256:8546b132775ba1b0b6434725304c107bbc2c2a7f255d028c0d1d81962de583ae"
 }

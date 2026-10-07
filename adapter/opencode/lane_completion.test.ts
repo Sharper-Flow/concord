@@ -279,7 +279,7 @@ describe("completeDispatchedWorker", () => {
   // invalid_report carrying the refusal text, not abandoned, so the abandoned
   // liveness gate (CD-0178 D3) cannot block a lane that ran inside the live
   // coordinator process.
-  test("a refused completion is closed with worker-fail", async () => {
+  test("a precommit invalid report is closed with worker-fail", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
     await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
@@ -290,7 +290,7 @@ describe("completeDispatchedWorker", () => {
         if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
         if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
         verbs.push(argv[1])
-        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "store: worker_dispatch: unauthorized_dispatch: refused" }
+        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "invalid report evidence" } }), stderr: "invalid report evidence" }
         if (argv[1] === "worker-fail") failureInput = JSON.parse(input) as Record<string, unknown>
         return { exitCode: 0, stdout: "", stderr: "" }
       },
@@ -305,18 +305,60 @@ describe("completeDispatchedWorker", () => {
     })
     expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
     expect(failureInput?.failure_kind).toBe("invalid_report")
-    expect(failureInput?.detail).toBe("worker-complete refused: store: worker_dispatch: unauthorized_dispatch: refused")
+    expect(failureInput?.detail).toBe("worker-complete refused: invalid report evidence")
     // worker-fail carries no host session observation; the close names no
     // observed sessions (CD-0178 D3).
     expect(failureInput?.observed_session_directories).toBeUndefined()
     expect(output.output).toContain("worker-complete refused")
     expect(output.output).toContain('"kind":"invalid_report"')
+    // CD-0044 D4 terminal finality: the worker-fail close that landed is the
+    // attempt's terminal outcome, so the window record releases and the next
+    // dispatch can open instead of retaining a settled attempt.
+    expect(windows.inFlight(SESSION, "call-refused")).toBeNull()
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
+  })
+
+  // The other edge of terminal finality: a close whose worker-fail write was
+  // refused recorded nothing terminal, so the record stays retained for the
+  // worker_reconcile recovery the refusal names. A false release here would
+  // strand a dispatched attempt with no settle left to wait for.
+  test("a refused worker-fail close retains the in-flight record for recovery", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
+    const verbs: string[] = []
+    const runner: DispatchRunner = {
+      async run(argv) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+        verbs.push(argv[1])
+        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "invalid report evidence" } }), stderr: "invalid report evidence" }
+        if (argv[1] === "worker-fail") return { exitCode: 1, stdout: "", stderr: "write unavailable" }
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-refused-close", args: {} }, output, {
+      windows,
+      credentials: testCredentials,
+      runner,
+      sessionReader: readerFor(exportedSession()),
+      concordBinary: "concord",
+    })
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete", "worker-fail"])
+    expect(output.output).toContain("the attempt stays open because its failure could not be recorded: write unavailable")
+    expect(windows.inFlight(SESSION, "call-refused-close")).not.toBeNull()
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).toThrow()
+    // The refusal names the recovery route, and the retained record releases
+    // only to that attempt's identity.
+    expect(windows.releaseRetained(SESSION, packet().attempt_id, lane.id)).toBe(true)
+    expect(() => windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())).not.toThrow()
   })
 
   // CD-0178 D3: completion never reads host liveness, so a refused
   // completion closes with worker-fail whatever the host session index
   // serves — even a failing one.
-  test("a refused completion is closed with worker-fail without reading host liveness", async () => {
+  test("a precommit invalid report is closed with worker-fail without reading host liveness", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
     await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
@@ -325,7 +367,7 @@ describe("completeDispatchedWorker", () => {
       async run(argv) {
         if (argv[1] === "session") throw new Error("the session index must not be read")
         verbs.push(argv[1])
-        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: "", stderr: "completion refused" }
+        if (argv[1] === "worker-complete") return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: null, error: { kind: "invalid_payload", operation: "fold_event", retry_safe: false, effect_state: "none", message: "completion refused" } }), stderr: "completion refused" }
         return { exitCode: 0, stdout: "", stderr: "" }
       },
     }
@@ -764,7 +806,8 @@ describe("spawn failure without a part event", () => {
     const options = deps(verbs, windows)
     options.runner = { async run() { return { exitCode: 1, stdout: "", stderr: "write unavailable" } } }
     const result = await failDispatchedWorker(spawnFailureEvent(), options)
-    expect(result?.error?.message).toContain("worker attempt remains open because abandonment could not be recorded")
+    expect(result?.error?.message).toBe("write unavailable")
+    expect(result?.error?.details?.effect_state).toBe("unknown")
     expect(windows.inFlightAttempt(SESSION)).not.toBeNull()
     // The settlement claim released with the record retained, so the named
     // worker_abandon route still releases the retained attempt.

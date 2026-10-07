@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -65,6 +66,13 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 		return err
 	}
 	if err := tx.Commit(); err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) {
+			// The commit owner already classified this failure. A durable
+			// commit error carries its own operation and possible-effect
+			// state; re-wrapping it here would shadow both.
+			return err
+		}
 		return wrapFailure(KindUnavailable, "transaction", "cannot commit transaction", true, "retry once the database is writable", err)
 	}
 	return nil

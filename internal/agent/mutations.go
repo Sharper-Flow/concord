@@ -1756,7 +1756,7 @@ func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil, true
 	}
 	if products := uniqueProducts(productsByProject, in.ProjectIDs); len(products) != 1 {
-		return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false), nil, true
+		return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "reread_entities", false), nil, true
 	}
 	workID := "initiative-" + digest[7:31]
 	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
@@ -1764,7 +1764,7 @@ func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []
 		if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
 			return nil, nil, nil, err
 		} else if len(products) != 1 {
-			return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "resolve_ambiguity", false)
+			return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "reread_entities", false)
 		}
 		urgency := in.Urgency
 		if urgency == "" {

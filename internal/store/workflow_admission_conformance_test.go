@@ -250,7 +250,6 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	model = admissionSuccessor(def, model, "start_repair")
 	conformanceCheckpoint(t, s, workID, def, model, "producer restarted")
 	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", retryEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
-	at += 2
 	model = admissionSuccessor(def, model, "dispatch_worker")
 	conformanceCheckpoint(t, s, workID, def, model, "producer redispatched")
 	if err := reviewGateAcceptResult(t, s, workID, "attempt:"+workID+":repair-2", retryEpoch, acceptor); err != nil {

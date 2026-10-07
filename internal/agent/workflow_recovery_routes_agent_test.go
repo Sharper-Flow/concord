@@ -456,18 +456,17 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 			t.Fatal(err)
 		}
 	}
-	runJourneyDeliveryAndAdvance(t, tuple, s, service, grant, invoke, version, "first")
+	runJourneyDeliveryAndAdvance(t, tuple, s, grant, invoke, version, "first")
 
 	evaluator := "verify"
-	if tuple.Ref == "workflow.research" {
+	switch tuple.Ref {
+	case "workflow.research":
 		evaluator = "conclude"
-	} else if tuple.Ref == "workflow.implementation" {
+	case "workflow.implementation":
 		evaluator = "acceptance"
-	} else if tuple.Ref == "workflow.ops_runbook" {
+	case "workflow.ops_runbook":
 		evaluator = "health"
-	} else if tuple.Ref == "workflow.static_analysis" {
-		evaluator = "review"
-	} else if tuple.Ref == "workflow.architecture_spike" {
+	case "workflow.static_analysis", "workflow.architecture_spike":
 		evaluator = "review"
 	}
 	park := func(step string) {
@@ -500,7 +499,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	}
 	supersede := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "supersede_contract", "fields": successor, "idempotency_key": tuple.WorkflowID + "-supersede"}
 	requireRecoveryOK(t, "approved successor", approvedRecoveryAction(t, s, service, env, supersede))
-	if got := stepOf(t, s, "work-1"); got != evaluator {
+	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("ordinary supersession moved %s to %s", evaluator, got)
 	}
 	var active, predecessors int
@@ -519,7 +518,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	// verdict through terminal completion runs against the real current step.
 	park(tuple.Step)
 	publicRecoveryVerdict(t, s, service, grant, privateKey, tuple.WorkflowID+"-successor-bad", 2, "outcome_mismatch", initialAttempt)
-	if got := stepOf(t, s, "work-1"); got != tuple.Step {
+	if got := stepOf(t, s); got != tuple.Step {
 		t.Fatalf("bad verdict moved source to %s, want %s", got, tuple.Step)
 	}
 	correction := map[string]any{
@@ -531,11 +530,11 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		t.Fatalf("correction preflight: %v", err)
 	}
 	requireRecoveryOK(t, "approved correction", approvedRecoveryAction(t, s, service, env, correction))
-	if got := stepOf(t, s, "work-1"); got != tuple.Target {
+	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("correction target=%s, want %s", got, tuple.Target)
 	}
-	runJourneyDeliveryAndAdvance(t, tuple, s, service, grant, invoke, version, "fresh")
-	if got := stepOf(t, s, "work-1"); got != evaluator {
+	runJourneyDeliveryAndAdvance(t, tuple, s, grant, invoke, version, "fresh")
+	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("fresh production reached %s, want ordinary evaluator %s", got, evaluator)
 	}
 	freshEvidence := "attempt:" + tuple.WorkflowID + ":fresh"
@@ -556,7 +555,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		})
 		requireRecoveryOK(t, "dispatch decision review", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": freshEvidence, "worker_packet": packet}, "idempotency_key": tuple.WorkflowID + "-dispatch-decision-review"}))
 		appendLaneCompletion(t, s, grant, lane, freshEvidence, "fresh-review")
-		requireRecoveryOK(t, "accept decision review evidence", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_evidence", "fields": map[string]any{"attempt_id": freshEvidence, "attempt_epoch": attemptEpoch(t, s, "work-1", freshEvidence)}, "idempotency_key": tuple.WorkflowID + "-accept-decision-review"}))
+		requireRecoveryOK(t, "accept decision review evidence", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_evidence", "fields": map[string]any{"attempt_id": freshEvidence, "attempt_epoch": attemptEpoch(t, s, freshEvidence)}, "idempotency_key": tuple.WorkflowID + "-accept-decision-review"}))
 		// Direct decision checkpoints keep their own identities. The
 		// independent review has a separate, first dispatch epoch.
 		var freshDispatchSeq int64
@@ -570,7 +569,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		if freshDispatchSeq <= correctionSeq {
 			t.Fatalf("architecture fresh checkpoint seq %d is not after correction seq %d", freshDispatchSeq, correctionSeq)
 		}
-		freshEpoch := attemptEpoch(t, s, "work-1", freshEvidence)
+		freshEpoch := attemptEpoch(t, s, freshEvidence)
 		if freshEpoch != 1 {
 			t.Fatalf("independent review epoch = %d, want its own first epoch", freshEpoch)
 		}
@@ -589,7 +588,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if tuple.Ref == "workflow.static_analysis" {
 		requireRecoveryOK(t, "bind independent review", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:" + tuple.WorkflowID + "-healthy"}, "idempotency_key": tuple.WorkflowID + "-bind-review"}))
 	}
-	if got := stepOf(t, s, "work-1"); got != evaluator {
+	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("healthy verdict moved evaluator to %s", got)
 	}
 	if tuple.Ref == "workflow.architecture_spike" {
@@ -633,7 +632,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if tuple.Ref == "workflow.implementation" {
 		terminal = "release"
 	}
-	if got := stepOf(t, s, "work-1"); got != terminal {
+	if got := stepOf(t, s); got != terminal {
 		t.Fatalf("confirmation reached %s, want %s", got, terminal)
 	}
 	complete := map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": tuple.WorkflowID + "-complete"}
@@ -767,7 +766,7 @@ func publicRecoveryVerdict(t *testing.T, s *store.Store, service *Service, produ
 	}
 }
 
-func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
+func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
 	t.Helper()
 	ctx := context.Background()
 	deliveryStep := tuple.DeliveryStep
@@ -804,7 +803,7 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 	// (run_id, native_subject_ref, status, evidence_ref,
 	// evidence_digest) that the existing nativeFields helper
 	// provides.
-	if tuple.DeliveryAction != "" && stepOf(t, s, "work-1") == deliveryStep {
+	if tuple.DeliveryAction != "" && stepOf(t, s) == deliveryStep {
 		startFields := map[string]any{}
 		if tuple.Ref == "workflow.ops_runbook" {
 			startFields = opsRunbookStartFields(t, tuple, suffix)
@@ -838,7 +837,7 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 			t.Fatalf("%s dispatch_worker at %q: %+v", suffix, deliveryStep, dispatch.Error)
 		}
 		appendLaneCompletion(t, s, grant, deliveryLane, attemptID, suffix)
-		epoch := attemptEpoch(t, s, "work-1", attemptID)
+		epoch := attemptEpoch(t, s, attemptID)
 		if epoch == 0 {
 			t.Fatalf("%s attempt epoch is 0, want a dispatch epoch", suffix)
 		}
@@ -909,7 +908,7 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 	}
 	switch tuple.Ref {
 	case "workflow.break_fix", "workflow.implementation":
-		if got := stepOf(t, s, "work-1"); got != "refine" {
+		if got := stepOf(t, s); got != "refine" {
 			t.Fatalf("repair acceptance reached %s, want refine", got)
 		}
 		action("start_refine", map[string]any{})
@@ -922,17 +921,17 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 		proof := agentSeedRefineProofRun(t, s, "work-1", strings.Repeat("b", 64))
 		action("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof, "producer_id": "principal/fixture", "producer_run_ref": proof, "producer_watermark": "request/verify"})
 		appendLaneCompletion(t, s, grant, lane, attempt, suffix+"-review")
-		action("accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, "work-1", attempt), "delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
-		if stepOf(t, s, "work-1") == "delivery" {
+		action("accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, attempt), "delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
+		if stepOf(t, s) == "delivery" {
 			action("record_delivery", map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
 		}
 	case "workflow.research":
-		if got := stepOf(t, s, "work-1"); got != "findings" {
+		if got := stepOf(t, s); got != "findings" {
 			t.Fatalf("research acceptance reached %s, want findings", got)
 		}
 		action("record_report", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "report:" + tuple.WorkflowID + ":" + suffix})
 	case "workflow.static_analysis":
-		if got := stepOf(t, s, "work-1"); got != "report" {
+		if got := stepOf(t, s); got != "report" {
 			t.Fatalf("analysis acceptance reached %s, want report", got)
 		}
 		action("record_report", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "report:" + tuple.WorkflowID + ":" + suffix})
@@ -954,9 +953,10 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 // complete. Both confirm_premise and complete require operator
 // approval; the journey signs the approval through the exact
 // challenge the engine mints.
-func runJourneyCompletion(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, scopeVersion string, invoke func(map[string]any) Envelope, version func() int64) {
-	current := stepOf(t, s, "work-1")
-	if stepDeclaresConfirmPremise(t, s, tuple, current) {
+func runJourneyCompletion(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, env CallEnvelope, version func() int64) {
+	t.Helper()
+	current := stepOf(t, s)
+	if stepDeclaresConfirmPremise(t, tuple, current) {
 		// confirm_premise requires a recorded investigation
 		// observation whose refs name the current Domain and
 		// another work item, plus a decision_context_digest
@@ -1244,7 +1244,7 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		"fields": successorFields, "idempotency_key": "regroute-" + tuple.WorkflowID + "-supersede",
 	}
 	requireRecoveryOK(t, "approved supersede_contract", approvedRecoveryAction(t, s, service, env, supersedeInput))
-	if got := stepOf(t, s, "work-1"); got != tuple.Target {
+	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("step after supersede = %q, want declared target %q", got, tuple.Target)
 	}
 	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle == "completed" {
@@ -1262,8 +1262,8 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 	// present), records an independent healthy verdict under the
 	// successor contract, and drives premise confirmation + completion
 	// through the existing runJourneyCompletion helper. No SQL step
-	// switches, no production events after the supersede.
-	runWorkflowRecoveryRouteSupersedeContinuation(t, tuple, s, service, grant, privateKey, env, scopeVersion, invoke, version)
+	// switches or fabricated production events after the supersede.
+	runWorkflowRecoveryRouteSupersedeContinuation(t, tuple, s, service, grant, privateKey, env, invoke, version)
 	if lifecycle := workLifecycle(t, s, "work-1"); lifecycle != "completed" {
 		t.Fatalf("work lifecycle after supersede journey = %q, want completed", lifecycle)
 	}
@@ -1343,10 +1343,10 @@ func supersedeSuccessorKinds() []store.EvidenceKind {
 //     operator approval, and dispatches complete through the public
 //     boundary.
 //
-// No SQL step switches and no production events after the supersede.
-func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowRecoveryRouteSupersedeTuple, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, scopeVersion string, invoke func(map[string]any) Envelope, version func() int64) {
+// No fixture step switches or fabricated production events follow supersession.
+func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowRecoveryRouteSupersedeTuple, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, invoke func(map[string]any) Envelope, version func() int64) {
 	bindStep := tuple.Target
-	if got := stepOf(t, s, "work-1"); got != bindStep {
+	if got := stepOf(t, s); got != bindStep {
 		t.Fatalf("supersession reached %s, want producer %s", got, bindStep)
 	}
 	for _, kind := range supersedeSuccessorKinds() {
@@ -1358,7 +1358,7 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 			"idempotency_key":  "regroute-" + tuple.WorkflowID + "-bind-" + string(kind),
 		}))
 	}
-	if got := stepOf(t, s, "work-1"); got != tuple.Target {
+	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("evidence binding moved producer to %s", got)
 	}
 	// Build the journey tuple the production + completion helpers
@@ -1384,7 +1384,7 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 	}
 	// Fresh production: gated action -> dispatch_worker ->
 	// accept_worker_result -> advanceWorkerRecovery to the evaluator.
-	runJourneyDeliveryAndAdvance(t, routeTuple, s, service, grant, invoke, version, "fresh")
+	runJourneyDeliveryAndAdvance(t, routeTuple, s, grant, invoke, version, "fresh")
 	// Independent healthy verdict under the successor contract. The
 	// evaluator grant is issued from the shared privateKey so the
 	// signer is distinct from the original grant and the recorded
@@ -1405,14 +1405,14 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 	// operator question's decision_context_digest, signs confirm_premise
 	// through approvedRecoveryAction, signs complete the same way, and
 	// asserts the work lifecycle is "completed".
-	runJourneyCompletion(t, routeTuple, s, service, grant, privateKey, env, scopeVersion, invoke, version)
+	runJourneyCompletion(t, routeTuple, s, service, env, version)
 }
 
 // stepDeclaresConfirmPremise reports whether the current step
 // declares confirm_premise, so the completion logic calls
 // confirm_premise at whatever step the work item lands on after
 // the healthy verdict, not the tuple's declared verdict step.
-func stepDeclaresConfirmPremise(t *testing.T, s *store.Store, tuple workflowRecoveryRouteTuple, stepID string) bool {
+func stepDeclaresConfirmPremise(t *testing.T, tuple workflowRecoveryRouteTuple, stepID string) bool {
 	t.Helper()
 	entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
 	if !ok {
@@ -1486,14 +1486,12 @@ func readOperatorQuestionDigest(t *testing.T, s *store.Store, workID, actionID s
 	return question.DecisionContextDigest
 }
 
-// attemptEpoch reads the latest dispatch_worker epoch the engine
-// recorded for the work item. The accept_worker_result payload binds
-// the same epoch, and a mismatched epoch refuses the accept.
-func attemptEpoch(t *testing.T, s *store.Store, workID, attemptID string) int64 {
+// attemptEpoch reads the epoch of this exact authorized dispatch.
+func attemptEpoch(t *testing.T, s *store.Store, attemptID string) int64 {
 	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=?1 AND kind=?2 AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionStarted).Scan(&epoch); err != nil {
-		t.Fatalf("read latest dispatch epoch for %s: %v", attemptID, err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+		t.Fatalf("read dispatch epoch for %s: %v", attemptID, err)
 	}
 	if epoch == 0 {
 		t.Fatalf("attempt %s has no recorded dispatch epoch", attemptID)
@@ -1502,10 +1500,10 @@ func attemptEpoch(t *testing.T, s *store.Store, workID, attemptID string) int64 
 }
 
 // stepOf reads the workflow instance's current step.
-func stepOf(t *testing.T, s *store.Store, workID string) string {
+func stepOf(t *testing.T, s *store.Store) string {
 	t.Helper()
 	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
 	return step

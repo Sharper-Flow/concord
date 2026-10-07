@@ -32,6 +32,19 @@ import (
 
 const admissionModelWorkID = "admission-model"
 
+func TestAdmissionWorkflowStateKeepsArtifactStaleBit(t *testing.T) {
+	for _, definition := range BuiltinWorkflowDefinitionsWithHistory() {
+		for _, step := range definition.StepGraph.Steps {
+			for _, stale := range []bool{false, true} {
+				node := admissionModelState{step: step.ID, contracts: 1, artifactStale: stale}
+				if got := admissionWorkflowState(definition, node).ArtifactStale; got != stale {
+					t.Fatalf("%s v%d step %s changed artifact stale %v to %v", definition.Ref, definition.Version, step.ID, stale, got)
+				}
+			}
+		}
+	}
+}
+
 func workflowCapabilityClassProduces(class string) bool {
 	return containsString(workflowProducingCapabilityClasses, class)
 }

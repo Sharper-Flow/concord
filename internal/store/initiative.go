@@ -416,7 +416,7 @@ func readInitiativeEntriesTx(ctx context.Context, tx *sql.Tx, initiative string)
 		return nil, wrapFailure(KindUnavailable, "initiative_entries", "cannot read Initiative entries", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
-	var out []InitiativeEntry
+	out := make([]InitiativeEntry, 0)
 	for rows.Next() {
 		var e InitiativeEntry
 		var required int
@@ -457,7 +457,7 @@ func readInitiativeEntriesDB(ctx context.Context, db *sql.DB, id string) ([]Init
 		return nil, researchUnavailable("cannot read Initiative entries", err)
 	}
 	defer rows.Close()
-	var out []InitiativeEntry
+	out := make([]InitiativeEntry, 0)
 	for rows.Next() {
 		var e InitiativeEntry
 		var req int

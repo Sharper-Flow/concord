@@ -347,7 +347,7 @@ func ProductsForWorkIDsTx(ctx context.Context, transaction *Transaction, ids []s
 	if err != nil {
 		return nil, err
 	}
-	return productsByIDsTx(ctx, tx, ids, `SELECT wp.work_id,pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id IN (`)
+	return productsForWorkIDs(ctx, tx, ids)
 }
 
 func productsByIDsTx(ctx context.Context, tx *sql.Tx, ids []string, queryPrefix string) (map[string][]string, error) {

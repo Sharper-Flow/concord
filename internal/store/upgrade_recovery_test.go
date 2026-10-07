@@ -97,7 +97,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	}
 	// Remove the colliding objects; the pending migrations recreate them
 	// with their checksummed definitions.
-	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits;`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
 	_ = db.Close()
@@ -105,7 +105,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}
-	if len(report.Applied) != 2 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.SchemaVersion != CurrentSchemaVersion() {
+	if len(report.Applied) != 3 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.Applied[2] != 117 || report.SchemaVersion != CurrentSchemaVersion() {
 		t.Fatalf("the repaired tail must reapply exactly the removed steps: %+v", report)
 	}
 	plan, err := PlanUpgradeReadiness(context.Background(), path)

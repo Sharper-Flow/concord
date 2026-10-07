@@ -742,6 +742,9 @@ func rebuildKnowledgeIndexTx(ctx context.Context, tx *sql.Tx, home KnowledgeHome
 	if _, err := tx.ExecContext(ctx, `INSERT INTO knowledge_index_watermark (home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version) VALUES (?,?,?,?,?,?,?,?)`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit, digest, commit, complete, knowledgeProjectionVersion); err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot write the knowledge watermark", true, "retry once the database is writable", err)
 	}
+	if err := recordRuntimeStateWriter(ctx, tx, "knowledge", "", knowledgeProjectionVersion, ""); err != nil {
+		return err
+	}
 	if err := leaveFold(ctx, tx); err != nil {
 		return err
 	}

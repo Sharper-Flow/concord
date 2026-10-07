@@ -95,9 +95,13 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 		"expected_version": 2, "idempotency_key": "wt-claim-1",
 	})
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}
+	beforeClaim := s.DurableCommits()
 	response, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("claim response=%+v err=%v", response, err)
+	}
+	if after := s.DurableCommits(); after != beforeClaim+1 {
+		t.Fatalf("tool claim bypassed durable acknowledgement: %d -> %d", beforeClaim, after)
 	}
 	var claimResult struct {
 		Path string `json:"path"`
@@ -121,6 +125,9 @@ func TestWorktreeClaimAndReclaimThroughToolSurface(t *testing.T) {
 	replay, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
 	if err != nil || replay.Outcome != OutcomeOK {
 		t.Fatalf("replay response=%+v err=%v", replay, err)
+	}
+	if after := s.DurableCommits(); after != beforeClaim+2 {
+		t.Fatalf("tool claim replay bypassed durable acknowledgement: want %d, got %d", beforeClaim+2, after)
 	}
 	if got := strings.Count(gitRun(t, repoRoot, "worktree", "list"), worktreePath); got != 1 {
 		t.Fatalf("expected one linked worktree line, got %d", got)
@@ -384,7 +391,7 @@ func claimLinkedWorktree(t *testing.T, s *store.Store, service *Service, grant A
 	}
 	claim, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "worktree_claim", Input: claimInput}, mutationEnvelope(grant, scopeVersion))
 	if err != nil || claim.Outcome != OutcomeOK {
-		t.Fatalf("claim response=%+v err=%v", claim, err)
+		t.Fatalf("claim response=%+v error=%+v err=%v", claim, claim.Error, err)
 	}
 }
 

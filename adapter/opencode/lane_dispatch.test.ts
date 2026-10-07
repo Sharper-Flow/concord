@@ -529,7 +529,7 @@ test("an unknown lane id keeps the unregistered-lane refusal, not the utility re
   expect(workflowCalls).toBe(0)
 })
 
-test("core refusal on dispatch_worker surfaces as unauthorized_dispatch without spawn", async () => {
+test("core authorization refusal on dispatch_worker surfaces as unauthorized_dispatch without spawn", async () => {
   let spawned = 0
   let workflowCalls = 0
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
@@ -545,6 +545,140 @@ test("core refusal on dispatch_worker surfaces as unauthorized_dispatch without 
   expect(result.error?.message).toBe("no authorized dispatch window exists for this work item at the current step")
   expect(spawned).toBe(0)
   expect(workflowCalls).toBe(1)
+})
+
+for (const refusal of [
+  { kind: "approval_invalid", recovery: "request_approval", retry: false },
+  { kind: "internal_error", recovery: "contact_operator", retry: false },
+  { kind: "timeout", recovery: "retry_same_request", retry: true },
+  { kind: "budget_refused", recovery: "adjust_budget", retry: false },
+  { kind: "version_conflict", recovery: "reread_entities", retry: false },
+] as const) {
+  test(`core ${refusal.kind} retains its cause and recovery without an authorization denial`, async () => {
+    const coreError = {
+      kind: refusal.kind, recovery_action: { kind: refusal.recovery }, retry_safe: refusal.retry,
+      effect_state: "none", message: `core ${refusal.kind} diagnostic`,
+      details: refusal.kind === "internal_error" ? { boundary: "host_approval_timestamp", reason: "expired", validated_at: "2026-01-01T00:02:01Z", issued_at: "2026-01-01T00:00:00Z" } : {},
+      ...(refusal.kind === "budget_refused" ? { supported_budget_seconds: 30 } : {}),
+      ...(refusal.kind === "version_conflict" ? { current_versions: [{ entity_kind: "work", id: WORK_ID, version: "2" }] } : {}),
+    }
+    let dispatches = 0
+    let spawned = 0
+    const windows = new DispatchWindows()
+    const invoke = async (toolName: string): Promise<unknown> => {
+      if (toolName === "concord_work_trace") return continuityEnvelope()
+      if (toolName === "concord_work_browse") return scopeEnvelope()
+      dispatches++
+      return envelope({ outcome: "error", error: coreError })
+    }
+    const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+    const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: `cause-${refusal.kind}`, lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+    expect(result.error?.kind).toBe("error")
+    expect(result.error?.details?.core_error).toEqual(coreError)
+    expect(result.error?.retry_safe).toBe(refusal.retry)
+    expect(result.error?.recovery_action).toBe(refusal.recovery === "reread_entities" ? "contact_operator" : refusal.recovery)
+    expect(result.error?.message).toBe(coreError.message)
+    expect(dispatches).toBe(1)
+    expect(spawned).toBe(0)
+    expect(windows.has("session-1")).toBe(false)
+  })
+}
+
+test("a possible-effect approval failure reconciles instead of asking for another approval", async () => {
+  const coreError = { kind: "approval_required", effect_state: "possible", retry_safe: false, recovery_action: { kind: "request_approval" }, message: "approval outcome uncertain" }
+  const invoke = async (toolName: string): Promise<unknown> => toolName === "concord_work_trace" ? continuityEnvelope() : toolName === "concord_work_browse" ? scopeEnvelope() : envelope({ outcome: "error", error: coreError })
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "possible-approval", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.details?.core_error).toEqual(coreError)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("a malformed core error never becomes a retry-safe authorization refusal", async () => {
+  const windows = new DispatchWindows()
+  const invoke = async (toolName: string): Promise<unknown> => toolName === "concord_work_trace" ? continuityEnvelope() : toolName === "concord_work_browse" ? scopeEnvelope() : envelope({ outcome: "error" })
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "malformed-core-error", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
+  expect(result.error?.kind).toBe("transport_failure")
+  expect(result.error?.recovery_action).toBe("contact_operator")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+// A core failure after the dispatch boundary committed carries effect_state
+// possible and retry_safe true. The adapter must replay the byte-identical
+// request itself: a caller-level retry rebuilds the packet against the work
+// version the commit advanced and refuses as idempotency_conflict. When the replay keeps failing, the answer
+// reconciles rather than advising that unsafe retry.
+test("a retry-safe possible effect replays the identical request, then reconciles", async () => {
+  let spawned = 0
+  const dispatchInputs: Record<string, unknown>[] = []
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      dispatchInputs.push(JSON.parse(JSON.stringify(args.input)))
+      return envelope({
+        tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "unreachable", freshness: null,
+        error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint did not complete: busy=1 log=45 checkpointed=4" },
+      })
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-possible", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.message).toContain("busy=1 log=45 checkpointed=4")
+  const details = (result.error?.details ?? {}) as Record<string, unknown>
+  expect(details.effect_state).toBe("possible")
+  expect(typeof details.attempt_id).toBe("string")
+  // one original attempt plus two bounded replays, each byte-identical
+  expect(dispatchInputs).toHaveLength(3)
+  expect(dispatchInputs[1]).toEqual(dispatchInputs[0])
+  expect(dispatchInputs[2]).toEqual(dispatchInputs[0])
+  expect(spawned).toBe(0)
+})
+
+// When the replay reaches the committed authorization, the dispatch continues
+// on the replayed ok answer with no second packet build.
+test("a retry-safe possible effect replays into the committed authorization", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const dispatchInputs: Record<string, unknown>[] = []
+  const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      dispatchInputs.push(JSON.parse(JSON.stringify(args.input)))
+      if (workflowCalls === 1) {
+        return envelope({
+          tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "unreachable", freshness: null,
+          error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint did not complete: busy=1 log=45 checkpointed=4" },
+        })
+      }
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = {
+    async run(argv) {
+      if (argv[1] === "run") return { exitCode: 0, stdout: runOutput(), stderr: "" }
+      if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+      spawned++
+      return { exitCode: 0, stdout: "", stderr: "" }
+    },
+  }
+  const evidenceRunner: DispatchRunner = { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-replay-ok", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner, windows: new DispatchWindows() })
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(workflowCalls).toBe(2)
+  expect(dispatchInputs[1]).toEqual(dispatchInputs[0])
 })
 
 test("approval challenge and approved resubmission preserve the exact packet identity", async () => {

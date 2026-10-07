@@ -451,7 +451,7 @@ type WorktreeClaimNative struct {
 	CreatedBranch bool
 }
 
-func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (WorktreeClaimResult, error) {
+func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (_ WorktreeClaimResult, retErr error) {
 	if s == nil || s.db == nil {
 		return WorktreeClaimResult{}, newFailure(KindUnavailable, "worktree_claim", "store is not open", false, "open the authority database")
 	}
@@ -469,13 +469,22 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 		}
 		return WorktreeClaimResult{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
-		return WorktreeClaimResult{}, wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
+		cause := wrapFailure(KindUnavailable, "worktree_claim", "cannot begin claim", true, "retry once the database is writable", err)
+		if created != nil {
+			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, cause)
+		}
+		return WorktreeClaimResult{}, cause
 	}
-	defer tx.Rollback()
-	out, err := claimWorktreeStoreTx(ctx, tx, req, native)
+	defer tx.finish(&retErr)
+	out, err := claimWorktreeStoreTx(ctx, tx.Tx, req, native)
 	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			failure := wrapFailure(KindUnavailable, "worktree_claim", "cannot finish claim rollback", true, "reconcile the claim before removing its native state", errors.Join(err, rollbackErr))
+			failure.EffectPossible = true
+			return WorktreeClaimResult{}, failure
+		}
 		if created != nil {
 			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, err)
 		}
@@ -484,9 +493,11 @@ func (s *Store) ClaimWorktree(ctx context.Context, req WorktreeClaimRequest) (Wo
 	out.Created = created
 	if err := tx.Commit(); err != nil {
 		commitErr := wrapFailure(KindUnavailable, "worktree_claim", "cannot commit claim", true, "retry the same operation with the same op id", err)
-		// The claim created native state the rolled-back transaction cannot
-		// reach, so the commit owner compensates it here; a failure the
-		// removal cannot prove reports effect-possible through the cause.
+		// A persisted claim may still name its native state after a commit or
+		// restoration failure. Only a proven absence permits compensation.
+		if commitErr.EffectPossible {
+			return WorktreeClaimResult{}, commitErr
+		}
 		if created != nil {
 			return WorktreeClaimResult{}, compensateClaimWorktree(ctx, runner, *created, commitErr)
 		}

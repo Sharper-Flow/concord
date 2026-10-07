@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -274,6 +275,36 @@ func TestQueryQ1CarriesUniversalMetadata(t *testing.T) {
 		t.Fatalf("metadata fields not populated: %#v", result.ResultMeta)
 	}
 	if len(result.Products) != 1 || result.Products[0].ID != "prod" {
+		t.Fatalf("products = %#v", result.Products)
+	}
+}
+
+// TestQueryReadSnapshotIsLockFree pins design-constraints §4, "Reads are
+// lock-free": a live read snapshot must not take the write lock. The store's
+// data source name sets _txlock=immediate for mutations, so a snapshot opened
+// without ReadOnly issues BEGIN IMMEDIATE and queues behind any writer in
+// another process, then fails as an unavailable read once busy_timeout lapses.
+func TestQueryReadSnapshotIsLockFree(t *testing.T) {
+	t.Parallel()
+	s := seedQueryFixture(t)
+	writer, err := sql.Open(driverName, dataSourceName(s.Path()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	writeTx, err := writer.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("writer BEGIN IMMEDIATE: %v", err)
+	}
+	defer func() { _ = writeTx.Rollback() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := s.QueryQ1(ctx, Q1Request{Limit: 20})
+	if err != nil {
+		t.Fatalf("read snapshot while another connection holds the write lock: %v", err)
+	}
+	if len(result.Products) != 1 {
 		t.Fatalf("products = %#v", result.Products)
 	}
 }

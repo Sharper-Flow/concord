@@ -41,7 +41,7 @@ func CompleteWorkflow(ctx context.Context, s *Store, event Event) error {
 
 // CompleteWorkflowWithRegistry is the test and embedded-engine seam for a
 // pinned definition registry.  The registry is read-only during completion.
-func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, event Event) error {
+func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, event Event) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "store is not open", false, "open a store before completing a workflow")
 	}
@@ -51,7 +51,12 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	var existingKind string
 	err := s.db.QueryRowContext(ctx, `SELECT kind FROM domain_events WHERE event_id=?`, event.EventID).Scan(&existingKind)
 	if err == nil && existingKind == WorkflowCompleted {
-		return nil
+		replay, err := s.beginDurableTx(ctx)
+		if err != nil {
+			return err
+		}
+		defer replay.finish(&retErr)
+		return replay.Commit()
 	}
 	// CD-0200: the completion's law boundary verifies the Product's complete
 	// registered source set before this transaction opens. The verification
@@ -61,29 +66,23 @@ func CompleteWorkflowWithRegistry(ctx context.Context, s *Store, registry Defini
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot begin workflow completion", true, "retry once the database is writable", err)
 	}
-	scope, err := beginFold(ctx, tx)
+	defer tx.finish(&retErr)
+	scope, err := beginFold(ctx, tx.Tx)
 	if err != nil {
-		_ = tx.Rollback()
 		return err
 	}
-	if err := CompleteWorkflowTxWithRegistry(ctx, tx, registry, event, scope); err != nil {
-		_ = tx.Rollback()
+	if err := CompleteWorkflowTxWithRegistry(ctx, tx.Tx, registry, event, scope); err != nil {
 		return err
 	}
 	if err := scope.close(ctx); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return wrapFailure(KindUnavailable, "complete_workflow", "cannot commit workflow completion", true, "retry once the database is writable", err)
-	}
-	// committed; the durability barrier must hold before acknowledging
-	if err := s.SyncDurable(ctx); err != nil {
-		return err
 	}
 	return nil
 }

@@ -131,6 +131,23 @@ def test_adapter_test_anchor_rejects_foreign_path() -> None:
     assert any("must read" in f for f in findings), findings
 
 
+def test_contract_checker_anchor_resolves_through_the_umbrella_nesting() -> None:
+    # The complete contract check has no direct CI step: check-json.py owns
+    # it, so the validator anchor must resolve through the subprocess call
+    # graph alone. If the nesting is ever dropped, every coverage record
+    # citing scripts/check-agent-contracts.py stops resolving here.
+    nested = anchors.nested_invocations(ROOT / "scripts/check-json.py")
+    assert "scripts/check-agent-contracts.py" in nested, sorted(nested)
+    assert anchors.validator_runs_in_ci("scripts/check-agent-contracts.py")
+
+
+def test_the_adapter_suite_remains_a_direct_workflow_invocation() -> None:
+    # adapter_test anchors hold only while a required workflow runs the
+    # suite directly; the nested contract check running the same suite does
+    # not satisfy the anchor machinery, so losing the direct step must fail.
+    assert anchors.adapter_suite_runs_in_ci()
+
+
 def main() -> int:
     import tempfile
 

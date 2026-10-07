@@ -531,7 +531,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},
 		{`SELECT count(*) FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, "work has unresolved workflow impact dependencies"},
 		{`SELECT count(*) FROM workflow_external_conditions WHERE work_id=? AND condition_state='open'`, "work has an unresolved external wait"},
-		{`SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched'`, "work has a live or unknown worker attempt"},
+		{`SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, "work has a live or unknown worker attempt"},
 		{`SELECT count(*) FROM resource_claims WHERE holder_work_id=? AND state='held'`, "work has an active resource claim"},
 		{`SELECT count(*) FROM work_messages WHERE (sender_work_id=? OR recipient_work_id=?) AND state='sent'`, "work has an undelivered message"},
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
@@ -819,11 +819,11 @@ func (s *Store) ReadWorkLiveness(ctx context.Context, workID string) (WorkLivene
 }
 
 func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {
-	var attempts, openWaits, unboundedWaits, dispatched, failed, decisions int64
+	var attempts, openWaits, unboundedWaits, openAttempts, failed, decisions int64
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=?`, workID).Scan(&attempts); err != nil {
 		return WorkLiveness{}, wrapFailure(KindUnavailable, "work_liveness", "cannot read worker attempts", true, "retry once the worker projection is readable", err)
 	}
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state='dispatched'`, workID).Scan(&dispatched); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID).Scan(&openAttempts); err != nil {
 		return WorkLiveness{}, err
 	}
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts WHERE work_id=? AND lifecycle_state='failed'`, workID).Scan(&failed); err != nil {
@@ -842,18 +842,18 @@ func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiv
 	if err := q.QueryRowContext(ctx, `SELECT max(occurred_at) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind NOT IN ('work.message_sent','work.message_withdrawn','workflow.overlap_resolved')`, workID).Scan(&latest); err != nil {
 		return WorkLiveness{}, err
 	}
-	return workLivenessFromCounts(workID, attempts, dispatched, failed, openWaits, unboundedWaits, decisions, latest), nil
+	return workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest), nil
 }
 
-func workLivenessFromCounts(workID string, attempts, dispatched, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) WorkLiveness {
+func workLivenessFromCounts(workID string, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) WorkLiveness {
 	out := WorkLiveness{WorkID: workID, Attempts: int(attempts), OpenWaits: int(openWaits)}
 	if latest.Valid {
 		out.LastProgress = latest.String
 	}
 	switch {
-	case dispatched > 0:
+	case openAttempts > 0:
 		out.State = "unknown"
-		out.Evidence = []string{fmt.Sprintf("%d dispatched worker attempt(s) have unknown host state", dispatched)}
+		out.Evidence = []string{fmt.Sprintf("%d open worker attempt(s) have unknown host state", openAttempts)}
 	case openWaits > 0:
 		out.State = "waiting"
 		out.Evidence = []string{fmt.Sprintf("%d bounded external wait(s)", openWaits)}
@@ -876,7 +876,7 @@ func workLivenessFromCounts(workID string, attempts, dispatched, failed, openWai
 	return out
 }
 
-func workLivenessPtrFromCounts(workID string, attempts, dispatched, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) *WorkLiveness {
-	value := workLivenessFromCounts(workID, attempts, dispatched, failed, openWaits, unboundedWaits, decisions, latest)
+func workLivenessPtrFromCounts(workID string, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) *WorkLiveness {
+	value := workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest)
 	return &value
 }

@@ -191,23 +191,34 @@ test("continuity transform ignores the launcher identity environment", async () 
   // Clause 3's negative: a session whose directory resolves no active claim
   // renders no block even with the launcher identity environment set, so the
   // stale launch item's continuity can never reach a moved session.
-  Bun.env.CONCORD_SELECTED_PRODUCT_ID = "concord"
-  Bun.env.CONCORD_SELECTED_WORK_ID = "work-launch-item"
-  const original = "coordinator bytes"
-  const unchanged = output(original)
-  let calls = 0
-  const transform = createContinuityTransform({
-    sessions: {
-      hasManagedParent: async () => false,
-      sessionDirectory: async () => "",
-    },
-    runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: "unexpected", stderr: "" } } },
-  }) as Transform
+  const previousProduct = Bun.env.CONCORD_SELECTED_PRODUCT_ID
+  const previousWork = Bun.env.CONCORD_SELECTED_WORK_ID
+  try {
+    Bun.env.CONCORD_SELECTED_PRODUCT_ID = "concord"
+    Bun.env.CONCORD_SELECTED_WORK_ID = "work-launch-item"
+    const original = "coordinator bytes"
+    const unchanged = output(original)
+    let calls = 0
+    const transform = createContinuityTransform({
+      sessions: {
+        hasManagedParent: async () => false,
+        sessionDirectory: async () => "",
+      },
+      runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: "unexpected", stderr: "" } } },
+    }) as Transform
 
-  await transform({ sessionID: "ses-moved" }, unchanged)
+    await transform({ sessionID: "ses-moved" }, unchanged)
 
-  expect(unchanged.system[0]).toBe(original)
-  expect(calls).toBe(0)
+    expect(unchanged.system[0]).toBe(original)
+    expect(calls).toBe(0)
+  } finally {
+    if (previousProduct === undefined) delete Bun.env.CONCORD_SELECTED_PRODUCT_ID
+    else Bun.env.CONCORD_SELECTED_PRODUCT_ID = previousProduct
+    if (previousWork === undefined) delete Bun.env.CONCORD_SELECTED_WORK_ID
+    else Bun.env.CONCORD_SELECTED_WORK_ID = previousWork
+  }
+  expect(Bun.env.CONCORD_SELECTED_PRODUCT_ID).toBe(previousProduct)
+  expect(Bun.env.CONCORD_SELECTED_WORK_ID).toBe(previousWork)
 })
 
 test("continuity transform leaves system bytes unchanged on failure, empty output, or unreadable session", async () => {

@@ -887,7 +887,7 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 	if err := q.QueryRowContext(ctx, `SELECT acc.seq,acc.payload FROM domain_events acc
 		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.step_id')=?
 		AND (json_extract(acc.payload,'$.action_id')='reject_worker_result'
-		OR (json_extract(acc.payload,'$.action_id')='accept_worker_result' AND EXISTS(
+		OR (json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND EXISTS(
 			SELECT 1 FROM domain_events wd JOIN domain_events wc
 			ON wc.subject_type=wd.subject_type AND wc.subject_id=wd.subject_id AND wc.kind=?
 			AND json_extract(wc.payload,'$.attempt_id')=json_extract(wd.payload,'$.attempt_id')
@@ -910,6 +910,10 @@ func workflowRefinementReviewFailure(ctx context.Context, q queryer, workID stri
 // cannot bind, because the newer evidence supersedes its findings
 // (CD-0206 D3).
 func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attemptID, subject string) (bool, error) {
+	return workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attemptID, subject, 0)
+}
+
+func workflowStaleReviewAcceptBeforeTx(ctx context.Context, q queryer, workID, attemptID, subject string, beforeSeq int64) (bool, error) {
 	var stale int
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM domain_events wc
@@ -921,8 +925,8 @@ func workflowStaleReviewAcceptTx(ctx context.Context, q queryer, workID, attempt
 			JOIN domain_events wd2 ON wd2.subject_type=wc2.subject_type AND wd2.subject_id=wc2.subject_id AND wd2.kind=?
 				AND json_extract(wd2.payload,'$.attempt_id')=json_extract(wc2.payload,'$.attempt_id')
 				AND json_extract(wd2.payload,'$.capability_class')='review'
-			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq))`,
-		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted).Scan(&stale)
+			WHERE wc2.subject_type=wc.subject_type AND wc2.subject_id=wc.subject_id AND wc2.kind=? AND wc2.seq>wc.seq AND (?=0 OR wc2.seq<?)))`,
+		WorkerDispatched, string(SubjectWorkItem), workID, WorkerCompleted, attemptID, WorkerDispatched, WorkerCompleted, beforeSeq, beforeSeq).Scan(&stale)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the completed review history", true, "retry once the workflow projection is readable", err)
 	}
@@ -962,7 +966,7 @@ func workflowPostRejectionReviewMissing(ctx context.Context, q queryer, workID, 
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events acc
 		JOIN domain_events disp ON disp.subject_type=acc.subject_type AND disp.subject_id=acc.subject_id AND disp.kind=? AND json_extract(disp.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id') AND json_extract(disp.payload,'$.capability_class')=? AND disp.seq>?
 		JOIN domain_events wc ON wc.subject_type=acc.subject_type AND wc.subject_id=acc.subject_id AND wc.kind=? AND json_extract(wc.payload,'$.attempt_id')=json_extract(acc.payload,'$.worker_attempt_id')
-		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id')='accept_worker_result' AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
+		WHERE acc.subject_type=? AND acc.subject_id=? AND acc.kind=? AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence') AND json_extract(acc.payload,'$.step_id')=? AND acc.seq>? AND `+workflowReviewSettlesDebtSQL+`)`, WorkerDispatched, "review", frontier, WorkerCompleted, string(SubjectWorkItem), workID, WorkflowActionCompleted, refineStep, rejectSeq).Scan(&reviewed); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot read the post-rejection review history", true, "retry once the worker delivery projection is readable", err)
 	}
 	return reviewed == 0, nil
@@ -994,7 +998,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 		if !isDB {
 			return nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 		}
-		readTx, beginErr := db.BeginTx(ctx, nil)
+		readTx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 		if beginErr != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot open the read transaction", true, "retry once the store is readable", beginErr)
 		}

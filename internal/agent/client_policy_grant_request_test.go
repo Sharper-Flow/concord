@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -418,18 +417,19 @@ func TestRestoredPolicyRefusesApprovalMintedBeforeRestore(t *testing.T) {
 	}
 }
 
-func TestGrantRequestAcknowledgementTruncatesWal(t *testing.T) {
+func TestGrantRequestAcknowledgementIsDurable(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
 	// The challenge mint acknowledges client and approval authority, so the
-	// response may return only after the durability barrier truncated the WAL
-	// (CD-0050 D3).
+	// response may return only after a durable commit (CD-0050 D3).
+	before := s.DurableCommits()
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("challenge response = %+v", challenge)
 	}
-	assertWalTruncated(t, s)
+	assertDurableCommit(t, s, before)
+	afterChallenge := s.DurableCommits()
 	details := challenge.Error.Details
 	ref := details["approval_ref"].(string)
 	digest := details["operation_digest"].(string)
@@ -440,18 +440,14 @@ func TestGrantRequestAcknowledgementTruncatesWal(t *testing.T) {
 		t.Fatalf("approved response = %+v", approved)
 	}
 	// The applied union acknowledges the same authority family, so the apply
-	// path carries the barrier too.
-	assertWalTruncated(t, s)
+	// path commits durably too.
+	assertDurableCommit(t, s, afterChallenge)
 }
 
-func assertWalTruncated(t *testing.T, s *store.Store) {
+func assertDurableCommit(t *testing.T, s *store.Store, before uint64) {
 	t.Helper()
-	info, err := os.Stat(s.Path() + "-wal")
-	if err != nil {
-		t.Fatalf("expected the WAL sidecar to exist: %v", err)
-	}
-	if info.Size() != 0 {
-		t.Fatalf("WAL size = %d after an acknowledged grant request, want 0 (the durability barrier did not truncate)", info.Size())
+	if got := s.DurableCommits(); got <= before {
+		t.Fatalf("durable commits = %d after an acknowledged grant request, want more than %d", got, before)
 	}
 }
 
@@ -557,13 +553,9 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	}
 }
 
-// TestBarrierFailureAfterCommitReportsPossibleEffect pins the durability
-// honesty contract: a concurrent reader pins the WAL, so the grant transaction
-// commits and the post-commit barrier reports busy. The response must then say
-// the effect is possible — the union is applied and only its durability is
-// unproven (CD-0050 D3). An effect_state of none would tell the agent a
-// committed expansion never happened.
-func TestBarrierFailureAfterCommitReportsPossibleEffect(t *testing.T) {
+// The grant and its replay acknowledge durably under a pinned reader,
+// without applying the policy union again.
+func TestGrantRequestAcknowledgesUnderPinnedReader(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
@@ -574,9 +566,7 @@ func TestBarrierFailureAfterCommitReportsPossibleEffect(t *testing.T) {
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
 	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "barrier-approval")
 
-	// The reader's open snapshot blocks the TRUNCATE checkpoint; the store
-	// connection's own busy timeout bounds the barrier's wait before it
-	// reports busy.
+	// The reader holds an open snapshot for the whole request.
 	reader, err := sql.Open("sqlite", "file:"+s.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -592,15 +582,32 @@ func TestBarrierFailureAfterCommitReportsPossibleEffect(t *testing.T) {
 		t.Fatalf("reader snapshot: %v", err)
 	}
 
+	before := s.DurableCommits()
 	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if response.Error == nil || response.Error.Kind != "unreachable" {
-		t.Fatalf("barrier failure response = %+v", response)
+	if response.Outcome != OutcomeOK || response.Error != nil {
+		t.Fatalf("grant under a pinned reader = %+v, want ok", response)
 	}
-	if response.Error.EffectState != EffectPossible {
-		t.Fatalf("committed grant reports effect_state %q, want %q", response.Error.EffectState, EffectPossible)
-	}
+	assertDurableCommit(t, s, before)
 	stored := readStoredPolicy(t, s, "client-1")
 	if !contains(stored.Capabilities, "cross_scope") || !contains(stored.Products, "product-2") {
-		t.Fatalf("the committed grant was not applied while the envelope claimed possible: %+v", stored)
+		t.Fatalf("the acknowledged grant was not applied: %+v", stored)
+	}
+
+	for _, pinned := range []bool{true, false} {
+		if !pinned {
+			if err := readTx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before = s.DurableCommits()
+		metadataBefore := replayMetadataCount(t, s, "grant-request-1")
+		replay := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+		if replay.Outcome != OutcomeOK || replay.Error != nil || !replay.Replayed {
+			t.Fatalf("grant replay pinned=%t: response=%+v error=%+v", pinned, replay, replay.Error)
+		}
+		requireReplayCommit(t, s, "grant-request-1", before, metadataBefore, true)
+		if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
+			t.Fatal("replay changed the committed policy")
+		}
 	}
 }

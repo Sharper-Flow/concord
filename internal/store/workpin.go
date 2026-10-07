@@ -358,6 +358,9 @@ func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	if state.WorkerFailureRecovery && admits("record_worker_failure") {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workerFailureRecoveryActionDefinition(), pin.Version, "worker_failure_recovery"))
 	}
+	if state.RefineReviewEvidenceAttemptID != "" && !workPinContainsAction(pin.NextValidIntents, "accept_worker_evidence") && admits("accept_worker_evidence") {
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_evidence"), pin.Version, "refinement_review_evidence"))
+	}
 	// The contract recovery advertises exactly the pure decision's answer:
 	// the stale-law and duplicate recoveries the fold admits at a running
 	// step, and the ordinary correction admission, but never a terminal,
@@ -450,7 +453,21 @@ func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, c
 // session that initialized the workflow, while action events identify later
 // coordinator sessions that took over the item.
 func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinDrivingSession, error) {
-	rows, err := tx.QueryContext(ctx, `
+	rows, err := tx.QueryContext(ctx, workPinDrivingSessionsSQL, workPinDrivingSessionsArgs(workID)...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot read driving coordinator sessions", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	return scanWorkPinDrivingSessions(rows)
+}
+
+func workPinDrivingSessionsArgs(workID string) []any {
+	return []any{string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
+		string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
+		string(ActorAgent), workID, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed}
+}
+
+const workPinDrivingSessionsSQL = `
 		SELECT a.session_ref,
 		       COALESCE((SELECT COALESCE(json_extract(e.payload,'$.action_id'),e.kind)
 		                    FROM domain_events e
@@ -468,19 +485,15 @@ func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([
 		WHERE a.actor_class=?
 		  AND (
 			 a.actor_ref=(SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?)
-			 OR EXISTS (
-				SELECT 1 FROM domain_events e
-			WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?,?,?) AND e.actor=a.actor_ref
+			 OR a.actor_ref IN (
+				SELECT e.actor FROM domain_events e
+				WHERE e.subject_type=? AND e.subject_id=? AND e.kind IN (?,?,?,?)
 			 )
 		  )
 		ORDER BY last_acted_at DESC,a.session_ref
-		LIMIT 17`, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
-		string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed,
-		string(ActorAgent), workID, string(SubjectWorkItem), workID, WorkflowActionStarted, WorkflowActionCompleted, WorkflowActionCheckpointed, WorkflowActionFailed)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot read driving coordinator sessions", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
+		LIMIT 17`
+
+func scanWorkPinDrivingSessions(rows *sql.Rows) ([]WorkPinDrivingSession, error) {
 	sessions := make([]WorkPinDrivingSession, 0, 4)
 	for rows.Next() {
 		var session WorkPinDrivingSession

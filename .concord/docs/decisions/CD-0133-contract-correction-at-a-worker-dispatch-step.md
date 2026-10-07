@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-10
-- **Scope:** Operator-approved contract correction before worker dispatch and after a recorded worker failure
-- **Approval:** The operator approved this bounded correction route.
+- **Scope:** Operator-approved contract correction before dispatch, after recorded failure, and after disposed refinement review evidence
+- **Approval:** The operator approved the bounded correction route and its refinement review-evidence extension on 2026-10-06.
 - **Related:** CD-0013, CD-0059, CD-0115, CD-0130
 - **Refines:** CD-0128
 - **Preserves:** Released workflow definitions, definition digests, worker attempt identity, and operator authority
@@ -27,6 +27,12 @@ guards.
 active contract before any worker dispatch in the current attempt. It is also
 available after the worker's failure is recorded. The action still requires
 the verified operator approval identity, current versions, and audit evidence.
+
+At the combined-delivery refinement step, accepted review evidence also opens
+correction after every current authorization has a recorded terminal disposition.
+The hold-mode acceptance follows CD-0187 D4 and asserts no delivery. A new
+authorization closes this opportunity even before native dispatch evidence exists.
+The exact successor, versions, and audit evidence still require operator approval.
 
 A dispatch authorization closes the pre-dispatch route even before a worker
 report exists. A live worker, an unaccepted result, or an unrecorded failure does

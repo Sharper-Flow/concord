@@ -296,11 +296,9 @@ export interface AgentResultEnvelope {
   // Task call. A completed attempt never carries this field.
   dispatch_state?: "awaiting_worker"
   error?: {
-    // `unauthorized_dispatch` is the core refusing the dispatch_worker action.
-    // `transport_failure` is the adapter being unable to ask. The two are
-    // separate members because a refusal is the authorization boundary working
-    // and a transport fault is the adapter being misconfigured; collapsing
-    // them tells an operator to seek permission for a wiring defect.
+    // Only an authorization denial is unauthorized_dispatch. Other core
+    // failures retain their typed error in details.core_error; a transport
+    // failure means the adapter could not obtain a core response.
     kind: "invalid_input" | "blocked" | "error" | "invalid_report" | "agent_identity_mismatch" | "readback_refusal" | "unauthorized_dispatch" | "approval_required" | "transport_failure"
     retry_safe: boolean
     recovery_action: "retry_same_request" | "adjust_budget" | "contact_operator" | "reconcile_operation" | "request_approval" | "use_declared_route"
@@ -849,7 +847,9 @@ function reportCandidates(text: string): { candidate: string; announced: boolean
   return result
 }
 
-export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: boolean }
+// malformed carries why the last announced JSON candidate failed to parse, or
+// null when every announced candidate parsed or none was announced.
+export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: string | null }
 
 // readWorkerReport locates the worker's report in the host run stream. A worker
 // emits several text parts, so neither the first nor a concatenation is the
@@ -868,21 +868,33 @@ export function readWorkerReport(stdout: string): WorkerReportScan {
 // last candidate anywhere in the stream that parses as a JSON object wins
 // (CON-203: a lead-in or trailing sentence does not discard a report).
 export function scanReportTexts(texts: string[]): WorkerReportScan {
-  let malformed = false
+  let malformed: string | null = null
   const found: Record<string, unknown>[] = []
   for (const text of texts) {
     for (const { candidate, announced } of reportCandidates(text)) {
       if (!candidate.startsWith("{")) continue
       let parsed: unknown
-      try { parsed = JSON.parse(candidate) } catch {
-        if (announced) malformed = true
+      try { parsed = JSON.parse(candidate) } catch (error) {
+        if (announced) malformed = malformedReason(candidate, error)
         continue
       }
       if (isRecord(parsed)) found.push(parsed)
-      else if (announced) malformed = true
+      else if (announced) malformed = malformedReason(candidate, "the document is not a JSON object")
     }
   }
   return { report: found.at(-1) ?? null, malformed }
+}
+
+// malformedReason states why an announced report failed to parse: the parser's
+// message, the document length, and a bounded tail. A worker report most often
+// breaks by truncation, which the tail shows without the worker transcript.
+const MALFORMED_TAIL_CHARS = 120
+const MALFORMED_MESSAGE_CHARS = 120
+function malformedReason(candidate: string, error: unknown): string {
+  const message = (error instanceof Error ? error.message : String(error)).slice(0, MALFORMED_MESSAGE_CHARS)
+  const flat = candidate.replace(/\s+/g, " ")
+  const tail = flat.length > MALFORMED_TAIL_CHARS ? "..." + flat.slice(-MALFORMED_TAIL_CHARS) : flat
+  return `${message}; ${candidate.length} chars; ends with: ${tail}`
 }
 
 // Dispatch-owned fields the adapter strips from a worker-authored report
@@ -950,8 +962,8 @@ function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unkn
 // packet.
 function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   if (!scan.report) {
-    return { detail: scan.malformed
-      ? "worker output carried a malformed JSON document and no agent-lane-report.v1 report"
+    return { detail: scan.malformed !== null
+      ? `worker output carried a malformed JSON document and no agent-lane-report.v1 report: ${scan.malformed}`
       : "worker output carried no agent-lane-report.v1 report" }
   }
   const stripped: Record<string, unknown> = { ...scan.report }
@@ -1097,6 +1109,39 @@ async function refuseWorkerReadback(lane: AgentLane, packet: AgentLanePacket, re
 // envelopes returned here.
 export function errorEnvelopeForLane(lane: AgentLane | null, packet: Partial<AgentLanePacket>, outcome: "blocked" | "error", kind: NonNullable<AgentResultEnvelope["error"]>["kind"], message: string, recovery_action: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", details?: Pick<NonNullable<AgentResultEnvelope["error"]>, "predicate" | "export_digest" | "export_bytes" | "details">): AgentResultEnvelope {
   return errorEnvelope(lane, packet, outcome, kind, message, recovery_action, details)
+}
+
+// Both dispatch authorization surfaces project the same core failure. The
+// lane vocabulary is smaller than TS7, so preserve the complete typed cause
+// even when its recovery action has no lane-level representation.
+export function coreDispatchFailure(lane: AgentLane | null, packet: Partial<AgentLanePacket>, response: Record<string, unknown>): AgentResultEnvelope {
+  const coreError = isRecord(response.error) ? response.error : null
+  if (!coreError) {
+    const failure = errorEnvelope(lane, packet, "error", "transport_failure", "dispatch_worker returned an error without a typed cause", "contact_operator")
+    failure.error!.retry_safe = false
+    return failure
+  }
+  const message = typeof coreError.message === "string" ? coreError.message : "dispatch_worker authorization refused"
+  if (coreError.effect_state === "possible") {
+    const failure = errorEnvelope(lane, packet, "error", "error", `dispatch_worker may have committed the authorized attempt before the core returned ${String(coreError.kind)}: ${message}. Read work continuity and reconcile the attempt before any other dispatch.`, "reconcile_operation", { details: { effect_state: "possible", core_kind: coreError.kind, attempt_id: packet.attempt_id, core_error: coreError } })
+    failure.error!.retry_safe = false
+    return failure
+  }
+  if (coreError.kind === "approval_required") {
+    const failure = errorEnvelope(lane, packet, "error", "approval_required", message, "request_approval", isRecord(coreError.details) ? coreError.details : undefined)
+    failure.error!.retry_safe = false
+    return failure
+  }
+  const action = isRecord(coreError.recovery_action) ? coreError.recovery_action.kind : undefined
+  let recovery: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator"
+  switch (action) {
+    case "retry_same_request": case "adjust_budget": case "contact_operator": case "reconcile_operation": case "request_approval": case "use_declared_route":
+      recovery = action
+  }
+  const kind = coreError.kind === "unauthorized" || coreError.kind === "unauthorized_dispatch" ? "unauthorized_dispatch" : coreError.kind === "invalid_input" ? "invalid_input" : "error"
+  const failure = errorEnvelope(lane, packet, "error", kind, message, recovery, { details: { core_error: coreError } })
+  failure.error!.retry_safe = coreError.effect_state === "none" && coreError.retry_safe === true
+  return failure
 }
 
 // resolveCoreBinary is the pure resolution the transport runs: an explicit
@@ -1580,9 +1625,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "transport_failure", "dispatch authorization returned no core response envelope", "contact_operator")
   }
   if (response.outcome === "error") {
-    const errorObj = isRecord(response.error) ? response.error : null
-    const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
-    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
+    return coreDispatchFailure(lane, packet as Partial<AgentLanePacket>, response)
   }
 
   // CD-0102 D1/D2: the authorized dispatch opens one single-use window on the

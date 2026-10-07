@@ -2,15 +2,15 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestDurableBarrierAfterRegisterTrustedClientTruncatesWal"
+      "value": "internal/store.TestDurableTxCommitsUnderFull"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestDurableSyncCheckpoint"
+      "value": "internal/store.TestDurableCommitIgnoresPinnedReader"
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestDurableBarrierLeavesStoreUsable"
+      "value": "internal/store.TestDurableTransactFailureSurfaces"
     }
   ],
   "id": "CD-0050",

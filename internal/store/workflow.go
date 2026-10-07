@@ -1998,9 +1998,11 @@ func workflowCorrectionSchemaValuesFault(predicateIDs, correctionRefs, resultRef
 }
 
 // admitWorkflowActionOffStep decides whether an action the pinned step does
-// not declare may still fold. Worker failure recovery, rejected result
-// correction, and recovery evidence binding are the three admitted routes.
+// not declare may still fold under an engine-owned recovery route.
 func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string) error {
+	if p.ActionID == "accept_worker_evidence" {
+		return validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, entry.Definition, currentStep, p.WorkerAttemptID, p.AttemptEpoch, "fold_event", event.Seq)
+	}
 	workerFailureRecovery := false
 	correctionRecovery := false
 	if p.ActionID == "record_worker_failure" {
@@ -2646,6 +2648,12 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
 	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
+	if !allowed && payload.ActionID == "accept_worker_evidence" {
+		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
+			return err
+		}
+		allowed = true
+	}
 	if !allowed && payload.ActionID == "record_worker_failure" {
 		var recoveryErr error
 		allowed, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, definition, currentStep, "fold_event")
@@ -2841,6 +2849,33 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 	return err
 }
 
+// producerBindingMismatch explains why a named producer operation cannot back
+// an evidence binding. The authority check matches four facts at once, so a
+// single generic refusal left the caller unable to tell which field to repair.
+// This names the first fact that fails, in the order a caller must fix them,
+// and quotes the value the operation recorded.
+func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p workflowEvidenceBoundPayload) error {
+	producer := workflowRefExcerpt(p.ProducerRunRef)
+	const repair = "name the producer operation that recorded the evidence reference"
+	var recordedWork, principal, requestID, result string
+	err := tx.QueryRowContext(ctx, `SELECT work_id, COALESCE(principal_ref,''), COALESCE(request_id,''), COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? ORDER BY (work_id=?) DESC, (result_kind='completed') DESC, attempt_epoch DESC LIMIT 1`, p.ProducerRunRef, workID).Scan(&recordedWork, &principal, &requestID, &result)
+	switch {
+	case err == sql.ErrNoRows:
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, repair)
+	case err != nil:
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
+	case recordedWork != workID:
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" belongs to another work item", false, repair)
+	case result != "completed":
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" is not completed; its result is "+workflowRefExcerpt(result), false, "bind evidence only from a completed producer operation")
+	case principal != p.ProducerID:
+		return newFailure(KindInvariantViolation, "fold_event", "producer_id "+workflowRefExcerpt(p.ProducerID)+" does not match producer operation "+producer+", which recorded producer_id "+workflowRefExcerpt(principal), false, "set producer_id to the value the producer operation recorded")
+	case requestID != p.ProducerWatermark:
+		return newFailure(KindInvariantViolation, "fold_event", "producer_watermark "+workflowRefExcerpt(p.ProducerWatermark)+" does not match producer operation "+producer+", which recorded producer_watermark "+workflowRefExcerpt(requestID), false, "set producer_watermark to the value the producer operation recorded")
+	}
+	return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" is not a completed durable operation for this work and actor", false, repair)
+}
+
 func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowEvidenceBoundPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -2857,7 +2892,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	}
 	if authoritative != 1 {
-		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" is not a completed durable operation for this work and actor", false, "name the producer operation that recorded the evidence reference")
+		return producerBindingMismatch(ctx, tx, event.SubjectID, p)
 	}
 	var recorded int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM durable_operations WHERE op_id=? AND attempt_epoch=1 AND EXISTS (SELECT 1 FROM json_each(durable_operations.evidence_refs) WHERE value=?)`, p.ProducerRunRef, p.ImmutableSubjectRef).Scan(&recorded); err != nil {

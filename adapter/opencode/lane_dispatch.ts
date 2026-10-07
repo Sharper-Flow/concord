@@ -19,7 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
-import { dispatchWorker, errorEnvelopeForLane, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
@@ -219,29 +219,43 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
 
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed
-  // envelope; any non-ok response is an authorization boundary refusal,
-  // surfaced to the caller as unauthorized_dispatch. lane_id is never
-  // forwarded — it is tool-level vocabulary the adapter consumed above.
+  // envelope. lane_id is never forwarded — it is tool-level vocabulary the
+  // adapter consumed above.
+  const coreDispatch = async (): Promise<unknown> => {
+    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
+    return deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
+  }
   let coreResponse: unknown
   try {
-    const approval = input.approval_ref ? { approval: { approval_ref: input.approval_ref } } : {}
-    coreResponse = await deps.invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: input.work_id, expected_version: input.expected_version, action_id: "dispatch_worker", idempotency_key: input.idempotency_key, fields: { attempt_id: packet.attempt_id, worker_packet: packet }, ...approval } }, deps.context, pinnedWorkerDirectory)
+    coreResponse = await coreDispatch()
   } catch (error) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
+  }
+  // A retry-safe failure with a possible effect means the dispatch boundary
+  // may have committed before the failure reached the adapter. The
+  // same request replays the committed authorization through the core's
+  // idempotency path, but only byte-identical: a rebuilt packet pins the work
+  // version the commit itself advanced and refuses as idempotency_conflict.
+  // The adapter therefore performs the bounded replay itself, resending the
+  // identical input, instead of advising a caller retry that would rebuild
+  // the packet.
+  const possibleEffectFailure = (response: unknown): boolean => {
+    if (!isRecord(response)) return false
+    const errorObj = isRecord(response.error) ? response.error : null
+    return response.outcome === "error" && errorObj !== null && errorObj.effect_state === "possible" && errorObj.retry_safe === true
+  }
+  for (let replay = 0; replay < 2 && possibleEffectFailure(coreResponse); replay++) {
+    try {
+      coreResponse = await coreDispatch()
+    } catch (error) {
+      return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
+    }
   }
   if (!isRecord(coreResponse)) {
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", "concord_work_transition.workflow_action returned no envelope", "reconcile_operation")
   }
   if (coreResponse.outcome === "error") {
-    const errorObj = isRecord(coreResponse.error) ? coreResponse.error : null
-    const message = errorObj && typeof errorObj.message === "string" ? errorObj.message : "dispatch_worker authorization refused"
-    const details = errorObj && isRecord(errorObj.details) ? errorObj.details : undefined
-    if (errorObj?.kind === "approval_required") {
-      const refusal = errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "approval_required", message, "request_approval", details)
-      refusal.error!.retry_safe = false
-      return refusal
-    }
-    return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", message, "reconcile_operation")
+    return coreDispatchFailure(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, coreResponse)
   }
 
   // CD-0067 D6: the dispatch_worker response carries worker_packet_digest

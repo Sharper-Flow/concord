@@ -163,10 +163,6 @@ func runPredecessorImport(raw []byte, s *store.Store, out, errOut io.Writer) int
 		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
 		return 1
 	}
-	if err := s.SyncDurable(ctx); err != nil {
-		writeOperatorDiagnostic(errOut, "predecessor-import", err.Error())
-		return 1
-	}
 	return writeJSON(out, report, errOut)
 }
 
@@ -713,7 +709,7 @@ func writeProductAndProjects(ctx context.Context, s *store.Store, request *impor
 			store.VersionRef(store.SubjectProject, primary.ProjectID):         0,
 		},
 	}
-	txErr := s.Transact(ctx, func(tx *store.Transaction) error {
+	txErr := s.TransactDurable(ctx, func(tx *store.Transaction) error {
 		_, applyErr := store.ApplyOperationTx(ctx, tx, operation)
 		return applyErr
 	})
@@ -794,7 +790,7 @@ func writeSecondaryProjects(ctx context.Context, s *store.Store, request *import
 				store.VersionRef(store.SubjectProject, project.ProjectID):         0,
 			},
 		}
-		txErr := s.Transact(ctx, func(tx *store.Transaction) error {
+		txErr := s.TransactDurable(ctx, func(tx *store.Transaction) error {
 			_, applyErr := store.ApplyOperationTx(ctx, tx, operation)
 			return applyErr
 		})
@@ -877,7 +873,7 @@ func writeSelectedWork(ctx context.Context, s *store.Store, request *importReque
 				store.VersionRef(store.SubjectWorkItem, workID): 0,
 			},
 		}
-		txErr := s.Transact(ctx, func(tx *store.Transaction) error {
+		txErr := s.TransactDurable(ctx, func(tx *store.Transaction) error {
 			_, applyErr := store.ApplyOperationTx(ctx, tx, operation)
 			return applyErr
 		})

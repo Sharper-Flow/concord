@@ -59,6 +59,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: Recompute release metadata
         id: release
         run: python3 scripts/release.py --output-dir release --github-output "$GITHUB_OUTPUT"

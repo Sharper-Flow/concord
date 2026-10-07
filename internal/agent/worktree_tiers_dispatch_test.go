@@ -222,7 +222,7 @@ func TestWorktreeVerifyRefusesTrackedFileMutation(t *testing.T) {
 		t.Fatalf("response=%+v, want typed refusal", refused)
 	}
 	if refused.Error.Kind != "operation_conflict" {
-		t.Fatalf("error.kind=%q, want operation_conflict", refused.Error.Kind)
+		t.Fatalf("error=%+v, want operation_conflict", refused.Error)
 	}
 	if !strings.Contains(refused.Error.Message, worktreePath) || !strings.Contains(refused.Error.Message, "tracked files changed") {
 		t.Fatalf("error.message=%q, want the worktree and the change named", refused.Error.Message)

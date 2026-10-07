@@ -66,10 +66,6 @@
     },
     {
       "kind": "adapter_test",
-      "value": "adapter/opencode/project_handoff_end_to_end.test.ts#boots, consumes, and retires through the real core routes"
-    },
-    {
-      "kind": "adapter_test",
       "value": "adapter/opencode/concord.test.ts#work start resume re-reads the handoff after the landing for a cold second session"
     }
   ],

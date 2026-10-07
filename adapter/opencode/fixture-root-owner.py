@@ -50,11 +50,11 @@ Exit status is decided once, after lifecycle cleanup, from the recorded
 state alone: a captured SIGINT/SIGTERM — whenever it was captured, including
 during failed executable resolution, drain, or removal — keeps its
 conventional 130/143, with the failure diagnostics journalled beside it; an
-EOF cancellation keeps 125. Below cancellation, a startup failure (no
-executable, failed spawn, failed marker persistence) exits nonzero (92), a
-post-start owner fault such as a broken journal exits nonzero (91), the
-inner run's own status is preserved, and a cleanup failure after an
-otherwise passing inner run exits nonzero (91) with a printed removal_error.
+EOF cancellation keeps 125. Below cancellation, a recorded nonzero inner
+status is preserved. Otherwise a startup failure (no executable, failed
+spawn, failed marker persistence) exits nonzero (92), and an owner, journal,
+or cleanup failure exits nonzero (91). Faults are reported after cleanup,
+including journal failures during removal and completion.
 The inner run's assertion output passes straight through this owner's
 inherited stdout/stderr, and every cleanup step is journalled as an
 `@@concord-owner {json}` line on stderr, outside the disposable root.
@@ -383,16 +383,15 @@ def await_inner(run: OwnedRun, stdin_fd: int) -> None:
         run.inner_status = conventional_status(inner)
 
 
-def finish(run: OwnedRun) -> int:
-    """The one termination/drain/removal path every run ends in, followed by
-    the one exit-status decision.
+def finish(run: OwnedRun) -> None:
+    """The one termination/drain/removal path every run ends in.
 
     No step in here may raise past the lifecycle: an inner termination
     failure, a poll or wait failure, a journal failure, a failed drainage
     proof, and a failed removal each record themselves on the lifecycle and
     let the remaining steps still run — a termination error never assumes the
     child dead, so the kernel-only drainage still establishes ECHILD before
-    any removal — and decide() is always reached."""
+    any removal. Reporting and the final decision follow this lifecycle."""
     # Stop a still-live inner child first — a fault path may have left it
     # running — so nothing owned outlives the drain boundary.
     if run.inner is not None:
@@ -409,19 +408,6 @@ def finish(run: OwnedRun) -> int:
         journal(run, {"kind": "child_exit", "root": run.root, "status": run.inner_status})
     if run.startup_detail is not None:
         journal(run, {"kind": "startup_error", "root": run.root, "detail": run.startup_detail})
-    # A snapshot, never the live list: the reporter underneath must not be
-    # able to extend the collection being iterated. Journal faults are
-    # reported once, through a channel whose further failure is dropped
-    # rather than re-reported — no reporter may recursively report its own
-    # failure — because the fault itself is already retained in state and
-    # already decides the exit status.
-    for fault in list(run.owner_faults):
-        journal(run, {"kind": "owner_fault", "root": run.root, "detail": fault})
-    for fault in list(run.journal_faults):
-        try:
-            emit({"kind": "owner_fault", "root": run.root, "detail": fault})
-        except OSError:
-            pass
     if run.cancelled_by:
         reason = f"cancel_{run.cancelled_by}"
     elif run.startup_detail is not None:
@@ -439,10 +425,25 @@ def finish(run: OwnedRun) -> int:
                       "detail": f"drain failed closed: {message}"})
         report_line(run, f"removal_error {run.root}: drain failed closed: {message}\n")
         # The root is kept: no removal without the kernel's drainage proof.
-        return decide(run)
+        return
     journal(run, {"kind": "drain_complete", "root": run.root, **report})
     remove_root(run)
-    return decide(run)
+
+
+def report_faults(run: OwnedRun) -> None:
+    """Report faults once after cleanup, including its last journal write.
+
+    Snapshots keep reporting finite. If the journal remains inaccessible,
+    reporting its own failure cannot restore it; retain the failure in state
+    for the exit decision without recursively reporting it.
+    """
+    for fault in list(run.owner_faults):
+        journal(run, {"kind": "owner_fault", "root": run.root, "detail": fault})
+    for fault in list(run.journal_faults):
+        try:
+            emit({"kind": "owner_fault", "root": run.root, "detail": fault})
+        except OSError:
+            pass
 
 
 def decide(run: OwnedRun) -> int:
@@ -452,22 +453,21 @@ def decide(run: OwnedRun) -> int:
     resolution, the run, drain, or removal — keeps its conventional status;
     neither a startup fault nor a drain or removal failure overrides it, and
     the diagnostics stay journalled beside it. An EOF cancellation keeps its
-    own cancellation status. Below cancellation: a startup fault exits 92,
-    any other owner fault — a broken journal included — 91, the inner run's
-    own status is preserved, and a cleanup failure after a passing inner run
-    exits nonzero (91).
+    own cancellation status. Below cancellation, a recorded nonzero inner
+    status wins over every later fault. Without an inner failure, a startup
+    fault exits 92; an owner, journal, or cleanup fault exits 91.
     """
     if run.captured_signal in SIGNAL_EXIT:
         return SIGNAL_EXIT[run.captured_signal]
     if run.cancelled_by == "eof":
         return CANCEL_EOF_EXIT
+    if run.inner_status not in (None, 0):
+        return run.inner_status
     if run.startup_detail is not None:
         return STARTUP_ERROR_EXIT
-    if run.owner_faults or run.journal_faults:
+    if run.owner_faults or run.journal_faults or run.cleanup_failed:
         return REMOVAL_ERROR_EXIT
-    if run.cleanup_failed:
-        return run.inner_status if run.inner_status not in (None, 0) else REMOVAL_ERROR_EXIT
-    return run.inner_status if run.inner_status is not None else 0
+    return 0
 
 
 def run_owned(case: str) -> int:
@@ -507,13 +507,14 @@ def run_owned(case: str) -> int:
         # drains and removes.
         run.owner_faults.append(f"owner fault: {type(error).__name__}: {error}")
     try:
-        return finish(run)
+        finish(run)
     except Exception as error:
         # Unreachable by design — every finish step records instead of
         # raising — but a lifecycle bug still fails closed through the same
         # one decision instead of a script-level fallback status.
         run.owner_faults.append(f"finish fault: {type(error).__name__}: {error}")
-        return decide(run)
+    report_faults(run)
+    return decide(run)
 
 
 def main(argv: list[str]) -> int:

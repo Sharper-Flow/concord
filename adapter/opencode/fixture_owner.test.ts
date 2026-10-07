@@ -272,18 +272,18 @@ async function runOwnerCase(scenario: string, workDir: string, action?: "eof" | 
   // raises its six-link chain. A readiness wait is scheduling, never an
   // assertion: it waits on what the case itself published, so the driving
   // action can never land before the facts the assertions rely on exist.
-  // The settle margin covers the case's own post-chain window before it
-  // chmods the run root read-only, so a signal case is never firesigned
-  // ahead of its deliberate removal failure.
+  // The cleanup-failure report is published after the permission changes,
+  // so its readiness fact, not a grace timer, admits the driving signal.
   const waitForReport = caseScenario === "sleepy-cleanup-failure"
   const awaitReady = async (): Promise<void> => {
     for (let attempt = 0; attempt < 600; attempt++) {
       const chainUp = (await readHeartbeat(pulsePath)).pids.length >= 6
-      const published = !waitForReport || (await pathExists(reportPath))
-      if (chainUp && published) break
+      const published = !waitForReport || ((await pathExists(reportPath)) &&
+        (JSON.parse(await readFile(reportPath, "utf8")) as CaseFindings).findings.ready === true)
+      if (chainUp && published) return
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    if (waitForReport) await new Promise((resolve) => setTimeout(resolve, 400))
+    throw new Error(`${scenario}: this run did not publish readiness before its driving action`)
   }
   if (action === "eof") {
     await reader.waitFor((line) => line.includes('"allocated_root"'), 15_000)
@@ -327,6 +327,7 @@ async function assertScenario(result: OwnerRun, scenario: string, workDir: strin
     expect(await pathExists(rootPath), `${label}: retained root vanished`).toBe(true)
     const retainedRoot = String(findings.root ?? rootPath)
     expect(await pathExists(join(retainedRoot, "evidence.txt")), `${label}: retained evidence vanished`).toBe(true)
+    expect(await readFile(join(retainedRoot, "evidence.txt"), "utf8"), `${label}: retained evidence changed`).toBe("collected evidence\n")
     return
   }
   expect(removalError, `${label}: unexpected removal_error`).toBeUndefined()
@@ -422,21 +423,29 @@ test("every owner lifecycle case cleans its exact root across three consecutive 
         await Bun.write(join(sibling, "unregistered.txt"), "not owned by this run\n")
         const siblingBefore = await digestTree(sibling)
         const result = await runOwnerCase(scenario, workDir, action)
-        const label = `${scenario} run ${run}`
-        expect(result.exitCode, `${label} stderr: ${result.stderr.slice(-2000)}`).toBe(EXPECTED_EXIT[scenario])
-        await assertScenario(result, scenario, workDir, label)
-        expect(await digestTree(sibling), `${label}: same-prefix sibling changed during cleanup`).toBe(siblingBefore)
-        await rm(sibling, { recursive: true, force: true })
-        expect(await digestTree(sentinel), `${label}: foreign sentinel changed`).toBe(sentinelBefore)
-        // Confine an intentionally retained leftover (failed removal).
         const root = eventAt(result.events, "allocated_root")?.root
-        if (root && RETAINING.has(scenario)) {
-          await chmod(root, 0o755)
-          await rm(root, { recursive: true, force: true })
-        }
-        // The cancelled cases preserve the conventional signal/EOF statuses.
-        if (scenario === "sigint" || scenario === "sigterm" || scenario === "sigint-removal-failure" || scenario === "sigterm-removal-failure") {
-          expect(eventAt(result.events, "cancelled")?.via).toBe(scenario.startsWith("sigint") ? "SIGINT" : "SIGTERM")
+        try {
+          const label = `${scenario} run ${run}`
+          expect(result.exitCode, `${label} stderr: ${result.stderr.slice(-2000)}`).toBe(EXPECTED_EXIT[scenario])
+          await assertScenario(result, scenario, workDir, label)
+          expect(await digestTree(sibling), `${label}: same-prefix sibling changed during cleanup`).toBe(siblingBefore)
+          expect(await digestTree(sentinel), `${label}: foreign sentinel changed`).toBe(sentinelBefore)
+          // The cancelled cases preserve the conventional signal/EOF statuses.
+          if (scenario === "sigint" || scenario === "sigterm" || scenario === "sigint-removal-failure" || scenario === "sigterm-removal-failure") {
+            expect(eventAt(result.events, "cancelled")?.via).toBe(scenario.startsWith("sigint") ? "SIGINT" : "SIGTERM")
+          }
+        } finally {
+          // Restore only this run's known failure fixture after its owner
+          // proves drainage. A missing proof keeps the root, even at teardown.
+          if (root && RETAINING.has(scenario) && eventAt(result.events, "drain_complete") && await pathExists(root)) {
+            await chmod(root, 0o755)
+            const fixture = result.findings?.findings.root
+            if (typeof fixture === "string" && fixture.startsWith(`${root}/`) && await pathExists(fixture)) {
+              await chmod(fixture, 0o755)
+            }
+            await rm(root, { recursive: true, force: true })
+          }
+          await rm(sibling, { recursive: true, force: true })
         }
       }
     }
@@ -719,6 +728,10 @@ interface FaultProbeResult {
   events?: string[]
   details?: Record<string, string>
   drain_reasons?: string[]
+  stderr?: string
+  fault_details?: string[]
+  journal_failures?: string[]
+  failed_fault_details?: string[]
 }
 
 test("deterministic fault probes hold every post-allocation failure inside the one lifecycle", async () => {
@@ -755,9 +768,10 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     .filter(Boolean)
     .map((line) => JSON.parse(line) as FaultProbeResult & { probes?: number; real_processes_spawned?: number })
   const summary = lines[lines.length - 1]
-  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(22)
+  expect(summary.probes, `fault probe did not report its run: ${stdout}${stderr}`).toBe(49)
   expect(summary.real_processes_spawned).toBe(0)
   const byLabel = new Map(lines.slice(0, -1).map((line) => [String(line.probe), line]))
+  expect(byLabel.size, "fault probe labels must identify distinct scenarios").toBe(summary.probes)
   const row = (label: string): FaultProbeResult => {
     const found = byLabel.get(label)
     expect(found, `probe ${label} never ran`).toBeDefined()
@@ -898,6 +912,9 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     expect(found.events).toContain("drain_complete")
     expect(found.events).not.toContain("removal_error")
     expect(found.events, `${label}: the failed step was journalled anyway`).not.toContain(absent)
+    expect(found.fault_details, `${label}: the late journal fault was not reported`).toEqual([
+      expect.stringContaining(`journal ${absent} failed`),
+    ])
     const events = found.events ?? []
     const present = absent === "cleanup_entry" ? "removal_entry" : "cleanup_entry"
     expect(events.indexOf(present), `${label}: no removal entry was attempted`).toBeGreaterThan(events.indexOf("drain_complete"))
@@ -953,10 +970,70 @@ test("deterministic fault probes hold every post-allocation failure inside the o
     // visibly despite the dead journal.
     const found = row("persistent-journal-and-drain-fault")
     expectNoEscape("persistent-journal-and-drain-fault", found)
+    expect(found.journal_failures, "combined probe never injected its journal failure").toEqual(["removal_error", "owner_fault"])
+    expect(found.failed_fault_details, "the terminal report lost the late journal fault").toEqual([
+      expect.stringContaining("journal removal_error failed"),
+    ])
+    expect(found.events).toEqual(["allocated_root", "inner_started", "child_exit"])
+    expect(found.stderr).toContain("removal_error")
+    expect(found.stderr).toContain("drain failed closed")
     expect(found.exit).toBe(91)
     expect(found.events).not.toContain("drain_complete")
     expect(found.events).not.toContain("completion")
     expect(found.root_removed, "removed without the kernel's drainage proof").toBe(false)
+  }
+  for (const boundary of ["poll", "stop", "wait"] as const) {
+    for (const [name, code] of [["sigint", 130], ["sigterm", 143]] as const) {
+      for (const combined of [false, true]) {
+        const label = `${boundary}-${combined ? "journal-removal-failure" : "failure"}-${name}`
+        const found = row(label)
+        expectNoEscape(label, found)
+        expect(found.exit, `${label}: an owner fault overrode the captured signal`).toBe(code)
+        expect(found.details?.cancelled).toBe(name === "sigint" ? "SIGINT" : "SIGTERM")
+        expect(found.events).toContain("owner_fault")
+        expect(found.events).toContain("drain_complete")
+        expect(found.root_removed).toBe(!combined)
+        if (combined) {
+          expect(found.events).toContain("removal_error")
+          expect(found.events).not.toContain("cleanup_entry")
+          expect(found.fault_details).toContainEqual(expect.stringContaining("journal cleanup_entry failed"))
+        } else {
+          expect(found.events).toContain("completion")
+        }
+      }
+    }
+  }
+  {
+    const found = row("wait-failure-eof")
+    expectNoEscape("wait-failure-eof", found)
+    expect(found.exit).toBe(125)
+    expect(found.fault_details).toContainEqual(expect.stringContaining("synthetic wait failure"))
+    expect(found.events).toContain("drain_complete")
+    expect(found.events).toContain("completion")
+    expect(found.root_removed).toBe(true)
+  }
+  for (const status of [0, 1, 7, -9]) {
+    for (const fault of ["journal", "owner", "drain", "removal"]) {
+      const label = `inner-${status}-${fault}-fault`
+      const found = row(label)
+      expectNoEscape(label, found)
+      const expected = status < 0 ? 128 - status : status || 91
+      expect(found.exit, `${label}: a late fault replaced the recorded inner failure`).toBe(expected)
+      expect(found.root_removed).toBe(fault !== "drain" && fault !== "removal")
+      if (fault === "drain") {
+        expect(found.events).not.toContain("drain_complete")
+        expect(found.events).not.toContain("cleanup_entry")
+      } else {
+        expect(found.events).toContain("drain_complete")
+      }
+      if (fault === "journal" || fault === "owner") {
+        expect(found.events).toContain("owner_fault")
+        expect((found.fault_details ?? []).length).toBeGreaterThan(0)
+      } else {
+        expect(found.events).toContain("removal_error")
+        expect(found.stderr).toContain("removal_error")
+      }
+    }
   }
   }
   for (let run = 1; run <= 3; run++) await attempt()

@@ -6,9 +6,7 @@
 // after the child cannot write again and every owned descendant is killed
 // and reaped (the kernel's ECHILD boundary). This launcher holds the owner's
 // stdin open for its whole life, so its death by any path asks the owner to
-// cancel and clean up. The owner's exit status preserves the inner suite's
-// status, including 130/143 signal exits; only a removal failure after a
-// passing inner run turns a green run nonzero.
+// cancel and clean up.
 import { expect, test } from "bun:test"
 import { join } from "node:path"
 import { runOwnedSuite } from "./owned-suite"

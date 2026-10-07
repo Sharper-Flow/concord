@@ -5,7 +5,7 @@ Permanent machinery for fixture_owner.test.ts, beside the real-run matrix.
 The faults probed here — marker persistence failure, the post-spawn journal
 failure, persistent journal ENOSPC, journal failures inside cleanup itself
 (cleanup_entry, removal_entry, completion), nonce generation failing after
-the root exists, poll/stop failures with and without a captured SIGINT or
+the root exists, poll/stop/wait failures with and without a captured SIGINT or
 SIGTERM, and a SIGINT/SIGTERM captured while executable resolution,
 drainage, or removal is failing — cannot be timed against a real child run,
 so each probe drives the owner's own run_owned() in this process with the
@@ -50,7 +50,9 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
               poll_fails: bool = False, fail_kinds: tuple[str, ...] = (),
               journal_fails_from: str | None = None,
               fail_signal: str | None = None, stop_signal: str | None = None,
-              poll_signal: str | None = None) -> dict:
+              poll_signal: str | None = None, wait_fails: bool = False,
+              wait_signal: str | None = None, inner_status: int = 0,
+              finish_poll_fails: bool = False) -> dict:
     """Run one fault probe. The fault arguments:
 
     marker              fault the marker write (ENOSPC)
@@ -72,20 +74,28 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
                         (persistent journal ENOSPC)
     fail_signal         when set, the signal handler fires from inside the
                         first failing journal emit
+    wait_fails          fault the inner wait (EIO); wait_signal, when set, is
+                        captured from inside the failing wait
+    inner_status        the inner process's returncode, before normalization
+    finish_poll_fails   fault only the poll after the inner status was captured
     """
     signum = {"SIGINT": signal.SIGINT, "SIGTERM": signal.SIGTERM}[signal_name] if signal_name else None
     fail_signum = {"SIGINT": signal.SIGINT, "SIGTERM": signal.SIGTERM}[fail_signal] if fail_signal else None
     stop_signum = {"SIGINT": signal.SIGINT, "SIGTERM": signal.SIGTERM}[stop_signal] if stop_signal else None
     poll_signum = {"SIGINT": signal.SIGINT, "SIGTERM": signal.SIGTERM}[poll_signal] if poll_signal else None
+    wait_signum = {"SIGINT": signal.SIGINT, "SIGTERM": signal.SIGTERM}[wait_signal] if wait_signal else None
     if journal:
         fail_kinds = (*fail_kinds, "inner_started")
     with tempfile.TemporaryDirectory(prefix="concord-owner-fault-") as parent:
         allocated = Path(parent, "exact-owned-root")
         handlers = {}
         events: list[dict] = []
+        failed_events: list[dict] = []
         drains: list[str] = []
         journal_failing = [False]
         signalled = [False]
+        stopped = [False]
+        polls = [0]
 
         def allocate(**_kwargs):
             allocated.mkdir()
@@ -106,17 +116,29 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
             raise OSError(errno.ESRCH, "synthetic poll failure")
 
         def poll():
-            if poll_fails:
+            polls[0] += 1
+            if poll_fails or (finish_poll_fails and polls[0] > 1):
                 return inner_poll()
-            return None if stop_fails else 0
+            return None if stop_fails or (wait_fails and not stopped[0]) else inner_status
+
+        def send_signal(_sig):
+            stopped[0] = True
+
+        def wait():
+            if wait_fails:
+                if wait_signum is not None:
+                    capture_signal(wait_signum)
+                raise OSError(errno.EIO, "synthetic wait failure")
+            return inner_status
 
         def stop_inner(_inner, _sig):
             if stop_signum is not None:
                 capture_signal(stop_signum)
             raise OSError(errno.EPERM, "synthetic termination failure")
 
-        fake_inner = SimpleNamespace(returncode=0, pid=123456,
-                                      poll=poll, wait=lambda: 0)
+        fake_inner = SimpleNamespace(returncode=inner_status, pid=123456,
+                                     poll=poll, wait=wait, send_signal=send_signal,
+                                     kill=lambda: send_signal(signal.SIGKILL))
 
         def marker_write(*_args, **_kwargs):
             if signum is not None:
@@ -135,6 +157,7 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
             if journal_fails_from is not None and kind == journal_fails_from:
                 journal_failing[0] = True
             if kind in fail_kinds or journal_failing[0]:
+                failed_events.append(dict(event))
                 if fail_signum is not None and not signalled[0]:
                     signalled[0] = True
                     capture_signal(fail_signum)
@@ -156,7 +179,7 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
 
         result: dict = {"probe": label}
         with ExitStack() as stack:
-            stack.enter_context(redirect_stderr(io.StringIO()))
+            diagnostics = stack.enter_context(redirect_stderr(io.StringIO()))
             if marker:
                 stack.enter_context(mock.patch.object(owner.Path, "write_text", side_effect=marker_write))
             if nonce_fails:
@@ -184,6 +207,12 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
         result["details"] = {event.get("kind"): event.get("detail") or event.get("via")
                              for event in events if event.get("detail") or event.get("via")}
         result["drain_reasons"] = drains
+        result["stderr"] = diagnostics.getvalue()
+        result["fault_details"] = [event["detail"] for event in events
+                                   if event.get("kind") == "owner_fault"]
+        result["journal_failures"] = [event["kind"] for event in failed_events]
+        result["failed_fault_details"] = [event["detail"] for event in failed_events
+                                          if event.get("kind") == "owner_fault"]
         print(json.dumps(result, sort_keys=True), flush=True)
         return result
 
@@ -226,9 +255,34 @@ PROBES = [
     # signal, and a persistent journal failure beside a failed drainage.
     {"label": "stop-removal-failure-sigterm", "stop_fails": True, "stop_signal": "SIGTERM",
      "rmtree_fails": True},
-    {"label": "persistent-journal-and-drain-fault", "journal_fails_from": "drain_complete",
+    {"label": "persistent-journal-and-drain-fault", "journal_fails_from": "removal_error",
      "drain_fails": True},
 ]
+
+# Both signal races at every process-observation boundary, including wait in
+# the real stop_inner() path, and beside journal and removal failures.
+PROBES.extend([
+    {"label": "stop-failure-sigint", "stop_fails": True, "stop_signal": "SIGINT"},
+    {"label": "poll-failure-sigterm", "poll_fails": True, "poll_signal": "SIGTERM"},
+    {"label": "wait-failure-eof", "wait_fails": True},
+])
+for boundary in ("poll", "stop", "wait"):
+    for name in ("SIGINT", "SIGTERM"):
+        if boundary == "wait":
+            PROBES.append({"label": f"wait-failure-{name.lower()}",
+                           "wait_fails": True, "wait_signal": name})
+        PROBES.append({"label": f"{boundary}-journal-removal-failure-{name.lower()}",
+                       f"{boundary}_fails": True, f"{boundary}_signal": name,
+                       "fail_kinds": ("cleanup_entry",), "rmtree_fails": True})
+
+# A recorded failing inner status wins over a later owner, journal, drain, or
+# removal fault. Passing inner runs must still fail for each of those faults.
+for status in (0, 1, 7, -9):
+    for fault, fields in (("journal", {"fail_kinds": ("completion",)}),
+                          ("owner", {"finish_poll_fails": True}),
+                          ("drain", {"drain_fails": True}),
+                          ("removal", {"rmtree_fails": True})):
+        PROBES.append({"label": f"inner-{status}-{fault}-fault", "inner_status": status, **fields})
 
 
 def main() -> int:

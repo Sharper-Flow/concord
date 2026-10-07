@@ -36,7 +36,7 @@
 //                           read-only: the matrix's signal lands in a live
 //                           run whose removal will also fail
 import { afterAll, test } from "bun:test"
-import { chmod } from "node:fs/promises"
+import { chmod, rename } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
@@ -49,6 +49,13 @@ const reportPath = process.env.CONCORD_OWNER_REPORT ?? ""
 const pulsePath = process.env.CONCORD_OWNER_PULSE ?? ""
 const findings: Record<string, unknown> = { scenario }
 const TEST_TIMEOUTS: Record<string, number> = { "timeout-resumption": 50, "timeout-nosettle": 50, sleepy: 60_000 }
+
+async function publishReport(): Promise<void> {
+  if (!reportPath) return
+  const pending = `${reportPath}.pending`
+  await Bun.write(pending, `${JSON.stringify({ scenario, findings })}\n`)
+  await rename(pending, reportPath)
+}
 
 function spawnChain(links: number): void {
   const child = Bun.spawn([process.execPath, WRITER, "chain", pulsePath, String(links - 1)], {
@@ -134,7 +141,9 @@ const caseBody: Record<string, () => Promise<void>> = {
     findings.root = root
     await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
     findings.evidenceWritten = true
-    // Make the owner's removal fail: no write permission on the run root.
+    // Protect the evidence directory too: rmtree may descend before it
+    // encounters the unwritable run root. Neither order may delete evidence.
+    await chmod(root, 0o500)
     await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
   },
 
@@ -142,6 +151,7 @@ const caseBody: Record<string, () => Promise<void>> = {
     const root = await fixtureTempRoot("retainfail")
     findings.root = root
     await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
+    await chmod(root, 0o500)
     await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
     throw new Error("original body failure")
   },
@@ -184,15 +194,14 @@ const caseBody: Record<string, () => Promise<void>> = {
     const root = await fixtureTempRoot("sleepyfail")
     findings.root = root
     await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
-    // This run ends by signal, so afterAll's report may never be written:
-    // publish the allocation facts now, outside the disposable root.
-    if (reportPath) {
-      await Bun.write(reportPath, `${JSON.stringify({ scenario, findings })}\n`)
-    }
     spawnChain(6)
     await new Promise((resolve) => setTimeout(resolve, 150))
+    await chmod(root, 0o500)
     await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
     findings.ready = true
+    // This run ends by signal, so afterAll may not write its report. Publish
+    // readiness only after both evidence and the removal fault exist.
+    await publishReport()
     await new Promise<void>(() => {})
   },
 }
@@ -211,7 +220,5 @@ test("later awaited hook", async () => {
 
 afterAll(async () => {
   findings.stillAliveAtRunEnd = existsSync(String(findings.root ?? ""))
-  if (reportPath) {
-    await Bun.write(reportPath, `${JSON.stringify({ scenario, findings })}\n`)
-  }
+  await publishReport()
 })

@@ -444,7 +444,7 @@ func TestPlanUpgradeReadinessBlocksOnABreakingRowCommittedToTheLiveWAL(t *testin
 
 // readinessChildRoleEnv names the subprocess role the cross-process probe
 // re-executes this test binary for. The env carries the role and its store.
-const readinessChildRoleEnv = "CONCORD_READINESS_CHILD_ROLE"
+const readinessChildRoleEnv = "TEST_CONCORD_READINESS_CHILD_ROLE"
 
 func readinessChild() bool {
 	return os.Getenv(readinessChildRoleEnv) != ""
@@ -453,7 +453,7 @@ func readinessChild() bool {
 // The child holds the store open as a live session with committed WAL frames
 // and signals readiness, then waits for the parent's release signal.
 func readinessChildLiveSession(t *testing.T) {
-	path := os.Getenv("CONCORD_READINESS_CHILD_STORE")
+	path := os.Getenv("TEST_CONCORD_READINESS_CHILD_STORE")
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
 		t.Fatal(err)
@@ -482,7 +482,6 @@ func TestReadinessChildHelper(t *testing.T) {
 	default:
 		t.Fatalf("unknown child role %q", os.Getenv(readinessChildRoleEnv))
 	}
-	os.Exit(0)
 }
 
 // childStdinPipes holds the live children's release pipes.
@@ -491,7 +490,7 @@ var childStdinPipes []io.WriteCloser
 func startReadinessChild(t *testing.T, role, store string) *exec.Cmd {
 	t.Helper()
 	command := exec.Command(os.Args[0], "-test.run=TestReadinessChildHelper", "-test.v=false")
-	command.Env = append(os.Environ(), readinessChildRoleEnv+"="+role, "CONCORD_READINESS_CHILD_STORE="+store)
+	command.Env = append(os.Environ(), readinessChildRoleEnv+"="+role, "TEST_CONCORD_READINESS_CHILD_STORE="+store)
 	command.Stdout = os.Stdout
 	if role == "live-session" {
 		stdin, err := command.StdinPipe()

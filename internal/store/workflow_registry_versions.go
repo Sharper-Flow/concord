@@ -1148,3 +1148,58 @@ func genericOneOffVerdictBatchV12() WorkflowDefinition {
 	d.Version = 12
 	return withCurrentVerdictBatch(d)
 }
+
+// Each builder below ships its family's recovery-route table (CD-0201 D1/D3)
+// at the next version. The definition content stays the predecessor's; the
+// only content change is the declared recovery_routes field, so every
+// released version above keeps its digest and resolves the same routes
+// through workflowReleasedRecoveryRoutes until instances pin these versions.
+
+func implementationRecoveryRoutesV23() WorkflowDefinition {
+	d := implementationProposalOutOfScopeV22()
+	d.Version = 23
+	d.RecoveryRoutes = implementationRecoveryRoutes()
+	return d
+}
+
+func breakFixRecoveryRoutesV20() WorkflowDefinition {
+	d := breakFixAcceptDeliveryV19()
+	d.Version = 20
+	d.RecoveryRoutes = breakFixRecoveryRoutes()
+	return d
+}
+
+func researchRecoveryRoutesV14() WorkflowDefinition {
+	d := researchAcceptDeliveryV13()
+	d.Version = 14
+	d.RecoveryRoutes = researchRecoveryRoutes()
+	return d
+}
+
+func architectureRecoveryRoutesV15() WorkflowDefinition {
+	d := architectureAcceptDeliveryV14()
+	d.Version = 15
+	d.RecoveryRoutes = architectureSpikeRecoveryRoutes()
+	return d
+}
+
+func opsRunbookRecoveryRoutesV16() WorkflowDefinition {
+	d := opsRunbookAcceptDeliveryV15()
+	d.Version = 16
+	d.RecoveryRoutes = opsRunbookRecoveryRoutes()
+	return d
+}
+
+func staticAnalysisRecoveryRoutesV13() WorkflowDefinition {
+	d := staticAnalysisAcceptDeliveryV12()
+	d.Version = 13
+	d.RecoveryRoutes = staticAnalysisRecoveryRoutes()
+	return d
+}
+
+func genericOneOffRecoveryRoutesV14() WorkflowDefinition {
+	d := genericOneOffAcceptDeliveryV13()
+	d.Version = 14
+	d.RecoveryRoutes = genericOneOffRecoveryRoutes()
+	return d
+}

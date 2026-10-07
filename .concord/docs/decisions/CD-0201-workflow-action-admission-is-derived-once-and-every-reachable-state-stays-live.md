@@ -10,6 +10,15 @@
 - **Amends:** CD-0166's settlement clause in one point — a fresh accepted
   review settles the post-rejection review debt only when its verdict is
   ship, or absent for the pre-CD-0197 reports
+- **Amended by:** CD-0209 D1, the typed `WorkflowRecoveryRoute` table and
+  the producer rule the route target must carry; CD-0209 D2, the
+  registration gate that refuses an undeclared or non-producer route;
+  CD-0209 D3, the one reader every runtime cross-step correction feeds
+  from; CD-0209 D4, the closed positive production classification;
+  CD-0209 D5, the artifact-staleness fold and its admission halves;
+  CD-0209 D6, the work-pin sequence that names the next step;
+  CD-0209 D7, the liveness and conformance replay that read the
+  artifact-staleness bit
 - **Preserves:** every other route refusal keeps its own scope (CD-0186);
   payload and identity checks stay in the guards; no definition version
   changes

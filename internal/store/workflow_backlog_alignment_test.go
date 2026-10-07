@@ -43,8 +43,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 22},
-		{"workflow.break_fix", "reproduce", "diagnose", 19},
+		{"workflow.implementation", "proposal", "discovery", 23},
+		{"workflow.break_fix", "reproduce", "diagnose", 20},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)

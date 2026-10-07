@@ -1,0 +1,76 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-1a2f3bd1020ffb4f515b06de",
+    "tier": "legislated"
+  },
+  "date": "2026-10-07T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/workflow_recovery_routes.go",
+    "internal/store/workflow_recovery_routes_test.go",
+    "internal/store/workflow_artifact_stale.go",
+    "internal/store/workflow_artifact_staleness_test.go",
+    "internal/agent/workflow_recovery_routes_agent_test.go",
+    "internal/store/workflow_admission.go",
+    "internal/store/workflow_admission_liveness_test.go",
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_return_route_test.go",
+    "internal/store/workflow_design_refine_recovery_test.go",
+    "internal/store/workflow_registry.go",
+    "internal/store/workflow_registry_versions.go",
+    "internal/store/workflow_step.go",
+    "internal/store/workflow_preflight.go",
+    "internal/store/workflow_dispatch.go",
+    "internal/store/workflow_action_guards.go",
+    "contracts/workflow-definition.schema.json",
+    ".concord/docs/knowledge/coverage/CD-0209.json"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0209",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0143"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0172"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0186"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0201"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0204"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0209-declared-recovery-routes-preserve-artifact-truth.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:20a99c30b3038b1dcb6fb34bd25cdefb7aa7c9472f1e7aaa7fd2b1a080f6d7ef",
+  "status": "accepted",
+  "summary": "One declared recovery-route table per workflow definition is the only owner of cross-step correction. The closed two-trigger set (unhealthy_verdict and disproved_premise_at_complete) pairs each trigger with one engine-owned recovery action, the registration gate refuses an undeclared or non-producer route, the runtime cross-step reader is one function, and the artifact-staleness fold binds the production frontier to the declared target so only an accepted worker delivery or a typed target production direct action clears the bit. The 108 released versions keep their canonical bytes and digests and resolve their routes through a per-(ref, version) quarantine the liveness and conformance replay covers exhaustively; a new authored version declares its own table; CD-0172 and CD-0186 keep the complete-step supersede bound to implementation and break_fix with exact approval terminal.",
+  "tags": [
+    "workflow",
+    "workflow-engine",
+    "admission",
+    "liveness",
+    "recovery",
+    "correction",
+    "artifact-staleness",
+    "conformance"
+  ],
+  "title": "Declared recovery routes preserve artifact truth"
+}

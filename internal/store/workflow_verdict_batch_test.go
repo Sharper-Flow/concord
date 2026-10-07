@@ -41,8 +41,8 @@ func seedWorkflowVerdictBatchFixtureRequiring(t *testing.T, workID string, extra
 
 // seedWorkflowVerdictBatchFixtureOnFixtureDefinition seeds the batch fixture's
 // multi-predicate contract on the fixture definition, whose acceptance step
-// carries no refinement failure edge, so a confirmation over non-ok verdicts
-// still advances to the terminal step — the late recovery position.
+// carries no refinement failure edge. An accepted execution worker supplies
+// the delivery that the verdict-correction return requires.
 func seedWorkflowVerdictBatchFixtureOnFixtureDefinition(t *testing.T, workID string) workflowReturnRouteFixture {
 	return seedWorkflowVerdictBatchFixtureDefinition(t, workID, 0, []string{"verification"}, batchVerdictContractPredicates(workID), workflowFixtureRef)
 }
@@ -153,8 +153,15 @@ func seedWorkflowVerdictBatchFixtureDefinition(t *testing.T, workID string, extr
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
+	seedStep := "acceptance"
+	if definitionRef == workflowFixtureRef {
+		seedStep = "execution"
+	}
+	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, seedStep, ownerRef); err != nil {
 		t.Fatal(err)
+	}
+	if definitionRef == workflowFixtureRef {
+		produceContractCorrectionWorker(t, s, workID, "initial", owner)
 	}
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
@@ -390,6 +397,18 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("supersede contract at the verification step: %v", err)
 	}
+	beforeProduction := contractCorrectionEffectSnapshot(t, s, workID)
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("successor confirmation before production = %v, want stale_requires_review", err)
+	}
+	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeProduction {
+		t.Fatalf("stale successor confirmation changed effects: before %s, after %s", beforeProduction, got)
+	}
+	correction := json.RawMessage(`{"diagnosis":"the successor still has three unhealthy predicates","strategy":"repeat execution under the active successor","predicate_ids":["predicate:batch-present","predicate:batch-absent","predicate:batch-third"],"evidence_refs":["evidence:return-route-verification","evidence:return-route-review","evidence:return-route-artifact"]}`)
+	if err := runIssue933OperatorAction(t, s, workID, "request_correction", correction, fixture.owner, fixture.operator); err != nil {
+		t.Fatalf("request successor batch correction: %v", err)
+	}
+	produceContractCorrectionWorker(t, s, workID, "successor", fixture.owner)
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("confirm premise on the successor: %v", err)
 	}
@@ -422,6 +441,7 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	// A mixed batch without a version refuses as a whole: batch-present is
 	// now ok and comparable, so one ineligible entry writes nothing.
 	before := verdictEvents()
+	beforeEffects := contractCorrectionEffectSnapshot(t, s, workID)
 	mixed := json.RawMessage(`{"verdicts":[` +
 		`{"predicate_id":"predicate:batch-absent","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]},` +
 		`{"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`)
@@ -430,6 +450,9 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	}
 	if got := verdictEvents(); got != before {
 		t.Fatalf("refused mixed batch moved verdict events from %d to %d", before, got)
+	}
+	if got := contractCorrectionEffectSnapshot(t, s, workID); got != beforeEffects {
+		t.Fatalf("refused mixed batch changed effects: before %s, after %s", beforeEffects, got)
 	}
 
 	// Every entry eligible: the batch without a version passes admission and

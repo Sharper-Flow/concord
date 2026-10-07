@@ -1131,21 +1131,8 @@ func workflowLateVerdictRecoveryAvailable(ctx context.Context, q queryer, workID
 	return workflowLateVerdictRecoveryForPredicate(ctx, q, workID, definition, currentStep, "", 0)
 }
 
-// workflowLateVerdictRecoveryStep reports whether the step hosts the late
-// record_verdict route: the terminal step, whose completion demands the
-// verdicts, or a step that does not declare record_verdict but hosts the
-// premise question, whose confirmation demands them (CD-0204). Either way
-// the instance is past every step that declares record_verdict.
-func workflowLateVerdictRecoveryStep(definition WorkflowDefinition, currentStep string) bool {
-	if containsString(definition.StepGraph.TerminalSteps, currentStep) {
-		return true
-	}
-	action, ok := workflowOperatorQuestionAction(definition, currentStep)
-	return ok && action == "confirm_premise" && !stepDeclaresAction(definition, currentStep, "record_verdict")
-}
-
 func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, requestedPredicateID string, requestedContractVersion int64) (bool, error) {
-	if !workflowLateVerdictRecoveryStep(definition, currentStep) {
+	if stepDeclaresAction(definition, currentStep, "record_verdict") || workflowUnhealthyVerdictRouteTarget(definition, currentStep) == "" {
 		return false, nil
 	}
 	verified := false
@@ -1167,6 +1154,10 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 	}
 	if requestedPredicateID != "" && requestedContractVersion != contractVersion {
 		return false, nil
+	}
+	stale, err := workflowArtifactStale(ctx, q, workID, definition, currentStep, "workflow_action")
+	if err != nil {
+		return false, err
 	}
 	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, contractVersion)
 	if err != nil {
@@ -1190,7 +1181,7 @@ func workflowLateVerdictRecoveryForPredicate(ctx context.Context, q queryer, wor
 			continue
 		}
 		verdict, found := latest[predicateID]
-		if !found || verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
+		if stale || !found || verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
 			return true, nil
 		}
 	}

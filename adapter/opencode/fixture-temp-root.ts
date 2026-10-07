@@ -11,7 +11,9 @@
 // All fixture allocations go through fixtureTempRoot(), which places them
 // under the owner's run root and nowhere else. The global TMPDIR is NOT
 // redirected, so go-build temp roots and other foreign temp directories stay
-// outside this run's cleanup. Commands spawned through runFixtureProcess run
+// outside this run's cleanup. The run-root inputs ride TEST_CONCORD_* keys —
+// the repository's test-child convention — because the test preload strips
+// every live CONCORD_* key in each bun:test child, including this one. Commands spawned through runFixtureProcess run
 // directly (production ExecGitRunner stays unchanged); their separately
 // grouped descendants are contained by the owner's subreaper drain at run
 // end, and a late AbortSignal stays connected to the spawned child.
@@ -29,8 +31,8 @@ let validatedRoot: string | undefined
 // unowned.
 export function ownedFixtureRunRoot(): string {
   if (validatedRoot) return validatedRoot
-  const root = process.env.CONCORD_FIXTURE_RUN_ROOT
-  const nonce = process.env.CONCORD_FIXTURE_RUN_NONCE
+  const root = process.env.TEST_CONCORD_FIXTURE_RUN_ROOT
+  const nonce = process.env.TEST_CONCORD_FIXTURE_RUN_NONCE
   if (!root || !nonce) {
     throw new Error("refusing unowned execution: no owned fixture run root; run this suite through its .test.ts launcher, which starts fixture-root-owner.py")
   }

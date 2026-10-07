@@ -194,7 +194,7 @@ def run_probe(label: str, *, marker: bool = False, journal: bool = False,
             stack.enter_context(mock.patch.object(owner.tempfile, "mkdtemp", side_effect=allocate))
             stack.enter_context(mock.patch.object(owner, "emit", side_effect=emit))
             stack.enter_context(mock.patch.object(owner.shutil, "which", side_effect=resolve_bun))
-            stack.enter_context(mock.patch.dict(owner.os.environ, {"CONCORD_OWNER_BUN": ""}))
+            stack.enter_context(mock.patch.dict(owner.os.environ, {"TEST_CONCORD_OWNER_BUN": ""}))
             stack.enter_context(mock.patch.object(owner.subprocess, "Popen", return_value=fake_inner))
             stack.enter_context(mock.patch.object(owner, "drain_owned", side_effect=drain_owned))
             try:

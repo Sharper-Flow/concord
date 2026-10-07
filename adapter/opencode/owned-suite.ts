@@ -35,7 +35,7 @@ async function tee(stream: ReadableStream<Uint8Array> | undefined, write: (text:
 export async function runOwnedSuite(caseFile: string): Promise<OwnedSuiteResult> {
   const owner = Bun.spawn(["python3", join(import.meta.dir, "fixture-root-owner.py"), caseFile], {
     cwd: import.meta.dir,
-    env: { ...process.env, CONCORD_OWNER_BUN: process.execPath },
+    env: { ...process.env, TEST_CONCORD_OWNER_BUN: process.execPath },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",

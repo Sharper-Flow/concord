@@ -337,14 +337,17 @@ def start(run: OwnedRun, stdin_fd: int) -> None:
         # A journal already failed (the allocated_root emit itself): fail the
         # run here rather than start an unobservable inner run.
         return
-    bun = os.environ.get("CONCORD_OWNER_BUN") or shutil.which("bun")
+    # The private protocol rides TEST_CONCORD_* keys (the repository's
+    # test-child convention): the preload every bun:test child loads strips
+    # all live CONCORD_* keys, so a CONCORD_* name cannot carry these inputs.
+    bun = os.environ.get("TEST_CONCORD_OWNER_BUN") or shutil.which("bun")
     if not bun:
         run.startup_detail = "no bun executable for the inner run"
         return
     try:
         run.inner = subprocess.Popen(
             [bun, "test", os.path.abspath(run.case)],
-            env={**os.environ, "CONCORD_FIXTURE_RUN_ROOT": run.root, "CONCORD_FIXTURE_RUN_NONCE": run.nonce},
+            env={**os.environ, "TEST_CONCORD_FIXTURE_RUN_ROOT": run.root, "TEST_CONCORD_FIXTURE_RUN_NONCE": run.nonce},
             stdin=subprocess.DEVNULL,
         )
     except OSError as error:

@@ -1,6 +1,7 @@
 // Owner-level lifecycle cases. The external owner (fixture-root-owner.py)
 // spawns this file as a REAL `bun test` child run with the scenario in
-// CONCORD_OWNER_CASE, so bun:test's own timeouts, hooks, run end, and exit
+// TEST_CONCORD_OWNER_CASE, so bun:test's own timeouts, hooks, run end, and
+// exit
 // statuses are the exercised ones — nothing is simulated, and this file
 // refuses unowned standalone execution. Each case allocates real fixture
 // roots and real fixture-owned descendants under the owner's run root, then
@@ -39,19 +40,34 @@ import { afterAll, test } from "bun:test"
 import { chmod, rename } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
+import { fixtureTempRoot, ownedFixtureRunRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 
 requireOwnedFixtureRun()
 
 const WRITER = join(import.meta.dir, "fixture-owner.writer.ts")
-const scenario = process.env.CONCORD_OWNER_CASE ?? ""
-const reportPath = process.env.CONCORD_OWNER_REPORT ?? ""
-const pulsePath = process.env.CONCORD_OWNER_PULSE ?? ""
-const findings: Record<string, unknown> = { scenario }
+// The owner's inputs are required here, at module load: a missing scenario,
+// report, or pulse input fails the run immediately instead of silently
+// skipping reporting or delaying readiness. The keys ride the repository's
+// TEST_CONCORD_* test-child convention, which the test preload's blanket
+// CONCORD_* scrub cannot delete.
+function requiredOwnerInput(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`missing required owner input: ${name}`)
+  return value
+}
+const scenario = requiredOwnerInput("TEST_CONCORD_OWNER_CASE")
+const reportPath = requiredOwnerInput("TEST_CONCORD_OWNER_REPORT")
+const pulsePath = requiredOwnerInput("TEST_CONCORD_OWNER_PULSE")
+const findings: Record<string, unknown> = {
+  scenario,
+  // What the composed poison regression asserts from outside: this inner run
+  // received its TEST_CONCORD_* inputs while no live CONCORD_* key survived
+  // the preload in this process.
+  liveConcordKeys: Object.keys(process.env).filter((key) => key.startsWith("CONCORD_")),
+}
 const TEST_TIMEOUTS: Record<string, number> = { "timeout-resumption": 50, "timeout-nosettle": 50, sleepy: 60_000 }
 
 async function publishReport(): Promise<void> {
-  if (!reportPath) return
   const pending = `${reportPath}.pending`
   await Bun.write(pending, `${JSON.stringify({ scenario, findings })}\n`)
   await rename(pending, reportPath)
@@ -74,7 +90,7 @@ const caseBody: Record<string, () => Promise<void>> = {
     await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
     const quick = await runFixtureProcess([process.execPath, "-e", "process.stdout.write('ok')"])
     if (quick.exitCode !== 0 || quick.stdout !== "ok") throw new Error(`quick child failed: ${quick.exitCode} ${quick.stderr}`)
-    findings.underOwnedRoot = root.startsWith(process.env.CONCORD_FIXTURE_RUN_ROOT ?? "")
+    findings.underOwnedRoot = root.startsWith(ownedFixtureRunRoot())
   },
 
   async "assertion-failure"() {
@@ -144,7 +160,7 @@ const caseBody: Record<string, () => Promise<void>> = {
     // Protect the evidence directory too: rmtree may descend before it
     // encounters the unwritable run root. Neither order may delete evidence.
     await chmod(root, 0o500)
-    await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
+    await chmod(ownedFixtureRunRoot(), 0o500)
   },
 
   async "cleanup-failure-failing"() {
@@ -152,7 +168,7 @@ const caseBody: Record<string, () => Promise<void>> = {
     findings.root = root
     await Bun.write(join(root, "evidence.txt"), "collected evidence\n")
     await chmod(root, 0o500)
-    await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
+    await chmod(ownedFixtureRunRoot(), 0o500)
     throw new Error("original body failure")
   },
 
@@ -197,7 +213,7 @@ const caseBody: Record<string, () => Promise<void>> = {
     spawnChain(6)
     await new Promise((resolve) => setTimeout(resolve, 150))
     await chmod(root, 0o500)
-    await chmod(process.env.CONCORD_FIXTURE_RUN_ROOT ?? root, 0o500)
+    await chmod(ownedFixtureRunRoot(), 0o500)
     findings.ready = true
     // This run ends by signal, so afterAll may not write its report. Publish
     // readiness only after both evidence and the removal fault exist.

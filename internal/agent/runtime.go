@@ -1719,6 +1719,10 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
 		"pending_messages":   snapshot.PendingMessages,
 		"observations":       observations,
+		"observations_total": snapshot.ObservationsTotal,
+		// The window holds only the newest observations; this read pages the
+		// whole population, newest first, in full detail.
+		"observations_read": map[string]any{"tool": "concord_work_trace", "operation": "observations", "input": map[string]any{"work_id": snapshot.WorkID}},
 	}
 	// An instance-less work item states its workflow absence as typed
 	// information: the step is null because no instance pins one, and the
@@ -1729,6 +1733,53 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		pinned["workflow_instance"] = store.WorkflowInstanceAbsent
 	}
 	return payload
+}
+
+// FitContinuity renders the largest complete prefix of one captured
+// continuity snapshot whose serialized form fits maximum bytes. It first
+// shrinks the newest-observation window, which the paged observations read
+// backs, and then the boundary page, which its cursor resumes. render returns
+// the caller's final wire object and its size, so session boot and the
+// continuity read measure what they emit. When even one boundary and no
+// observations exceed maximum, the smallest rendering returns with its size
+// and the caller refuses.
+func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.ContinuityRequest, maximum int, render func(store.ContinuitySnapshot) (T, int, error)) (T, int, error) {
+	window := func(observations, boundaries int) (T, int, error) {
+		fitted, err := snapshot.LimitWindow(req, observations, boundaries)
+		if err != nil {
+			var zero T
+			return zero, 0, err
+		}
+		return render(fitted)
+	}
+	// largest returns the greatest n in [low, high] whose rendering fits,
+	// or ok=false when low itself does not fit.
+	largest := func(low, high int, at func(int) (T, int, error)) (T, int, bool, error) {
+		best, size, err := at(low)
+		if err != nil || size > maximum {
+			return best, size, false, err
+		}
+		for low < high {
+			mid := low + (high-low+1)/2
+			out, outSize, err := at(mid)
+			if err != nil {
+				return out, outSize, false, err
+			}
+			if outSize <= maximum {
+				best, size, low = out, outSize, mid
+			} else {
+				high = mid - 1
+			}
+		}
+		return best, size, true, nil
+	}
+	boundaries := max(len(snapshot.Boundaries), 1)
+	out, size, ok, err := largest(0, len(snapshot.Observations), func(n int) (T, int, error) { return window(n, boundaries) })
+	if err != nil || ok {
+		return out, size, err
+	}
+	out, size, _, err = largest(1, boundaries, func(n int) (T, int, error) { return window(0, n) })
+	return out, size, err
 }
 
 // proposalContextProjection carries the proposal record fields the

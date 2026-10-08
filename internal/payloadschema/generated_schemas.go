@@ -888,6 +888,40 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "observations_read": {
+          "additionalProperties": false,
+          "description": "The paged read of the whole observation population, newest first. The observations field holds only the newest window that fits the envelope.",
+          "properties": {
+            "input": {
+              "additionalProperties": false,
+              "properties": {
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "work_id"
+              ],
+              "type": "object"
+            },
+            "operation": {
+              "const": "observations"
+            },
+            "tool": {
+              "const": "concord_work_trace"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "type": "object"
+        },
+        "observations_total": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "pending_messages": {
           "minimum": 0,
           "type": "integer"
@@ -1075,7 +1109,10 @@ const GeneratedPayloadSchemaDocument = `{
         "pinned",
         "boundaries",
         "typed_availability",
-        "pending_messages"
+        "pending_messages",
+        "observations",
+        "observations_total",
+        "observations_read"
       ],
       "type": "object"
     },
@@ -6333,10 +6370,15 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 64,
           "type": "array"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "observations"
+        "observations",
+        "total"
       ],
       "type": "object"
     },

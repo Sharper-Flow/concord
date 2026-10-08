@@ -349,13 +349,15 @@ func (r runtime) readTraceObservations(ctx context.Context, base Envelope, input
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	now := r.Authority.now()
-	observations, err := r.Store.ObservationsForWork(ctx, in.WorkID, effectiveLimit(in.Limit, in.Page))
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: "CD-0030.R1", ContractVersion: "CD-0030/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: now.UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"recorded_at", "observation_id"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"observations": observations})
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *observationReadInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.WorkObservationsRequest {
+			return store.WorkObservationsRequest{WorkID: in.WorkID, Limit: limit, Cursor: inner}
+		},
+		r.Store.ReadWorkObservations, r.observationPage)
+}
+
+func (r runtime) observationPage(base Envelope, page store.WorkObservationPage) (Envelope, error) {
+	return r.resultEnvelope(base, page.ResultMeta, r.scope(page.ResultMeta), map[string]any{"observations": page.Observations, "total": page.Total})
 }
 
 func (r runtime) readTraceExternalObservations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -395,11 +397,34 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	response, err := r.continuity(base, snapshot)
+	// One captured snapshot is fitted to the envelope bound: every candidate
+	// is a complete prefix of the same read, measured as the final wire
+	// object with its authenticated cursor and notices.
+	requested := len(snapshot.Boundaries)
+	response, size, err := FitContinuity(snapshot, continuityReq, MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (Envelope, int, error) {
+		response, err := r.continuity(base, fitted)
+		if err != nil {
+			return response, 0, err
+		}
+		if response, err = r.wrapCursor(ctx, response, string(binding), "continuity"); err != nil {
+			return response, 0, err
+		}
+		if len(fitted.Boundaries) < requested {
+			if len(response.Omissions) >= MaxNotices {
+				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs a continuation notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
+			}
+			response.Omissions = append(response.Omissions, Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requested, "effective_limit": len(fitted.Boundaries), "maximum_bytes": MaxResultEnvelopeBytes}})
+		}
+		size, err := readEnvelopeSize(response)
+		return response, size, err
+	})
 	if err != nil {
-		return response, err
+		return failureEnvelope(base, err), nil
 	}
-	return r.wrapCursor(ctx, response, string(binding), "continuity")
+	if response.Outcome == OutcomeOK && size > MaxResultEnvelopeBytes {
+		return readSizeRefusal(base, size), nil
+	}
+	return response, nil
 }
 
 func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {

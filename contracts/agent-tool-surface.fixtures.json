@@ -420,12 +420,14 @@
       "result_invalid_cases": [
         {
           "observations": [],
+          "total": 0,
           "unknown": true
         }
       ],
       "result_schema": "work_observation_page",
       "result_valid": {
-        "observations": []
+        "observations": [],
+        "total": 0
       }
     },
     {
@@ -505,6 +507,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
+          },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -595,6 +606,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
+          },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -685,6 +705,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
+          },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -776,6 +805,15 @@
           "next_cursor": "id-1",
           "watermark": "id-1"
         },
+        "observations": [],
+        "observations_read": {
+          "input": {
+            "work_id": "id-1"
+          },
+          "operation": "observations",
+          "tool": "concord_work_trace"
+        },
+        "observations_total": 0,
         "pending_messages": 0,
         "pinned": {
           "contract": {
@@ -3642,5 +3680,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:1d74fa26649bb4e23ca1ad24c4484c62e8c31a36e47027f511e3b3e2afbdfd06"
+  "manifest_digest": "sha256:0c81a34bbf78cac6cbc1d0e566464cb9aa95d7b0f4d2abb8a893243d92dc0aaf"
 }

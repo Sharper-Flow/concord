@@ -116,6 +116,8 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
     typed_availability: { restart: "unavailable", reason: RESTART_UNAVAILABLE_REASON },
     pending_messages: 0,
     observations: [],
+    observations_total: 0,
+    observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: WORK_ID } },
   },
 })
 

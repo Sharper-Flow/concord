@@ -355,3 +355,79 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 		})
 	}
 }
+
+// TestContinuityBoundaryPageFitsAndResumes holds the boundary page to the
+// paged-read rule: a requested page that would overflow the envelope returns
+// the largest complete prefix that fits, names the byte bound, and its cursor
+// resumes so every boundary arrives exactly once.
+func TestContinuityBoundaryPageFitsAndResumes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", 2900))
+	for i := 1; i <= 40; i++ {
+		checkpoint := fmt.Sprintf("checkpoint-%d", i)
+		engine("checkpoint_context", map[string]any{
+			"checkpoint_id": checkpoint, "checkpoint_sequence": i, "active_unit": "unit:repair",
+			"hypothesis": "hypothesis", "diagnosis": "diagnosis", "strategy": "strategy",
+			"touched_refs": []string{"ref-a"}, "evidence_refs": []string{"ref-b"}, "pending_questions": []string{}, "pending_decisions": []string{},
+		})
+		engine("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": checkpoint, "summary": fmt.Sprintf("%02d%s", i, strings.Repeat("s", 4094))})
+	}
+	r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	input := map[string]any{"work_id": "work-1", "limit": 20}
+	seen := map[int64]bool{}
+	for pages := 0; ; pages++ {
+		raw, _ := json.Marshal(input)
+		response, err := r.read(ctx, NewBase("boundary-fit", r.Tool, r.Operation), raw, "C19.Continuity")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertBoundedRead(t, response)
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("boundary page refused: %+v", response.Error)
+		}
+		var payload struct {
+			Boundaries struct {
+				Count int64                   `json:"count"`
+				Items []store.ContextBoundary `json:"items"`
+			} `json:"boundaries"`
+		}
+		if err := json.Unmarshal(response.Result, &payload); err != nil {
+			t.Fatal(err)
+		}
+		items := payload.Boundaries.Items
+		if payload.Boundaries.Count != 40 || len(items) == 0 {
+			t.Fatalf("page lost its count or failed to advance: %+v", payload.Boundaries)
+		}
+		if pages == 0 {
+			if len(items) >= 20 || !hasNotice(response.Omissions, "byte_bounded_page") {
+				t.Fatalf("first page kept %d boundaries without a byte-bound notice", len(items))
+			}
+		}
+		for _, item := range items {
+			if seen[item.Sequence] || len(item.Summary) != 4096 {
+				t.Fatalf("boundary %d repeated or changed", item.Sequence)
+			}
+			seen[item.Sequence] = true
+		}
+		if response.NextCursor == nil {
+			break
+		}
+		input["page"] = map[string]any{"cursor": *response.NextCursor}
+		if pages > 40 {
+			t.Fatal("boundary cursor did not advance")
+		}
+	}
+	if len(seen) != 40 {
+		t.Fatalf("enumerated %d boundaries, want 40", len(seen))
+	}
+}
+
+func hasNotice(notices []Notice, kind string) bool {
+	for _, notice := range notices {
+		if notice.Kind == kind {
+			return true
+		}
+	}
+	return false
+}

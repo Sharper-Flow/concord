@@ -65,7 +65,33 @@ function result(name, args, value, notice) {
   return {title:"Synthetic observation", output, metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
-const invalidStart = {outcome:"error", error:{kind:"invalid_input", effect_state:"none", recovery_action:{kind:"correct_request"}, message:"Resume takes work_id with an optional project_id only; capture fields and resume fields cannot combine."}};
+// Each double serves the input refusal its tool's executed production
+// boundary serves (test_production_parity drives both sides on one corpus
+// and compares the captured semantic envelopes field by field, exact
+// diagnostics included):
+// the adapter owns concord_work_start's input boundary and answers a
+// pre-effect argument refusal with invalid_input, effect_state none,
+// recovery_action correct_request, retry_safe false — the exact message the
+// executed adapter serves (workStartFailure over validateWorkStartArgs);
+// the core owns the worktree_claim and continuity input boundaries and
+// answers a malformed payload with the same kind and effect but
+// recovery_action restart_query and the core's own diagnostics.
+const START_USAGE = "Capture requires title, value_statement, kind, task, idempotency_key. Resume requires only work_id, with an optional project_id naming a member Project in another repository: the call opens the second coordinator session or returns the exact launch command. A member Project in this repository is selected through concord_work_transition worktree_claim instead. Do not combine capture and resume fields.";
+const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + START_USAGE + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
+const undeclaredDetail = keys => "carries undeclared propert" + (keys.length === 1 ? "y" : "ies") + " " + keys.join(", ");
+const missingDetail = keys => "is missing required propert" + (keys.length === 1 ? "y" : "ies") + " " + keys.join(", ");
+const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
+const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});
+// The core's executed payload diagnostics for the shared corpus: a missing
+// idempotency_key names the missing field; a short base_sha names the length
+// against the 40-code-point minimum. The double classifies with the same
+// public constraints the core's payload contract states, and the parity test
+// holds the served messages to the executed core's bytes.
+const coreInputDetail = data => {
+  if (typeof data.idempotency_key !== "string" || !data.idempotency_key.trim()) return "missing payload field idempotency_key";
+  if (typeof data.base_sha === "string" && [...data.base_sha].length < 40) return "minLength at $.base_sha: carries " + [...data.base_sha].length + " Unicode code points against a minimum of 40";
+  return null;
+};
 export const work_start = recordingTool("concord_work_start", {
   description: productionStart.description,
   args: {
@@ -89,15 +115,15 @@ export const work_start = recordingTool("concord_work_start", {
       const admitted = shaped && startConfig !== null
         && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
         && Object.keys(args).every(key => key in startConfig.admit);
-      value = !admitted ? (shaped ? refused : invalidStart) : startConfig.result;
+      value = !admitted ? (shaped ? refused : adapterInputRefusal(adapterInputRefusalMessage(undeclaredDetail(captureFields.filter(key => args[key] !== undefined))))) : startConfig.result;
     } else {
       value = !capture || !unchanged ? refused
-        : missing.length ? {outcome:"error",error:{kind:"invalid_input",effect_state:"none",message:"Missing capture fields: " + missing.join(", ")}}
+        : missing.length ? adapterInputRefusal(adapterInputRefusalMessage(missingDetail(missing)))
         : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
     }
     return result("concord_work_start", args, value);
   },
-});
+}, adapterInputRefusal);
 export const work_trace = recordingTool("concord_work_trace", {
   description:"Read authoritative synthetic continuity. Requires an existing work identity. page.limit must be an integer from 1 to 20.",
   args:{request:tool.schema.strictObject({operation:tool.schema.literal("continuity"), input:tool.schema.strictObject({
@@ -107,16 +133,22 @@ export const work_trace = recordingTool("concord_work_trace", {
     return result("concord_work_trace", args, args.request.input.work_id === "synthetic-work"
       ? responses.concord_work_trace ?? refused : refused);
   },
-});
+}, coreInputRefusal);
 export const work_transition = recordingTool("concord_work_transition", {
   description:productionTransition.description,
   args:{request:tool.schema.strictObject({operation:tool.schema.enum(["workflow_action","worktree_claim"]), input:tool.schema.strictObject({
     work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
-    idempotency_key:tool.schema.string(), fields:tool.schema.strictObject({lane_id:tool.schema.string()}).optional(),
+    idempotency_key:tool.schema.string().optional(),
+    fields:tool.schema.strictObject({lane_id:tool.schema.string()}).optional(),
     project_id:tool.schema.string().optional(), base_sha:tool.schema.string().optional(),
   })})},
   async execute(args) {
     const data = args.request.input;
+    // The core's input boundary classifies the payload before admission:
+    // the shared corpus reaches this classification, and the parity test
+    // holds the served envelope to the executed core's bytes.
+    const inputDetail = coreInputDetail(data);
+    if (inputDetail !== null) return result("concord_work_transition", args, coreInputRefusal(inputDetail));
     let admitted = false;
     let value = responses.concord_work_transition ?? refused;
     if (args.request.operation === "workflow_action") {
@@ -133,17 +165,20 @@ export const work_transition = recordingTool("concord_work_transition", {
     const notice = admitted && args.request.operation === "worktree_claim" ? transitionConfig.notice : undefined;
     return result("concord_work_transition", args, admitted ? value : refused, notice);
   },
-});
+}, coreInputRefusal);
 '''
 
 RECORDING_TOOL = r'''import { tool } from SDK;
 import { appendFileSync } from "node:fs";
-export function recordingTool(name, definition) {
+export function recordingTool(name, definition, inputRefusal) {
   const schema = tool.schema.strictObject(definition.args);
   return tool({...definition, async execute(args) {
     const parsed = schema.safeParse(args);
     if (!parsed.success) {
-      const value = {outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},message:parsed.error.message}};
+      // The schema refusal serves the input refusal this tool's executed
+      // production boundary serves (see the inputRefusal definitions above;
+      // test_production_parity.py compares both sides).
+      const value = inputRefusal(parsed.error.message);
       appendFileSync(TRACE,JSON.stringify({tool:name,args,result:value})+"\n");
       return {title:"Invalid synthetic input",output:JSON.stringify(value),metadata:{synthetic:true}};
     }
@@ -205,6 +240,44 @@ PRODUCTION_SOURCES = (
 )
 
 
+def double_sources(root, case, *, sdk_tool, production_concord):
+    """Generate the recording-double tool sources for one case.
+
+    The single generator behind both a model run and the executable parity
+    test: run_case writes these files into the run's artifact root, and
+    test_production_parity executes the same generated doubles on common
+    synthetic inputs, so the parity comparison can never drift from what a
+    model run actually serves. Returns relative path -> file content.
+    """
+    replacements = {
+        "SDK": json.dumps(str(sdk_tool.resolve() if hasattr(sdk_tool, "resolve") else sdk_tool)),
+        "SOURCE": json.dumps(str(production_concord)),
+        "RESPONSES": json.dumps(case.get("responses", {})),
+        "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
+        "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
+        "TRACE": json.dumps(str(root / "calls.jsonl")),
+        "CAPTURE": json.dumps(case.get("capture", False)),
+    }
+    tool_source = TOOLS
+    for key, value in replacements.items():
+        tool_source = tool_source.replace(key, value)
+    recording_source = RECORDING_TOOL.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"])
+    runtime_source = '''import { tool } from SDK;
+import { recordingTool } from "../recording-tool.ts";
+import { appendFileSync } from "node:fs";
+export default recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",args:{},async execute(args){
+const value=VALUE; appendFileSync(TRACE,JSON.stringify({tool:"runtime_status",args,result:value})+"\\n");
+return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthetic:true}};
+}}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}}));
+'''
+    runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
+    return {
+        ".opencode/tools/concord.ts": tool_source,
+        ".opencode/recording-tool.ts": recording_source,
+        ".opencode/tools/runtime_status.ts": runtime_source,
+    }
+
+
 def run_case(args, name, source, originals):
     case = SCENARIOS[name]
     root = Path(tempfile.mkdtemp(prefix=f"coordinator-{name}-", dir=args.artifacts_dir))
@@ -250,32 +323,13 @@ def run_case(args, name, source, originals):
     }
     write_json(root / "opencode.json", config)
     config_hash = digest((root / "opencode.json").read_bytes())
-    replacements = {
-        "SDK": json.dumps(str(args.sdk_tool.resolve())),
-        "SOURCE": json.dumps(str(args.repo.resolve() / "adapter/opencode/concord.ts")),
-        "RESPONSES": json.dumps(case.get("responses", {})),
-        "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
-        "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
-        "TRACE": json.dumps(str(root / "calls.jsonl")),
-        "CAPTURE": json.dumps(case.get("capture", False)),
-    }
-    tool_source = TOOLS
-    for key, value in replacements.items():
-        tool_source = tool_source.replace(key, value)
-    (root / ".opencode/tools/concord.ts").write_text(tool_source)
-    (root / ".opencode/recording-tool.ts").write_text(RECORDING_TOOL.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]))
-    runtime_source = '''import { tool } from SDK;
-import { recordingTool } from "../recording-tool.ts";
-import { appendFileSync } from "node:fs";
-export default recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",args:{},async execute(args){
-const value=VALUE; appendFileSync(TRACE,JSON.stringify({tool:"runtime_status",args,result:value})+"\\n");
-return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthetic:true}};
-}});
-'''
-    runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
-    (root / ".opencode/tools/runtime_status.ts").write_text(runtime_source)
-    tool_files = [root / ".opencode/tools/concord.ts", root / ".opencode/recording-tool.ts",
-                  root / ".opencode/tools/runtime_status.ts"]
+    sources = double_sources(root, case, sdk_tool=args.sdk_tool,
+                             production_concord=args.repo.resolve() / "adapter/opencode/concord.ts")
+    for relative, content in sources.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    tool_files = [root / relative for relative in sources]
     tool_hashes = {str(path.relative_to(root)): digest(path.read_bytes()) for path in tool_files}
     (root / "scenario.txt").write_text(case["prompt"])
     # File-backed output preserves CLI output when the subprocess exits quickly.

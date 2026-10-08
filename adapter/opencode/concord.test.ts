@@ -2411,23 +2411,124 @@ test("work start resume derives the entry by work_id and moves the session", asy
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
 })
 
-test("work start resume forwards the typed core refusal and reads the landing back", async () => {
+// The typed refusal contract (work-resume commandSpecs): a deterministic
+// refusal exits 2 and stays a genuine non-retry refusal through work_start —
+// contact_operator, retry_safe false, the complete core diagnostic preserved,
+// no movement, and no claimed worktree armed — while an ordinary failure exit
+// keeps the declared retry route.
+test("work start resume classifies the typed refusal exit without retry or movement", async () => {
   const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
-    "work-resume": () => ({ exitCode: 1, stdout: "", stderr: "concord work-resume: invalid_operation: cannot resume terminal work item work-1 (completed)" }),
+    "work-resume": () => ({ exitCode: 2, stdout: "", stderr: "concord work-resume: store: work_resume: invalid_operation: cannot resume terminal work item work-1 (completed)" }),
   }) })
   const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
   expect(refused.outcome).toBe("error")
   expect(refused.error.kind).toBe("resume_failure")
-  expect(refused.error.message).toContain("terminal work item work-1")
+  expect(refused.error.message).toContain("cannot resume terminal work item work-1")
   expect(refused.error.effect_state).toBe("none")
-  expect(refused.error.recovery_action.kind).toBe("retry_same_request")
+  expect(refused.error.recovery_action.kind).toBe("contact_operator")
+  expect(refused.error.retry_safe).toBe(false)
   expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
   expect(moved).toEqual([])
+  expect(armedClaimedWorktree("session-1")).toBeNull()
 
-  const { moved: offTarget } = bindRetargetRoute({ landedDirectory: "/somewhere-else" })
-  adapter.configureConcordAdapter({ runner: resumeRunner(calls) })
+  // The dirty-origin refusal keeps its complete core boundary diagnostic and
+  // the same non-retry classification: no success, movement, or replay grant.
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 2, stdout: "", stderr: "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain from dirty worktree of work-0" }),
+  }) })
+  const dirty: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(dirty.outcome).toBe("error")
+  expect(dirty.error.kind).toBe("resume_failure")
+  expect(dirty.error.message).toContain("concord work-resume: store: work_bootstrap: invalid_operation: cannot chain from dirty worktree of work-0")
+  expect(dirty.error.recovery_action.kind).toBe("contact_operator")
+  expect(dirty.error.retry_safe).toBe(false)
+  expect(calls.some(({ argv }) => argv[1] === "session-prepare" || argv[1] === "claim-landing")).toBe(false)
+  expect(moved).toEqual([])
+  expect(armedClaimedWorktree("session-1")).toBeNull()
+})
+
+test("work start resume keeps an ordinary work-resume failure retryable", async () => {
+  const { moved } = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+    "work-resume": () => ({ exitCode: 1, stdout: "", stderr: "concord work-resume: store: work_resume: unavailable: cannot read the work item" }),
+  }) })
+  const failed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
+  expect(failed.outcome).toBe("error")
+  expect(failed.error.kind).toBe("resume_failure")
+  expect(failed.error.recovery_action.kind).toBe("retry_same_request")
+  expect(failed.error.retry_safe).toBe(true)
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+  expect(moved).toEqual([])
+})
+
+// The post-landing handoff re-read is the second work-resume call site: its
+// typed refusal exit must classify the same way, not collapse into the retry
+// route a stale-environment read failure keeps.
+test("work start resume classifies the post-landing handoff re-read refusal exit", async () => {
+  const { moved } = bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  let resumeReads = 0
+  adapter.configureConcordAdapter({ runner: {
+    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+      calls.push({ argv, input, options })
+      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
+      const command = argv[1]
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") {
+        resumeReads += 1
+        if (resumeReads === 1) return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+        return { exitCode: 2, stdout: "", stderr: "concord work-resume: store: work_resume: unknown_scope: work item does not exist" }
+      }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    },
+  } as never })
+  const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(refused.outcome).toBe("error")
+  expect(refused.error.kind).toBe("resume_failure")
+  expect(refused.error.message).toContain("the post-landing handoff re-read refused: concord work-resume: store: work_resume: unknown_scope: work item does not exist")
+  expect(refused.error.recovery_action.kind).toBe("contact_operator")
+  expect(refused.error.retry_safe).toBe(false)
+  expect(resumeReads).toBe(2)
+  // The refused re-read arms no dispatch and opens no handoff consume.
+  expect(calls.some(({ argv }) => argv[1] === "invoke")).toBe(false)
+  expect(armedClaimedWorktree("session-1")).toBeNull()
+})
+
+test("work start resume keeps a retryable post-landing re-read failure on the replay route", async () => {
+  bindRetargetRoute()
+  let resumeReads = 0
+  adapter.configureConcordAdapter({ runner: {
+    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
+      const command = argv[1]
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") {
+        resumeReads += 1
+        if (resumeReads === 1) return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+        return { exitCode: 1, stdout: "", stderr: "concord work-resume: store: work_resume: unavailable: cannot read the work item" }
+      }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    },
+  } as never })
+  const failed: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(failed.outcome).toBe("error")
+  expect(failed.error.kind).toBe("resume_failure")
+  expect(failed.error.message).toContain("the post-landing handoff re-read refused:")
+  expect(failed.error.recovery_action.kind).toBe("retry_same_request")
+  expect(failed.error.retry_safe).toBe(true)
+  expect(resumeReads).toBe(2)
+})
+
+test("work start resume reads the landing back after a refusal", async () => {
+  bindRetargetRoute({ landedDirectory: "/somewhere-else" })
+  adapter.configureConcordAdapter({ runner: resumeRunner([]) })
   const mismatch: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, contextFor()))
   expect(mismatch.outcome).toBe("error")
   expect(mismatch.error.kind).toBe("session_directory_mismatch")

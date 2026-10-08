@@ -1460,6 +1460,17 @@ export const sessionPrepareRefusalExit = 2
 // failure stays retryable.
 export const workBootstrapRefusalExit = 2
 
+// The core reports a deterministic work-resume refusal — invalid input, a
+// Project the invocation does not resolve to, an origin or default-branch
+// check that fails the same way until state changes, or a typed store
+// failure the store marks unsafe to repeat — with this typed exit status,
+// declared in the core's work-resume help. Classification uses the status
+// alone, never stderr text: replaying the same request cannot clear a
+// refusal, so it maps to contact_operator, while any other work-resume
+// failure keeps the retry route. The classification holds at both resume
+// call sites: the initial resume read and the post-landing handoff re-read.
+export const workResumeRefusalExit = 2
+
 // renameZellijPaneFrame names the zellij pane frame after the work a
 // successful work_start just entered (issue #917). The session-prepare
 // contract returns the title alone, and the adapter does not add a database
@@ -1649,6 +1660,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // empty case keeps the calling session's resolved Project (CD-0182).
       const projectID = typeof (args as { project_id?: string }).project_id === "string" ? (args as { project_id: string }).project_id : ambient.projectID
       const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      if (resumed.exitCode === workResumeRefusalExit) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
       if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
@@ -1781,6 +1793,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // warning path above.
     if (resume && !renderedHandoff && landingRecorded) {
       const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
+      if (refreshed.exitCode === workResumeRefusalExit) throw new AdapterFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
       if (refreshed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
       let refreshedValue: unknown
       try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }

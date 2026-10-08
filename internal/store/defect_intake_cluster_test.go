@@ -164,8 +164,8 @@ func TestPrerequisiteRefusalDetailKeepsDiagnosticUnderPublicBudget(t *testing.T)
 	}
 	missing := prefix + "-02"
 	err := captureDefectWork(t, s, prefix+"-03", "bug", defectIntakeJSON(shape, nil, missing))
-	failure := assertRecurrenceDiagnostic(t, err, KindProjectionNotFound, "root_cause_work_id "+missing+" does not exist", shape, []string{first})
-	if !strings.Contains(failure.Detail, first) {
-		t.Fatalf("refusal detail %q does not name the long-identifier sibling %s", failure.Detail, first)
+	detail := assertRecurrenceDiagnostic(t, err, KindProjectionNotFound, "root_cause_work_id "+missing+" does not exist", shape, []string{first})
+	if !strings.Contains(detail, first) {
+		t.Fatalf("refusal detail %q does not name the long-identifier sibling %s", detail, first)
 	}
 }

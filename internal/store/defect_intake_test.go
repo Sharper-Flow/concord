@@ -446,8 +446,8 @@ func TestHistoricalUnclassifiedBugThroughExplicitSiblingAndRCA(t *testing.T) {
 // recurrence branch satisfies: the branch's own failure kind and specific
 // reason, plus the failure shape, the complete sibling total, the bounded
 // candidates, and the complete research-then-retry route, rendered inside the
-// public detail budget. It returns the typed refusal for extra assertions.
-func assertRecurrenceDiagnostic(t *testing.T, err error, wantKind FailureKind, reason, shape string, cluster []string) *Failure {
+// public detail budget. It returns the checked detail for extra assertions.
+func assertRecurrenceDiagnostic(t *testing.T, err error, wantKind FailureKind, reason, shape string, cluster []string) string {
 	t.Helper()
 	if err == nil {
 		t.Fatal("recurrent bug capture was admitted")
@@ -474,7 +474,7 @@ func assertRecurrenceDiagnostic(t *testing.T, err error, wantKind FailureKind, r
 	if !slices.Equal(failure.CandidateIDs, boundedDefectIDs(cluster)) {
 		t.Fatalf("refusal candidates=%v, want the bounded sibling cluster %v", failure.CandidateIDs, boundedDefectIDs(cluster))
 	}
-	return failure
+	return failure.Detail
 }
 
 // Every disqualifying root cause state refuses through the one shared

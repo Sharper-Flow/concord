@@ -1263,14 +1263,22 @@ async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, co
 // predicate, what ran and how the child ended, a bounded prefix of the
 // received export body, and a bounded prefix of the worker's result, so the
 // failure is diagnosable from the store alone.
-async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string; diagnostics?: ReadbackRefusalDiagnostics }, workerResult: string, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
+async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePacket, refusal: { predicate: ReadbackRefusal; export_digest: string; export_bytes: number; message: string; diagnostics?: ReadbackRefusalDiagnostics }, workerResult: string, workerDirectory: string, options: { runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; packetDigest?: string; capturedProvenance?: HostProvenance }, signal: AbortSignal, onRecorded?: () => void): Promise<string | null> {
   if (!options.packetDigest) return "model readback failure cannot be recorded without the dispatch packet digest"
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   const binary = concordBinaryPath(options.concordBinary)
   const credentials = options.credentials ?? defaultCredentials
   const failureKind = refusal.predicate === "export_model_ambiguous" ? "model_readback_ambiguous" : "model_readback_missing"
   const detail = boundedTextPrefix(readbackFailureDetail(refusal, workerResult), MAX_FAILURE_DETAIL_BYTES)
-  const provenance = await computeHostPromptProvenance(lane.id, workerDirectory)
+  // The born-failed record carries the manifest the dispatch bound when one
+  // exists; an unbindable fallback records nothing, so the readback refusal
+  // envelope carries the cause instead.
+  let provenance: HostProvenance
+  try {
+    provenance = options.capturedProvenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+  } catch (error) {
+    return `the failed readback could not be recorded: ${error instanceof HostProvenanceError ? error.message : String(error)}`.slice(0, MAX_ERROR_BYTES)
+  }
   let assertion: Record<string, unknown>
   try {
     assertion = await signWorkerEvidence(credentials, {
@@ -1334,6 +1342,60 @@ const UNENUMERATED_SURFACES: HostProvenanceSource[] = [
   { kind: "unenumerated", path: "output_voice_overlays" }, // applied per call
   { kind: "unenumerated", path: "mcp_tool_definition_prompt" },
 ]
+
+// One manifest holds at most 32 sources — the number the store validator
+// (internal/store/worker_lanes.go ValidateWorkerHostProvenance) and
+// contracts/workflow-engine-scenarios.schema.json pin. A manifest is complete
+// or refused, never shortened to fit.
+export const MAX_HOST_PROVENANCE_SOURCES = 32
+// The store refuses a source path over 512 bytes. A path is identity, never
+// payload to cut, so an oversize path refuses the manifest.
+const MAX_SOURCE_PATH_BYTES = 512
+
+// HostProvenanceError is the typed producer refusal: the complete manifest
+// the host configuration declares cannot be bound within the evidence
+// contract.
+export class HostProvenanceError extends Error {}
+
+function provenanceOverflow(count: number, detail: string): HostProvenanceError {
+  return new HostProvenanceError(`host prompt provenance carries ${count} sources over the ${MAX_HOST_PROVENANCE_SOURCES}-source bound (${detail}); reduce the declared instruction surfaces before dispatching`)
+}
+
+// ProvenanceCollector owns manifest admission: distinct kind:path identities
+// only, each path inside the store's byte bound, and no more sources than the
+// store admits. The next distinct source past the bound refuses, so a
+// manifest that leaves here is complete.
+class ProvenanceCollector {
+  readonly #sources: HostProvenanceSource[] = []
+  readonly #identities = new Set<string>()
+
+  get count(): number { return this.#sources.length }
+  get sources(): readonly HostProvenanceSource[] { return this.#sources }
+
+  // has answers whether an identity is already bound. The glob enumeration
+  // uses it to prove overflow before its scan ends.
+  has(kind: HostProvenanceSource["kind"], path: string): boolean {
+    return this.#identities.has(`${kind}:${path}`)
+  }
+
+  countOfKind(kind: HostProvenanceSource["kind"]): number {
+    return this.#sources.filter(source => source.kind === kind).length
+  }
+
+  admit(source: HostProvenanceSource): void {
+    const path = source.path ?? ""
+    if (Buffer.byteLength(path) > MAX_SOURCE_PATH_BYTES) {
+      throw new HostProvenanceError(`host prompt provenance source path exceeds the ${MAX_SOURCE_PATH_BYTES}-byte bound: ${path}`)
+    }
+    const identity = `${source.kind}:${path}`
+    if (this.#identities.has(identity)) return
+    this.#identities.add(identity)
+    this.#sources.push(source)
+    if (this.#sources.length > MAX_HOST_PROVENANCE_SOURCES) {
+      throw provenanceOverflow(this.#sources.length, `first exceeded by ${source.kind} ${path}`)
+    }
+  }
+}
 
 async function fileProvenance(kind: HostProvenanceSource["kind"], path: string): Promise<HostProvenanceSource | null> {
   try {
@@ -1431,7 +1493,10 @@ function configFileCandidates(cwd: string): string[] {
 async function configInstructionEntries(cwd: string): Promise<{ entries: string[]; unreadable: string[] }> {
   const entries: string[] = []
   const unreadable: string[] = []
-  for (const candidate of configFileCandidates(cwd)) {
+  // One config file can arrive through two candidate routes (OPENCODE_CONFIG
+  // naming a file the config directory already holds); parse each candidate
+  // once so the manifest never names the same file twice.
+  for (const candidate of new Set(configFileCandidates(cwd))) {
     let parsed: unknown
     try {
       const file = Bun.file(candidate)
@@ -1447,21 +1512,20 @@ async function configInstructionEntries(cwd: string): Promise<{ entries: string[
       if (typeof entry === "string" && entry.length > 0 && !entries.includes(entry)) entries.push(entry)
     }
   }
-  return { entries: entries.slice(0, 64), unreadable: unreadable.slice(0, 8) }
+  return { entries, unreadable }
 }
 
 // CD-0034 admits a surface as bound only when its content is hashed. An entry
 // the adapter cannot resolve exactly — a glob, a remote URL, a config it cannot
 // parse — is recorded by name as unenumerated rather than dropped, so nothing
 // the host injects is silently absent from the manifest.
-async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> {
-  const sources: HostProvenanceSource[] = []
+async function instructionSources(cwd: string, collector: ProvenanceCollector): Promise<void> {
   const { entries, unreadable } = await configInstructionEntries(cwd)
   const root = projectGitRoot(cwd)
-  for (const path of unreadable) sources.push({ kind: "unenumerated", path })
+  for (const path of unreadable) collector.admit({ kind: "unenumerated", path })
   for (const entry of entries) {
     if (entry.startsWith("http://") || entry.startsWith("https://")) {
-      sources.push({ kind: "unenumerated", path: entry })
+      collector.admit({ kind: "unenumerated", path: entry })
       continue
     }
     const expanded = entry.startsWith("~/") ? `${process.env.HOME ?? ""}/${entry.slice(2)}` : entry
@@ -1473,21 +1537,45 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
       const separator = expanded.lastIndexOf("/")
       const dir = expanded.slice(0, separator)
       const pattern = expanded.slice(separator + 1)
-      const matches = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: dir, onlyFiles: true })).catch(() => [])
-      if (matches.length === 0) sources.push({ kind: "unenumerated", path: entry })
-      for (const relative of matches.slice(0, 32)) {
+      // The enumeration stops once overflow is provable: every match is a
+      // distinct file, so the matches not already bound plus the sources
+      // already admitted cannot shrink back under the bound.
+      const matches: string[] = []
+      let fresh = 0
+      try {
+        for await (const relative of new Bun.Glob(pattern).scan({ cwd: dir, onlyFiles: true })) {
+          matches.push(relative)
+          if (!collector.has("instruction_file", `${dir}/${relative}`)) fresh += 1
+          if (collector.count + fresh > MAX_HOST_PROVENANCE_SOURCES) {
+            throw provenanceOverflow(collector.count + fresh, `the instruction glob ${entry} matches at least ${fresh} files that are not already bound`)
+          }
+        }
+      } catch (error) {
+        // A directory the adapter cannot enumerate is never guessed at: the
+        // entry is named so the operator sees a surface left unbound.
+        if (error instanceof HostProvenanceError) throw error
+        matches.length = 0
+      }
+      if (matches.length === 0) {
+        collector.admit({ kind: "unenumerated", path: entry })
+        continue
+      }
+      // Enumeration order is filesystem-dependent; the manifest order is not,
+      // so the digest is stable across runs and machines.
+      matches.sort()
+      for (const relative of matches) {
         const source = await fileProvenance("instruction_file", `${dir}/${relative}`)
-        if (source) sources.push(source)
+        if (source) collector.admit(source)
       }
       continue
     }
     if (GLOB_METACHARACTERS.test(entry)) {
-      sources.push({ kind: "unenumerated", path: entry })
+      collector.admit({ kind: "unenumerated", path: entry })
       continue
     }
     if (expanded.startsWith("/")) {
       const source = await fileProvenance("instruction_file", expanded)
-      sources.push(source ?? { kind: "unenumerated", path: entry })
+      collector.admit(source ?? { kind: "unenumerated", path: entry })
       continue
     }
     // A relative entry resolves against every ancestor of the spawn directory,
@@ -1497,19 +1585,18 @@ async function instructionSources(cwd: string): Promise<HostProvenanceSource[]> 
     let dir = cwd
     for (let depth = 0; depth < 64; depth++) {
       const source = await fileProvenance("instruction_file", `${dir}/${expanded}`)
-      if (source) { sources.push(source); matched = true }
+      if (source) { collector.admit(source); matched = true }
       if (dir === root) break
       const parent = dir.slice(0, dir.lastIndexOf("/"))
       if (!parent || parent === dir) break
       dir = parent
     }
-    if (!matched) sources.push({ kind: "unenumerated", path: entry })
+    if (!matched) collector.admit({ kind: "unenumerated", path: entry })
   }
-  return sources
 }
 
 export async function computeHostPromptProvenance(laneId: string, cwd = process.cwd()): Promise<HostProvenance> {
-  const sources: HostProvenanceSource[] = []
+  const collector = new ProvenanceCollector()
   const configDir = opencodeConfigDir()
   const root = projectGitRoot(cwd)
   const agentCandidates = [
@@ -1520,7 +1607,7 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   for (const candidate of agentCandidates) {
     const source = await fileProvenance("agent_definition", candidate)
     if (source) {
-      sources.push(source)
+      collector.admit(source)
       break
     }
   }
@@ -1528,29 +1615,31 @@ export async function computeHostPromptProvenance(laneId: string, cwd = process.
   // spawn directory's ancestry, so the upward walk below can never reach it.
   const globalAgentsPath = `${configDir}/AGENTS.md`
   const globalAgents = await fileProvenance("agents_md", globalAgentsPath)
-  if (globalAgents) sources.push(globalAgents)
+  if (globalAgents) collector.admit(globalAgents)
   let dir = cwd
-  for (let depth = 0; depth < 64 && sources.filter(s => s.kind === "agents_md").length < 5; depth++) {
+  for (let depth = 0; depth < 64 && collector.countOfKind("agents_md") < 5; depth++) {
     // A spawn directory at or under the config directory would meet the
     // global file again on the walk; one surface is named once.
     const candidate = `${dir}/AGENTS.md`
     const source = candidate === globalAgentsPath ? null : await fileProvenance("agents_md", candidate)
-    if (source) sources.push(source)
+    if (source) collector.admit(source)
     if (dir === root) break
     const parent = dir.slice(0, dir.lastIndexOf("/"))
     if (!parent || parent === dir) break
     dir = parent
   }
-  sources.push(...(await instructionSources(cwd)))
+  await instructionSources(cwd, collector)
+  // CONCORD_HOST_INSTRUCTIONS keeps its existing bounded-channel semantics;
+  // only paths that resolve to files are bound.
   const declared = (process.env.CONCORD_HOST_INSTRUCTIONS ?? "").split(":").filter(Boolean).slice(0, 16)
   for (const path of declared) {
-    if (sources.some(source => source.kind === "instruction_file" && source.path === path)) continue
     const source = await fileProvenance("instruction_file", path)
-    if (source) sources.push(source)
+    if (source) collector.admit(source)
   }
-  sources.push(...UNENUMERATED_SURFACES)
+  for (const surface of UNENUMERATED_SURFACES) collector.admit(surface)
+  const sources = [...collector.sources]
   const manifest = sources.map(source => [source.kind, source.path ?? "", source.sha256 ?? ""].join("\n")).join("\n---\n")
-  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources: sources.slice(0, 64) }
+  return { digest: "sha256:" + Bun.SHA256.hash(manifest, "hex"), sources }
 }
 
 // contextPreflightRefusal is the pre-effect tool-context gate shared by the
@@ -1571,7 +1660,21 @@ export function contextPreflightRefusal(lane: AgentLane | null, packet: Partial<
   return errorEnvelope(lane, packet, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(contextDirectory)} but the host session directory is ${JSON.stringify(sessionDirectory)} (${mismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
 }
 
-export async function dispatchWorker(packet: unknown,   options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string } = {}): Promise<AgentResultEnvelope> {
+// provenanceRefusal is the shared typed refusal for a manifest the producer
+// refused. The recovery action belongs to the caller's phase: a pre-effect
+// caller has no attempt to reconcile (contact_operator), a completion caller
+// has an authorized attempt that does (reconcile_operation). The kind stays
+// invalid_input — the refusal itself authorizes nothing.
+export function provenanceRefusal(lane: AgentLane | null, packet: Partial<AgentLanePacket>, error: unknown, recovery: NonNullable<AgentResultEnvelope["error"]>["recovery_action"] = "contact_operator", lead = ""): AgentResultEnvelope {
+  const diagnostic = error instanceof HostProvenanceError
+    ? error.message
+    : `host prompt provenance could not be computed: ${String(error)}`
+  const refusal = errorEnvelope(lane, packet, "error", "invalid_input", lead ? `${lead}: ${diagnostic}` : diagnostic, recovery, { details: { boundary: "host_provenance" } })
+  refusal.error!.retry_safe = false
+  return refusal
+}
+
+export async function dispatchWorker(packet: unknown,   options: { signal?: AbortSignal; runner?: DispatchRunner; evidenceRunner?: DispatchRunner; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; pinnedWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string; provenance?: HostProvenance } = {}): Promise<AgentResultEnvelope> {
   if (!validateAgentLanePacket(packet)) return errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "agent lane packet failed the closed packet schema", "retry_same_request")
   const lane = laneForPacket(packet)
   if (!lane) return errorEnvelope(null, packet, "error", "invalid_input", "lane identity or digest is not registered", "retry_same_request")
@@ -1615,6 +1718,16 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     // authorization: a mismatched context persists no authorized attempt.
     const contextRefusal = contextPreflightRefusal(lane, packet as Partial<AgentLanePacket>, liveWorkerDirectory, options.contextDirectory)
     if (contextRefusal) return contextRefusal
+  }
+
+  // Bind the manifest before the core dispatch_worker action persists an
+  // authorized attempt: a manifest the store would refuse authorizes nothing.
+  // The lane route forwards its pre-effect manifest; completion records it.
+  let provenance: HostProvenance
+  try {
+    provenance = options.provenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+  } catch (error) {
+    return provenanceRefusal(lane, packet as Partial<AgentLanePacket>, error)
   }
 
   // CD-0059 D1: authorize before the worker starts, unconditionally. The dispatch_worker
@@ -1716,7 +1829,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   }
   const windows = options.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", workerDirectory, canonicalWorkerDirectory)
+    windows.open(sessionID, packet, options.packetDigest ?? "", workerDirectory, canonicalWorkerDirectory, provenance)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
@@ -1750,7 +1863,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1963,7 +2076,17 @@ async function completeWorkerSession(
   // The dispatch window owns the worker directory. The durable
   // worktree_occupancy projection and process liveness own the worker-fail
   // gate (CD-0178 D3).
-  const provenance = options.recovery?.dispatch.host_provenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+  // Completion records the manifest captured at authorization; a fallback
+  // computes one now. A refusal records no worker evidence — the authorized
+  // attempt stays open for reconciliation. CD-0208 D5: retained recovery reads
+  // its original proof, so the dispatch record's manifest wins over any later
+  // capture and no host file is re-read on that route.
+  let provenance: HostProvenance
+  try {
+    provenance = options.recovery?.dispatch.host_provenance ?? options.capturedProvenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+  } catch (error) {
+    return provenanceRefusal(lane, packet, error, "reconcile_operation", "worker evidence was not recorded; the authorized attempt requires reconciliation")
+  }
 
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
     hostFailure !== undefined

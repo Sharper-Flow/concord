@@ -103,7 +103,7 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   let envelope: AgentResultEnvelope
   let recorded = false
   try {
-    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory, onRecorded: () => { recorded = true } }, signal)
+    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory, capturedProvenance: record.provenance, onRecorded: () => { recorded = true } }, signal)
   } catch (error) {
     envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: record.packet.lane_digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
@@ -255,7 +255,7 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const detail = cancelledDetail(state.error, causes.take(metadata.sessionId))
   try {
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, detail, {
-      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory,
+      credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory, capturedProvenance: pending.provenance,
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
     // A recorded failure already dropped the record with its claim. A refused
     // write left the record retained: the claim releases into the refused

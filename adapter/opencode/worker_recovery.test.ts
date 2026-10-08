@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { reconcileRetainedWorker } from "./worker_recovery"
-import { type AgentLanePacket, type WorkerRecoveryContext } from "./dispatch"
+import { type AgentLanePacket, type HostProvenance, type WorkerRecoveryContext } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 import { serializeLanePacket } from "./dispatch-window"
 import type { SessionReader } from "./move-session"
@@ -126,4 +126,24 @@ test("recovery preserves distinct recorded dispatch and original terminal models
   expect(calls[0].input.assertion.readback_model).toBe(model)
   expect(calls[1].input.readback_model).toBe(terminalModel)
   expect(calls[1].input.event_id).toBe("original-terminal-event")
+})
+
+// CD-0208 D5: the caller cannot replace the original provenance. A capture
+// injected beside the recovery record — the union of the pre-authorization
+// capture and the retained recovery route — must lose to the dispatch record's
+// original manifest, and no host file is re-read to build a third one.
+test("recovery keeps the original dispatch manifest over an injected capture", async () => {
+  const { reader } = host()
+  const injected: HostProvenance = { digest: "sha256:" + "d".repeat(64), sources: [{ kind: "agent_definition", path: "injected-agent.md", sha256: "sha256:" + "e".repeat(64) }] }
+  const calls: any[] = []
+  const result = await reconcileRetainedWorker({ ...recovery, lifecycle_state: "completed", terminal_event_id: "original-manifest-event" }, packet.work_id, packet.attempt_id, "retained-part", {
+    sessionReader: reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(), capturedProvenance: injected,
+    evidenceRunner: { async run(argv, input) { calls.push({ verb: argv[1], input: JSON.parse(input) }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  }, new AbortController().signal)
+  expect(result.outcome, JSON.stringify(result)).toBe("ok")
+  expect(calls.map((call) => call.verb)).toEqual(["worker-dispatch", "worker-complete"])
+  const dispatch = calls[0].input
+  expect(dispatch.host_provenance).toEqual(recovery.dispatch.host_provenance)
+  expect(dispatch.host_provenance).not.toEqual(injected)
+  expect(dispatch.assertion.host_provenance_digest).toBe(recovery.dispatch.host_provenance.digest)
 })

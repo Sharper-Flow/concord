@@ -6,7 +6,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
 import { completeDispatchedWorker, failDispatchedWorker, ProviderCauses, type LaneCompletionDeps } from "./lane_completion"
@@ -185,6 +185,29 @@ describe("completeDispatchedWorker", () => {
     })
     const expected = await computeHostPromptProvenance(lane.id, process.cwd())
     expect((dispatchInput?.host_provenance as { digest?: string } | undefined)?.digest).toBe(expected.digest)
+  })
+
+  // CON-821: completion records the manifest the window captured at dispatch,
+  // verbatim, instead of recomputing one after the worker ran.
+  test("completion forwards the manifest the window captured", async () => {
+    const captured: HostProvenance = { digest: "sha256:" + "f".repeat(64), sources: [{ kind: "unenumerated", path: "synthetic-captured-surface" }] }
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd(), undefined, captured)
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, undefined, async () => process.cwd(), process.cwd())
+    let dispatchInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        if (argv[1] === "export") return { exitCode: 0, stdout: exportedSession(), stderr: "" }
+        if (argv[1] === "session") return { exitCode: 0, stdout: sessionIndex(), stderr: "" }
+        if (argv[1] === "worker-dispatch") dispatchInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const output = { title: "verify lane", output: taskWrap(JSON.stringify(report())), metadata: {} }
+    await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION, callID: "call-captured", args: {} }, output, {
+      windows, credentials: testCredentials, runner, sessionReader: readerFor(exportedSession()), concordBinary: "concord",
+    })
+    expect(dispatchInput?.host_provenance).toEqual(captured)
   })
 
   // The directory reaches the core from the dispatch window, never from the
@@ -541,6 +564,27 @@ describe("host task failure", () => {
     expect(result?.error?.message).toContain("Task cancelled")
     await failDispatchedWorker(failedEvent(), deps(verbs, windows))
     expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  })
+
+  // CON-821: a born-failed record carries the captured manifest too.
+  test("a cancelled task records failure with the manifest the window captured", async () => {
+    const captured: HostProvenance = { digest: "sha256:" + "f".repeat(64), sources: [{ kind: "unenumerated", path: "synthetic-captured-surface" }] }
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd(), undefined, captured)
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const verbs: string[] = []
+    let dispatchInput: Record<string, unknown> | undefined
+    const runner: DispatchRunner = {
+      async run(argv, input) {
+        verbs.push(argv[1])
+        if (argv[1] === "worker-dispatch") dispatchInput = JSON.parse(input) as Record<string, unknown>
+        return { exitCode: 0, stdout: "", stderr: "" }
+      },
+    }
+    const result = await failDispatchedWorker(failedEvent(), { windows, credentials: testCredentials, runner, sessionReader: readerFor(exportedSession()), concordBinary: "concord" })
+    expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+    expect((dispatchInput?.host_provenance as { digest?: string } | undefined)?.digest).toBe(captured.digest)
+    expect(result?.error?.message).toContain("Task cancelled")
   })
 
   // The byte bound holds at the worker-fail write itself: a multi-byte detail

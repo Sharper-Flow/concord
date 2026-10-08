@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 import { configureConcordAdapter, invokeConcordOperation, laneDispatchRequest } from "./concord"
-import { configureCoreBinary } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket } from "./dispatch"
 
 // The route test drives the real core through its own runner, so argv[0] is
 // replaced there. Bind the nominal path the transport resolves instead of the
@@ -698,6 +698,8 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, "recovery-task-call", async () => worktree, worktree)
       nativeTaskCalls++
       packet = JSON.parse(taskArgs.prompt)
+      const packetFailures: string[] = []
+      if (!validateAgentLanePacket(packet, packetFailures)) throw new Error(`retained recovery packet failed the closed packet schema: ${packetFailures.join("; ")}`)
       // The synthetic original completed report claims exactly the binding
       // the authorized packet carries (CD-0205): the packet's schema version
       // and its dispatched worker-job revision, never invented job metadata.
@@ -713,7 +715,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       const child = JSON.parse(exportedSession(packet))
       child.info = { id: "worker-session", parentID: SESSION_ID, directory: worktree }
       child.messages[child.messages.length - 1].parts = [{ type: "text", text: JSON.stringify(report) }]
-      const fixture = { binary, dbPath, worktree, sessionID: SESSION_ID, parent: { info: { id: SESSION_ID, directory: worktree, metadata }, messages: [{ info: { id: MESSAGE_ID, sessionID: SESSION_ID, role: "assistant" }, parts: [{ id: "retained-task-part", sessionID: SESSION_ID, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: taskArgs, output: output.output } }] }] }, child, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: packet!.attempt_id, task_part_id: "retained-task-part", idempotency_key: "recover-original-report" } } }
+      const fixture = { binary, dbPath, worktree, sessionID: SESSION_ID, parent: { info: { id: SESSION_ID, directory: worktree, metadata }, messages: [{ info: { id: MESSAGE_ID, sessionID: SESSION_ID, role: "assistant" }, parts: [{ id: "retained-task-part", sessionID: SESSION_ID, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: taskArgs, output: output.output } }] }] }, child, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: packet.attempt_id, task_part_id: "retained-task-part", idempotency_key: "recover-original-report" } } }
       const recover = async (body: JSONRecord = fixture) => {
         const result = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify(body), join(import.meta.dir, "..", ".."))
         expect(result.exitCode, result.stderr).toBe(0)

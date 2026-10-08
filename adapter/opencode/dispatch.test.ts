@@ -2101,17 +2101,83 @@ test("report admission derives schema identity from the packet, not the worker",
   }
 })
 
-test("report admission applies worker-job schema rules to the packet identity", () => {
-  const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
-  const current = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: "1.0", worker_job })), { ...packet(), schema_version: "1.1" })
-  expect("report" in current).toBe(true)
-  if ("report" in current) {
-    expect(current.report.schema_version).toBe("1.1")
-    expect(current.report.worker_job).toEqual(worker_job)
+const dispatchedJob = {
+  job_id: "job:one", revision: 2, digest: `sha256:${"a".repeat(64)}`,
+  objective: "Research the bounded fixture.", stopping_condition: "Return the assigned findings.",
+  project_scope: "project:fixture", path_scope: ["adapter/opencode/dispatch.ts"],
+  predicate_ids: [], checks: [], prerequisites: [], unresolved_refs: [], reserved_integration: "Parent workflow owns integration.",
+}
+const dispatchedJobBinding = { job_id: dispatchedJob.job_id, revision: dispatchedJob.revision, digest: dispatchedJob.digest }
+const jobPacket = (): AgentLanePacket => ({ ...packet(), schema_version: "1.1", inputs: { ...packet().inputs, worker_job: { ...dispatchedJob } } })
+const workerJobEchoes = [
+  ["matching", dispatchedJobBinding],
+  ["wrong job", { ...dispatchedJobBinding, job_id: "job:other" }],
+  ["missing", undefined],
+  ["stale revision", { ...dispatchedJobBinding, revision: 1 }],
+  ["wrong digest", { ...dispatchedJobBinding, digest: `sha256:${"b".repeat(64)}` }],
+  ["malformed", { revision: "not-a-revision", extra: true }],
+  ["null", null],
+  ["non-object", "job:one"],
+] as const
+
+for (const [label, worker_job] of workerJobEchoes) {
+  test(`report admission derives worker-job identity from the packet with ${label} echo`, () => {
+    const p = jobPacket()
+    expect(validateAgentLanePacket(p)).toBe(true)
+    for (const status of ["completed", "failed"]) {
+      const workerReport = report({ schema_version: "1.0", worker_job, status })
+      for (const admitted of [
+        resolveWorkerReportFromText(JSON.stringify(workerReport), p),
+        resolveWorkerReport(runOutput("", workerReport), p),
+      ]) {
+        expect("report" in admitted).toBe(true)
+        if ("report" in admitted) {
+          expect(admitted.report.worker_job).toEqual(dispatchedJobBinding)
+          expect(admitted.report.schema_version).toBe("1.1")
+          expect(admitted.report.status).toBe(status)
+          expect(admitted.report.evidence).toEqual(workerReport.evidence)
+        }
+      }
+      expect(workerReport.worker_job).toEqual(worker_job)
+    }
+    expect(p.inputs.worker_job).toEqual(dispatchedJob)
+  })
+}
+
+test("report admission keeps packets without jobs unbound regardless of worker-job echoes", () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    const p = { ...packet(), schema_version }
+    for (const [, worker_job] of workerJobEchoes) {
+      const workerReport = report({ schema_version: "1.1", worker_job })
+      for (const admitted of [
+        resolveWorkerReportFromText(JSON.stringify(workerReport), p),
+        resolveWorkerReport(runOutput("", workerReport), p),
+      ]) {
+        expect("report" in admitted).toBe(true)
+        if ("report" in admitted) {
+          expect(admitted.report.schema_version).toBe(schema_version)
+          expect(Object.hasOwn(admitted.report, "worker_job")).toBe(false)
+          expect(admitted.report.evidence).toEqual(workerReport.evidence)
+        }
+      }
+    }
   }
-  const legacy = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: "1.1", worker_job })), { ...packet(), schema_version: "1.0" })
-  expect("detail" in legacy).toBe(true)
-  if ("detail" in legacy) expect(legacy.detail).toContain("closed agent-lane-report.v1 schema")
+})
+
+test("report admission validates the packet's worker-job binding, not the worker echo", () => {
+  for (const p of [
+    { ...jobPacket(), schema_version: "1.0" as const },
+    { ...jobPacket(), inputs: { ...jobPacket().inputs, worker_job: { ...dispatchedJob, digest: "invalid" } } },
+  ]) {
+    expect(validateAgentLanePacket(p)).toBe(false)
+    for (const admitted of [
+      resolveWorkerReportFromText(JSON.stringify(report({ worker_job: dispatchedJobBinding })), p),
+      resolveWorkerReport(runOutput("", report({ worker_job: dispatchedJobBinding })), p),
+    ]) {
+      expect("detail" in admitted).toBe(true)
+      if ("detail" in admitted) expect(admitted.detail).toContain("closed agent-lane-report.v1 schema")
+    }
+  }
 })
 
 async function terminalEvidence(carried: unknown = report(), p: AgentLanePacket = packet()) {
@@ -2154,6 +2220,27 @@ test("a legacy worker schema echo on a current packet records completion with cu
   expect(payloads[0].report_schema_version).toBe("1.1")
   expect(payloads[1].report_schema_version).toBe("1.1")
   expect(payloads[1].evidence).toEqual(reportEvidence())
+})
+
+for (const [label, worker_job] of workerJobEchoes) {
+  test(`terminal evidence carries the dispatched worker-job binding with ${label} echo`, async () => {
+    const { result, verbs, payloads } = await terminalEvidence(report({ worker_job }), jobPacket())
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    expect(payloads[0].worker_job).toEqual(dispatchedJobBinding)
+    expect(payloads[1].worker_job).toEqual(dispatchedJobBinding)
+    expect(payloads[1].report_schema_version).toBe("1.1")
+    expect(payloads[1].evidence).toEqual(reportEvidence())
+  })
+}
+
+test("terminal evidence never invents a worker-job binding for an unbound packet", async () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    const { result, verbs, payloads } = await terminalEvidence(report({ worker_job: dispatchedJobBinding }), { ...packet(), schema_version })
+    expect(result.outcome).toBe("ok")
+    expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+    for (const payload of payloads) expect(Object.hasOwn(payload, "worker_job")).toBe(false)
+  }
 })
 
 // The dispatch window owns the worker directory; the report does not carry

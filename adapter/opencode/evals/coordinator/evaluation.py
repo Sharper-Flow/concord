@@ -1,6 +1,7 @@
 """Deterministic assertions over actual coordinator events and recording tools."""
+
 from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
-                               strict_output, terminal_answer)
+                                strict_output, terminal_answer)
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 # work_start resume selects a member Project in another repository only
@@ -150,6 +151,99 @@ def typed_boundary(case):
     return typed_start_boundary(case)
 
 
+# The characters the production adapter's shellQuote
+# (adapter/opencode/concord.ts) renders plainly; it shell-quotes every
+# other value. A launch value made only of these characters is the only
+# kind a plain, unquoted command spelling exists for.
+PLAIN_LAUNCH_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789"
+    "_@%+=:,./-"
+)
+
+
+def plain_launch_value(value):
+    """A launch value that needs no quoting or expansion: a non-empty
+    string whose every character the adapter renders plainly."""
+    return isinstance(value, str) and value != "" and set(value) <= PLAIN_LAUNCH_CHARACTERS
+
+
+def launch_targets(case):
+    """The closed set of plain command strings the served typed launch
+    grant admits: the argv joined by single spaces, and a plain cd into
+    the exact served directory, one literal " && ", then that same join.
+    The grant derives from the served fixture, never from model output,
+    and admission is fail-closed. The grant must be complete — a
+    non-empty argv of non-empty strings, with string directory and
+    runnable — internally consistent (runnable equals the plain argv
+    join), and wholly safe (every argv word and the directory are plain
+    values the adapter renders unquoted). Any other grant, and any value
+    the adapter would shell-quote, admits nothing: no plain spelling of
+    it exists, and this comparator does not interpret quoting, escaping,
+    or any other shell syntax to reconstruct one."""
+    start = start_fixture(case)
+    if start is None:
+        return ()
+    result = start.get("result")
+    launch = result.get("launch") if isinstance(result, dict) else None
+    if not isinstance(launch, dict):
+        return ()
+    argv, directory = launch.get("argv"), launch.get("directory")
+    runnable = launch.get("runnable")
+    if not (isinstance(argv, list) and argv
+            and all(isinstance(token, str) and token for token in argv)
+            and isinstance(directory, str) and bool(directory)
+            and isinstance(runnable, str) and bool(runnable)):
+        return ()
+    if not all(plain_launch_value(value) for value in (*argv, directory)):
+        return ()
+    direct = " ".join(argv)
+    if runnable != direct:
+        return ()
+    return (direct, f"cd {directory} && {direct}")
+
+
+def target_matches(actual, expected, case, action):
+    """operator_action.target compares exactly for every action except
+    open_session, whose meaning the served typed launch grant defines:
+    the grant's closed plain forms and nothing else. No exact-equality
+    fast path bypasses that boundary — an open_session target that is
+    not one of the grant's plain forms is a non-match even when it
+    equals the expected string, and an absent, malformed, unsafe, or
+    inconsistent grant admits no target at all. Unsupported spellings of
+    an otherwise shell-equivalent command — quoting or escaping around
+    words or operators, line continuations and newlines, comments,
+    globs, redirections, extra commands or operators, expansions — are
+    non-matches by design. No parsing, interpretation, or pre-scan of
+    the target exists here; the comparison is one closed string
+    equality against the served grant's plain forms."""
+    if action == "open_session":
+        return isinstance(actual, str) and actual in launch_targets(case)
+    return actual == expected
+
+
+def final_matches(final, expected, receipts, case):
+    """Exact equality for every handoff field — status, work_id, boundary,
+    cause, effect_state, recovery_owner, operator_action.kind,
+    why_agent_cannot, and the complete context_receipts object — with only
+    operator_action.target additionally admitted through the closed plain
+    forms a served launch grant defines. No whole-response equality fast
+    path exists: for open_session the grant's plain forms govern even
+    when the served target equals the expected one."""
+    want = {**expected, "context_receipts": receipts}
+    action = expected.get("operator_action")
+    if not isinstance(final, dict) or not isinstance(action, dict):
+        return final == want
+    got = final.get("operator_action")
+    if not isinstance(got, dict) or set(got) != set(action):
+        return False
+    normalized = {**final, "operator_action": {**got, "target": action.get("target")}}
+    if normalized != want:
+        return False
+    return target_matches(got.get("target"), action.get("target"), case, action.get("kind"))
+
+
 def collapse_declared_replay(case, sequence, calls):
     """Admit one identical start replay only where the scenario declares the production result invites it."""
     starts = [call.get("args") for call in calls if call.get("tool") == START]
@@ -223,14 +317,12 @@ def evaluate(case, calls, events, exit_code, receipts):
         "trace_matches_event": matching,
         "read_scope": read_scope,
         "no_unauthorized_mutations": not unauthorized,
-        "final_response": final == {**expected, "context_receipts": receipts},
-        # The strict final-output rule stays its own check: narration or
-        # Markdown fails the harness contract without erasing the measured
-        # relocation behavior above.
-        "strict_output_compliance": strict_output(events),
+        "final_response": final_matches(final, expected, receipts, case),
     }
+    # Presentation diagnostics do not change behavioral acceptance.
     return {
         "checks": checks, "passed": all(checks.values()), "final_response": final,
         "observed_calls": calls, "tool_event_count": len(parts),
         "unauthorized_mutation_calls": len(unauthorized),
+        "advisory": {"strict_output_compliance": strict_output(events)},
     }

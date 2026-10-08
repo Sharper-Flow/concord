@@ -815,27 +815,11 @@ func scopeFromMap(scope map[string]any) *Scope {
 	// product_ids stays out of the wire scope: it is derived authority
 	// bookkeeping (deriveMutationProducts, approval scope bindings, stored
 	// idempotency snapshots), and the envelope schema closes resolved_scope
-	// to product_id, project_ids, work_ids, and scope_version.
-	if value, ok := scope["project_ids"].([]any); ok {
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				result.ProjectIDs = append(result.ProjectIDs, text)
-			}
-		}
-	}
-	if value, ok := scope["project_ids"].([]string); ok {
-		result.ProjectIDs = append(result.ProjectIDs, value...)
-	}
-	if value, ok := scope["work_ids"].([]any); ok {
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				result.WorkIDs = append(result.WorkIDs, text)
-			}
-		}
-	}
-	if value, ok := scope["work_ids"].([]string); ok {
-		result.WorkIDs = append(result.WorkIDs, value...)
-	}
+	// to product_id, project_ids, work_ids, and scope_version. The list
+	// members go through the shared scope-list owner so a path that names
+	// the same identity twice resolves to one unique wire scope.
+	result.ProjectIDs = scopeListValues(scope["project_ids"])
+	result.WorkIDs = scopeListValues(scope["work_ids"])
 	if value, ok := scope["scope_version"].(string); ok {
 		result.ScopeVersion = value
 	}
@@ -2160,13 +2144,9 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = true
-	// The scope bindings render canonically sorted and unique, so naming the
-	// same work twice is one binding: a publication that pins itself as its
-	// own publication work must not double the work_ids entry, or the
-	// challenge envelope refuses to marshal and the approval prompt never
-	// reaches the operator.
+	// Self-publication legitimately names the same work in both roles.
 	workIDs := []string{in.WorkID}
-	if in.PublicationWorkID != "" && in.PublicationWorkID != in.WorkID {
+	if in.PublicationWorkID != "" {
 		workIDs = append(workIDs, in.PublicationWorkID)
 	}
 	plan.scope["work_ids"] = workIDs
@@ -2292,6 +2272,25 @@ func (r runtime) planMessageSend(_ context.Context, base Envelope, raw []byte, d
 	}
 	if in.RecipientWorkID != "" && in.Broadcast {
 		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "resolve_ambiguity", false), nil, true
+	}
+	// The store fold and CHECK prohibit self-delivery. Refuse before approval
+	// because consent cannot authorize an effect the store must reject.
+	// CON-880 owns the pending Product-law decision; this refusal cites only
+	// the existing implementation invariant, not Product law.
+	if in.RecipientWorkID == in.WorkID {
+		// reread_entities, not contact_operator: the envelope schema
+		// couples an options-less invariant_violation to that recovery
+		// action, and the refusal must cross the boundary encodable.
+		refusal := coreError(base, "invariant_violation", "a direct message cannot be addressed to the sending work item itself: the store prohibits self-delivery (foldMessageSent and the work_messages CHECK constraint)", "reread_entities", false)
+		refusal.Error.Details = map[string]any{
+			"work_id":           in.WorkID,
+			"recipient_work_id": in.RecipientWorkID,
+			"invariant_sources": []string{
+				"internal/store/work_messages.go foldMessageSent rejects RecipientWorkID == event.SubjectID",
+				"internal/store/schema.go work_messages CHECK(recipient_work_id != sender_work_id)",
+			},
+		}
+		return refusal, nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -5339,17 +5338,11 @@ func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transacti
 
 func mutationScopeWorkIDs(scope map[string]any) []string {
 	values, _ := scope["work_ids"].([]string)
-	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if value == "" {
-			continue
+	for _, value := range normalizeScopeList(values) {
+		if value != "" {
+			out = append(out, value)
 		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
 	}
 	return out
 }

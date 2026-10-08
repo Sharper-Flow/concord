@@ -2124,7 +2124,7 @@ for (const [label, worker_job] of workerJobEchoes) {
   test(`report admission derives worker-job identity from the packet with ${label} echo`, () => {
     const p = jobPacket()
     expect(validateAgentLanePacket(p)).toBe(true)
-    for (const status of ["completed", "failed"]) {
+    for (const status of ["completed", "failed"] as const) {
       const workerReport = report({ schema_version: "1.0", worker_job, status })
       for (const admitted of [
         resolveWorkerReportFromText(JSON.stringify(workerReport), p),
@@ -2138,7 +2138,7 @@ for (const [label, worker_job] of workerJobEchoes) {
           expect(admitted.report.evidence).toEqual(workerReport.evidence)
         }
       }
-      expect(workerReport.worker_job).toEqual(worker_job)
+      expect(workerReport).toEqual(report({ schema_version: "1.0", worker_job, status }))
     }
     expect(p.inputs.worker_job).toEqual(dispatchedJob)
   })

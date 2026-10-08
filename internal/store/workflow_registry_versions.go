@@ -1084,6 +1084,53 @@ func breakFixAcceptDeliveryV19() WorkflowDefinition {
 	return withCurrentAcceptDelivery(d)
 }
 
+// withWorkerJobs publishes the CD-0205 worker-job lifecycle: record_worker_job
+// joins every step where a job-executing lane may dispatch, so a coordinator
+// records the bounded job where it dispatches it. The behavior the version gates —
+// a dispatch must bind the selected ready revision, and a job-bound accept
+// without a delivery assertion holds the step — lives in the guards and the
+// fold, keyed on workflowWorkerJobsActive.
+func withWorkerJobs(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	record := currentActionDefinition("record_worker_job", true)
+	record.RequiredCapability = "work_transition"
+	definition.AvailableActions = append(definition.AvailableActions, record.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions
+		if containsString(actions, "dispatch_worker") && containsString(actions, "accept_worker_result") && containsString(actions, "record_delivery") {
+			definition.StepGraph.Steps[i].Actions = append(definition.StepGraph.Steps[i].Actions, record.ID)
+		}
+	}
+	return definition
+}
+
+func implementationWorkerJobsV24() WorkflowDefinition {
+	d := implementationRecoveryRoutesV23()
+	d.Version = 24
+	return withWorkerJobs(d)
+}
+
+func breakFixWorkerJobsV21() WorkflowDefinition {
+	d := breakFixRecoveryRoutesV20()
+	d.Version = 21
+	return withWorkerJobs(d)
+}
+
+// workflowWorkerJobsActive reports whether a pinned definition carries the
+// CD-0205 worker-job lifecycle. Earlier versions keep the behavior and digest
+// they shipped with: no job binding, and an accept that advances as before.
+func workflowWorkerJobsActive(definition WorkflowDefinition) bool {
+	switch definition.Ref {
+	case "workflow.implementation":
+		return definition.Version >= 24
+	case "workflow.break_fix":
+		return definition.Version >= 21
+	default:
+		return false
+	}
+}
+
 func researchVerdictBatchV12() WorkflowDefinition {
 	d := researchConfirmPremiseV11()
 	d.Version = 12

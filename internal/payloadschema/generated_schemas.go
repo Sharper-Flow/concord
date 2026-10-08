@@ -979,6 +979,14 @@ const GeneratedPayloadSchemaDocument = `{
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record"
             },
+            "ready_worker_jobs": {
+              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. Absent when no revision is ready.",
+              "items": {
+                "$ref": "#/$defs/worker_packet_worker_job"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
             "spec_mandate": {
               "items": {
                 "$ref": "#/$defs/id"
@@ -10686,6 +10694,131 @@ const GeneratedPayloadSchemaDocument = `{
           "if": {
             "properties": {
               "action_id": {
+                "const": "record_worker_job"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "checks": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "job_id": {
+                    "$ref": "#/$defs/reference",
+                    "maxLength": 128,
+                    "minLength": 2
+                  },
+                  "objective": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "path_scope": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 8,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "prerequisites": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_prerequisite"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array"
+                  },
+                  "readiness_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "ready": {
+                    "type": "boolean"
+                  },
+                  "reserved_integration": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "stopping_condition": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string"
+                  },
+                  "unresolved_refs": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "job_id",
+                  "objective",
+                  "stopping_condition",
+                  "ready"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
                 "const": "reject_worker_result"
               }
             },
@@ -12376,8 +12509,61 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worker_job_prerequisite": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/id"
+        },
+        "result_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "worker_job_text": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "worker_packet": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_version": {
+                "const": "1.0"
+              }
+            },
+            "required": [
+              "schema_version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "not": {
+                  "required": [
+                    "worker_job"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
       "properties": {
         "attempt_id": {
@@ -12414,6 +12600,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
             }
           },
           "required": [
@@ -12434,7 +12623,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "const": "1.0"
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "type": "string"
         },
         "step_id": {
           "$ref": "#/$defs/id"
@@ -12647,6 +12840,136 @@ const GeneratedPayloadSchemaDocument = `{
       "maxItems": 8,
       "minItems": 1,
       "type": "array"
+    },
+    "worker_packet_worker_job": {
+      "additionalProperties": false,
+      "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
+      "properties": {
+        "checks": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "job_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+          "type": "string"
+        },
+        "objective": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path_scope": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "job_id": {
+                "maxLength": 128,
+                "minLength": 2,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+                "type": "string"
+              },
+              "result_ref": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "job_id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "project_scope": {
+          "maxLength": 128,
+          "minLength": 0,
+          "type": "string"
+        },
+        "reserved_integration": {
+          "maxLength": 4096,
+          "minLength": 0,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "stopping_condition": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "unresolved_refs": {
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision",
+        "digest",
+        "objective",
+        "stopping_condition",
+        "project_scope",
+        "path_scope",
+        "predicate_ids",
+        "checks",
+        "prerequisites",
+        "unresolved_refs",
+        "reserved_integration"
+      ],
+      "type": "object"
     },
     "workflow_action_outcome": {
       "oneOf": [

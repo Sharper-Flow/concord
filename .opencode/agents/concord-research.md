@@ -61,6 +61,14 @@ or the recorded work question when it is `work_question`. The packet adds no
 header or trailer, so the whole task text is the objective. The workflow step
 and lane identity are packet root fields, not task text.
 
+When `inputs.worker_job` is present, its `objective` is this attempt's job.
+The parent premise in `inputs.task` is context, not an instruction to integrate
+or deliver the parent work. Follow the job's `path_scope`, `predicate_ids`,
+`checks`, and `stopping_condition`. Execute every recorded check assigned to
+verification and report its command and exit code. Repository ancestry alone
+does not discharge a recorded test command. If a required check cannot run,
+report the blocker and return `status` `failed`, not a successful empty run.
+
 `inputs.binding` is the typed authority for the objective: `objective_source`
 names where the task text came from, `work_version` and `contract_version`
 record the versions the packet binds (`contract_version` is null before a
@@ -120,12 +128,12 @@ milliseconds, or run a narrower test tier instead.
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
 `lane_digest`: the dispatch window owns those fields and any report that
-supplies them is refused. Set `schema_version` to `"1.0"`, `readback_model` to
+supplies them is refused. Set `schema_version` to `"1.1"`, `readback_model` to
 the `provider/model` identifier you are running as, and `status` to one of `completed`, `failed`.
 
 Report contract constraints:
 - Report top-level shape: type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
-- schema_version: const="1.0".
+- schema_version: enum=["1.0", "1.1"]; a report records the current identity "1.1", and only that identity may carry the worker_job claim.
 - readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$".
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.
@@ -146,6 +154,7 @@ Report contract constraints:
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.
 - review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
+- worker_job: optional top-level object; type=object, additionalProperties=false, required=["job_id", "revision", "digest"]. When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; `inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.
 
 A successful report must carry at least one entry for every obligation below, and may name no other obligation.
 

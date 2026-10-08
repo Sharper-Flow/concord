@@ -234,8 +234,9 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryReordered, nil),
 	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRequirednessChanged, nil),
 	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeNarrativeRevised, nil),
-	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](4, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
-	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](3, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
+	WorkerJobRecorded:                         registerEventKind[WorkerJobRecordedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkerJobRecorded, validateWorkerJobRecordedPayload),
+	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](5, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
+	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](4, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
 	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](4, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3}, foldWorkflowContractApproved),
@@ -246,7 +247,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
 	WorkflowActionStarted:                     workflowRegistration[workflowActionStartedPayload](1, nil, foldWorkflowActionStarted),
 	WorkflowActionCheckpointed:                workflowRegistration[workflowActionCheckpointedPayload](1, nil, foldWorkflowActionCheckpointed),
-	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](3, map[int]Upcaster{1: upcastWorkflowActionCompletedV1, 2: upcastWorkflowActionCompletedV2}, foldWorkflowActionCompleted),
+	WorkflowActionCompleted:                   workflowRegistration[workflowActionCompletedPayload](4, map[int]Upcaster{1: upcastWorkflowActionCompletedV1, 2: upcastWorkflowActionCompletedV2, 3: upcastWorkflowActionCompletedV3}, foldWorkflowActionCompleted),
 	WorkflowActionFailed:                      workflowRegistration[workflowActionFailedPayload](1, nil, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, nil, foldWorkflowEvidenceBound),
 	WorkflowStalenessObserved:                 registerEventKind[workflowStalenessObservedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkflowStalenessObserved, validateWorkflowStalenessObservedPayload),
@@ -719,6 +720,10 @@ var replayProjectionClearTables = []string{
 	"worktree_entries",
 	"external_observations",
 	"worker_attempts",
+	// Worker-job revisions (CD-0205) fold purely from worker.job_recorded
+	// events and the acceptance dispositions; the replay rebuilds every
+	// revision and its satisfied state in log order.
+	"worker_job_revisions",
 	// Project-session handoffs (CD-0182 amendment) fold purely from their
 	// recorded and consumed events; the replay rebuilds every bind.
 	"project_handoffs",

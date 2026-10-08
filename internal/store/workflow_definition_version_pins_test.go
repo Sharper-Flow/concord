@@ -177,6 +177,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "21"}:     "sha256:0a6ed9d4f03954f8d8802b4c953cbec7338860f3552aa83bac4b97fcf469c901",
 	{"workflow.implementation", "22"}:     "sha256:1bef12c2d072dae7bfcc65a2b097248678770481cc849bf79107cc9833b3b7f4",
 	{"workflow.break_fix", "19"}:          "sha256:df5d441762daf131a1ae62c1abc9897f0269ebd3890322fff6c9a480ca769cc7",
+	{"workflow.implementation", "24"}:     "sha256:2f5b7148662ffb007d1e489b74bda8ef51dfce45225c59b386292ba233312257",
+	{"workflow.break_fix", "21"}:          "sha256:9cae99acc96a249252a7c094e8b6958c470ca089dd8bc9e0fddd8a7430f39b85",
 	{"workflow.research", "13"}:           "sha256:ec79e80293f12dd40fc11eac4f0413a4acd45cf76c0289436e7477b882cc3d9f",
 	{"workflow.architecture_spike", "14"}: "sha256:4cafbb1659213f0d80faf45483be186d29fcc9577090d0382989a42aa437726b",
 	{"workflow.ops_runbook", "15"}:        "sha256:547286502ff9c69fad47f5c880508a25803592f9a3befaa7700ca1541843255d",
@@ -354,8 +356,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          20,
-		"workflow.implementation":     23,
+		"workflow.break_fix":          21,
+		"workflow.implementation":     24,
 		"workflow.generic_one_off":    14,
 		"workflow.research":           14,
 		"workflow.architecture_spike": 15,

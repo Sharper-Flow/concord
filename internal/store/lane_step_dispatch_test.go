@@ -19,7 +19,7 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	t.Helper()
 	task, binding := recordedPacketInputs(t, s, workID, laneID)
 	return map[string]any{
-		"schema_version": "1.0",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        laneID,
 		"lane_version":   laneVersion,
@@ -448,8 +448,8 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 20 {
-		t.Fatalf("current break-fix version = %d, want 20", current.Definition.Version)
+	if current.Definition.Version != 21 {
+		t.Fatalf("current break-fix version = %d, want 21", current.Definition.Version)
 	}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-repin", Definition: current, Actor: fixture.owner, Now: time.Unix(50, 0).UTC()})

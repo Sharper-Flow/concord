@@ -35,11 +35,14 @@ const MAX_FAILURE_DETAIL_BYTES = 4_096
 const MAX_DIAGNOSTIC_MESSAGE_BYTES = 256
 const MAX_EXPORT_BODY_DIAGNOSTIC_BYTES = 1_024
 const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
-type AgentLanePacketSchemaVersion = typeof agentLanePacketSchema.properties.schema_version.const
-type AgentLaneReportSchemaVersion = typeof agentLaneReportSchema.properties.schema_version.const
+// The packet/report schema identities are versioned (CD-0205): "1.0" is the
+// released pre-job identity a stored payload may carry, "1.1" is the
+// job-capable identity a new packet or report records — the last enum entry
+// the generated schema declares. The adapter always records the current
+// identity; the core accepts the released "1.0" pair on replayed evidence.
+type AgentLanePacketSchemaVersion = (typeof agentLanePacketSchema.properties.schema_version.enum)[number]
+type AgentLaneReportSchemaVersion = (typeof agentLaneReportSchema.properties.schema_version.enum)[number]
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
-const PACKET_SCHEMA_VERSION: AgentLanePacketSchemaVersion = agentLanePacketSchema.properties.schema_version.const
-const REPORT_SCHEMA_VERSION: AgentLaneReportSchemaVersion = agentLaneReportSchema.properties.schema_version.const
 
 // DispatchRunnerResult is one child process outcome. `exited` resolves to the
 // wait status number for both a clean exit and a killed child, so exitCode
@@ -73,7 +76,44 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+// AgentLanePacketWorkerJob mirrors inputs.worker_job of
+// contracts/agent-lane-packet.schema.json: the one recorded ready worker-job
+// revision the attempt executes (CD-0205). inputs.task stays the complete
+// parent contract premise.
+export interface AgentLanePacketWorkerJob {
+  job_id: string
+  revision: number
+  digest: string
+  objective: string
+  stopping_condition: string
+  project_scope: string
+  path_scope: string[]
+  predicate_ids: string[]
+  checks: string[]
+  prerequisites: { job_id: string; revision: number; result_ref?: string }[]
+  unresolved_refs: string[]
+  reserved_integration: string
+}
+
+// AgentLaneReportWorkerJob mirrors the report's worker_job claim: the
+// revision the report completes, copied from the packet's inputs.worker_job.
+export interface AgentLaneReportWorkerJob {
+  job_id: string
+  revision: number
+  digest: string
+}
+
+// packetWorkerJobBinding projects the packet's worker-job revision onto the
+// worker-dispatch evidence binding (CD-0205). The core refuses dispatch
+// evidence whose binding differs from the one its authorization recorded, so
+// a job-bound packet must carry its binding onto every dispatch record,
+// born-failed records included.
+function packetWorkerJobBinding(packet: Pick<AgentLanePacket, "inputs">): { worker_job?: AgentLaneReportWorkerJob } {
+  const job = packet.inputs?.worker_job
+  return job ? { worker_job: { job_id: job.job_id, revision: job.revision, digest: job.digest } } : {}
 }
 
 // AgentLanePacketOutcomePredicate is one typed outcome predicate the packet
@@ -157,6 +197,7 @@ export interface AgentLaneReport {
   evidence: AgentLaneReportEvidence[]
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
+  worker_job?: AgentLaneReportWorkerJob
 }
 
 export type CanonicalLaneReport = AgentLaneReport & Pick<AgentLanePacket, "attempt_id" | "lane_id" | "lane_version" | "lane_digest">
@@ -573,6 +614,9 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
       if (!validateSchema(branch, value, root, path, failures)) return false
     }
   }
+  if (schema.not !== undefined && validateSchema(schema.not, value, root, path)) {
+    return fail("matches a forbidden schema")
+  }
   return true
 }
 
@@ -974,6 +1018,9 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
   const admitted = normalized
+  if (admitted.schema_version !== packet.schema_version) {
+    return { detail: "worker report schema identity does not match its dispatch packet" }
+  }
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
   if (admitted.status === "completed") {
@@ -1268,10 +1315,10 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-dispatch", {
     event_id: crypto.randomUUID(), work_id: packet.work_id, attempt_id: packet.attempt_id,
     lane_id: lane.id, lane_version: lane.version, lane_digest: packet.lane_digest,
-    readback_model: "", packet_schema_version: PACKET_SCHEMA_VERSION,
-    report_schema_version: REPORT_SCHEMA_VERSION, packet_digest: options.packetDigest,
+    readback_model: "", packet_schema_version: packet.schema_version,
+    report_schema_version: packet.schema_version, packet_digest: options.packetDigest,
     terminal: "failed", terminal_failure_kind: failureKind, terminal_detail: detail,
-    host_provenance: provenance, assertion,
+    host_provenance: provenance, ...packetWorkerJobBinding(packet), assertion,
   }, signal)
   if (failure === null) onRecorded?.()
   return failure
@@ -2091,13 +2138,14 @@ async function completeWorkerSession(
     lane_version: lane.version,
     lane_digest: packet.lane_digest,
     readback_model: readback.readback_model,
-    packet_schema_version: PACKET_SCHEMA_VERSION,
-    report_schema_version: REPORT_SCHEMA_VERSION,
+    packet_schema_version: packet.schema_version,
+    report_schema_version: packet.schema_version,
     // The CLI requires the digest on the request as well as inside the
     // signed assertion: it is the seam that checks the value the assertion
     // claims is the value the core recorded (CD-0067 D6).
     packet_digest: options.packetDigest,
     host_provenance: provenance,
+    ...packetWorkerJobBinding(packet),
     assertion: dispatchAssertion,
   }, signal)
   if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
@@ -2168,11 +2216,12 @@ async function completeWorkerSession(
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     readback_model: readback.readback_model,
-    report_schema_version: REPORT_SCHEMA_VERSION,
+    report_schema_version: terminal.report.schema_version,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
+    worker_job: terminal.report.worker_job,
     worker_directory: workerDirectory,
     assertion: terminalAssertion,
   }, signal)

@@ -4607,18 +4607,18 @@ finally:
     connection.close()
 
 
-# The shipped manifest keeps its recorded compatibility floor: migration 111
-# widens a compound CHECK the supported family cannot prove, so it stays
-# breaking, and the live check passes without weakening any guard.
+# The shipped manifest keeps its recorded compatibility floor: migration 119
+# widens the worker-attempt schema identities through a breaking rebuild.
+# The earlier compound-CHECK rebuilds stay breaking too.
 with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
     live_source = handle.read()
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-if max(live_breaking, default=0) != 111:
+if max(live_breaking, default=0) != 119:
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
-if 110 not in live_breaking or 111 not in live_breaking:
+if 110 not in live_breaking or 111 not in live_breaking or 119 not in live_breaking:
     FAILURES.append(
         f"shipped rebuild migrations left breaking: {live_breaking}")
 

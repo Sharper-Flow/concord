@@ -1,0 +1,57 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-e46f4308fb5dad191fcbe259",
+    "tier": "legislated"
+  },
+  "date": "2026-10-05T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/worker_jobs.go",
+    "internal/store/worker_lanes.go",
+    "internal/store/workflow_correction.go",
+    "internal/store/workflow_action_guards.go",
+    "internal/store/workflow_admission.go",
+    "internal/store/workflow_admission_delivery.go",
+    "internal/store/workflow_registry_versions.go",
+    "internal/store/worker_job_correction_window_test.go",
+    "internal/store/worker_job_integration_admission_test.go",
+    "internal/store/worker_job_lifecycle_witness_test.go",
+    "internal/store/workflow_admission_conformance_test.go",
+    "internal/store/workflow_admission_liveness_test.go",
+    "adapter/opencode/packet.ts",
+    "adapter/opencode/packet.test.ts"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0205",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0164"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0198"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0205-worker-jobs-bind-dispatch-and-separate-local-acceptance-from-delivery.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:7e0c455adcd775140c346f8714afb061ba69139de16efb4cf3f0a8d4b27b17de",
+  "status": "accepted",
+  "summary": "A worker-job revision is an immutable record under the work item; on workflow.implementation v24 and workflow.break_fix v21 every admitted lane at a job-capable step binds one ready revision through the packet, the dispatch evidence, the report, and the acceptance. Verification requires recorded executable checks. A plain accept of a job-bound attempt satisfies that revision and holds the step without delivery. Whole-work delivery keeps complete admission. Only acceptance that satisfies an unresolved obligation closes its correction window, refining CD-0164 D1-D2 and amending CD-0198 D4.",
+  "tags": [
+    "workflow",
+    "workflow-engine",
+    "worker",
+    "correction",
+    "dispatch"
+  ],
+  "title": "Worker jobs bind dispatch and separate local acceptance from delivery"
+}

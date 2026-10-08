@@ -107,7 +107,7 @@ func TestEscalatedApprovalAdmitsTheSameStepDispatch(t *testing.T) {
 func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	const workID = "same-step-wall-accept-reset"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
@@ -193,7 +193,7 @@ func TestStepEntryResetsTheSameStepCount(t *testing.T) {
 	lane := reviewGateLane(t, "review")
 
 	firstPass := "r1"
-	attemptID, _, err := dispatchRefineAttemptOnly(t, fixture, workID, firstPass, nil)
+	attemptID, _, _, err := dispatchRefineAttemptOnly(t, fixture, workID, firstPass, nil)
 	if err != nil {
 		t.Fatalf("first-pass refine dispatch: %v", err)
 	}
@@ -207,6 +207,7 @@ func TestStepEntryResetsTheSameStepCount(t *testing.T) {
 		t.Fatalf("accept refine review: %v", err)
 	}
 	refineProofSeedGreenRun(t, s, workID, strings.Repeat("a", 64))
+	workerJobIntegrationGreenRun(t, s, workID, strings.Repeat("a", 64)+"-"+workID+"-entry")
 	delivery := json.RawMessage(`{"delivery_artifact":"artifact:same-step-entry","delivery_state":"asserted"}`)
 	for i := 0; i < 2 && currentStep(t, s, workID) != "acceptance"; i++ {
 		if err := runVerdictActionAs(t, s, workID, "record_delivery", delivery, 0, acceptor); err != nil {
@@ -221,13 +222,13 @@ func TestStepEntryResetsTheSameStepCount(t *testing.T) {
 
 	for n := 1; n <= 3; n++ {
 		label := fmt.Sprintf("u%d", n)
-		postEntry, _, dispatchErr := dispatchRefineAttemptOnly(t, fixture, workID, label, nil)
+		postEntry, _, _, dispatchErr := dispatchRefineAttemptOnly(t, fixture, workID, label, nil)
 		if dispatchErr != nil {
 			t.Fatalf("post-entry dispatch %s refused with only %d counted failures: %v", label, n-1, dispatchErr)
 		}
 		failReviewWorkerAttempt(t, s, workID, postEntry, lane)
 	}
-	_, _, err = dispatchRefineAttemptOnly(t, fixture, workID, "u4", nil)
+	_, _, _, err = dispatchRefineAttemptOnly(t, fixture, workID, "u4", nil)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
 		t.Fatalf("fourth post-entry dispatch failure=%v, want approval_required", err)

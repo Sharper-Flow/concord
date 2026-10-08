@@ -40,8 +40,12 @@ func TestReviseIntentCarriesTheSameFamilyForward(t *testing.T) {
 		t.Fatalf("capture response=%+v err=%v", response, err)
 	}
 	workID := (*response.ChangedRefs)[0].ID
-	if ref, version, _ := agentInstancePin(t, s, workID); ref != "workflow.break_fix" || version != 20 {
-		t.Fatalf("captured pin = %s v%d, want workflow.break_fix v20", ref, version)
+	captured, err := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, version, _ := agentInstancePin(t, s, workID); ref != captured.Definition.Ref || version != captured.Definition.Version {
+		t.Fatalf("captured pin = %s v%d, want the current %s v%d", ref, version, captured.Definition.Ref, captured.Definition.Version)
 	}
 	// Strand the instance behind the promotion: re-pin it to the outgoing
 	// version through the store, as the broken-window instances are pinned.
@@ -78,8 +82,8 @@ func TestReviseIntentCarriesTheSameFamilyForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ref != "workflow.break_fix" || version != 20 || digest != current.Digest {
-		t.Fatalf("pin after revise = %s v%d %s, want the current workflow.break_fix v20 %s", ref, version, digest, current.Digest)
+	if ref != current.Definition.Ref || version != current.Definition.Version || digest != current.Digest {
+		t.Fatalf("pin after revise = %s v%d %s, want the current %s v%d %s", ref, version, digest, current.Definition.Ref, current.Definition.Version, current.Digest)
 	}
 }
 

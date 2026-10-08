@@ -110,8 +110,9 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	const failedID = "attempt:work-1:authorized-failed"
+	recordReadyRetryJob(t, s, service, env, "job:authorize-unstarted-worker")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
+		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-unstarted-worker",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, env)
 	if first.Outcome != OutcomeOK {
@@ -181,8 +182,9 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 		t.Fatal(err)
 	}
 	const failedID = "attempt:work-1:concurrent-abandonment"
+	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:concurrent-abandonment")
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
+		"work_id": "work-1", "expected_version": retryWorkVersion(t, s), "action_id": "dispatch_worker", "idempotency_key": "authorize-concurrent-abandonment",
 		"fields": map[string]any{"attempt_id": failedID, "worker_packet": retryMutationPacket(t, s, failedID, nil)},
 	})}, mutationEnvelope(grant, scopeVersion))
 	if first.Outcome != OutcomeOK {
@@ -307,6 +309,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	if start.Outcome != OutcomeOK {
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
+	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
 	dispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
 	failure := store.Event{EventID: "retry-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {

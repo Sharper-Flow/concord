@@ -30,6 +30,10 @@ jobs:
           cache-dependency-path: go.sum
       - name: Download Go modules
         run: go mod download all
+      - name: Fetch released source pairs
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
+          git fetch --no-tags --depth=1 origin +refs/tags/v11.63.30:refs/tags/v11.63.30
       - name: Test every package under the race detector
         # internal/agent under -race runs at ~575-595s on 2-core runners.
         # The 30m timeout leaves headroom for routine growth.

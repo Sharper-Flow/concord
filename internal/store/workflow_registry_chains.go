@@ -89,6 +89,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationAcceptDeliveryV21(),
 		implementationProposalOutOfScopeV22(),
 		implementationRecoveryRoutesV23(),
+		implementationWorkerJobsV24(),
 	}
 }
 
@@ -116,6 +117,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		breakFixVerdictBatchV18(),
 		breakFixAcceptDeliveryV19(),
 		breakFixRecoveryRoutesV20(),
+		breakFixWorkerJobsV21(),
 	}
 }
 

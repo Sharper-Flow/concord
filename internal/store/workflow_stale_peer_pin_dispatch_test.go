@@ -21,7 +21,7 @@ func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.
 	const workID = "stale-registry-current-pin-dispatch"
 	const peerID = "stale-registry-current-pin-dispatch-peer"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 19, "repair")
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	defer s.Close()
 	ownerRef, err := WorkflowActorRef(owner)

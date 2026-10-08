@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkerJob } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -10,7 +10,10 @@ const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
-const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.const
+// The packet identity is versioned (CD-0205): the builder records the
+// current identity — the last enum entry the generated schema declares —
+// which is the job-capable packet that may carry inputs.worker_job.
+const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.enum[agentLanePacketSchema.properties.schema_version.enum.length - 1]
 
 export type AgentLanePacketFailureKind =
   | "unregistered_lane"
@@ -21,6 +24,8 @@ export type AgentLanePacketFailureKind =
   | "workflow_absent"
   | "projection_overflow"
   | "packet_refused"
+  | "worker_job_unavailable"
+  | "worker_job_ambiguous"
 
 export type AgentLanePacketField = "task" | "context" | "constraints" | "outcome_predicates"
 
@@ -241,6 +246,26 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   }
 }
 
+// selectReadyWorkerJob binds the one dispatch-ready worker-job revision the
+// pinned continuity carries (CD-0205). The pinned step declares
+// record_worker_job exactly where a job-capable definition dispatches a
+// job-executing lane, so that declaration, not a version table, decides
+// whether the packet must bind a job. The revision content rides verbatim:
+// the core refuses any packet whose worker_job differs from the recorded
+// ready revision. Zero ready revisions, or more than one, refuse: the
+// dispatcher never chooses between ready jobs or authors job content.
+function selectReadyWorkerJob(workId: string, pinned: Record<string, unknown>): { job?: Record<string, unknown>; failure?: AgentLanePacketFailure } {
+  const ready = Array.isArray(pinned.ready_worker_jobs) ? pinned.ready_worker_jobs.filter(isRecord) : []
+  if (ready.length === 0) {
+    return failure("worker_job_unavailable", `work ${workId} holds no dispatch-ready worker-job revision; record the bounded job with record_worker_job, ready, before dispatching this lane`)
+  }
+  if (ready.length > 1) {
+    const ids = ready.map((job) => `${String(job.job_id)}@${String(job.revision)}`).join(", ")
+    return failure("worker_job_ambiguous", `work ${workId} holds ${ready.length} dispatch-ready worker-job revisions (${ids}); record the jobs not to dispatch now as not ready, or order them through prerequisites, so exactly one is ready`)
+  }
+  return { job: ready[0] }
+}
+
 function isReadOnlyCapabilityClass(capabilityClass: AgentLane["capability_class"]): boolean {
   return laneStepDispatchKinds[capabilityClass].some((kind) => kind === "internal_sqlite" || kind === "cross_authority")
 }
@@ -376,6 +401,16 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // with the parent workflow, which dispatches one further bounded attempt
   // per remaining result.
   const binding = { objective_source: objectiveSource, work_version: workVersion, contract_version: contractVersion, assigned_result: assignedResult }
+  const stepActions = Array.isArray(pinned.step_actions) ? pinned.step_actions : []
+  let workerJob: Record<string, unknown> | undefined
+  if (stepActions.includes("record_worker_job")) {
+    const selected = selectReadyWorkerJob(request.workId, pinned)
+    if (selected.failure) return { failure: selected.failure }
+    workerJob = selected.job
+    if (lane.capability_class === "verification" && (!Array.isArray(workerJob?.checks) || workerJob.checks.length === 0)) {
+      return failure("worker_job_unavailable", `work ${request.workId} requires recorded executable checks for a verification job; record the bounded checks before dispatching this lane`)
+    }
+  }
   const taskCodePoints = codePoints(task)
   if (taskCodePoints > TASK_MAX_LENGTH) {
     return failure("projection_overflow", `inputs.task carries ${taskCodePoints} Unicode code points against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: taskCodePoints })
@@ -442,7 +477,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

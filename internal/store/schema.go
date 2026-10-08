@@ -5636,6 +5636,116 @@ CREATE TABLE runtime_state_writers (
 );
 `,
 	},
+	{
+		Version:  118,
+		Name:     "worker_job_revisions",
+		Breaking: false,
+		SQL: `
+-- CD-0205 worker-job lifecycle: the work aggregate owns immutable
+-- subordinate worker-job revisions as a fold-only projection. One row is one
+-- recorded revision; the primary key makes a revision immutable in place,
+-- and the fold compares digests so a re-recording must be byte-identical.
+-- state is 'recorded' until the accept_worker_result disposition naming the
+-- exact dispatched revision marks it 'satisfied'; the dispatch fold then
+-- refuses a redispatch of that revision. No historical pin is migrated:
+-- definitions and payloads that predate job-bound dispatch keep their legacy
+-- absence rather than fabricated jobs.
+CREATE TABLE worker_job_revisions (
+    work_id              TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    job_id               TEXT NOT NULL,
+    revision             INTEGER NOT NULL CHECK(revision > 0),
+    -- contract_version is the core-derived parent authority the revision was
+    -- recorded under. It stays immutable with the revision, so a later
+    -- supersession leaves the revision recorded under stale authority: the
+    -- readiness derivation and the dispatch boundary then refuse it until a
+    -- new revision is recorded under the active contract.
+    contract_version     INTEGER NOT NULL CHECK(contract_version > 0),
+    objective            TEXT NOT NULL CHECK(length(objective) BETWEEN 1 AND 4096),
+    stopping_condition   TEXT NOT NULL CHECK(length(stopping_condition) BETWEEN 1 AND 2048),
+    project_scope        TEXT NOT NULL DEFAULT '',
+    path_scope           TEXT NOT NULL CHECK(json_valid(path_scope) AND json_type(path_scope)='array'),
+    predicate_ids        TEXT NOT NULL CHECK(json_valid(predicate_ids) AND json_type(predicate_ids)='array'),
+    checks               TEXT NOT NULL CHECK(json_valid(checks) AND json_type(checks)='array'),
+    prerequisites        TEXT NOT NULL CHECK(json_valid(prerequisites) AND json_type(prerequisites)='array'),
+    unresolved_refs      TEXT NOT NULL CHECK(json_valid(unresolved_refs) AND json_type(unresolved_refs)='array'),
+    reserved_integration TEXT NOT NULL DEFAULT '',
+    readiness            TEXT CHECK(readiness IS NULL OR (json_valid(readiness) AND json_type(readiness)='object')),
+    digest               TEXT NOT NULL CHECK(length(digest) = 71 AND substr(digest,1,7)='sha256:'),
+    state                TEXT NOT NULL CHECK(state IN ('recorded','satisfied')),
+    recorded_at          TEXT NOT NULL,
+    satisfied_at         TEXT,
+    -- satisfied_result_ref is the accepting action_completed event's own
+    -- identifier: the exact recorded acceptance that satisfied the
+    -- revision, so a later prerequisite can pin it exactly.
+    satisfied_result_ref TEXT,
+    PRIMARY KEY (work_id, job_id, revision),
+    CHECK(length(job_id) BETWEEN 2 AND 128)
+);
+CREATE INDEX worker_job_revisions_ready ON worker_job_revisions(work_id, state, job_id, revision);
+CREATE TRIGGER worker_job_revisions_guard_insert BEFORE INSERT ON worker_job_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_job_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_job_revisions_guard_update BEFORE UPDATE ON worker_job_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_job_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_job_revisions_guard_delete BEFORE DELETE ON worker_job_revisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_job_revisions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
+	{
+		Version:  119,
+		Name:     "worker_attempt_job_capable_schema_versions",
+		Breaking: true,
+		SQL: `
+-- CD-0205's packet/report schema boundary: the job-capable "1.1" identities
+-- join the released "1.0" ones a worker attempt may record. A dispatch under
+-- a selected ready worker-job revision carries packet and report schema
+-- version 1.1; every existing row stays at its recorded 1.0 identity, which
+-- keeps meaning "no worker-job binding". Widening a CHECK has only SQLite's
+-- rebuild shape — rename, recreate, copy, drop — and the rename and drop
+-- name schema objects an older binary may reference, so the step declares
+-- Breaking exactly as the v110/v111 rebuilds before it.
+DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
+DROP TRIGGER IF EXISTS worker_attempts_guard_update;
+DROP TRIGGER IF EXISTS worker_attempts_guard_delete;
+ALTER TABLE worker_attempts RENAME TO worker_attempts_v119;
+CREATE TABLE worker_attempts (
+    work_id TEXT NOT NULL,
+    attempt_id TEXT PRIMARY KEY,
+    lane_id TEXT NOT NULL,
+    lane_version INTEGER NOT NULL,
+    lane_digest TEXT NOT NULL,
+    capability_class TEXT NOT NULL,
+    readback_model TEXT NOT NULL,
+    packet_schema_version TEXT NOT NULL,
+    report_schema_version TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK(lifecycle_state IN ('in_flight','dispatched','completed','failed')),
+    failure_kind TEXT NOT NULL DEFAULT '',
+    failure_detail TEXT NOT NULL DEFAULT '',
+    dispatched_at TEXT NOT NULL,
+    completed_at TEXT,
+    failed_at TEXT,
+    CHECK(length(work_id) > 0),
+    CHECK(length(attempt_id) BETWEEN 2 AND 128),
+    CHECK(length(lane_id) BETWEEN 2 AND 32),
+    CHECK(lane_version > 0),
+    CHECK(length(lane_digest) = 71 AND substr(lane_digest,1,7)='sha256:'),
+    CHECK(length(capability_class) BETWEEN 2 AND 64),
+    CHECK(length(readback_model) <= 128),
+    CHECK(packet_schema_version IN ('1.0','1.1')),
+    CHECK(report_schema_version IN ('1.0','1.1')),
+    CHECK((lifecycle_state='in_flight' AND completed_at IS NULL AND failed_at IS NULL AND readback_model='' AND failure_kind='' AND failure_detail='') OR
+          (lifecycle_state='dispatched' AND completed_at IS NULL AND failed_at IS NULL) OR
+          (lifecycle_state='completed' AND completed_at IS NOT NULL AND failed_at IS NULL AND length(readback_model) >= 3 AND failure_kind='') OR
+          (lifecycle_state='failed' AND failed_at IS NOT NULL AND completed_at IS NULL AND length(failure_kind) > 0 AND
+            (length(readback_model) >= 3 OR failure_kind IN ('model_readback_missing','model_readback_ambiguous','abandoned'))))
+);
+INSERT INTO worker_attempts
+    (work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at)
+    SELECT work_id, attempt_id, lane_id, lane_version, lane_digest, capability_class, readback_model, packet_schema_version, report_schema_version, lifecycle_state, failure_kind, failure_detail, dispatched_at, completed_at, failed_at
+    FROM worker_attempts_v119;
+DROP TABLE worker_attempts_v119;
+CREATE INDEX worker_attempts_work ON worker_attempts(work_id, dispatched_at, attempt_id);
+CREATE TRIGGER worker_attempts_guard_insert BEFORE INSERT ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -11,8 +11,14 @@ import (
 
 type correctionCountQueryRecorder struct {
 	*sql.DB
-	statement string
-	arguments []any
+	statement    string
+	arguments    []any
+	historyReads int
+}
+
+func (q *correctionCountQueryRecorder) QueryContext(ctx context.Context, statement string, arguments ...any) (*sql.Rows, error) {
+	q.historyReads++
+	return q.DB.QueryContext(ctx, statement, arguments...)
 }
 
 func (q *correctionCountQueryRecorder) QueryRowContext(ctx context.Context, statement string, arguments ...any) *sql.Row {
@@ -29,12 +35,14 @@ func TestWorkflowCorrectionAttemptCountEvaluatesWindowOnce(t *testing.T) {
 	if _, err := workflowCorrectionAttemptCount(ctx, q, "work-count-plan", 100, "count_test"); err != nil {
 		t.Fatal(err)
 	}
+	if q.historyReads != 1 {
+		t.Fatalf("acceptance window history read %d times, want exactly one prefix fold", q.historyReads)
+	}
 	rows, err := s.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+q.statement, q.arguments...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
-	var sawWindow bool
 	for rows.Next() {
 		var id, parent, unused int
 		var detail string
@@ -44,15 +52,9 @@ func TestWorkflowCorrectionAttemptCountEvaluatesWindowOnce(t *testing.T) {
 		if strings.Contains(detail, "CORRELATED SCALAR SUBQUERY") {
 			t.Errorf("a work-scoped acceptance window must not rescan history for each opening: %s", detail)
 		}
-		if strings.Contains(detail, "SCALAR SUBQUERY") {
-			sawWindow = true
-		}
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
-	}
-	if !sawWindow {
-		t.Fatal("query plan did not exercise the acceptance-window subquery")
 	}
 }
 

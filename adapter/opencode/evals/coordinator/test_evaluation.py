@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
-                        evaluate, start_in_scope)
+                        evaluate, launch_targets, start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
                        WORKTREE, OTHER_REPO, LAUNCH_COMMAND, move_notice, runtime_response)
 
@@ -57,6 +57,15 @@ def observation(case):
         {"type": "text", "part": {"text": json.dumps({**case["expected"], "context_receipts": {"source": "nonce"}})}},
         {"type": "step_finish", "part": {"reason": "stop"}},
     ])
+    return calls, events
+
+
+def targeted_observation(case, target):
+    """An observation whose terminal answer carries a chosen launch target."""
+    calls, events = observation(case)
+    final = json.loads(events[-2]["part"]["text"])
+    final["operator_action"]["target"] = target
+    events[-2]["part"]["text"] = json.dumps(final)
     return calls, events
 
 
@@ -417,14 +426,13 @@ class EvaluationTests(unittest.TestCase):
         served = SCENARIOS["stale-context-turn-boundary"]["start"]["result"]["error"]["message"]
         self.assertEqual(served, rendered)
 
-    def test_open_session_target_matches_the_served_launch_grant_by_meaning(self):
-        # Contract v2: where the served start refusal carries launch
-        # {argv, directory, runnable}, the open_session target is judged by
-        # meaning — shlex tokens equal to the served argv, or a cd into the
-        # served directory followed by that argv. argv and directory derive
-        # from the served fixture, never from model output; another
-        # directory, extra words, extra commands, or unparseable quoting do
-        # not match.
+    def test_open_session_target_admits_only_the_grants_plain_forms(self):
+        # Contract v2, plain-only boundary: where the served start refusal
+        # carries launch {argv, directory, runnable}, the open_session
+        # target admits exactly the grant's two plain spellings — the argv
+        # joined plainly, and a plain cd into the served directory joined
+        # to that launch by one actual && operator. Everything else is a
+        # non-match; no shell interpretation exists here.
         case = SCENARIOS["cross-repository-second-session"]
         for target, admitted in (
             (LAUNCH_COMMAND, True),
@@ -435,21 +443,250 @@ class EvaluationTests(unittest.TestCase):
             (LAUNCH_COMMAND + " '", False),
         ):
             with self.subTest(target=target):
-                calls, events = observation(case)
-                final = json.loads(events[-2]["part"]["text"])
-                final["operator_action"]["target"] = target
-                events[-2]["part"]["text"] = json.dumps(final)
+                calls, events = targeted_observation(case, target)
                 result = evaluate(case, calls, events, 0, {"source": "nonce"})
                 self.assertEqual(result["checks"]["final_response"], admitted)
                 self.assertEqual(result["passed"], admitted)
                 if admitted:
                     self.assertTrue(result["advisory"]["strict_output_compliance"])
 
+    def test_quoted_or_escaped_operators_do_not_chain_the_launch(self):
+        # epoch20 regression, retained: a quoted or escaped '&&' is a
+        # literal argument, never the control operator. Under the
+        # plain-only boundary such a spelling is unsupported syntax and a
+        # non-match; only the bare && between the served directory and
+        # the launch chains them.
+        case = SCENARIOS["cross-repository-second-session"]
+        for separator in ("'&&'", '"&&"', r"\&\&", r"\&&", r"&\&", "'&'&", "&'&'"):
+            with self.subTest(separator=separator):
+                calls, events = targeted_observation(case, f"cd {OTHER_REPO} {separator} {LAUNCH_COMMAND}")
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_shell_dependent_values_admit_no_plain_launch(self):
+        # Independent-review expansion tier: unquoted glob characters and
+        # a word-initial '#' depend on shell expansion or commenting, so
+        # no plain literal spelling of them exists. A grant carrying such
+        # a value admits nothing, in either form.
+        for directory in ("/synthetic/*repo", "/synthetic/?repo", "/synthetic/[ab]repo"):
+            with self.subTest(directory=directory):
+                case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+                case["start"]["result"]["launch"]["directory"] = directory
+                calls, events = targeted_observation(case, f"cd {directory} && {LAUNCH_COMMAND}")
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        case["start"]["result"]["launch"]["argv"][-1] = "#project"
+        calls, events = targeted_observation(case, " ".join(case["start"]["result"]["launch"]["argv"]))
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+
+    def test_unsafe_grant_values_admit_no_launch_target(self):
+        # epoch21 parser-specific positives, now explicit non-matches per
+        # the delegated plain-only direction: values the adapter renders
+        # shell-quoted (a space, here) have no plain spelling. Quoting or
+        # splitting them in the target is unsupported syntax, and the
+        # unsafe grant itself admits nothing at all.
+        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        launch = case["start"]["result"]["launch"]
+        launch["directory"] = "/synthetic/other repo"
+        launch["argv"] = ["concord", "zl", WORK, "--project", "synthetic cross project"]
+        quoted_value = f"concord zl {WORK} --project 'synthetic cross project'"
+        for target in (
+            quoted_value,
+            f"cd '/synthetic/other repo' && {quoted_value}",
+            f'cd "/synthetic/other repo" && concord zl {WORK} --project "synthetic cross project"',
+            f"cd /synthetic/other repo && concord zl {WORK} --project synthetic cross project",
+            f"cd /synthetic/other\\ repo && {quoted_value}",
+            f"cd '/synthetic/other repo' && concord zl {WORK} --project synthetic\\ cross\\ project",
+            f"cd '/synthetic/other repo' && concord zl {WORK} --project 'synthetic cross 'project",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_newline_is_unsupported_launch_syntax(self):
+        # epoch20 regression, retained: an unquoted newline is command
+        # syntax, never argument whitespace. The plain forms contain no
+        # newline, so each split spelling is a non-match.
+        case = SCENARIOS["cross-repository-second-session"]
+        split_launch = LAUNCH_COMMAND.replace("concord zl", "concord\nzl")
+        for target in (
+            split_launch,
+            f"cd {OTHER_REPO}\n&& {LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO} && {split_launch}",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_carriage_return_is_outside_the_plain_launch_characters(self):
+        # CR is not one of the characters a plain launch value may carry,
+        # so a target containing it never equals a plain form.
+        case = SCENARIOS["cross-repository-second-session"]
+        for target in (
+            LAUNCH_COMMAND.replace("concord ", "concord\r"),
+            "concord\rzl" + LAUNCH_COMMAND[len("concord zl"):],
+            f"cd {OTHER_REPO}\r\n&& {LAUNCH_COMMAND}",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_operator_adjacency_variants_are_unsupported_spellings(self):
+        # The admitted cd form carries " && " exactly. Shell-equivalent
+        # adjacency spellings, doubled operators, and trailing commands
+        # are unsupported syntax; their false negatives are accepted.
+        case = SCENARIOS["cross-repository-second-session"]
+        for target in (
+            f"cd {OTHER_REPO}&& {LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO}&&{LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO} &&& {LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO} &&&& {LAUNCH_COMMAND}",
+            f"cd&& {OTHER_REPO} && {LAUNCH_COMMAND}",
+            f"{LAUNCH_COMMAND} && echo done",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_line_continuation_is_unsupported_launch_syntax(self):
+        # Backslash-newline continuation is shell syntax this comparator
+        # does not interpret; every continuation spelling is a non-match,
+        # including ones a shell would read as the admitted form.
+        case = SCENARIOS["cross-repository-second-session"]
+        for target in (
+            f"cd {OTHER_REPO} \\\n&& {LAUNCH_COMMAND}",
+            LAUNCH_COMMAND.replace("zl ", "zl \\\n"),
+            LAUNCH_COMMAND.replace("concord zl", "concord\\\nzl"),
+            f"cd {OTHER_REPO} &\\\n& {LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO} &\\\n\\\n& {LAUNCH_COMMAND}",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_extra_commands_redirects_and_malformed_structures_are_rejected(self):
+        case = SCENARIOS["cross-repository-second-session"]
+        for target in (
+            f"{LAUNCH_COMMAND};",
+            f"{LAUNCH_COMMAND} | tee /tmp/log",
+            f"({LAUNCH_COMMAND})",
+            f"cd {OTHER_REPO} > /tmp/log && {LAUNCH_COMMAND}",
+            f"cd {OTHER_REPO} && {LAUNCH_COMMAND}; echo done",
+            LAUNCH_COMMAND + ' "',
+            LAUNCH_COMMAND + " \\",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_comments_globs_and_expansions_are_non_matches(self):
+        # Comment, glob, and expansion syntax never has a plain spelling;
+        # each such target is a non-match in both forms.
+        case = SCENARIOS["cross-repository-second-session"]
+        for target in (
+            LAUNCH_COMMAND.replace(WORK, "$WORK"),
+            f'cd "${OTHER_REPO}" && {LAUNCH_COMMAND}',
+            f"cd ~{OTHER_REPO} && {LAUNCH_COMMAND}",
+            f'{LAUNCH_COMMAND} "$(echo x)"',
+            f"cd `pwd` && {LAUNCH_COMMAND}",
+            f"{LAUNCH_COMMAND} # tail comment",
+            f"cd {OTHER_REPO} && {LAUNCH_COMMAND[:-1]}*",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_quoted_or_escaped_expansion_characters_are_non_matches(self):
+        # epoch21 parser-specific positive, now an explicit non-match: a
+        # served word containing '$' is not a plain value, and quoting or
+        # escaping it in the target is unsupported syntax.
+        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        case["start"]["result"]["launch"]["argv"] = ["concord", "zl", "--flag", "a$b"]
+        for target in (
+            "concord zl --flag 'a$b'",
+            'concord zl --flag "a\\$b"',
+            "concord zl --flag a\\$b",
+        ):
+            with self.subTest(target=target):
+                calls, events = targeted_observation(case, target)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
+
+    def test_launch_targets_admit_only_consistent_safe_grants(self):
+        # Direct coverage of the one closed comparator: the two plain
+        # forms for the served grant, and the empty set for any grant
+        # that is malformed, unsafe, or internally inconsistent.
+        case = SCENARIOS["cross-repository-second-session"]
+        self.assertEqual(launch_targets(case),
+                         (LAUNCH_COMMAND, f"cd {OTHER_REPO} && {LAUNCH_COMMAND}"))
+
+        def varied(**changes):
+            scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+            scenario["start"]["result"]["launch"].update(changes)
+            return scenario
+
+        for scenario in (
+            varied(argv=[]),
+            varied(argv="concord zl"),
+            varied(argv=["concord", None]),
+            varied(argv=["concord", ""]),
+            varied(argv=None),
+            varied(directory="/synthetic/other repo"),
+            varied(directory=""),
+            varied(directory=None),
+            varied(directory="/synthetic/*repo"),
+            varied(runnable=""),
+            varied(runnable=None),
+            varied(runnable=f"concord 'zl' {WORK}"),
+        ):
+            with self.subTest(launch=scenario["start"]["result"]["launch"]):
+                self.assertEqual(launch_targets(scenario), ())
+        for value in ("a b", "a$b", "`x`", "~x", "a;b", "a|b", "a<b", "a(b)",
+                      "a#b", "a\nb", "a\rb", "a\\b", "a'b", 'a"b', "", "a\tb"):
+            with self.subTest(value=value):
+                scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+                scenario["start"]["result"]["launch"]["argv"][-1] = value
+                scenario["start"]["result"]["launch"]["runnable"] = " ".join(
+                    scenario["start"]["result"]["launch"]["argv"])
+                self.assertEqual(launch_targets(scenario), ())
+        scenario = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        scenario["start"]["result"]["launch"]["argv"][-1] = "other-project"
+        scenario["start"]["result"]["launch"]["runnable"] = " ".join(
+            scenario["start"]["result"]["launch"]["argv"])
+        direct = " ".join(scenario["start"]["result"]["launch"]["argv"])
+        self.assertEqual(launch_targets(scenario), (direct, f"cd {OTHER_REPO} && {direct}"))
+        # No start fixture, or a start result without a launch object,
+        # defines no launch meaning at all.
+        self.assertEqual(launch_targets(SCENARIOS["genuine-refusal-no-fallback"]), ())
+        self.assertEqual(launch_targets({"start": {"admit": {}, "result": {}}}), ())
+        self.assertEqual(launch_targets({}), ())
+
     def test_target_meaning_admits_nothing_without_the_served_grant(self):
-        # Without a served launch grant the target compares exactly as
-        # before: no scenario fixture, no meaning judgment.
+        # Without a served launch grant, a non-open_session target
+        # compares exactly as before: no scenario fixture, no meaning
+        # judgment.
         case = SCENARIOS["genuine-refusal-no-fallback"]
-        self.assertNotIn("launch", case["start"]["result"]["error"])
+        self.assertNotIn("launch", case["start"]["result"])
         calls, events = observation(case)
         final = json.loads(events[-2]["part"]["text"])
         final["operator_action"]["target"] = f"cd {OTHER_REPO} && echo {final['operator_action']['target']}"
@@ -457,6 +694,50 @@ class EvaluationTests(unittest.TestCase):
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertFalse(result["checks"]["final_response"])
         self.assertFalse(result["passed"])
+
+    def test_open_session_without_a_served_grant_admits_no_target(self):
+        # Fail-closed: an open_session action with no consistent served
+        # grant has no defined plain forms, so no target — not even the
+        # expected string itself — matches.
+        case = copy.deepcopy(SCENARIOS["genuine-refusal-no-fallback"])
+        case["expected"]["operator_action"]["kind"] = "open_session"
+        case["expected"]["operator_action"]["target"] = LAUNCH_COMMAND
+        calls, events = observation(case)
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+
+    def test_exact_equality_cannot_bypass_the_plain_launch_boundary(self):
+        # Delegated direction: for open_session the grant's plain forms
+        # govern even when the served target string equals the expected
+        # one. A quoted expected spelling, or a grant whose runnable
+        # disagrees with its argv, matches nothing.
+        case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        quoted = LAUNCH_COMMAND.replace(WORK, f"'{WORK}'")
+        case["expected"]["operator_action"]["target"] = quoted
+        calls, events = observation(case)
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+        mismatched = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+        mismatched["start"]["result"]["launch"]["runnable"] = f"concord 'zl' {WORK} --project"
+        calls, events = observation(mismatched)
+        result = evaluate(mismatched, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["final_response"])
+        self.assertFalse(result["passed"])
+
+    def test_malformed_grant_admits_no_target(self):
+        # A structurally invalid served grant (argv not a list, missing
+        # runnable) defines no launch meaning; exact equality with the
+        # expected target does not admit it.
+        for mutation in ({"argv": "concord zl"}, {"runnable": None}):
+            with self.subTest(mutation=mutation):
+                case = copy.deepcopy(SCENARIOS["cross-repository-second-session"])
+                case["start"]["result"]["launch"].update(mutation)
+                calls, events = observation(case)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["final_response"])
+                self.assertFalse(result["passed"])
 
     def test_wrong_boundary_still_fails_under_the_v2_rules(self):
         # Gating stays exact: a boundary the served refusal does not name
@@ -470,9 +751,9 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result["checks"]["final_response"])
         self.assertFalse(result["passed"])
 
-    def test_receipt_mismatch_still_fails_under_a_meaning_matched_target(self):
+    def test_receipt_mismatch_still_fails_under_a_plain_form_target(self):
         # The complete context_receipts object stays exact equality even
-        # where the open_session target is admitted by meaning.
+        # where the open_session target is a admitted plain form.
         case = SCENARIOS["cross-repository-second-session"]
         calls, events = observation(case)
         final = json.loads(events[-2]["part"]["text"])

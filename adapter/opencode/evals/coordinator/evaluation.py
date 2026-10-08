@@ -1,5 +1,4 @@
 """Deterministic assertions over actual coordinator events and recording tools."""
-import shlex
 
 from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
                                 strict_output, terminal_answer)
@@ -152,65 +151,90 @@ def typed_boundary(case):
     return typed_start_boundary(case)
 
 
-def launch_grant(case):
-    """The (argv, directory) a served start refusal's launch object names.
-    None unless the refusal carries a complete grant: a non-empty argv of
-    non-empty strings with string directory and runnable. The grant derives
-    from the served fixture, never from model output."""
+# The characters the production adapter's shellQuote
+# (adapter/opencode/concord.ts) renders plainly; it shell-quotes every
+# other value. A launch value made only of these characters is the only
+# kind a plain, unquoted command spelling exists for.
+PLAIN_LAUNCH_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789"
+    "_@%+=:,./-"
+)
+
+
+def plain_launch_value(value):
+    """A launch value that needs no quoting or expansion: a non-empty
+    string whose every character the adapter renders plainly."""
+    return isinstance(value, str) and value != "" and set(value) <= PLAIN_LAUNCH_CHARACTERS
+
+
+def launch_targets(case):
+    """The closed set of plain command strings the served typed launch
+    grant admits: the argv joined by single spaces, and a plain cd into
+    the exact served directory, one literal " && ", then that same join.
+    The grant derives from the served fixture, never from model output,
+    and admission is fail-closed. The grant must be complete — a
+    non-empty argv of non-empty strings, with string directory and
+    runnable — internally consistent (runnable equals the plain argv
+    join), and wholly safe (every argv word and the directory are plain
+    values the adapter renders unquoted). Any other grant, and any value
+    the adapter would shell-quote, admits nothing: no plain spelling of
+    it exists, and this comparator does not interpret quoting, escaping,
+    or any other shell syntax to reconstruct one."""
     start = start_fixture(case)
     if start is None:
-        return None
+        return ()
     result = start.get("result")
-    if not isinstance(result, dict):
-        return None
-    launch = result.get("launch")
+    launch = result.get("launch") if isinstance(result, dict) else None
     if not isinstance(launch, dict):
-        return None
+        return ()
     argv, directory = launch.get("argv"), launch.get("directory")
+    runnable = launch.get("runnable")
     if not (isinstance(argv, list) and argv
             and all(isinstance(token, str) and token for token in argv)
             and isinstance(directory, str) and bool(directory)
-            and isinstance(launch.get("runnable"), str) and bool(launch["runnable"])):
-        return None
-    return argv, directory
+            and isinstance(runnable, str) and bool(runnable)):
+        return ()
+    if not all(plain_launch_value(value) for value in (*argv, directory)):
+        return ()
+    direct = " ".join(argv)
+    if runnable != direct:
+        return ()
+    return (direct, f"cd {directory} && {direct}")
 
 
 def target_matches(actual, expected, case, action):
-    """operator_action.target compares exactly, except where the served
-    typed observation defines the target's meaning: a start refusal
-    carrying launch {argv, directory, runnable} defines the open_session
-    command. That target matches when its shlex tokens equal the served
-    argv, or equal a cd into the served directory followed by that argv.
-    Another directory, extra words, extra commands, and unparseable
-    quoting do not match; no substring, regex, fuzzy, or case-folded
-    comparison exists here."""
-    if actual == expected:
-        return True
-    grant = launch_grant(case)
-    if grant is None or action != "open_session":
-        return False
-    if not isinstance(actual, str):
-        return False
-    try:
-        tokens = shlex.split(actual)
-    except ValueError:
-        return False
-    argv, directory = grant
-    return tokens == argv or tokens == ["cd", directory, "&&", *argv]
+    """operator_action.target compares exactly for every action except
+    open_session, whose meaning the served typed launch grant defines:
+    the grant's closed plain forms and nothing else. No exact-equality
+    fast path bypasses that boundary — an open_session target that is
+    not one of the grant's plain forms is a non-match even when it
+    equals the expected string, and an absent, malformed, unsafe, or
+    inconsistent grant admits no target at all. Unsupported spellings of
+    an otherwise shell-equivalent command — quoting or escaping around
+    words or operators, line continuations and newlines, comments,
+    globs, redirections, extra commands or operators, expansions — are
+    non-matches by design. No parsing, interpretation, or pre-scan of
+    the target exists here; the comparison is one closed string
+    equality against the served grant's plain forms."""
+    if action == "open_session":
+        return isinstance(actual, str) and actual in launch_targets(case)
+    return actual == expected
 
 
 def final_matches(final, expected, receipts, case):
     """Exact equality for every handoff field — status, work_id, boundary,
     cause, effect_state, recovery_owner, operator_action.kind,
     why_agent_cannot, and the complete context_receipts object — with only
-    operator_action.target additionally admitting the meaning a served
-    launch grant defines."""
+    operator_action.target additionally admitted through the closed plain
+    forms a served launch grant defines. No whole-response equality fast
+    path exists: for open_session the grant's plain forms govern even
+    when the served target equals the expected one."""
     want = {**expected, "context_receipts": receipts}
-    if final == want:
-        return True
     action = expected.get("operator_action")
     if not isinstance(final, dict) or not isinstance(action, dict):
-        return False
+        return final == want
     got = final.get("operator_action")
     if not isinstance(got, dict) or set(got) != set(action):
         return False

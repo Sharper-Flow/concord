@@ -4267,6 +4267,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worker_abandon":
 		answer, err, handled = r.planWorkerAbandon(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.worker_reconcile":
+		answer, err, handled = r.planWorkerReconcile(ctx, base, raw, plan)
 	case "concord_work_transition.remove":
 		answer, err, handled = r.planWorkRemoval(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_pack_create":

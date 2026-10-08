@@ -1,0 +1,50 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkerEvidenceExactReconciliation"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkerEvidenceReconciliationRefusesChangedPayloadAndRevokedCaller"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkerRecoveryContextOriginalIdentity"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestWorkerEvidenceDurableReconciliationIgnoresPinnedReader"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestValidateRecoveryPacket"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDurableCommitErrorPreservesPossibleEffect"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    }
+  ],
+  "id": "CD-0208",
+  "state": "satisfied"
+}

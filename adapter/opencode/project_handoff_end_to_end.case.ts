@@ -244,6 +244,7 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
     kind: "bug",
     task: "Exercise the handoff route.",
     idempotency_key: "handoff-e2e-bootstrap",
+    defect_intake: { failure_shape: "handoff-e2e-route", reproduction: "run the synthetic handoff route", searched: "the synthetic store", related_defect_ids: [] },
     priority: 1,
     urgency: "standard",
     tags: [],

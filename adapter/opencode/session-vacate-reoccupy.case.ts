@@ -276,6 +276,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
       kind: "bug",
       project_ids: [PROJECT_1, PROJECT_2],
       idempotency_key: "reoccupy-capture",
+      defect_intake: { failure_shape: "reoccupy", reproduction: "run the synthetic vacate route", searched: "the synthetic store", related_defect_ids: [] },
     }, repo1.repo)
     expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
     const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
@@ -512,6 +513,7 @@ connected("a readback outside every Project recovers through the remembered dest
       kind: "bug",
       project_ids: [PROJECT_1],
       idempotency_key: "outside-capture",
+      defect_intake: { failure_shape: "outside", reproduction: "run the synthetic vacate route", searched: "the synthetic store", related_defect_ids: [] },
     }, repo1.repo)
     expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
     const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
@@ -702,6 +704,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
       kind: "bug",
       project_ids: [PROJECT_1],
       idempotency_key: "unreadable-capture",
+      defect_intake: { failure_shape: "unreadable", reproduction: "run the synthetic vacate route", searched: "the synthetic store", related_defect_ids: [] },
     }, repo1.repo)
     expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
     const workID = (captured.changed_refs as Array<{ entity_kind: string; id: string }>)[0].id
@@ -878,6 +881,7 @@ connected("a same-key replay after a later claim refuses without moving the host
         kind: "bug",
         project_ids: [PROJECT_1],
         idempotency_key: key,
+        defect_intake: { failure_shape: `later-claim-${key}`, reproduction: "run the synthetic vacate route", searched: "the synthetic store", related_defect_ids: [] },
       }, repo1.repo)
       expect(captured.outcome, JSON.stringify(captured)).toBe("ok")
     }

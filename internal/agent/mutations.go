@@ -36,6 +36,11 @@ type captureMutationInput struct {
 	ExternalRef      string   `json:"external_ref"`
 	RaisedFromWorkID string   `json:"raised_from_work_id"`
 	IdempotencyKey   string   `json:"idempotency_key"`
+	// DefectIntake is the capture admission record (CON-797): a bug capture
+	// requires it, a research capture may carry it as its cluster RCA
+	// identity, and every other kind refuses it. The work.created fold owns
+	// the admission decision; this field only carries the record.
+	DefectIntake *store.DefectIntake `json:"defect_intake"`
 	// GoverningRequirements enumerates the scope-level obligations this capture
 	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
 	// fails to cover the requirements the target scope declares, and the caller
@@ -1566,6 +1571,11 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	if message, refused := workKindMutationRefusal(in.Kind, store.WorkKindAgentCaptureAllowed(in.Kind), "work kind is not capturable"); refused {
 		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
+	// The defect intake kind rules refuse before any scope read or effect,
+	// mirroring the bootstrap path's pre-effect validation.
+	if err := store.ValidateDefectIntake(in.Kind, in.DefectIntake); err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
 	if len(in.ProjectIDs) == 0 {
 		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
 	}
@@ -1638,8 +1648,13 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		}
 		// A captured task rides the work.created payload into the same
 		// intent_json.task projection a revise writes, so one call persists
-		// the operator's instruction identically to a later revise.
+		// the operator's instruction identically to a later revise. The
+		// defect intake rides the same payload at the current version; the
+		// membership fold owns its admission.
 		payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+		if in.DefectIntake != nil {
+			payloadFields["defect_intake"] = in.DefectIntake
+		}
 		if in.Task != nil {
 			payloadFields["task"] = *in.Task
 		}
@@ -1655,7 +1670,7 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 		membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
 		now := r.Authority.now()
 		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
-			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
+			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 3, Payload: payload},
 			{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
 		if err != nil {

@@ -241,6 +241,7 @@ async function bootRouteFixture(root: string): Promise<RouteFixture> {
     kind: "bug",
     task: "Exercise the dispatch route.",
     idempotency_key: "dispatch-route-e2e",
+    defect_intake: { failure_shape: "dispatch-route-e2e", reproduction: "run the synthetic dispatch route", searched: "the synthetic store", related_defect_ids: [] },
     priority: 1,
     urgency: "standard",
     tags: [],
